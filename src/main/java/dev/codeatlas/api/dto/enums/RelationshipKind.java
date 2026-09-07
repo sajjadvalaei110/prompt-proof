@@ -1,0 +1,5 @@
+package dev.codeatlas.api.dto.enums;
+
+public enum RelationshipKind {
+    EXTENDS, IMPLEMENTS, CALLS, CONSTRUCTS, USES_TYPE, READS_FIELD, WRITES_FIELD, INJECTS, DECLARES_BEAN, HANDLES_ROUTE, DEPENDS_ON
+}

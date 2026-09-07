@@ -1,0 +1,54 @@
+.app-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-1) var(--spacing-2);
+  background-color: var(--bg-panel);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.brand {
+  font-weight: bold;
+  font-size: 1.2rem;
+}
+
+.tab-bar {
+  display: flex;
+  padding: 0 var(--spacing-2);
+  background-color: var(--bg-surface);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.tab-bar button {
+  padding: var(--spacing-1) var(--spacing-2);
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-bottom: 2px solid transparent;
+}
+
+.tab-bar button.active {
+  color: var(--text-main);
+  border-bottom-color: var(--color-selection);
+}
+
+.app-main {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.app-footer {
+  padding: var(--spacing-1) var(--spacing-2);
+  background-color: var(--bg-panel);
+  border-top: 1px solid var(--border-color);
+  font-size: 0.9em;
+  color: var(--text-muted);
+}

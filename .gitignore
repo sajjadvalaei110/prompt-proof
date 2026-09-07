@@ -1,0 +1,35 @@
+# Build
+build/
+.gradle/
+node_modules/
+frontend/dist/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.project
+.classpath
+.settings/
+
+# Environment and secrets
+.env
+*.env.local
+application-local.yml
+application-local.properties
+
+# Application data
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Imported repositories (never commit analyzed source)
+imported-repos/
+
+# Generated
+src/main/resources/static/

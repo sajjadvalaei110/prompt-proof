@@ -1,0 +1,30 @@
+:root {
+  --bg-surface: #FAFAF7;
+  --bg-panel: #FFFFFF;
+  --text-main: #1A1A2E;
+  --text-muted: #555566;
+  --color-selection: #4A9B8E;
+  --color-uncertainty: #D4A843;
+  --border-color: #E2E2DF;
+  
+  --spacing-1: 8px;
+  --spacing-2: 16px;
+  --spacing-3: 24px;
+  --spacing-4: 32px;
+  
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  
+  --font-body: 14px;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-surface: #1E1E2E;
+    --bg-panel: #2A2A3C;
+    --text-main: #E2E2E8;
+    --text-muted: #A0A0B0;
+    --border-color: #3D3D4E;
+  }
+}

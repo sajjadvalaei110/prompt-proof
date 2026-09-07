@@ -1,0 +1,27 @@
+{
+  "counts": {
+    "classes": 17,
+    "interfaces": 2,
+    "methods": 26,
+    "fields": 15
+  },
+  "relationships": [
+    {"source": "com.example.orders.api.OrderController", "type": "CALLS", "target": "com.example.orders.service.OrderService.createOrder"},
+    {"source": "com.example.orders.service.OrderService.createOrder", "type": "CALLS", "target": "com.example.orders.repository.OrderRepository.save"}
+  ],
+  "unresolved": [
+    {"source": "com.example.shared.ExternalTypeUser", "target": "org.apache.commons.lang3.StringUtils"}
+  ],
+  "candidates": [
+    {"type": "INJECTION", "target": "com.example.orders.service.PaymentProcessor", "qualifier": "creditCard"}
+  ],
+  "broken": [
+    {"file": "com/example/orders/broken/MalformedClass.java"}
+  ],
+  "cycles": [
+    ["com.example.shared.CyclicA", "com.example.shared.CyclicB"]
+  ],
+  "overloads": [
+    {"class": "com.example.shared.OverloadedService", "method": "process", "count": 3}
+  ]
+}
