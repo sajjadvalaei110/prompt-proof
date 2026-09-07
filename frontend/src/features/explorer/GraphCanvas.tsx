@@ -22,9 +22,13 @@ export default function GraphCanvas({ nodes, edges }: GraphCanvasProps) {
   useEffect(() => {
     if (!containerRef.current) return;
     
-    const cyNodes = nodes.map(n => ({
-      data: { id: n.id, label: n.simpleName, kind: n.kind }
-    }));
+    const cyNodes = nodes.map(n => {
+      const data: any = { id: n.id, label: n.simpleName, kind: n.kind };
+      if (n.parentId) {
+        data.parent = n.parentId;
+      }
+      return { data };
+    });
     const cyEdges = edges.map(e => ({
       data: { id: e.id, source: e.sourceId, target: e.targetId, label: e.kind }
     }));

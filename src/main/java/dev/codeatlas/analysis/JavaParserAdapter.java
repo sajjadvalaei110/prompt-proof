@@ -25,6 +25,20 @@ public class JavaParserAdapter {
     public void setupSymbolSolver(String workspacePath) {
         CombinedTypeSolver combinedTypeSolver = new CombinedTypeSolver();
         combinedTypeSolver.add(new ReflectionTypeSolver());
+        try {
+            // Need to add JavaParserTypeSolver for the workspace root to resolve project types.
+            // But since the project might have multiple source roots (e.g. src/main/java),
+            // a naive approach is to use the workspacePath. But we should really find the src/main/java or similar.
+            // For now, let's just add it for the workspacePath and src/main/java if it exists.
+            File srcMainJava = new File(workspacePath, "src/main/java");
+            if (srcMainJava.exists()) {
+                combinedTypeSolver.add(new com.github.javaparser.symbolsolver.resolution.typesolvers.JavaParserTypeSolver(srcMainJava));
+            } else {
+                combinedTypeSolver.add(new com.github.javaparser.symbolsolver.resolution.typesolvers.JavaParserTypeSolver(new File(workspacePath)));
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
         StaticJavaParser.getParserConfiguration().setSymbolResolver(new JavaSymbolSolver(combinedTypeSolver));
     }
 
@@ -93,14 +107,23 @@ public class JavaParserAdapter {
                     String calleeClassQName = null;
                     try {
                         var resolved = call.resolve();
-                        calleeQName = resolved.getQualifiedSignature();
                         calleeClassQName = resolved.declaringType().getQualifiedName();
+                        calleeQName = calleeClassQName + "." + calleeSimple;
                     } catch (Exception ex) {
+                        System.err.println("Resolve failed for " + calleeSimple + ": " + ex.getMessage());
                         calleeQName = "unresolved." + calleeSimple;
                     }
                     
                     String calleeId = getSymbolId(snapshotId, calleeQName);
                     String calleeClassId = calleeClassQName != null ? getSymbolId(snapshotId, calleeClassQName) : null;
+                    
+                    // If we couldn't resolve the method but we resolved the class, we should still insert DEPENDS_ON
+                    if (calleeClassId != null && !calleeClassId.equals(callerClassId)) {
+                        jdbcTemplate.update(
+                            "INSERT OR IGNORE INTO relationship_occurrences (id, snapshot_id, source_symbol_id, target_symbol_id, kind, resolution) VALUES (?, ?, ?, ?, 'DEPENDS_ON', 'RESOLVED')",
+                            UUID.randomUUID().toString(), snapshotId, callerClassId, calleeClassId
+                        );
+                    }
                     
                     String relId = UUID.randomUUID().toString();
                     if (calleeId != null) {
@@ -108,13 +131,6 @@ public class JavaParserAdapter {
                             "INSERT INTO relationship_occurrences (id, snapshot_id, source_symbol_id, target_symbol_id, kind, resolution) VALUES (?, ?, ?, ?, 'CALLS', 'RESOLVED')",
                             relId, snapshotId, callerClassId, calleeId
                         );
-                        if (calleeClassId != null && !calleeClassId.equals(callerClassId)) {
-                            // DEPENDS_ON aggregate relationship
-                            jdbcTemplate.update(
-                                "INSERT OR IGNORE INTO relationship_occurrences (id, snapshot_id, source_symbol_id, target_symbol_id, kind, resolution) VALUES (?, ?, ?, ?, 'DEPENDS_ON', 'RESOLVED')",
-                                UUID.randomUUID().toString(), snapshotId, callerClassId, calleeClassId
-                            );
-                        }
                     } else {
                         jdbcTemplate.update(
                             "INSERT INTO relationship_occurrences (id, snapshot_id, source_symbol_id, unresolved_target, kind, resolution) VALUES (?, ?, ?, ?, 'CALLS', 'UNRESOLVED')",

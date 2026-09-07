@@ -20,7 +20,7 @@ public class GraphQueryService {
 
     public GraphResponse getGraph(String snapshotId) {
         List<GraphNode> nodes = jdbcTemplate.query(
-            "SELECT id, kind, qualified_name, simple_name, module FROM symbol_versions WHERE snapshot_id = ?",
+            "SELECT id, kind, qualified_name, simple_name, module, parent_symbol_id FROM symbol_versions WHERE snapshot_id = ?",
             (rs, rowNum) -> new GraphNode(
                 rs.getString("id"),
                 SymbolKind.valueOf(rs.getString("kind")),
@@ -29,7 +29,8 @@ public class GraphQueryService {
                 rs.getString("module"),
                 List.of(),
                 "Analyzed class",
-                ExplanationStatus.NOT_REQUESTED
+                ExplanationStatus.NOT_REQUESTED,
+                rs.getString("parent_symbol_id")
             ),
             snapshotId
         );

@@ -18,9 +18,9 @@ public class WorkspaceService {
     }
 
     public WorkspaceResponse createWorkspace(WorkspaceRequest request) {
-        File file = new File(request.path());
+        File file = new File(request.getPath());
         if (!file.exists() || !file.isDirectory()) {
-            throw new IllegalArgumentException("Path does not exist or is not a directory: " + request.path());
+            throw new IllegalArgumentException("Path does not exist or is not a directory: " + request.getPath());
         }
         
         try {
