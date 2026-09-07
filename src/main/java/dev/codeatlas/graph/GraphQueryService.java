@@ -36,7 +36,7 @@ public class GraphQueryService {
         );
         
         List<GraphEdge> edges = jdbcTemplate.query(
-            "SELECT id, source_symbol_id, target_symbol_id, kind, resolution FROM relationship_occurrences WHERE snapshot_id = ?",
+            "SELECT id, source_symbol_id, target_symbol_id, kind, resolution FROM relationship_occurrences WHERE snapshot_id = ? AND target_symbol_id IS NOT NULL",
             (rs, rowNum) -> new GraphEdge(
                 rs.getString("id"),
                 rs.getString("source_symbol_id"),

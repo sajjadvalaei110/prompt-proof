@@ -38,18 +38,44 @@ export default function GraphCanvas({ nodes, edges }: GraphCanvasProps) {
       elements: [...cyNodes, ...cyEdges],
       style: [
         {
-          selector: 'node',
+          selector: 'node[kind = "PACKAGE"]',
           style: {
-            'background-color': '#4A9B8E',
+            'background-color': '#756bb1', // Purple for packages
+            'shape': 'round-rectangle',
+            'label': 'data(label)',
+            'color': '#fff',
+            'text-valign': 'top',
+            'text-halign': 'center',
+            'font-size': '12px',
+            'padding': '15px'
+          }
+        },
+        {
+          selector: 'node[kind = "CLASS"], node[kind = "INTERFACE"]',
+          style: {
+            'background-color': '#3182bd', // Blue for classes
+            'shape': 'round-rectangle',
+            'label': 'data(label)',
+            'color': '#fff',
+            'text-valign': 'top',
+            'text-halign': 'center',
+            'font-size': '10px',
+            'padding': '10px'
+          }
+        },
+        {
+          selector: 'node[kind = "METHOD"]',
+          style: {
+            'background-color': '#31a354', // Green for methods
+            'shape': 'ellipse', // Give methods a different shape
             'label': 'data(label)',
             'color': '#fff',
             'text-valign': 'center',
             'text-halign': 'center',
-            'font-size': '10px',
+            'font-size': '8px',
             'width': 'label',
             'height': 'label',
-            'padding': '10px',
-            'shape': 'round-rectangle'
+            'padding': '5px'
           }
         },
         {
@@ -59,11 +85,7 @@ export default function GraphCanvas({ nodes, edges }: GraphCanvasProps) {
             'line-color': '#9dbaea',
             'target-arrow-color': '#9dbaea',
             'target-arrow-shape': 'triangle',
-            'curve-style': 'bezier',
-            'label': 'data(label)',
-            'font-size': '8px',
-            'text-rotation': 'autorotate',
-            'text-margin-y': -10 as any
+            'curve-style': 'bezier'
           }
         }
       ],
