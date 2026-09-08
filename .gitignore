@@ -17,6 +17,15 @@ frontend/dist/
 *.env.local
 application-local.yml
 application-local.properties
+*.pem
+*.key
+*.token
+tokens/
+*.log
+
+# Caches and indexes
+cache/
+indexes/
 
 # Application data
 data/

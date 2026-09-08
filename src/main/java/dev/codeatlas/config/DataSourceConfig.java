@@ -26,7 +26,21 @@ public class DataSourceConfig {
 
         HikariDataSource dataSource = properties.initializeDataSourceBuilder().type(HikariDataSource.class).build();
         
-        dataSource.setConnectionInitSql("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
+        dataSource.setConnectionInitSql("PRAGMA foreign_keys = ON;");
+        dataSource.addDataSourceProperty("foreign_keys", "true");
+        dataSource.addDataSourceProperty("journal_mode", "WAL");
+        dataSource.addDataSourceProperty("busy_timeout", "5000");
+
+        try (Connection conn = dataSource.getConnection();
+             Statement stmt = conn.createStatement()) {
+            stmt.execute("PRAGMA journal_mode = WAL;");
+            stmt.execute("PRAGMA synchronous = NORMAL;");
+            stmt.execute("PRAGMA busy_timeout = 5000;");
+            stmt.execute("PRAGMA foreign_keys = ON;");
+        } catch (Exception e) {
+            org.slf4j.LoggerFactory.getLogger(DataSourceConfig.class)
+                    .warn("Failed to initialize SQLite pragmas: {}", e.getMessage());
+        }
 
         return dataSource;
     }

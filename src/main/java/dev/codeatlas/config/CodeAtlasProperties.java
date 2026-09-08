@@ -32,6 +32,7 @@ public class CodeAtlasProperties {
         private int outputBudget = 2048;
         private int timeoutSeconds = 60;
         private int concurrency = 2;
+        private double temperature = 0.2;
 
         // Getters and Setters
         public String getBaseUrl() { return baseUrl; }
@@ -48,5 +49,7 @@ public class CodeAtlasProperties {
         public void setTimeoutSeconds(int timeoutSeconds) { this.timeoutSeconds = timeoutSeconds; }
         public int getConcurrency() { return concurrency; }
         public void setConcurrency(int concurrency) { this.concurrency = concurrency; }
+        public double getTemperature() { return temperature; }
+        public void setTemperature(double temperature) { this.temperature = temperature; }
     }
 }
