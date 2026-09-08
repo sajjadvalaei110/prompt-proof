@@ -1,0 +1,3 @@
+rootProject.name = "sample-orders"
+include "orders-service"
+include "shared-lib"

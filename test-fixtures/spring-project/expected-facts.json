@@ -1,0 +1,151 @@
+{
+  "stereotypes": [
+    {
+      "className": "com.example.spring.controller.UserController",
+      "type": "RestController"
+    },
+    {
+      "className": "com.example.spring.controller.OrderController",
+      "type": "RestController"
+    },
+    {
+      "className": "com.example.spring.service.UserServiceImpl",
+      "type": "Service"
+    },
+    {
+      "className": "com.example.spring.service.OrderService",
+      "type": "Service"
+    },
+    {
+      "className": "com.example.spring.service.CreditCardPaymentService",
+      "type": "Component",
+      "value": "primaryPayment"
+    },
+    {
+      "className": "com.example.spring.service.PayPalPaymentService",
+      "type": "Component",
+      "value": "alternativePayment"
+    },
+    {
+      "className": "com.example.spring.service.NotificationService",
+      "type": "Service"
+    },
+    {
+      "className": "com.example.spring.repository.UserRepositoryImpl",
+      "type": "Repository"
+    },
+    {
+      "className": "com.example.spring.repository.JdbcOrderRepository",
+      "type": "Repository"
+    },
+    {
+      "className": "com.example.spring.config.AppConfig",
+      "type": "Configuration"
+    }
+  ],
+  "beans": [
+    {
+      "methodName": "emailSender",
+      "className": "com.example.spring.config.AppConfig",
+      "returnType": "com.example.spring.config.EmailSender"
+    },
+    {
+      "methodName": "customEmailSender",
+      "className": "com.example.spring.config.AppConfig",
+      "returnType": "com.example.spring.config.EmailSender",
+      "qualifier": "customSender"
+    }
+  ],
+  "routes": [
+    {
+      "className": "com.example.spring.controller.UserController",
+      "methodName": "listAll",
+      "path": "/api/users",
+      "httpMethod": "GET"
+    },
+    {
+      "className": "com.example.spring.controller.UserController",
+      "methodName": "getById",
+      "path": "/api/users/{id}",
+      "httpMethod": "GET"
+    },
+    {
+      "className": "com.example.spring.controller.UserController",
+      "methodName": "create",
+      "path": "/api/users",
+      "httpMethod": "POST"
+    },
+    {
+      "className": "com.example.spring.controller.UserController",
+      "methodName": "update",
+      "path": "/api/users/{id}",
+      "httpMethod": "PUT"
+    },
+    {
+      "className": "com.example.spring.controller.UserController",
+      "methodName": "delete",
+      "path": "/api/users/{id}",
+      "httpMethod": "DELETE"
+    },
+    {
+      "className": "com.example.spring.controller.OrderController",
+      "methodName": "create",
+      "path": "/api/orders",
+      "httpMethod": "POST"
+    },
+    {
+      "className": "com.example.spring.controller.OrderController",
+      "methodName": "getById",
+      "path": "/api/orders/{id}",
+      "httpMethod": "GET"
+    }
+  ],
+  "injections": [
+    {
+      "className": "com.example.spring.controller.UserController",
+      "type": "CONSTRUCTOR",
+      "injectedType": "com.example.spring.service.UserService",
+      "resolvedTo": "com.example.spring.service.UserServiceImpl"
+    },
+    {
+      "className": "com.example.spring.controller.OrderController",
+      "type": "CONSTRUCTOR",
+      "injectedType": "com.example.spring.service.OrderService",
+      "resolvedTo": "com.example.spring.service.OrderService"
+    },
+    {
+      "className": "com.example.spring.service.UserServiceImpl",
+      "type": "CONSTRUCTOR",
+      "injectedType": "com.example.spring.repository.UserRepository",
+      "resolvedTo": "com.example.spring.repository.UserRepositoryImpl"
+    },
+    {
+      "className": "com.example.spring.service.UserServiceImpl",
+      "type": "CONSTRUCTOR",
+      "injectedType": "com.example.spring.service.NotificationService",
+      "resolvedTo": "com.example.spring.service.NotificationService"
+    },
+    {
+      "className": "com.example.spring.service.OrderService",
+      "type": "CONSTRUCTOR",
+      "injectedType": "com.example.spring.repository.OrderRepository",
+      "resolvedTo": "com.example.spring.repository.JdbcOrderRepository"
+    },
+    {
+      "className": "com.example.spring.service.OrderService",
+      "type": "FIELD",
+      "fieldName": "paymentService",
+      "injectedType": "com.example.spring.service.PaymentService",
+      "qualifier": "primaryPayment",
+      "resolvedTo": "com.example.spring.service.CreditCardPaymentService"
+    },
+    {
+      "className": "com.example.spring.service.NotificationService",
+      "type": "FIELD",
+      "fieldName": "emailSender",
+      "injectedType": "com.example.spring.config.EmailSender",
+      "resolvedTo": "com.example.spring.config.AppConfig.emailSender"
+    }
+  ]
+}
+
