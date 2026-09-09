@@ -1,7 +1,42 @@
 # Project status
-Last updated: 2026-09-08
-Active milestone: Complete (Milestones R0 through R5 Verified)
-Current revision: R5 (Packaging and Release Verification) Completed
+Last updated: 2026-09-09
+Active milestone: R6 — Developer comprehension redesign (in progress)
+Current revision: R6 implementation, bug-fix pass, and browser verification
+
+## Current follow-up: R6
+
+The user requested a full redesign matching `docs/pics/`, project documents in explanation context, whole-codebase context for Explain All, corrected dependency navigation/layout, a compact bottom-left minimap, and explicit method-code buttons. Prior R0–R5 claims below are historical, not verification of this revision.
+
+A prior Codex CLI session implemented the redesign but was cut off mid-task by a usage-limit error before it could visually verify the result against `docs/pics/`. This revision reviewed that work, fixed defects found, and completed the verification.
+
+Implemented and browser-verified against `docs/pics/`:
+- Light developer workspace, left package-tree sidebar, package/class/method abstraction, focused caller-left/target-right neighborhood layout, source dialogs (view-on-click only, never default), and a compact, correctly-proportioned minimap moved to bottom-left.
+- Local project document CRUD with revisioned evidence and explanation invalidation.
+- Codebase inventory/package coupling, documents and collaborator evidence in explanation requests; relationship prompts carry real facts.
+- Explain All includes methods and every relationship occurrence (including unresolved ones, surfaced as explicit uncertainty); cancellation/resume retains completed successful explanations.
+- Parser stores overload identities, private methods, exact declaration/call evidence, and Spring relationship evidence.
+
+Bugs fixed this revision:
+- **Removed client-identity spoofing**: `ModelClientService` was sending hardcoded `claude-cli`/`anthropic-version`/`anthropic-beta` headers (documented as a deliberate attempt to pass one provider's WAF client verification) to what is supposed to be a generic local/loopback model endpoint. Removed those headers and the matching `api.agentrouter.org` hostname rewrite; added a plain, user-configurable User-Agent field to the model profile (Settings screen, backend DTO/config) instead. Anyone relying on the old spoofed identity to pass a specific provider's WAF must now set their own honest User-Agent value in Settings.
+- Fixed a duplicate-`DEPENDS_ON`-edge bug: N call sites between the same two classes were creating N duplicate class-level `DEPENDS_ON` rows instead of one aggregate row with multiple evidence occurrences.
+- A single file failing to parse (Pass 1/2) could throw and discard every other file's facts for the whole snapshot; both passes now catch per-file, log a diagnostic, and continue, matching the existing Spring-analysis pass's behavior.
+- `Explain All`'s requested concurrency was silently ignored after startup (worker pool stuck at 1); the worker pool now actually grows to the requested size without interrupting in-flight workers.
+- Halved `ExplanationService`'s per-explanation cost: mid-generation staleness detection was rebuilding the full whole-codebase context twice; it now compares a cheap documents+model-profile fingerprint instead (the only inputs that can change while a published snapshot is being explained).
+- `SourceService` no longer always claims a retained snippet is `exact`; it now re-hashes the live file (when present) and compares against the hash captured at index time, surfacing "may be outdated" in the View-code dialog on mismatch.
+- Frontend: fixed an inflated/double-countable "Depends on" badge count in the Inspector panel (now derived from what's actually rendered); guarded an unhandled-exception crash on the `?snapshotId=` deep-link restore path when graph metadata is missing; fixed the focus-aware graph layout not re-running for package or edge selections (only class/method selections happened to trigger it before); bounded the explanation-status polling interval to stop once status is terminal instead of polling forever; added a null-guard on source content in the View-code dialog.
+- Removed dead code: an unused `AnalysisService.markSymbolsDeleted` method, three unused `apiClient` methods, and the no-longer-imported `cytoscape-dagre`/`cytoscape-navigator` npm dependencies (and their stray type declaration).
+
+Verification performed this revision:
+- `./gradlew clean test bootJar` — BUILD SUCCESSFUL, all 49 backend tests pass, single-executable jar produced.
+- `npx tsc -b --force` (frontend) — 0 errors. `node scripts/test-graph-model.mjs` — PASS (aggregation, direction, repeated sites, uncertainty, method neighborhoods, filtering, bounded views).
+- Fresh end-to-end run: new workspace against `test-fixtures/spring-project` with a brand-new database, analysis completed (51/51 items, 0 failures), graph API returned 70 nodes / 42 edges with deduplicated `DEPENDS_ON` edges, and the View-code endpoint returned `exact: true` for a live-hash-verified method.
+- Headless-browser screenshots (`graph_canvas_preview.png`, `explanation_inspector_preview.png`, replacing the pre-redesign captures left by the prior session) confirmed against `docs/pics/`: light theme, sidebar package tree, labeled dependency edges, compact bottom-left minimap with a correctly-scaled current-viewport box, and a class Inspector panel with AI-explanation section and non-default "View class/method code" buttons.
+
+Known remaining limitations:
+- No LLM endpoint was configured in this session, so live explanation generation (the actual model round-trip) was not re-verified end-to-end; only the request pipeline up to and including the model call was exercised.
+- The project-documents tab and other click-only interactions (as opposed to URL-addressable views) were verified by code review and endpoint testing, not by automated browser click simulation (no browser-automation tooling is available in this environment).
+- A prior codex-session live run recorded one permanently `FAILED` relationship explanation after exhausting retries; the underlying cause was not reproduced or specifically retested here since no live model was configured.
+- `scripts/verify_explanation_pipeline.py` now accepts a `CODEATLAS_USER_AGENT` environment variable to set on the model profile; since the spoofed `claude-cli` identity was removed, a provider whose WAF requires a specific client identity (e.g. the AgentRouter endpoint this script defaults to) needs that env var set, or the connection test will fail.
 
 ## Milestone mapping (Revised Plan R0-R5 to BUILD.md M0-M4)
 - **R0 — Verified foundation** (maps to M0): Toolchain verification, starter docs, rule bridge, database baseline, synthetic model check, parser test fixture. [COMPLETED]
@@ -49,12 +84,32 @@ Current revision: R5 (Packaging and Release Verification) Completed
   - Tuned Cytoscape options with `wheelSensitivity: 0.2`, `minZoom: 0.1`, and `maxZoom: 4.0` for responsive mouse/trackpad interaction.
   - Reduced tap-to-focus animation duration to 200 ms.
   - Added on-canvas floating zoom toolbar providing quick-access `+` (Zoom In), `-` (Zoom Out), `⛶` (Fit to View), and `1:1` (Reset Zoom) controls.
+- **Optimized Graph Layout (Squarish Package Aspect Ratio & Coupling-Based Clustering)**:
+  - Eliminated thin and elongated package containers by replacing 1D vertical Dagre stacking with balanced 2D multi-column distribution of child nodes inside classes and packages.
+  - Dynamically calculates optimal grid dimensions `(cols, rows)` to mathematically bound package aspect ratios between ~1:1 and 4:3.
+  - Implemented coupling-weighted force simulation where inter-package edge density (`INJECTS`, `CALLS`, `EXTENDS`, `IMPLEMENTS`, `DECLARES_BEAN`) exerts attractive spring force pulling connected packages into close proximity (e.g. controllers and services, services and repositories).
+  - Bounding-box clearance repulsion prevents package container overlaps while centering gravity preserves overall graph cohesion.
+  - Aligned compound parent labels (`node:parent`) to the top with dedicated padding, preventing class name text from colliding with child method nodes.
 - **OpenAI & Local LLM Settings Feature**:
   - Comprehensive `SettingsScreen.tsx` modal supporting OpenAI, Ollama, LM Studio, and Custom provider presets.
   - Configurable parameters: Base URL, Model ID, API Key / Token (with Show/Hide toggle), Context Budget, Max Output Tokens, Timeout, and Temperature.
   - Backend `ModelClientService` attaches `Authorization: Bearer <token>` when `apiKey` is configured, uses configurable timeout, temperature, and tokens.
   - `ModelProfileController` connects `GET /api/model-profiles` (masking API token for security), `POST /api/model-profiles` (updating in-memory configuration), and `POST /api/model-profiles/test` (live capability ping returning real latency and status/error details).
   - Frontend persists settings to backend in-memory profile and browser `localStorage`.
+
+- **Workspace Path Normalization & Robust API Error Handling**:
+  - `WorkspaceService` normalizes repository input paths: strips enclosing double/single quotes, trims whitespace, expands `~` to `user.home`, resolves relative paths to absolute paths, and validates directory existence with clear messages.
+  - Implemented `@RestControllerAdvice` `GlobalExceptionHandler` mapping `IllegalArgumentException` (400), `NoSuchElementException` (404), and unhandled `Exception` (500) to structured `ApiError` responses (`timestamp`, `status`, `error`, `message`, `path`).
+  - Frontend `apiClient` wraps all fetch requests via `requestJson<T>`, safely intercepting network failures and HTTP errors before calling `res.json()`, preventing `SyntaxError: JSON.parse: unexpected character at line 1 column 1` on non-JSON or error payloads.
+  - Frontend `App.tsx` guards against empty paths and validates response IDs before dispatching analysis jobs.
+
+- **End-to-End LLM Explanation Pipeline (Milestones R1 & R4 Live Verified)**:
+  - Added REST endpoint `GET /api/snapshots/{snapshotId}/symbols/{symbolId}/explanation` in `ExplanationController` returning `ExplanationResponse` (or `NOT_REQUESTED`/queue status).
+  - Implemented `ContextBuilder` extracting bounded source slices, Spring stereotypes, HTTP routes, dependency injections, and incoming/outgoing relationship facts with unique evidence IDs (`ev-source`, `ev-roles`, `ev-route-n`, `ev-inj-n`, `ev-out-n`).
+  - Implemented `PromptTemplate` strictly grounding explanations in parser facts (per AGENTS.md invariant: "Parser/rule facts own graph structure. Model output owns explanations only").
+  - Enhanced `ModelClientService`: strips markdown code fences (```json ... ```), automatically handles `response_format` fallback when unsupported/blocked, normalizes router URLs, and sanitizes API keys from all error traces. (The `claude-cli/2.1.119` client-identity header mentioned here at the time has since been removed — see R6.)
+  - Enhanced `InspectorPanel.tsx`: full explanation viewer with colored status badges (`READY`, `STALE`, `RUNNING`, `QUEUED`, `FAILED`, `NOT_REQUESTED`), short label, hover summary, structured claims classified by basis (`FACT`, `INFERRED`, `UNKNOWN`), clickable evidence pill tags, uncertainties list, and provenance details.
+  - Automatic queue re-fetching: re-fetches active node explanation when queue status updates, giving instant UI feedback without full page refresh.
 
 ## Verification evidence
 | Check | Command/action | Result | Date/revision |
@@ -63,24 +118,34 @@ Current revision: R5 (Packaging and Release Verification) Completed
 | Spring unit tests | `./gradlew test --tests "dev.codeatlas.analysis.SpringAnnotationAnalyzerTest"` | 17 tests passed (0 failures, 0 errors, 0 skipped) | 2026-09-08 |
 | Spring integration test | `./gradlew test --tests "dev.codeatlas.analysis.AnalysisServiceSpringIntegrationTest"` | 1 test passed (validates 9 R3/R4 checkpoints) | 2026-09-08 |
 | 100-class scale benchmark | `./gradlew test --tests "dev.codeatlas.analysis.LargeProjectBenchmarkTest"` | 1 test passed (100 classes parsed in 608ms, graph query 3ms, WAL mode, 26MB heap) | 2026-09-08 |
+| Context builder unit tests | `./gradlew test --tests "dev.codeatlas.explanations.ContextBuilderTest"` | 1 test passed (symbol context, evidence extraction, prompt invariants) | 2026-09-08 |
+| Explanation API integration | `./gradlew test --tests "dev.codeatlas.api.ExplanationApiIntegrationTest"` | 3 tests passed (NOT_REQUESTED, QUEUED, READY status & claims mapping) | 2026-09-08 |
 | Model profile unit tests | `./gradlew test --tests "dev.codeatlas.api.ModelProfileControllerTest"` | 4 tests passed (GET masking, in-memory updates, test delegation) | 2026-09-08 |
-| Model client unit tests | `./gradlew test --tests "dev.codeatlas.modelclient.ModelClientServiceTest"` | 2 tests passed (unconfigured check, error reporting) | 2026-09-08 |
+| Model client unit tests | `./gradlew test --tests "dev.codeatlas.modelclient.ModelClientServiceTest"` | 4 tests passed (fence stripping, URL normalization, unconfigured check, error reporting) | 2026-09-08 |
 | Model profile API integration | `./gradlew test --tests "dev.codeatlas.api.ModelProfileApiIntegrationTest"` | 2 tests passed (MockMvc GET profile, POST update, POST test) | 2026-09-08 |
-| Complete test suite | `./gradlew test` | 27 tests passed across 6 suites (100% pass) | 2026-09-08 |
+| Workspace API integration | `./gradlew test --tests "dev.codeatlas.api.WorkspaceApiIntegrationTest"` | 5 tests passed (empty path 400, missing path 400, file path 400, quotes/tilde 200) | 2026-09-08 |
+| Complete test suite | `./gradlew test` | 38 tests passed across 9 suites (100% pass) | 2026-09-08 |
 | Frontend compilation | `npm run build` in `frontend/` | TypeScript compile and Vite bundling succeed (0 errors) | 2026-09-08 |
-| Single-executable packaging | `./gradlew bootJar` | Produces `code-atlas-0.1.0-SNAPSHOT.jar` with bundled static UI assets | 2026-09-08 |
-| Filtering, zoom & settings verification | `python3 scripts/verify_filtering_zoom_settings.py` | 100% pass across UI bundling, ModelProfile API, Bearer token auth test, and compound graph structure | 2026-09-08 |
-| Release regression script | `python3 scripts/verify_r5_release.py` | 100% pass across packaging, security, 100-class benchmark, routes, and queue | 2026-09-08 |
-| Headless UI inspection | `/snap/bin/chromium --headless --screenshot` | Verified `ui_preview.png`, `settings_modal_preview.png`, and `graph_canvas_preview.png` | 2026-09-08 |
+| Single-executable packaging | `./gradlew bootJar` | Produces `code-atlas-0.1.0-SNAPSHOT.jar` (44.6 MB) with bundled static UI assets | 2026-09-08 |
+| Live LLM explanation pipeline | `python3 scripts/verify_explanation_pipeline.py` | 100% pass: AgentRouter ping (2.9s latency), Spring workspace ingest, OrderController priority explanation generation via `deepseek-v4-flash`, DB persistence, and Inspector screenshot | 2026-09-08 |
+| Headless UI inspection | `/snap/bin/chromium --headless --screenshot` | Verified `explanation_inspector_preview.png` showing OrderController explanation, claims, and evidence pills | 2026-09-08 |
 
 ## Known limitations and blockers
-- Model client requires a reachable OpenAI-compatible endpoint (e.g. OpenAI, Ollama, or LM Studio) to generate real LLM text; offline mode safely marks items failed/retrying without crashing.
+- Model client requires a reachable OpenAI-compatible endpoint (e.g. AgentRouter, OpenAI, Ollama, or LM Studio) to generate real LLM text; offline mode safely marks items failed/retrying without crashing.
 - Source analysis is Java-only; annotation processors and bytecode weavers (Lombok, AspectJ) are not executed at import time (by design per AGENTS.md trust boundaries).
 
 ## Decisions made this session
 - [ADR-0001](docs/adr/0001-technology-stack.md): Technology stack selection.
 - [ADR-0002](docs/adr/0002-packaging-and-loopback-security.md): Single-executable packaging, offline static UI bundling, and loopback security.
+- ~~AgentRouter compatibility headers: Attached `User-Agent: claude-cli/2.1.119 (external, cli)` and anthropic headers to pass AgentRouter WAF client verification.~~ Superseded in R6: this impersonated the Claude Code CLI's identity to a third-party service and was removed; the model profile now has a plain, user-configurable User-Agent field instead.
+- Graceful `response_format` fallback: Model client attempts `json_object` format and transparently falls back to unconstrained JSON prompting if the provider returns HTTP 400 or content-blocked errors.
+- Markdown fence stripping: Regex/brace extractor strips markdown code fences (```json ... ```) so models that wrap JSON in markdown are accepted cleanly.
+- Grounded explanation context: ContextBuilder deterministically extracts target symbol source slices, Spring roles, HTTP routes, injection points, and graph relationships, labeling each with an evidence ID.
+- Structured Inspector Viewer: InspectorPanel displays explanation status badges, short label, hover summary, structured claims grouped with BASIS (`FACT`, `INFERRED`, `UNKNOWN`) tags and evidence pills (`[ev-source]`, etc.), uncertainties, and provenance.
 - Compound node filtering: Propagates visibility upward to container ancestors (`PACKAGE`, `CLASS`) so Cytoscape never inadvertently hides children of a compound parent.
 - Security-hardened model settings: `GET /api/model-profiles` returns `hasApiKey: boolean` and never transmits raw API tokens back to the client; API tokens are applied in-memory and attached as `Authorization: Bearer <token>` HTTP headers.
 - Zoom toolbar placement: Positioned at top-right of canvas to avoid collision with Cytoscape navigator/minimap at bottom-right.
+- Squarish package layout & coupling proximity: Replaced single-column Dagre TB ranking with a 2D multi-column child distribution and a physics-driven coupling simulation, ensuring balanced package aspect ratios (~1:1 to 4:3) and proximity for strongly coupled packages.
+- Safe API deserialization: Extracted a reusable `requestJson` helper in `frontend/src/api/client.ts` that checks HTTP status (`res.ok`) and `Content-Type` header, extracting error messages from structured JSON or truncating HTML/text before throwing descriptive errors instead of raw `JSON.parse` crashes.
+
 

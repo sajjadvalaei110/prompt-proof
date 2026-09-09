@@ -14,7 +14,7 @@ public class SourceDiscoveryService {
     public List<File> discoverJavaFiles(File root) throws IOException {
         try (Stream<Path> walk = Files.walk(root.toPath())) {
             return walk
-                .filter(Files::isRegularFile)
+                .filter(p -> Files.isRegularFile(p, java.nio.file.LinkOption.NOFOLLOW_LINKS))
                 .filter(p -> p.toString().endsWith(".java"))
                 .filter(p -> !p.toString().contains("/build/"))
                 .filter(p -> !p.toString().contains("/target/"))

@@ -18,9 +18,30 @@ public class WorkspaceService {
     }
 
     public WorkspaceResponse createWorkspace(WorkspaceRequest request) {
-        File file = new File(request.getPath());
-        if (!file.exists() || !file.isDirectory()) {
-            throw new IllegalArgumentException("Path does not exist or is not a directory: " + request.getPath());
+        if (request == null || request.getPath() == null || request.getPath().trim().isEmpty()) {
+            throw new IllegalArgumentException("Workspace path must not be empty");
+        }
+
+        String pathStr = request.getPath().trim();
+        // Remove surrounding quotes if pasted with quotes
+        if ((pathStr.startsWith("\"") && pathStr.endsWith("\"")) || (pathStr.startsWith("'") && pathStr.endsWith("'"))) {
+            pathStr = pathStr.substring(1, pathStr.length() - 1).trim();
+        }
+        // Expand tilde ~ to user home
+        if (pathStr.equals("~") || pathStr.startsWith("~" + File.separator) || pathStr.startsWith("~/")) {
+            String userHome = System.getProperty("user.home");
+            pathStr = userHome + pathStr.substring(1);
+        }
+
+        File file = new File(pathStr);
+        if (!file.isAbsolute()) {
+            file = file.getAbsoluteFile();
+        }
+        if (!file.exists()) {
+            throw new IllegalArgumentException("Path does not exist: " + pathStr);
+        }
+        if (!file.isDirectory()) {
+            throw new IllegalArgumentException("Path is a file, not a directory: " + pathStr);
         }
         
         try {

@@ -487,7 +487,7 @@ public class SpringAnnotationAnalyzer {
 
         // 2. Insert HTTP routes
         for (HttpRoute route : result.routes()) {
-            String symbolId = getMethodSymbolId(snapshotId, route.qualifiedClassName(), route.methodName());
+            String symbolId = getMethodSymbolId(snapshotId, route.qualifiedClassName(), route.methodName(), route.line());
             if (symbolId == null) {
                 // Try class-level symbol
                 symbolId = getSymbolId(snapshotId, route.qualifiedClassName());
@@ -503,7 +503,7 @@ public class SpringAnnotationAnalyzer {
         // 4. Store @Bean factory methods as DECLARES_BEAN relationships
         for (BeanFactory bf : result.beanFactories()) {
             String configId = getSymbolId(snapshotId, bf.configClassQualifiedName());
-            String methodId = getMethodSymbolId(snapshotId, bf.configClassQualifiedName(), bf.methodName());
+            String methodId = getMethodSymbolId(snapshotId, bf.configClassQualifiedName(), bf.methodName(), bf.line());
             if (configId == null) continue;
 
             // Find the return type symbol
@@ -512,11 +512,13 @@ public class SpringAnnotationAnalyzer {
             if (returnTypeId != null) {
                 String sourceId = methodId != null ? methodId : configId;
                 try {
+                    String relationshipId = UUID.randomUUID().toString();
                     jdbcTemplate.update(
                             "INSERT INTO relationship_occurrences (id, snapshot_id, source_symbol_id, target_symbol_id, " +
                                     "kind, resolution, reason) VALUES (?, ?, ?, ?, 'DECLARES_BEAN', 'RESOLVED', ?)",
-                            UUID.randomUUID().toString(), snapshotId, sourceId, returnTypeId,
+                            relationshipId, snapshotId, sourceId, returnTypeId,
                             bf.qualifierValue() != null ? "qualifier:" + bf.qualifierValue() : "factory_method");
+                    attachEvidence(relationshipId, sourceId, bf.line());
                 } catch (Exception e) {
                     log.debug("Skipped duplicate DECLARES_BEAN edge");
                 }
@@ -551,11 +553,13 @@ public class SpringAnnotationAnalyzer {
             for (ResolvedCandidate candidate : candidates) {
                 String targetId = candidate.symbolId();
                 try {
+                    String relationshipId = UUID.randomUUID().toString();
                     jdbcTemplate.update(
                             "INSERT INTO relationship_occurrences (id, snapshot_id, source_symbol_id, target_symbol_id, " +
                                     "kind, resolution, reason) VALUES (?, ?, ?, ?, 'INJECTS', ?, ?)",
-                            UUID.randomUUID().toString(), snapshotId, sourceSymbolId, targetId,
+                            relationshipId, snapshotId, sourceSymbolId, targetId,
                             resolution, candidate.matchReason());
+                    attachEvidence(relationshipId, sourceSymbolId, ip.line());
                 } catch (Exception e) {
                     log.debug("Skipped duplicate INJECTS edge: {} -> {}", sourceSymbolId, targetId);
                 }
@@ -564,10 +568,12 @@ public class SpringAnnotationAnalyzer {
             // If no candidates found, record an unresolved injection
             if (candidates.isEmpty()) {
                 try {
+                    String relationshipId = UUID.randomUUID().toString();
                     jdbcTemplate.update(
                             "INSERT INTO relationship_occurrences (id, snapshot_id, source_symbol_id, unresolved_target, " +
                                     "kind, resolution, reason) VALUES (?, ?, ?, ?, 'INJECTS', 'UNRESOLVED', 'no_candidate_found')",
-                            UUID.randomUUID().toString(), snapshotId, sourceSymbolId, ip.targetTypeName());
+                            relationshipId, snapshotId, sourceSymbolId, ip.targetTypeName());
+                    attachEvidence(relationshipId, sourceSymbolId, ip.line());
                 } catch (Exception e) {
                     log.debug("Skipped duplicate INJECTS unresolved edge for: {}", ip.targetTypeName());
                 }
@@ -663,14 +669,22 @@ public class SpringAnnotationAnalyzer {
         }
     }
 
-    private String getMethodSymbolId(String snapshotId, String classQName, String methodName) {
-        try {
-            return jdbcTemplate.queryForObject(
-                    "SELECT id FROM symbol_versions WHERE snapshot_id = ? AND qualified_name = ? AND kind = 'METHOD' LIMIT 1",
-                    String.class, snapshotId, classQName + "." + methodName);
-        } catch (Exception e) {
-            return null;
-        }
+    private void attachEvidence(String relationshipId, String sourceId, int line) {
+        var files = jdbcTemplate.queryForList("SELECT f.id, f.source_content FROM symbol_evidence se JOIN evidence e ON e.id = se.evidence_id JOIN source_file_versions f ON f.id = e.source_file_version_id WHERE se.symbol_version_id = ? ORDER BY e.start_line LIMIT 1", sourceId);
+        if (files.isEmpty()) return; // Legacy fixture/index without retained source.
+        var file = files.get(0);
+        String[] lines = ((String) file.get("source_content")).split("\n", -1);
+        if (line < 1 || line > lines.length) return;
+        String evidenceId = UUID.randomUUID().toString();
+        jdbcTemplate.update("INSERT INTO evidence (id, source_file_version_id, start_line, start_column, end_line, end_column, snippet) VALUES (?, ?, ?, 1, ?, ?, ?)", evidenceId, file.get("id"), line, line, lines[line - 1].length(), lines[line - 1]);
+        jdbcTemplate.update("INSERT INTO relationship_evidence VALUES (?, ?)", relationshipId, evidenceId);
+    }
+
+    private String getMethodSymbolId(String snapshotId, String classQName, String methodName, int line) {
+        var ids = jdbcTemplate.queryForList(
+            "SELECT DISTINCT s.id FROM symbol_versions s JOIN symbol_versions p ON p.id = s.parent_symbol_id LEFT JOIN symbol_evidence se ON se.symbol_version_id = s.id LEFT JOIN evidence e ON e.id = se.evidence_id WHERE s.snapshot_id = ? AND p.qualified_name = ? AND s.simple_name = ? AND s.kind = 'METHOD' AND (e.id IS NULL OR (e.start_line <= ? AND e.end_line >= ?))",
+            String.class, snapshotId, classQName, methodName, line, line);
+        return ids.size() == 1 ? ids.get(0) : null;
     }
 
     private String findSymbolBySimpleName(String snapshotId, String name) {

@@ -8,9 +8,14 @@ public record ModelProfileResponse(
     int outputBudget,
     int timeoutSeconds,
     int concurrency,
-    double temperature
+    double temperature,
+    String userAgent
 ) {
     public ModelProfileResponse(String baseUrl, String modelId, boolean hasApiKey, int contextBudget, int outputBudget, int timeoutSeconds, int concurrency) {
-        this(baseUrl, modelId, hasApiKey, contextBudget, outputBudget, timeoutSeconds, concurrency, 0.2);
+        this(baseUrl, modelId, hasApiKey, contextBudget, outputBudget, timeoutSeconds, concurrency, 0.2, null);
+    }
+
+    public ModelProfileResponse(String baseUrl, String modelId, boolean hasApiKey, int contextBudget, int outputBudget, int timeoutSeconds, int concurrency, double temperature) {
+        this(baseUrl, modelId, hasApiKey, contextBudget, outputBudget, timeoutSeconds, concurrency, temperature, null);
     }
 }

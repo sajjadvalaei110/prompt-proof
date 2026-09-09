@@ -28,7 +28,7 @@ public class SpringController {
     @GetMapping("/routes")
     public List<Map<String, Object>> getRoutes(@PathVariable String snapshotId) {
         return jdbcTemplate.queryForList(
-                "SELECT hr.id, hr.http_method, hr.path, hr.consumes, hr.produces, " +
+                "SELECT hr.id, hr.symbol_version_id, hr.http_method, hr.path, hr.consumes, hr.produces, " +
                         "sv.simple_name AS handler_method, sv.qualified_name AS handler_qualified " +
                         "FROM http_routes hr " +
                         "JOIN symbol_versions sv ON hr.symbol_version_id = sv.id " +

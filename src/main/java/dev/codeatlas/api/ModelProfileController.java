@@ -31,7 +31,8 @@ public class ModelProfileController {
             m.getOutputBudget(),
             m.getTimeoutSeconds(),
             m.getConcurrency(),
-            m.getTemperature()
+            m.getTemperature(),
+            m.getUserAgent() != null ? m.getUserAgent() : ""
         ));
     }
 
@@ -47,7 +48,8 @@ public class ModelProfileController {
             m.getOutputBudget(),
             m.getTimeoutSeconds(),
             m.getConcurrency(),
-            m.getTemperature()
+            m.getTemperature(),
+            m.getUserAgent() != null ? m.getUserAgent() : ""
         );
     }
 
@@ -85,6 +87,9 @@ public class ModelProfileController {
         }
         if (request.temperature() != null) {
             m.setTemperature(request.temperature());
+        }
+        if (request.userAgent() != null) {
+            m.setUserAgent(request.userAgent().trim());
         }
     }
 }

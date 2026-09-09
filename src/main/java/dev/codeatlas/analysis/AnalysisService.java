@@ -47,7 +47,7 @@ public class AnalysisService {
      * Run a full analysis for a workspace, creating a new snapshot.
      * Includes change detection against the previous snapshot.
      */
-    public void runAnalysis(String workspaceId, String jobId) {
+    public synchronized void runAnalysis(String workspaceId, String jobId) {
         String path = jdbcTemplate.queryForObject(
                 "SELECT canonical_root FROM workspaces WHERE id = ?", String.class, workspaceId);
 
@@ -79,7 +79,12 @@ public class AnalysisService {
             parserAdapter.setupSymbolSolver(path);
             int parsed = 0;
             for (File file : javaFiles) {
-                parserAdapter.parseDeclarations(file, workspaceId, snapshotId);
+                try {
+                    parserAdapter.parseDeclarations(file, workspaceId, snapshotId);
+                } catch (Exception e) {
+                    log.warn("Declaration parsing failed for {}: {}", file.getName(), e.getMessage());
+                    parserAdapter.addDiagnostic(file.getName() + ": declaration parsing failed (" + e.getMessage() + "); file excluded from graph.");
+                }
                 parsed++;
                 if (parsed % 50 == 0) {
                     jdbcTemplate.update("UPDATE jobs SET completed_items = ? WHERE id = ?", parsed, jobId);
@@ -90,7 +95,12 @@ public class AnalysisService {
 
             // Phase 3: Parse relationships (Pass 2)
             for (File file : javaFiles) {
-                parserAdapter.parseRelationships(file, workspaceId, snapshotId);
+                try {
+                    parserAdapter.parseRelationships(file, workspaceId, snapshotId);
+                } catch (Exception e) {
+                    log.warn("Relationship parsing failed for {}: {}", file.getName(), e.getMessage());
+                    parserAdapter.addDiagnostic(file.getName() + ": relationship parsing failed (" + e.getMessage() + "); relationships for this file may be incomplete.");
+                }
                 parsed++;
                 if (parsed % 50 == 0) {
                     jdbcTemplate.update("UPDATE jobs SET completed_items = ? WHERE id = ?", parsed, jobId);
@@ -149,8 +159,7 @@ public class AnalysisService {
                             "relationship_count = ?, file_count = ?, completed_at = datetime('now'), " +
                             "diagnostics = ? WHERE id = ?",
                     symbolCount, relCount, fileCount,
-                    String.format("{\"routes\":%d,\"injections\":%d,\"springFiles\":%d}",
-                            routeCount, injectionCount, springFilesAnalyzed),
+                    new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(Map.of("routes", routeCount, "injections", injectionCount, "springFiles", springFilesAnalyzed, "warnings", parserAdapter.diagnostics())),
                     snapshotId);
 
             // Atomically publish: update active snapshot
@@ -224,7 +233,7 @@ public class AnalysisService {
                 String relativePath = (String) deleted.get("relative_path");
                 staleCount += markExplanationsStale(oldSnapshotId, relativePath);
                 // Mark symbols from deleted files in old snapshot
-                markSymbolsDeleted(oldSnapshotId, relativePath);
+                // Published snapshots retain their historical symbols. The new snapshot omits deleted files.
                 log.debug("Deleted file: {} → marking symbols deleted and explanations stale", relativePath);
             }
 
@@ -264,24 +273,6 @@ public class AnalysisService {
         } catch (Exception e) {
             log.debug("Could not mark explanations stale for {}: {}", relativePath, e.getMessage());
             return 0;
-        }
-    }
-
-    /**
-     * Mark symbols from a deleted file as DELETED (source_status column).
-     */
-    private void markSymbolsDeleted(String snapshotId, String relativePath) {
-        try {
-            // This is best-effort; symbol-to-file mapping is not always precise
-            jdbcTemplate.update(
-                    "UPDATE symbol_versions SET source_status = 'DELETED' " +
-                            "WHERE snapshot_id = ? AND id IN " +
-                            "(SELECT sv.id FROM symbol_versions sv " +
-                            " JOIN source_file_versions sfv ON sv.snapshot_id = sfv.snapshot_id " +
-                            " WHERE sfv.relative_path = ? AND sfv.snapshot_id = ?)",
-                    snapshotId, relativePath, snapshotId);
-        } catch (Exception e) {
-            log.debug("Could not mark symbols deleted for {}: {}", relativePath, e.getMessage());
         }
     }
 

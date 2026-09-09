@@ -57,11 +57,17 @@ export interface EvidenceDetail {
 
 export interface ExplanationResponse {
   status: ExplanationStatus;
+  shortLabel?: string;
+  hoverSummary?: string;
   claims: Claim[];
+  unknowns?: string[];
+  suggestedNextSymbolIds?: string[];
+  provenance?: string;
 }
 
 export interface Claim {
-  text: string;
+  description?: string;
+  text?: string;
   basis: ClaimBasis;
   evidenceIds: string[];
 }
@@ -74,11 +80,11 @@ export interface SearchResult {
 }
 
 export type JobStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
-export type ExplanationStatus = 'PENDING' | 'READY' | 'FAILED';
+export type ExplanationStatus = 'NOT_REQUESTED' | 'QUEUED' | 'RUNNING' | 'READY' | 'STALE' | 'FAILED' | 'PENDING';
 export type ResolutionStatus = 'RESOLVED' | 'CANDIDATE' | 'UNRESOLVED';
 export type SymbolKind = 'PACKAGE' | 'CLASS' | 'METHOD';
 export type RelationshipKind = 'CALLS' | 'IMPLEMENTS' | 'DEPENDS_ON';
-export type ClaimBasis = 'SOURCE' | 'INFERRED' | 'USER';
+export type ClaimBasis = 'SOURCE_FACT' | 'INFERRED_PURPOSE' | 'UNKNOWN' | 'SOURCE' | 'INFERRED' | 'USER';
 export type GraphLevel = 'PACKAGE' | 'CLASS' | 'METHOD';
 export type Direction = 'INCOMING' | 'OUTGOING' | 'BOTH';
 

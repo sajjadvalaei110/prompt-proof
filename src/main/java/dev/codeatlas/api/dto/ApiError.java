@@ -7,6 +7,16 @@ public class ApiError {
     private String message;
     private String path;
 
+    public ApiError() {}
+
+    public ApiError(int status, String error, String message, String path) {
+        this.timestamp = java.time.Instant.now().toString();
+        this.status = status;
+        this.error = error;
+        this.message = message;
+        this.path = path;
+    }
+
     // Getters and Setters
     public String getTimestamp() { return timestamp; }
     public void setTimestamp(String timestamp) { this.timestamp = timestamp; }

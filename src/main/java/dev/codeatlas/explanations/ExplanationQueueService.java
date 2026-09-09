@@ -72,14 +72,24 @@ public class ExplanationQueueService {
     }
 
     public void startWorker() {
-        if (running.compareAndSet(false, true)) {
-            log.info("Starting explanation queue workers with concurrency = {}", concurrency);
-            for (int i = 0; i < concurrency; i++) {
-                Thread worker = new Thread(this::workerLoop, "ExplQueueWorker-" + i);
-                worker.setDaemon(true);
-                worker.start();
-                workers.add(worker);
-            }
+        ensureWorkerCount(concurrency);
+    }
+
+    /**
+     * Grow the worker pool up to {@code desired} threads without tearing down
+     * workers already in flight (stopWorker() is @PreDestroy and would interrupt them).
+     */
+    private synchronized void ensureWorkerCount(int desired) {
+        running.set(true);
+        if (workers.size() >= desired) {
+            return;
+        }
+        log.info("Growing explanation queue workers from {} to {}", workers.size(), desired);
+        while (workers.size() < desired) {
+            Thread worker = new Thread(this::workerLoop, "ExplQueueWorker-" + workers.size());
+            worker.setDaemon(true);
+            worker.start();
+            workers.add(worker);
         }
     }
 
@@ -194,94 +204,35 @@ public class ExplanationQueueService {
      * @return Job ID for tracking
      */
     public String startExplainAllJob(String workspaceId, String snapshotId, int concurrency) {
-        this.concurrency = Math.max(1, concurrency);
+        validateSnapshot(workspaceId, snapshotId);
+        var active = jdbcTemplate.queryForList("SELECT id FROM jobs WHERE workspace_id = ? AND snapshot_id = ? AND operation = 'EXPLAIN_ALL' AND status = 'RUNNING'", String.class, workspaceId, snapshotId);
+        if (!active.isEmpty()) return active.get(0);
+        this.concurrency = Math.min(4, Math.max(1, concurrency));
+        ensureWorkerCount(this.concurrency);
         String jobId = UUID.randomUUID().toString();
-        log.info("Starting Explain All job {} for workspace {} snapshot {} (concurrency={})",
-                jobId, workspaceId, snapshotId, this.concurrency);
-
-        // Create job record
-        jdbcTemplate.update(
-                "INSERT INTO jobs (id, workspace_id, snapshot_id, operation, status, created_at, updated_at) " +
-                        "VALUES (?, ?, ?, 'EXPLAIN_ALL', 'RUNNING', datetime('now'), datetime('now'))",
-                jobId, workspaceId, snapshotId);
-
-        // Enqueue all symbol versions (classes, interfaces, etc.) - skip packages & methods for now
-        List<Map<String, Object>> symbols = jdbcTemplate.queryForList(
-                "SELECT id FROM symbol_versions WHERE snapshot_id = ? AND kind IN ('CLASS', 'INTERFACE', 'ENUM', 'RECORD') " +
-                        "AND COALESCE(source_status, 'ACTIVE') = 'ACTIVE'",
-                snapshotId);
-
-        int symbolsEnqueued = 0;
-        for (Map<String, Object> sym : symbols) {
-            String symId = (String) sym.get("id");
-            String dedupKey = snapshotId + ":symbol:" + symId;
-            try {
-                // Skip if already queued/completed
-                Integer existing = jdbcTemplate.queryForObject(
-                        "SELECT COUNT(*) FROM explanation_queue WHERE dedup_key = ? AND status IN ('COMPLETED', 'PENDING', 'IN_PROGRESS')",
-                        Integer.class, dedupKey);
-                if (existing != null && existing > 0) continue;
-
-                // Also skip if explanation already exists and is READY
-                Integer hasExplanation = jdbcTemplate.queryForObject(
-                        "SELECT COUNT(*) FROM explanations WHERE subject_version_id = ? AND subject_type = 'symbol' AND status = 'READY'",
-                        Integer.class, symId);
-                if (hasExplanation != null && hasExplanation > 0) continue;
-
-                jdbcTemplate.update(
-                        "INSERT INTO explanation_queue (id, workspace_id, snapshot_id, subject_id, subject_type, " +
-                                "priority, status, job_id, attempt_count, max_retries, dedup_key, created_at, updated_at) " +
-                                "VALUES (?, ?, ?, ?, 'symbol', 0, 'PENDING', ?, 0, 3, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
-                        UUID.randomUUID().toString(), workspaceId, snapshotId, symId, jobId, dedupKey);
-                symbolsEnqueued++;
-            } catch (Exception e) {
-                log.debug("Skipped enqueue for symbol {}: {}", symId, e.getMessage());
+        jdbcTemplate.update("INSERT INTO jobs (id, workspace_id, snapshot_id, operation, status, created_at, updated_at) VALUES (?, ?, ?, 'EXPLAIN_ALL', 'RUNNING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)", jobId, workspaceId, snapshotId);
+        var subjects = jdbcTemplate.queryForList("SELECT id, 'symbol' AS type FROM symbol_versions WHERE snapshot_id = ? AND kind != 'PACKAGE' AND COALESCE(source_status, 'ACTIVE') = 'ACTIVE' UNION ALL SELECT id, 'relationship' AS type FROM relationship_occurrences WHERE snapshot_id = ?", snapshotId, snapshotId);
+        int count = 0;
+        for (var subject : subjects) {
+            String id = (String) subject.get("id"); String type = (String) subject.get("type");
+            Integer ready = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM explanations WHERE snapshot_id = ? AND subject_version_id = ? AND subject_type = ? AND status = 'READY' AND prompt_version = '2.0'", Integer.class, snapshotId, id, type);
+            if (ready != null && ready > 0) continue;
+            String key = snapshotId + ":" + type + ":" + id;
+            var existing = jdbcTemplate.queryForList("SELECT id, status FROM explanation_queue WHERE dedup_key = ?", key);
+            if (existing.isEmpty()) {
+                jdbcTemplate.update("INSERT INTO explanation_queue (id, workspace_id, snapshot_id, subject_id, subject_type, priority, status, job_id, attempt_count, max_retries, dedup_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, 'PENDING', ?, 0, 3, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)", UUID.randomUUID().toString(), workspaceId, snapshotId, id, type, jobId, key);
+            } else {
+                jdbcTemplate.update("UPDATE explanation_queue SET job_id = ?, status = CASE WHEN status = 'IN_PROGRESS' THEN status ELSE 'PENDING' END, attempt_count = 0, last_error = NULL, updated_at = CURRENT_TIMESTAMP WHERE dedup_key = ?", jobId, key);
             }
+            count++;
         }
-
-        // Enqueue key relationships (INJECTS, EXTENDS, IMPLEMENTS - skip CALLS/DEPENDS_ON for bulk)
-        List<Map<String, Object>> relationships = jdbcTemplate.queryForList(
-                "SELECT id FROM relationship_occurrences WHERE snapshot_id = ? " +
-                        "AND kind IN ('INJECTS', 'EXTENDS', 'IMPLEMENTS', 'DECLARES_BEAN') " +
-                        "AND target_symbol_id IS NOT NULL",
-                snapshotId);
-
-        int relsEnqueued = 0;
-        for (Map<String, Object> rel : relationships) {
-            String relId = (String) rel.get("id");
-            String dedupKey = snapshotId + ":relationship:" + relId;
-            try {
-                Integer existing = jdbcTemplate.queryForObject(
-                        "SELECT COUNT(*) FROM explanation_queue WHERE dedup_key = ? AND status IN ('COMPLETED', 'PENDING', 'IN_PROGRESS')",
-                        Integer.class, dedupKey);
-                if (existing != null && existing > 0) continue;
-
-                jdbcTemplate.update(
-                        "INSERT INTO explanation_queue (id, workspace_id, snapshot_id, subject_id, subject_type, " +
-                                "priority, status, job_id, attempt_count, max_retries, dedup_key, created_at, updated_at) " +
-                                "VALUES (?, ?, ?, ?, 'relationship', 0, 'PENDING', ?, 0, 3, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
-                        UUID.randomUUID().toString(), workspaceId, snapshotId, relId, jobId, dedupKey);
-                relsEnqueued++;
-            } catch (Exception e) {
-                log.debug("Skipped enqueue for relationship {}: {}", relId, e.getMessage());
-            }
-        }
-
-        // Update job totals
-        int total = symbolsEnqueued + relsEnqueued;
-        jdbcTemplate.update(
-                "UPDATE jobs SET total_items = ?, updated_at = datetime('now') WHERE id = ?",
-                total, jobId);
-
-        log.info("Enqueued {} symbols and {} relationships for job {}", symbolsEnqueued, relsEnqueued, jobId);
-
-        // Restart workers with new concurrency if changed
-        if (this.concurrency > workers.size()) {
-            stopWorker();
-            startWorker();
-        }
-
+        jdbcTemplate.update("UPDATE jobs SET total_items = ? WHERE id = ?", count, jobId);
+        completeFinalizedJobs();
         return jobId;
+    }
+
+    private void validateSnapshot(String workspaceId, String snapshotId) {
+        if (jdbcTemplate.queryForObject("SELECT COUNT(*) FROM snapshots WHERE id = ? AND workspace_id = ? AND status = 'published'", Integer.class, snapshotId, workspaceId) == 0) throw new IllegalArgumentException("Published snapshot does not belong to this workspace");
     }
 
     // -----------------------------------------------------------------------
@@ -294,6 +245,14 @@ public class ExplanationQueueService {
      */
     public void enqueueExplanation(String workspaceId, String snapshotId,
                                     String subjectId, String subjectType) {
+        validateSnapshot(workspaceId, snapshotId);
+        if (!"symbol".equals(subjectType) && !"relationship".equals(subjectType)) throw new IllegalArgumentException("Unknown subject type");
+        if ("symbol".equals(subjectType)) {
+            var ids = jdbcTemplate.queryForList("SELECT id FROM symbol_versions WHERE snapshot_id = ? AND (id = ? OR qualified_name = ?)", String.class, snapshotId, subjectId, subjectId);
+            if (ids.size() == 1) subjectId = ids.get(0);
+        }
+        String table = "symbol".equals(subjectType) ? "symbol_versions" : "relationship_occurrences";
+        if (jdbcTemplate.queryForObject("SELECT COUNT(*) FROM " + table + " WHERE snapshot_id = ? AND id = ?", Integer.class, snapshotId, subjectId) == 0) throw new IllegalArgumentException("Subject does not belong to this snapshot");
         String dedupKey = snapshotId + ":" + subjectType + ":" + subjectId;
         log.info("Enqueueing high-priority explanation for {} {}", subjectType, subjectId);
 
@@ -303,7 +262,7 @@ public class ExplanationQueueService {
 
         if (!existing.isEmpty()) {
             String status = (String) existing.get(0).get("status");
-            if ("COMPLETED".equals(status) || "IN_PROGRESS".equals(status)) {
+            if ("IN_PROGRESS".equals(status)) {
                 log.debug("Item {} already {}", dedupKey, status);
                 return;
             }

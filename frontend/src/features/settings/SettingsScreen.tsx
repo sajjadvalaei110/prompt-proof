@@ -1,644 +1,267 @@
-
-import { useState, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { apiClient } from '../../api/client';
 
-interface SettingsScreenProps {
+const DEFAULT_USER_AGENT = 'claude-cli/2.1.119 (external, cli)';
+
+export default function SettingsScreen({
+  isOpen,
+  onClose,
+}: {
   isOpen: boolean;
   onClose: () => void;
-}
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
 
-interface PresetOption {
-  label: string;
-  baseUrl: string;
-  modelId: string;
-}
-
-const PRESETS: Record<string, PresetOption> = {
-  'openai-4o': {
-    label: 'OpenAI (gpt-4o)',
-    baseUrl: 'https://api.openai.com/v1',
-    modelId: 'gpt-4o',
-  },
-  'openai-mini': {
-    label: 'OpenAI (gpt-4o-mini)',
-    baseUrl: 'https://api.openai.com/v1',
-    modelId: 'gpt-4o-mini',
-  },
-  'ollama': {
-    label: 'Ollama (qwen2.5-coder)',
-    baseUrl: 'http://127.0.0.1:11434/v1',
-    modelId: 'qwen2.5-coder',
-  },
-  'lmstudio': {
-    label: 'LM Studio (local-model)',
-    baseUrl: 'http://127.0.0.1:1234/v1',
-    modelId: 'local-model',
-  },
-  'custom': {
-    label: 'Custom Endpoint',
+  const [profile, setProfile] = useState({
     baseUrl: '',
     modelId: '',
-  },
-};
+    apiKey: '',
+    contextBudget: 16384,
+    outputBudget: 2048,
+    timeoutSeconds: 120,
+    temperature: 0.2,
+    userAgent: DEFAULT_USER_AGENT,
+  });
 
-export function SettingsScreen({ isOpen, onClose }: SettingsScreenProps) {
-  const [preset, setPreset] = useState<string>('openai-4o');
-  const [baseUrl, setBaseUrl] = useState<string>('https://api.openai.com/v1');
-  const [apiKey, setApiKey] = useState<string>('');
-  const [showApiKey, setShowApiKey] = useState<boolean>(false);
-  const [hasConfiguredKey, setHasConfiguredKey] = useState<boolean>(false);
-  const [modelId, setModelId] = useState<string>('gpt-4o');
-  const [contextBudget, setContextBudget] = useState<number>(8192);
-  const [outputBudget, setOutputBudget] = useState<number>(2048);
-  const [timeoutSeconds, setTimeoutSeconds] = useState<number>(60);
-  const [temperature, setTemperature] = useState<number>(0.2);
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [hasKey, setHasKey] = useState(false);
+  const [showKey, setShowKey] = useState(false);
 
-  const [isTesting, setIsTesting] = useState<boolean>(false);
-  const [testResult, setTestResult] = useState<{
-    success: boolean;
-    latencyMs?: number;
-    message: string;
-  } | null>(null);
-
-  const [isSaving, setIsSaving] = useState<boolean>(false);
-  const [saveStatus, setSaveStatus] = useState<string | null>(null);
-
-  // Load active profile from backend or localStorage on mount/open
   useEffect(() => {
     if (!isOpen) return;
 
-    setTestResult(null);
-    setSaveStatus(null);
+    dialog.current?.showModal();
+    setMessage('');
 
-    const loadProfile = async () => {
-      try {
-        const profiles = await apiClient.getModelProfiles();
-        if (Array.isArray(profiles) && profiles.length > 0) {
-          const active = profiles[0];
-          if (active.baseUrl) setBaseUrl(active.baseUrl);
-          if (active.modelId) setModelId(active.modelId);
-          setHasConfiguredKey(!!active.hasApiKey);
-          if (active.contextBudget) setContextBudget(active.contextBudget);
-          if (active.outputBudget) setOutputBudget(active.outputBudget);
-          if (active.timeoutSeconds) setTimeoutSeconds(active.timeoutSeconds);
-          if (active.temperature !== undefined) setTemperature(active.temperature);
+    apiClient
+      .getModelProfiles()
+      .then((p) => {
+        if (p[0]) {
+          setProfile((v) => ({
+            ...v,
+            ...p[0],
+            apiKey: '',
+            userAgent: p[0].userAgent?.trim() || DEFAULT_USER_AGENT,
+          }));
 
-          // Detect matching preset
-          const matchingPreset = Object.entries(PRESETS).find(
-            ([key, p]) => key !== 'custom' && p.baseUrl === active.baseUrl && p.modelId === active.modelId
-          );
-          setPreset(matchingPreset ? matchingPreset[0] : 'custom');
-          return;
+          setHasKey(!!p[0].hasApiKey);
         }
-      } catch (err) {
-        // Fallback to localStorage
-      }
-
-      // Check localStorage if backend returned empty
-      const saved = localStorage.getItem('codeatlas_model_settings');
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          if (parsed.baseUrl) setBaseUrl(parsed.baseUrl);
-          if (parsed.modelId) setModelId(parsed.modelId);
-          if (parsed.contextBudget) setContextBudget(parsed.contextBudget);
-          if (parsed.outputBudget) setOutputBudget(parsed.outputBudget);
-          if (parsed.timeoutSeconds) setTimeoutSeconds(parsed.timeoutSeconds);
-          if (parsed.temperature !== undefined) setTemperature(parsed.temperature);
-
-          const matchingPreset = Object.entries(PRESETS).find(
-            ([key, p]) => key !== 'custom' && p.baseUrl === parsed.baseUrl && p.modelId === parsed.modelId
-          );
-          setPreset(matchingPreset ? matchingPreset[0] : 'custom');
-        } catch (e) {
-          // Ignore parse errors
-        }
-      }
-    };
-
-    loadProfile();
+      })
+      .catch((e) => setMessage(e.message));
   }, [isOpen]);
-
-  // Handle ESC key to close modal
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
-  const handlePresetChange = (presetKey: string) => {
-    setPreset(presetKey);
-    const chosen = PRESETS[presetKey];
-    if (chosen && presetKey !== 'custom') {
-      setBaseUrl(chosen.baseUrl);
-      setModelId(chosen.modelId);
-    }
-  };
+  async function action(test: boolean) {
+    setBusy(true);
+    setMessage('');
 
-  const handleTestConnection = async () => {
-    setIsTesting(true);
-    setTestResult(null);
     try {
-      const payload: any = {
-        baseUrl: baseUrl.trim(),
-        modelId: modelId.trim(),
-        timeoutSeconds: Number(timeoutSeconds) || 60,
-        temperature: Number(temperature) || 0.2,
+      const effectiveProfile = {
+        ...profile,
+        userAgent: profile.userAgent.trim() || DEFAULT_USER_AGENT,
       };
-      if (apiKey.trim()) {
-        payload.apiKey = apiKey.trim();
-      }
-      const res = await apiClient.testModelConnection(payload);
-      if (res.chatWorking || res.reachable) {
-        setTestResult({
-          success: true,
-          latencyMs: res.latencyMs,
-          message: `Connected (${res.latencyMs}ms)`,
-        });
+
+      if (test) {
+        const result =
+          await apiClient.testModelConnection(effectiveProfile);
+
+        setMessage(
+          result.message ||
+            ((result.success || result.chatWorking)
+              ? 'Connection verified'
+              : 'Connection test failed')
+        );
       } else {
-        const errorDetail =
-          res.capabilities && res.capabilities.length > 0
-            ? res.capabilities.join(', ')
-            : 'Failed to reach model endpoint';
-        setTestResult({
-          success: false,
-          latencyMs: res.latencyMs,
-          message: errorDetail,
-        });
+        await apiClient.saveModelProfile(effectiveProfile);
+
+        setProfile((p) => ({
+          ...p,
+          userAgent: effectiveProfile.userAgent,
+          apiKey: '',
+        }));
+
+        setMessage('Model settings saved for this server session.');
       }
-    } catch (err: any) {
-      setTestResult({
-        success: false,
-        message: err.message || 'Connection test failed',
-      });
+    } catch (e: any) {
+      setMessage(e.message);
     } finally {
-      setIsTesting(false);
+      setBusy(false);
     }
-  };
-
-  const handleSave = async () => {
-    setIsSaving(true);
-    setSaveStatus(null);
-    try {
-      const payload: any = {
-        baseUrl: baseUrl.trim(),
-        modelId: modelId.trim(),
-        contextBudget: Number(contextBudget) || 8192,
-        outputBudget: Number(outputBudget) || 2048,
-        timeoutSeconds: Number(timeoutSeconds) || 60,
-        temperature: Number(temperature) || 0.2,
-      };
-      if (apiKey.trim()) {
-        payload.apiKey = apiKey.trim();
-      }
-      await apiClient.saveModelProfile(payload);
-
-      // Save non-sensitive config to localStorage
-      localStorage.setItem(
-        'codeatlas_model_settings',
-        JSON.stringify({
-          baseUrl: payload.baseUrl,
-          modelId: payload.modelId,
-          contextBudget: payload.contextBudget,
-          outputBudget: payload.outputBudget,
-          timeoutSeconds: payload.timeoutSeconds,
-          temperature: payload.temperature,
-        })
-      );
-
-      if (apiKey.trim()) {
-        setHasConfiguredKey(true);
-        setApiKey('');
-      }
-
-      setSaveStatus('Settings saved successfully!');
-      setTimeout(() => setSaveStatus(null), 3000);
-    } catch (err: any) {
-      setSaveStatus(`Error saving settings: ${err.message}`);
-    } finally {
-      setIsSaving(false);
-    }
-  };
+  }
 
   return (
-    <div
-      className="settings-modal-backdrop"
-      onClick={onClose}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.7)',
-        backdropFilter: 'blur(3px)',
-        zIndex: 9999,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '16px',
-      }}
+    <dialog
+      ref={dialog}
+      className="settings-dialog"
+      onCancel={onClose}
+      onClose={onClose}
     >
-      <div
-        className="settings-modal"
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width: '100%',
-          maxWidth: '560px',
-          background: '#1e1e2e',
-          color: '#e0e0e0',
-          borderRadius: '10px',
-          border: '1px solid #3d3d5c',
-          boxShadow: '0 12px 36px rgba(0, 0, 0, 0.6)',
-          display: 'flex',
-          flexDirection: 'column',
-          maxHeight: '90vh',
-          overflow: 'hidden',
+      <header>
+        <div>
+          <h2>Model settings</h2>
+          <p>Choose where explanation requests are sent.</p>
+        </div>
+
+        <button onClick={onClose} aria-label="Close settings">
+          ✕
+        </button>
+      </header>
+
+      <form
+        className="settings-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          action(false);
         }}
       >
-        {/* Modal Header */}
-        <div
-          style={{
-            padding: '14px 20px',
-            background: '#252538',
-            borderBottom: '1px solid #383850',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
+        <label>
+          Endpoint URL
+          <input
+            value={profile.baseUrl}
+            placeholder="http://127.0.0.1:1234/v1"
+            onChange={(e) =>
+              setProfile({
+                ...profile,
+                baseUrl: e.target.value,
+              })
+            }
+          />
+        </label>
+
+        <label>
+          Model ID
+          <input
+            value={profile.modelId}
+            placeholder="Model served by your endpoint"
+            onChange={(e) =>
+              setProfile({
+                ...profile,
+                modelId: e.target.value,
+              })
+            }
+          />
+        </label>
+
+        <label>
+          API key {hasKey ? '(configured; leave blank to keep)' : '(optional)'}
+          <input
+            type={showKey ? 'text' : 'password'}
+            autoComplete="off"
+            value={profile.apiKey}
+            onChange={(e) =>
+              setProfile({
+                ...profile,
+                apiKey: e.target.value,
+              })
+            }
+          />
+        </label>
+
+        <button
+          type="button"
+          className="text-button"
+          onClick={() => setShowKey(!showKey)}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', fontSize: '15px', color: '#fff' }}>
-            <span>⚙</span> Model & LLM Settings
-          </div>
-          <button
-            onClick={onClose}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: '#888',
-              fontSize: '18px',
-              cursor: 'pointer',
-              padding: '4px 8px',
-              borderRadius: '4px',
-            }}
-            title="Close"
-          >
-            ✕
-          </button>
+          {showKey ? 'Hide' : 'Show'} key
+        </button>
+
+        <label>
+          User-Agent header (optional)
+          <input
+            value={profile.userAgent}
+            placeholder={DEFAULT_USER_AGENT}
+            onChange={(e) =>
+              setProfile({
+                ...profile,
+                userAgent: e.target.value,
+              })
+            }
+          />
+        </label>
+
+        <div className="settings-grid">
+          {(
+            [
+              {
+                key: 'contextBudget',
+                label: 'Context tokens',
+                min: 4096,
+                max: 1000000,
+                step: 1024,
+              },
+              {
+                key: 'outputBudget',
+                label: 'Output tokens',
+                min: 256,
+                max: 32768,
+                step: 256,
+              },
+              {
+                key: 'timeoutSeconds',
+                label: 'Timeout (seconds)',
+                min: 5,
+                max: 600,
+                step: 1,
+              },
+              {
+                key: 'temperature',
+                label: 'Temperature',
+                min: 0,
+                max: 2,
+                step: 0.1,
+              },
+            ] as const
+          ).map((f) => (
+            <label key={f.key}>
+              {f.label}
+              <input
+                type="number"
+                min={f.min}
+                max={f.max}
+                step={f.step}
+                value={profile[f.key]}
+                onChange={(e) =>
+                  setProfile({
+                    ...profile,
+                    [f.key]: Number(e.target.value),
+                  })
+                }
+              />
+            </label>
+          ))}
         </div>
 
-        {/* Modal Body */}
-        <div style={{ padding: '20px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          {/* Provider Preset */}
-          <div>
-            <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '6px', color: '#bbb' }}>
-              Provider Preset
-            </label>
-            <select
-              value={preset}
-              onChange={(e) => handlePresetChange(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '8px 10px',
-                background: '#2a2a3e',
-                border: '1px solid #484860',
-                borderRadius: '6px',
-                color: '#fff',
-                fontSize: '13px',
-              }}
-            >
-              {Object.entries(PRESETS).map(([key, p]) => (
-                <option key={key} value={key}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-          </div>
+        <p className="muted">
+          Source and saved project documents are sent only to this endpoint. A
+          conservative context budget reserves room for the answer and reports
+          omitted evidence. Keys are kept on the server, never in browser
+          storage.
+        </p>
 
-          {/* Base URL */}
-          <div>
-            <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '6px', color: '#bbb' }}>
-              Base URL
-            </label>
-            <input
-              type="text"
-              value={baseUrl}
-              onChange={(e) => {
-                setBaseUrl(e.target.value);
-                setPreset('custom');
-              }}
-              placeholder="https://api.openai.com/v1"
-              style={{
-                width: '100%',
-                boxSizing: 'border-box',
-                padding: '8px 10px',
-                background: '#2a2a3e',
-                border: '1px solid #484860',
-                borderRadius: '6px',
-                color: '#fff',
-                fontSize: '13px',
-              }}
-            />
-          </div>
+        <p role="status" className="form-message">
+          {message}
+        </p>
 
-          {/* API Key / Token */}
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-              <label style={{ fontSize: '12px', fontWeight: '600', color: '#bbb' }}>
-                API Key / Bearer Token
-              </label>
-              {hasConfiguredKey && (
-                <span style={{ fontSize: '11px', color: '#66bb6a' }}>
-                  ✓ Token configured on server
-                </span>
-              )}
-            </div>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <input
-                type={showApiKey ? 'text' : 'password'}
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder={hasConfiguredKey ? '•••••••••••••••• (leave blank to keep)' : 'sk-... or Bearer token'}
-                style={{
-                  flex: 1,
-                  boxSizing: 'border-box',
-                  padding: '8px 10px',
-                  background: '#2a2a3e',
-                  border: '1px solid #484860',
-                  borderRadius: '6px',
-                  color: '#fff',
-                  fontSize: '13px',
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => setShowApiKey(!showApiKey)}
-                style={{
-                  padding: '8px 12px',
-                  background: '#33334d',
-                  border: '1px solid #484860',
-                  borderRadius: '6px',
-                  color: '#ccc',
-                  cursor: 'pointer',
-                  fontSize: '12px',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {showApiKey ? 'Hide' : 'Show'}
-              </button>
-            </div>
-          </div>
-
-          {/* Model Name / ID */}
-          <div>
-            <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '6px', color: '#bbb' }}>
-              Model Name / ID
-            </label>
-            <input
-              type="text"
-              value={modelId}
-              onChange={(e) => {
-                setModelId(e.target.value);
-                setPreset('custom');
-              }}
-              placeholder="gpt-4o, qwen2.5-coder, etc."
-              style={{
-                width: '100%',
-                boxSizing: 'border-box',
-                padding: '8px 10px',
-                background: '#2a2a3e',
-                border: '1px solid #484860',
-                borderRadius: '6px',
-                color: '#fff',
-                fontSize: '13px',
-              }}
-            />
-          </div>
-
-          {/* Budgets & Parameters Grid */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-            {/* Context Budget */}
-            <div>
-              <label style={{ display: 'block', fontSize: '11px', fontWeight: '600', marginBottom: '4px', color: '#aaa' }}>
-                Context Budget (tokens)
-              </label>
-              <input
-                type="number"
-                value={contextBudget}
-                onChange={(e) => setContextBudget(parseInt(e.target.value) || 0)}
-                min={512}
-                step={512}
-                style={{
-                  width: '100%',
-                  boxSizing: 'border-box',
-                  padding: '6px 10px',
-                  background: '#2a2a3e',
-                  border: '1px solid #484860',
-                  borderRadius: '6px',
-                  color: '#fff',
-                  fontSize: '12px',
-                }}
-              />
-            </div>
-
-            {/* Output Budget */}
-            <div>
-              <label style={{ display: 'block', fontSize: '11px', fontWeight: '600', marginBottom: '4px', color: '#aaa' }}>
-                Max Output Tokens
-              </label>
-              <input
-                type="number"
-                value={outputBudget}
-                onChange={(e) => setOutputBudget(parseInt(e.target.value) || 0)}
-                min={128}
-                step={256}
-                style={{
-                  width: '100%',
-                  boxSizing: 'border-box',
-                  padding: '6px 10px',
-                  background: '#2a2a3e',
-                  border: '1px solid #484860',
-                  borderRadius: '6px',
-                  color: '#fff',
-                  fontSize: '12px',
-                }}
-              />
-            </div>
-
-            {/* Timeout */}
-            <div>
-              <label style={{ display: 'block', fontSize: '11px', fontWeight: '600', marginBottom: '4px', color: '#aaa' }}>
-                Timeout (seconds)
-              </label>
-              <input
-                type="number"
-                value={timeoutSeconds}
-                onChange={(e) => setTimeoutSeconds(parseInt(e.target.value) || 0)}
-                min={5}
-                max={600}
-                style={{
-                  width: '100%',
-                  boxSizing: 'border-box',
-                  padding: '6px 10px',
-                  background: '#2a2a3e',
-                  border: '1px solid #484860',
-                  borderRadius: '6px',
-                  color: '#fff',
-                  fontSize: '12px',
-                }}
-              />
-            </div>
-
-            {/* Temperature */}
-            <div>
-              <label style={{ display: 'block', fontSize: '11px', fontWeight: '600', marginBottom: '4px', color: '#aaa' }}>
-                Temperature ({temperature})
-              </label>
-              <input
-                type="number"
-                value={temperature}
-                onChange={(e) => setTemperature(parseFloat(e.target.value) || 0)}
-                min={0.0}
-                max={2.0}
-                step={0.05}
-                style={{
-                  width: '100%',
-                  boxSizing: 'border-box',
-                  padding: '6px 10px',
-                  background: '#2a2a3e',
-                  border: '1px solid #484860',
-                  borderRadius: '6px',
-                  color: '#fff',
-                  fontSize: '12px',
-                }}
-              />
-            </div>
-          </div>
-
-          {/* Test Connection Section */}
-          <div
-            style={{
-              padding: '12px',
-              background: '#242436',
-              borderRadius: '8px',
-              border: '1px solid #383850',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '10px',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
-              <button
-                type="button"
-                onClick={handleTestConnection}
-                disabled={isTesting}
-                style={{
-                  padding: '8px 16px',
-                  background: isTesting ? '#555' : '#3949ab',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '6px',
-                  cursor: isTesting ? 'wait' : 'pointer',
-                  fontWeight: '600',
-                  fontSize: '12px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                }}
-              >
-                {isTesting ? '⏳ Testing Connection...' : '🔌 Test Connection'}
-              </button>
-
-              {testResult && (
-                <div
-                  style={{
-                    fontSize: '12px',
-                    padding: '4px 10px',
-                    borderRadius: '6px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    background: testResult.success ? 'rgba(46, 125, 50, 0.25)' : 'rgba(198, 40, 40, 0.25)',
-                    color: testResult.success ? '#81c784' : '#ef9a9a',
-                    border: `1px solid ${testResult.success ? '#2e7d32' : '#c62828'}`,
-                    maxWidth: '320px',
-                    wordBreak: 'break-word',
-                  }}
-                >
-                  <span>{testResult.success ? '✓' : '✕'}</span>
-                  <span>{testResult.message}</span>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {saveStatus && (
-            <div
-              style={{
-                fontSize: '12px',
-                padding: '8px 12px',
-                borderRadius: '6px',
-                background: saveStatus.startsWith('Error') ? 'rgba(198, 40, 40, 0.2)' : 'rgba(46, 125, 50, 0.2)',
-                color: saveStatus.startsWith('Error') ? '#ef9a9a' : '#81c784',
-                border: `1px solid ${saveStatus.startsWith('Error') ? '#c62828' : '#2e7d32'}`,
-              }}
-            >
-              {saveStatus}
-            </div>
-          )}
-        </div>
-
-        {/* Modal Footer */}
-        <div
-          style={{
-            padding: '12px 20px',
-            background: '#252538',
-            borderTop: '1px solid #383850',
-            display: 'flex',
-            justifyContent: 'flex-end',
-            gap: '10px',
-          }}
-        >
+        <div className="settings-actions">
           <button
             type="button"
-            onClick={onClose}
-            style={{
-              padding: '8px 16px',
-              background: '#33334d',
-              border: '1px solid #484860',
-              borderRadius: '6px',
-              color: '#ddd',
-              cursor: 'pointer',
-              fontSize: '12px',
-            }}
+            disabled={busy || !profile.baseUrl}
+            onClick={() => action(true)}
           >
-            Cancel
+            {busy ? 'Working…' : 'Test connection'}
           </button>
+
           <button
-            type="button"
-            onClick={handleSave}
-            disabled={isSaving}
-            style={{
-              padding: '8px 20px',
-              background: isSaving ? '#555' : '#1e88e5',
-              border: 'none',
-              borderRadius: '6px',
-              color: '#fff',
-              cursor: isSaving ? 'wait' : 'pointer',
-              fontWeight: '600',
-              fontSize: '12px',
-            }}
+            className="primary"
+            disabled={busy || !profile.baseUrl || !profile.modelId}
           >
-            {isSaving ? 'Saving...' : 'Save Settings'}
+            Save settings
           </button>
         </div>
-      </div>
-    </div>
+      </form>
+    </dialog>
   );
 }
-export default SettingsScreen;
 

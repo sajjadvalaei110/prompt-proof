@@ -106,6 +106,13 @@ public class GraphQueryService {
 
         // Build metadata with Spring-specific counts
         Map<String, Object> metadata = new LinkedHashMap<>();
+        try {
+            String diagnostics = jdbcTemplate.queryForObject("SELECT diagnostics FROM snapshots WHERE id = ?", String.class, snapshotId);
+            metadata.put("diagnostics", diagnostics == null ? Map.of() : new com.fasterxml.jackson.databind.ObjectMapper().readTree(diagnostics));
+        } catch (Exception ignored) { metadata.put("diagnostics", Map.of()); }
+        metadata.put("workspaceId", jdbcTemplate.queryForObject("SELECT workspace_id FROM snapshots WHERE id = ?", String.class, snapshotId));
+        metadata.put("unresolvedRelationships", jdbcTemplate.queryForList("SELECT id, source_symbol_id AS sourceId, unresolved_target AS unresolvedTarget, kind, resolution, reason FROM relationship_occurrences WHERE snapshot_id = ? AND target_symbol_id IS NULL ORDER BY kind, id", snapshotId));
+        metadata.put("unresolvedCount", jdbcTemplate.queryForObject("SELECT COUNT(*) FROM relationship_occurrences WHERE snapshot_id = ? AND target_symbol_id IS NULL", Integer.class, snapshotId));
         metadata.put("nodeCount", nodes.size());
         metadata.put("edgeCount", edges.size());
         metadata.put("omittedCount", 0);

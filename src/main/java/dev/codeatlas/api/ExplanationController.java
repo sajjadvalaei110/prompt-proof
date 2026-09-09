@@ -1,8 +1,10 @@
 package dev.codeatlas.api;
 
+import dev.codeatlas.api.dto.ExplanationResponse;
 import dev.codeatlas.api.dto.JobResponse;
 import dev.codeatlas.api.dto.enums.JobStatus;
 import dev.codeatlas.explanations.ExplanationQueueService;
+import dev.codeatlas.explanations.ExplanationService;
 import dev.codeatlas.explanations.QueueStatus;
 import dev.codeatlas.jobs.JobService;
 import org.springframework.http.ResponseEntity;
@@ -18,6 +20,7 @@ import java.util.Map;
  * - Single high-priority explanation requests (user clicks)
  * - Job cancellation
  * - Queue status for UI progress indicators
+ * - GET explanation retrieval for inspector panel
  */
 @RestController
 @RequestMapping("/api")
@@ -25,10 +28,32 @@ public class ExplanationController {
 
     private final JobService jobService;
     private final ExplanationQueueService queueService;
+    private final ExplanationService explanationService;
 
-    public ExplanationController(JobService jobService, ExplanationQueueService queueService) {
+    public ExplanationController(JobService jobService, ExplanationQueueService queueService, ExplanationService explanationService) {
         this.jobService = jobService;
         this.queueService = queueService;
+        this.explanationService = explanationService;
+    }
+
+    /**
+     * Get explanation for a symbol in a snapshot.
+     */
+    @GetMapping("/snapshots/{snapshotId}/symbols/{symbolId}/explanation")
+    public ResponseEntity<ExplanationResponse> getExplanation(
+            @PathVariable String snapshotId,
+            @PathVariable String symbolId) {
+        ExplanationResponse response = explanationService.getExplanationForSymbol(snapshotId, symbolId);
+        return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/snapshots/{snapshotId}/relationships/{id}/explanation")
+    public ExplanationResponse relationship(@PathVariable String snapshotId, @PathVariable String id) {
+        return explanationService.getExplanation(snapshotId, id, "relationship");
+    }
+    @GetMapping("/snapshots/{snapshotId}/explanation-evidence/{id}")
+    public Object evidence(@PathVariable String snapshotId, @PathVariable String id, @RequestParam(defaultValue = "symbol") String subjectType) {
+        return explanationService.getEvidence(snapshotId, id, subjectType);
     }
 
     /**
