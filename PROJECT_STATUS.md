@@ -1,9 +1,30 @@
 # Project status
 Last updated: 2026-09-09
 Active milestone: R6 — Developer comprehension redesign (in progress)
-Current revision: R6 hierarchical explanations and READY indicators (verified)
+Current revision: R6 explicit scope control (verified)
 
-## Current acceptance slice: hierarchical explanations — complete
+## Current acceptance slice: explicit graph scope control — complete
+
+Implemented on 2026-09-09, frontend-only:
+- New `ScopeSelection` model (`frontend/src/features/explorer/scopeModel.ts`): `mode: 'ALL' | 'CUSTOM'` plus explicit `selectedPackageIds`/`selectedClassIds` sets, with pure helpers (`isClassInScope`, `isNodeInScope`, `getPackageCheckState`, `getScopeCounts`, `scopeToLabel`, `togglePackage`, `toggleClass`, `focusScopeSelection`). Packages are flat in this data model (`JavaParserAdapter` never links a `PACKAGE` to another `PACKAGE`), so package/class membership resolves via the existing `ownerAt('PACKAGE', …)` helper — no invented package-nesting concept.
+- `graphModel.ts`'s `projectGraph` now takes a `ScopeSelection` instead of a single seed ID. Membership is scope-only; a focused/selected node no longer pulls in out-of-scope neighbors. Returns `scopedCount`/`visibleCount`/`omittedCount` instead of a single `omitted` count, so the UI can state an honest "showing N of M in scope."
+- `frontend/src/features/explorer/NavigationPane.tsx` (previously an unused placeholder) is now the real, active package/class tree: `Select all`/`Clear` toolbar, tri-state package checkboxes (native `indeterminate`, `aria-checked="mixed"`), per-class checkboxes, and a keyboard-reachable `⌖` Focus action per row. Methods are intentionally not shown in this tree (scope is package/class granularity; methods inherit class scope) — reachable via graph level, search, or the inspector's Methods section as before.
+- `App.tsx`: selecting a subject for inspection (tree label, graph node, search result, inspector related-item) no longer narrows the graph — it only updates the inspected subject and, where useful, the graph level. `explore()` is now "Focus scope": isolates the clicked package/class and moves to the next useful level. The graph-level segmented control now preserves the current scope ("View at this level") instead of resetting it. A persistent scope banner above the canvas states the exact boundary, the current level's count within it, an honest paginated count with the existing "show more," an "Inspecting …" chip for the selected subject, and "Reset to whole system" when custom. Breadcrumbs show scope / level / inspected subject. An empty custom scope shows an intentional empty state with `Select all`, instead of an empty graph.
+- Deliberate omission: the previous "click a node, see it plus its collaborators" focused-neighborhood view is not reimplemented (the brief marks it optional and gates it behind explicit ghost/boundary-node styling). This is a visible behavior change from the prior revision — clicking a class no longer auto-narrows the graph to its neighborhood, by design, so scope stays exclusively user-controlled from the tree/Focus actions.
+
+Verification for this slice:
+- `node scripts/test-graph-model.mjs` — PASS. Extended with scope-projection cases (package, class, method, mixed-package, empty, all-selected scope), a "no hidden neighborhood expansion" regression check, and scope-helper unit tests (tri-state check state, immutable toggle/materialize-from-ALL behavior, `scopeToLabel`).
+- `npx tsc -b --force` (frontend) — 0 errors. `npm run build` (Vite) — succeeds; existing >500 kB main-bundle advisory unchanged (pre-existing, not from this change).
+- `./gradlew test bootJar` — BUILD SUCCESSFUL, all 61 backend tests pass (backend untouched by this slice), jar packaged with the new frontend bundled in.
+- Live browser verification: launched the packaged jar, reused an already-indexed `test-fixtures/spring-project` snapshot (70 nodes/42 edges/5 packages/17 classes), and drove the real UI via raw Chrome DevTools Protocol (headless Chromium, no npm dependency, same approach as `scripts/verify-hierarchical-ui.mjs`) at 1500×980 and 390×844. Confirmed: fresh load starts whole-system with every checkbox checked; unchecking a package removes it from the CLASS-level graph and banner switches to "N packages selected"; "Reset to whole system" restores every checkbox; "Focus scope" on a class isolates it and jumps to METHOD level; "Clear" shows the intentional empty state and its "Select all" restores whole-system; selecting a different tree label while a custom scope is active leaves the scope banner text unchanged (selection doesn't erase scope); narrow (390px) layout has zero horizontal overflow; zero uncaught runtime exceptions during the whole run. Five screenshots captured and visually inspected (desktop whole-system, class-level after unchecking a package, focus-scope method level, empty-scope state, narrow explorer pane).
+- `git diff --check` — clean.
+
+Limits and skipped verification:
+- Interactive checkbox/focus-button behavior was verified via CDP DOM clicks against the real running app (not a mocked harness), but no automated regression test captures these DOM interactions for CI; only the pure scope/projection logic has an automated (`node scripts/test-graph-model.mjs`) check. A future pass could add a lightweight CDP or component-test harness for the tree interactions themselves.
+- Did not re-verify the explanation pipeline (READY sparkle, Explain all) in this session; this slice touches only scope/navigation code and the existing explanation call sites were left structurally unchanged (`InspectorPanel`/`GraphCanvas` explanation rendering untouched).
+- The focused-neighborhood graph view (seed + collaborators) from the prior revision is intentionally not carried forward; see deliberate omission above.
+
+## Previous acceptance slice: hierarchical explanations — complete
 
 Implemented on 2026-09-09 against the actual R6 implementation:
 - Explain all queues only active CLASS and METHOD symbols. Edges and other symbol kinds remain on-demand.

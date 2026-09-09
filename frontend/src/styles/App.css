@@ -45,3 +45,31 @@ h1 { font-size: 25px; letter-spacing: -.7px; line-height: 1.3; font-weight: 650;
 .architecture-draft small { display: block; color: #667a93; overflow-wrap: anywhere; }
 @keyframes gemini-reveal { 0% { opacity: .4; transform: scale(.7) rotate(-20deg); } 45% { filter: drop-shadow(0 0 5px #4b8af2); } 100% { opacity: 1; transform: scale(1) rotate(0); } }
 @media (prefers-reduced-motion: reduce) { .gemini-badge svg { animation: none; } }
+
+/* Scope tree (left navigation): package/class boundary selection. Reuses .tree-branch/.tree-icon/.package-tree. */
+.scope-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 20px 8px; }
+.scope-toolbar .text-button { padding: 2px 0; font-size: 11px; }
+.scope-count { margin-left: auto; font-size: 10px; color: #7c8da3; white-space: nowrap; }
+.scope-checkbox { flex-shrink: 0; width: 13px; height: 13px; accent-color: #087f86; margin: 0; cursor: pointer; }
+.scope-row-class { display: flex; align-items: center; gap: 6px; min-height: 30px; padding-left: 4px; }
+.scope-row-class .scope-label, .scope-row-package summary .scope-label { display: block; border: 0; background: transparent; text-align: left; font-size: 12px; padding: 6px 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scope-row-class .scope-label.selected, .scope-row-package summary .scope-label.selected { color: #087f86; font-weight: 600; }
+.tree-branch.scope-row-package summary { gap: 6px; }
+.scope-focus { flex: 0 0 auto; border: 0; background: transparent; padding: 2px 4px; font-size: 13px; color: #087f86; opacity: 0; transition: opacity .12s; line-height: 1; }
+.scope-row-class:hover .scope-focus, .scope-row-class:focus-within .scope-focus,
+.scope-row-package summary:hover .scope-focus, .scope-row-package:focus-within summary .scope-focus,
+.scope-focus:focus-visible { opacity: 1; }
+
+/* Scope banner: persistent boundary summary above the graph canvas. */
+.scope-banner { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 12px 24px 0; padding: 9px 14px; border: 1px solid #d7e6e6; border-radius: 7px; background: #f4faf9; }
+.scope-banner-icon { color: #087f86; font-size: 17px; flex-shrink: 0; }
+.scope-banner-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.scope-banner-text strong { font-size: 12px; color: #0b3c40; overflow-wrap: anywhere; }
+.scope-banner-text span { font-size: 10px; color: #5c7c7e; }
+.scope-banner-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.inspecting-chip { color: #48637c; background: #eef2f7; }
+.scope-empty-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; padding: 40px 20px; color: #62738a; }
+.scope-empty-state h2 { font-size: 16px; }
+.breadcrumb-level { color: #7c8da2; }
+@media(max-width:1200px){.scope-banner{margin:10px 18px 0;padding:8px 12px}.scope-banner-text span{display:none}}
+@media(max-width:760px){.scope-banner{margin:8px 16px 0;flex-wrap:wrap}.scope-toolbar{padding:10px 14px 6px}}
