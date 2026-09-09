@@ -35,3 +35,13 @@ h1 { font-size: 25px; letter-spacing: -.7px; line-height: 1.3; font-weight: 650;
 .unresolved-row { margin-top: 14px; padding: 10px; border: 1px solid #f0dfbf; border-radius: 6px; background: #fffaf1; overflow-wrap: anywhere; }
 .unresolved-row small { display: block; }.analysis-warnings { color: #a37528; position: relative; }.analysis-warnings summary { cursor: pointer; }.analysis-warnings > div { position: absolute; bottom: 30px; left: 0; width: min(420px,85vw); padding: 14px; border: 1px solid #efdbb6; background: #fffaf2; box-shadow: 0 3px 18px #203a4920; z-index: 30; }.analysis-warnings p { font-size: 12px; }.show-more { color: #087f86; font-size: 11px; }
 .edge-hover { position: absolute; max-width: 270px; border: 1px solid #c9dce5; background: white; border-radius: 7px; padding: 12px; box-shadow: 0 5px 18px #24425222; pointer-events: none; font-size: 12px; }.edge-hover p { font-size: 11px; margin-top: 5px; }
+
+/* READY is the only state with a sparkle. Retain text and resolution styling. */
+.gemini-badge { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; width: 24px; height: 24px; vertical-align: middle; border-radius: 50%; background: #f3eeff; box-shadow: 0 0 9px #9461ef30; }
+.gemini-badge svg { width: 20px; height: 20px; filter: drop-shadow(0 0 2px #80ddff); animation: gemini-reveal 1.4s ease-out; }
+.explanation-ready { display: inline-flex; align-items: center; gap: 5px; }
+.architecture-draft { margin: 12px 0; padding: 10px 12px; border-left: 2px solid #a5b7ce; background: #f5f8fc; }
+.architecture-draft summary { cursor: pointer; color: #48637c; }
+.architecture-draft small { display: block; color: #667a93; overflow-wrap: anywhere; }
+@keyframes gemini-reveal { 0% { opacity: .4; transform: scale(.7) rotate(-20deg); } 45% { filter: drop-shadow(0 0 5px #4b8af2); } 100% { opacity: 1; transform: scale(1) rotate(0); } }
+@media (prefers-reduced-motion: reduce) { .gemini-badge svg { animation: none; } }

@@ -113,3 +113,31 @@ The frontend is structured by functional domain under `frontend/src/features/`:
 - **Snapshot Immutability**: Each indexing run produces a versioned snapshot. Graphs and explanations point to specific snapshots, preventing stale concurrency errors.
 - **Connection-Level SQLite Foreign Keys**: Strict relational constraints prevent orphaned evidence or cross-snapshot contamination. WAL mode enables concurrent reads during background jobs.
 - **Structured JSON Schema for AI**: Model output is constrained to a strict JSON contract (`explanation-schema.json`) with claims classified by basis and linked to evidence IDs.
+
+## 7. Hierarchical explanations (R6)
+
+The current explanation flow is defined in [ADR 0003](adr/0003-hierarchical-explanations.md):
+
+```mermaid
+flowchart LR
+    A[Explain all] --> B[Complete inventory, coupling and documents]
+    B --> C[One validated architecture synthesis]
+    C --> D[Persist class drafts with provenance]
+    D --> E[CLASS and METHOD queue: degree, LOC, ID]
+    E --> F[Sequential source-grounded explanations]
+    F --> G[Earlier READY prose enriches later contexts]
+    G --> F
+    H[Explicit symbol or edge request] --> I[Same enriched context builder]
+    I --> F
+```
+
+The loop represents reading already stored prose, not recursive generation. Relations
+are strictly on-demand. Job synthesis failure blocks its bulk members while leaving
+graph browsing and independent on-demand requests available. Drafts have distinct
+storage/API presentation and never produce READY badges. Refreshing consumed prose
+can stale dependent results; newly available unrelated prose does not.
+
+The active React `InspectorPanel` implements all inspector types. Graph statuses
+refresh through the graph API; Cytoscape updates card/edge display data without
+recreating the canvas or resetting its viewport. Shared sparkle styling is purely
+a READY marker and preserves relationship resolution styling.

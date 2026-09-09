@@ -1,9 +1,41 @@
 # Project status
 Last updated: 2026-09-09
 Active milestone: R6 — Developer comprehension redesign (in progress)
-Current revision: R6 implementation, bug-fix pass, and browser verification
+Current revision: R6 hierarchical explanations and READY indicators (verified)
 
-## Current follow-up: R6
+## Current acceptance slice: hierarchical explanations — complete
+
+Implemented on 2026-09-09 against the actual R6 implementation:
+- Explain all queues only active CLASS and METHOD symbols. Edges and other symbol kinds remain on-demand.
+- Durable architecture synthesis precedes bulk symbols: complete inventory/stereotypes, all project documents and package coupling; exact CLASS JSON coverage is validated before atomic draft persistence.
+- V004 stores separate class drafts, synthesis evidence/provenance/freshness, consumed explanation dependencies and queue ordering. Drafts are visible in the inspector and never count as READY.
+- Sequential processing orders symbols by incoming + outgoing occurrence count, declaration LOC, then ID. The legacy concurrency hint is accepted but execution deliberately stays sequential. Matching fresh synthesis and existing READY explanations survive resume.
+- Shared contexts propagate owner/member/caller/callee/collaborator explanations and drafts, including endpoint source and exact evidence for on-demand relationships. Generated-only citations cannot prove SOURCE_FACT claims. Changed consumed outputs stale downstream explanations while retaining their evidence.
+- READY class/method cards and edge labels/hover cards display a glowing purple/blue sparkle; the shared inspector shows it beside Ready. Grouped edges require every occurrence to be READY. Candidate/unresolved styling remains independent.
+- Graph status refresh preserves pan/zoom. Inspector polling resumes for explicit refresh and bulk status changes. Subject-scoped display prevents a previous subject's READY badge flashing on a newly selected unexplained edge. Unresolved relationships can also be opened from the inspector list.
+
+Verification for this slice:
+- `./gradlew test` and `./gradlew test bootJar` — successful; latest suite: **61 tests, 0 failures/errors/skips**, including 12 hierarchy acceptance tests and a V003→V004 upgrade test.
+- `./gradlew bootJar` — successful, frontend TypeScript/Vite compiled and executable jar packaged. Vite reports its existing advisory that the main bundle exceeds 500 kB.
+- `node scripts/test-graph-model.mjs` — PASS, including mixed/READY/stale edge aggregation and escaped SVG labels.
+- `python3 scripts/verify_hierarchical_pipeline.py` — PASS using an isolated local mock provider, temporary database and packaged app. Verified 61 bulk symbols in exact model-request order, zero bulk relationships, explicit edge generation, SQLite integrity/foreign keys and unchanged fixture source hashes.
+- Chromium assertions: live draft→READY update, class/method/edge/hover sparkle, refresh after READY, viewport preservation, reduced motion, 430px narrow layout, no horizontal overflow and no runtime exceptions.
+- Visually inspected PNGs in `build/hierarchy-smoke/run-e21seu6v/`: `architecture-draft.png`, `class-ready.png`, `method-ready.png`, `edge-ready.png`, `edge-hover-ready.png`, `narrow-edge-ready.png`.
+- Final browser rerun also verified and visually inspected `build/hierarchy-smoke/run-ocraw3mz/narrow-synthesis-failed.png`: the complete-input budget error remains readable at 430px without horizontal overflow. All seven final screenshots are in that run directory.
+- `python3 -m py_compile scripts/verify_hierarchical_pipeline.py` — successful.
+- `git diff --check` — clean. Existing untracked root `package-lock.json` preserved.
+
+Limits and skipped verification:
+- **No live-model quality/latency verification for this revision.** The browser provider is a local deterministic mock; the prior live-run claims below are historical.
+- Complete global input is never silently truncated. Large inventories/documents require a sufficient Context Budget; incomplete model output fails atomically and may require a larger Output Budget. Individual source/prose context is bounded with explicit omissions.
+- Ordering is the requested degree/LOC heuristic, not a topological guarantee that every method precedes its class. Explicit clicks can take priority after the relevant architecture barrier.
+- Scope remains the indexed Java snapshot; source-only import still does not evaluate target builds or runtime Spring behavior.
+- `docs/BUILD_BRIEF.md` is absent; `docs/BUILD.md` contains the original brief and was read along with the other documentation. Runtime inspectors live in `InspectorPanel`; the separately named legacy inspector files are unused placeholders.
+
+Decision and contracts: [ADR 0003](docs/adr/0003-hierarchical-explanations.md), [architecture](docs/ARCHITECTURE.md), [data model](docs/DATA_MODEL.md), [tests](docs/TESTING.md). The requested acceptance slice is complete; the next product review is explanation quality against the user's configured model.
+
+## Earlier R6 redesign verification (historical)
+
 
 The user requested a full redesign matching `docs/pics/`, project documents in explanation context, whole-codebase context for Explain All, corrected dependency navigation/layout, a compact bottom-left minimap, and explicit method-code buttons. Prior R0–R5 claims below are historical, not verification of this revision.
 
@@ -13,7 +45,7 @@ Implemented and browser-verified against `docs/pics/`:
 - Light developer workspace, left package-tree sidebar, package/class/method abstraction, focused caller-left/target-right neighborhood layout, source dialogs (view-on-click only, never default), and a compact, correctly-proportioned minimap moved to bottom-left.
 - Local project document CRUD with revisioned evidence and explanation invalidation.
 - Codebase inventory/package coupling, documents and collaborator evidence in explanation requests; relationship prompts carry real facts.
-- Explain All includes methods and every relationship occurrence (including unresolved ones, surfaced as explicit uncertainty); cancellation/resume retains completed successful explanations.
+- Earlier R6 included methods and relationship occurrences in Explain All. Superseded by the current hierarchy slice above: bulk includes CLASS/METHOD only; relationships remain on-demand.
 - Parser stores overload identities, private methods, exact declaration/call evidence, and Spring relationship evidence.
 
 Bugs fixed this revision:

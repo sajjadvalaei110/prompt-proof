@@ -172,7 +172,7 @@ Exit evidence: dedicated fixtures cover qualifier selection, ambiguous candidate
 ### R4 — Complete explanation coverage and incremental updates
 
 Scope:
-- Resumable Explain all across classes, methods and relationships, with configurable concurrency defaulting to one.
+- Resumable Explain all across classes and methods, preceded by architectural drafts and processed sequentially by relation count and LOC. Relationships remain on-demand. This R6 change supersedes the original R4 bulk scope; see ADR 0003.
 - Per-item durable status, bounded retries, cancellation, restart recovery and deduplication.
 - Priority for explicit requests and visible neighbors; no model request on every hover.
 - Change detection, re-resolution, stale marking and snapshot-safe completion.

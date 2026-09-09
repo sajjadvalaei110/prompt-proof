@@ -108,3 +108,24 @@ Explanations produced by local language models record complete provenance for re
   - **`source_fact`**: Directly observable in source code and backed by evidence IDs.
   - **`inferred_purpose`**: Probabilistic hypothesis of developer intent.
   - **`unknown`**: Explicit limitations where context is insufficient.
+
+## 6. Hierarchical generation schema (V004)
+
+| Record/field | Contract |
+| --- | --- |
+| `explanation_syntheses` | Immutable synthesis inputs/provenance, snapshot, schema/prompt version, endpoint/model, SHA-256 fingerprint and retained evidence; freshness can change from READY to STALE. |
+| `class_pre_explanations` | One current draft purpose per class, linked to the synthesis that produced it. These records are never full READY explanations. |
+| `explanations.context_dependencies` | JSON list of consumed generated inputs (`symbolId`, `kind` = full/pre, `version` hash). Current context evidence retains the actual text used, including prior output provenance. |
+| `jobs.synthesis_status` | PENDING → RUNNING → READY, or FAILED. Cancellation is still represented by the job's status. A document edit can restore the barrier to PENDING. |
+| `explanation_queue.relation_count`, `loc` | Persisted deterministic ordering. Missing declaration spans use 2147483647. Symbol ID breaks remaining ties. |
+
+The version-1 synthesis response contract is in
+[`prompts/architecture-synthesis-schema.json`](../prompts/architecture-synthesis-schema.json).
+The service adds snapshot membership and exact CLASS coverage validation. Full
+explanations now record prompt version `3.0`; successful earlier prompt versions
+are preserved and can be explicitly refreshed.
+
+Additive API fields: graph edges expose `explanationStatus`; explanation responses
+can include `preExplanation { businessLogic, status: DRAFT|STALE, provenance }`;
+queue status exposes `synthesisStatus` and `errorMessage`. Consumers must not equate
+DRAFT with READY. A grouped edge is READY only when all occurrences are READY.

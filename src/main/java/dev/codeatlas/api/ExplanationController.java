@@ -58,7 +58,7 @@ public class ExplanationController {
 
     /**
      * Submit a bulk "Explain All" job for a snapshot.
-     * Enqueues all classes and key relationships for explanation generation.
+     * Synthesizes class drafts, then queues only CLASS and METHOD symbols. Relationships are on-demand.
      */
     @PostMapping("/explanation-jobs")
     public ResponseEntity<Map<String, Object>> submitExplainAllJob(

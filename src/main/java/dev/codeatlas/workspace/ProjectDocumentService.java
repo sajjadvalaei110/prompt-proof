@@ -38,6 +38,10 @@ public class ProjectDocumentService {
         invalidate(workspaceId);
     }
     private void invalidate(String workspaceId) {
+        db.update("UPDATE explanation_syntheses SET status = 'STALE' WHERE snapshot_id IN (SELECT id FROM snapshots WHERE workspace_id = ?) AND status = 'READY'", workspaceId);
+        // Re-establish the barrier for remaining bulk work. A synthesis already in flight
+        // detects the changed document fingerprint itself before saving anything.
+        db.update("UPDATE jobs SET synthesis_status = 'PENDING' WHERE workspace_id = ? AND operation = 'EXPLAIN_ALL' AND status = 'RUNNING' AND synthesis_status = 'READY'", workspaceId);
         db.update("UPDATE explanations SET status = 'STALE', updated_at = CURRENT_TIMESTAMP WHERE snapshot_id IN (SELECT id FROM snapshots WHERE workspace_id = ?) AND status = 'READY'", workspaceId);
         // Completed items may be resumed using the revised context; pending work reads it at execution time.
         db.update("UPDATE explanation_queue SET status = 'SKIPPED' WHERE workspace_id = ? AND status = 'COMPLETED'", workspaceId);

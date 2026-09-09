@@ -44,6 +44,7 @@ public class ExplanationService {
     public void explainSubject(String snapshotId, String subjectId, String subjectType) {
         log.info("Generating explanation for {} {} in snapshot {}", subjectType, subjectId, snapshotId);
 
+        final String documentsFingerprint = contextBuilder.documentsFingerprint(snapshotId);
         ContextBuilder.SymbolContext ctx = contextBuilder.buildContext(snapshotId, subjectId, subjectType);
         String targetSymbolId = ctx.symbolId();
         String systemPrompt = promptTemplate.getSystemPrompt();
@@ -51,7 +52,6 @@ public class ExplanationService {
         final String provider = properties.getModel().getBaseUrl();
         final String modelId = properties.getModel().getModelId() == null ? "default-model" : properties.getModel().getModelId();
         final String profileFingerprint = profileIdentity();
-        final String documentsFingerprint = contextBuilder.documentsFingerprint(snapshotId);
         String fingerprint = fingerprint(systemPrompt + userPrompt + profileFingerprint);
         Set<String> allowedEvidence = new HashSet<>();
         ctx.evidenceItems().forEach(e -> allowedEvidence.add(e.id()));
@@ -74,11 +74,10 @@ public class ExplanationService {
         String unknownsJson = toJson(unknownsList);
         String suggestedJson = toJson(suggestedNextIds);
         transactions.executeWithoutResult(transaction -> {
-        // Documents and the model profile are the only inputs that can change while this
-        // (published, otherwise immutable) snapshot is being explained; comparing their cheap
-        // signatures detects staleness without re-running the full context build twice per explanation.
+        // Compare only the generated inputs actually consumed, not all newly available outputs.
         boolean fresh = documentsFingerprint.equals(contextBuilder.documentsFingerprint(snapshotId))
-            && profileFingerprint.equals(profileIdentity());
+            && profileFingerprint.equals(profileIdentity())
+            && contextBuilder.dependenciesFresh(snapshotId, ctx.dependencies());
         // Check if an explanation record already exists
         Integer existingCount = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM explanations WHERE snapshot_id = ? AND subject_version_id = ? AND subject_type = ?",
@@ -105,10 +104,89 @@ public class ExplanationService {
             );
         }
 
-        jdbcTemplate.update("UPDATE explanations SET input_fingerprint = ?, context_evidence = ?, provider_base_url = ?, prompt_version = '2.0', status = ? WHERE snapshot_id = ? AND subject_version_id = ? AND subject_type = ?",
-            fingerprint, toJson(ctx.evidenceItems()), provider, fresh ? "READY" : "STALE", snapshotId, targetSymbolId, subjectType);
+        jdbcTemplate.update("UPDATE explanations SET input_fingerprint = ?, context_evidence = ?, context_dependencies = ?, provider_base_url = ?, prompt_version = ?, status = ? WHERE snapshot_id = ? AND subject_version_id = ? AND subject_type = ?",
+            fingerprint, toJson(ctx.evidenceItems()), toJson(ctx.dependencies()), provider, PromptTemplate.VERSION, fresh ? "READY" : "STALE", snapshotId, targetSymbolId, subjectType);
+        invalidateChangedDependencies(snapshotId);
         });
-        log.info("Persisted READY explanation for {} {}", subjectType, targetSymbolId);
+        log.info("Persisted explanation for {} {}", subjectType, targetSymbolId);
+    }
+
+    public static class SynthesisException extends IllegalArgumentException {
+        public SynthesisException(String message) { super(message); }
+    }
+    public record ArchitectureInputs(String documents, String profile, String fingerprint) {}
+
+    public boolean architectureInputsFresh(String snapshot, ArchitectureInputs inputs) {
+        return inputs.documents().equals(contextBuilder.documentsFingerprint(snapshot)) && inputs.profile().equals(profileIdentity())
+            && jdbcTemplate.queryForObject("SELECT COUNT(*) FROM explanation_syntheses WHERE snapshot_id = ? AND input_fingerprint = ? AND status = 'READY'", Integer.class, snapshot, inputs.fingerprint()) > 0;
+    }
+
+    /** One structured synthesis turn; validation is all-or-nothing and never writes graph facts. */
+    public ArchitectureInputs synthesizeArchitecture(String snapshotId) {
+        String documents = contextBuilder.documentsFingerprint(snapshotId);
+        String profile = profileIdentity();
+        var context = contextBuilder.buildArchitectureContext(snapshotId);
+        String system = promptTemplate.getSynthesisSystemPrompt();
+        String user = context.formattedContext();
+        String input = fingerprint(system + user + profile);
+        var inputs = new ArchitectureInputs(documents, profile, input);
+        if (architectureInputsFresh(snapshotId, inputs)) return inputs;
+        // UTF-8 bytes are a conservative token upper bound. Never silently truncate global input.
+        long size = (system + user).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+        if (size + properties.getModel().getOutputBudget() + 256 > properties.getModel().getContextBudget())
+            throw new SynthesisException("Complete architecture inventory and documents exceed the context budget. Increase Context Budget in model settings and retry Explain all.");
+        String provider = properties.getModel().getBaseUrl();
+        String model = properties.getModel().getModelId();
+        Map<String, String> purposes = context.classIds().isEmpty() ? Map.of()
+            : validateSynthesis(modelClient.getExplanation(system, user), context.classIds());
+        transactions.executeWithoutResult(transaction -> {
+            if (!documents.equals(contextBuilder.documentsFingerprint(snapshotId)) || !profile.equals(profileIdentity()))
+                throw new SynthesisException("Project documents or model settings changed during synthesis. Retry Explain all.");
+            String synthesisId = UUID.randomUUID().toString();
+            jdbcTemplate.update("UPDATE explanation_syntheses SET status = 'STALE' WHERE snapshot_id = ? AND status = 'READY'", snapshotId);
+            jdbcTemplate.update("INSERT INTO explanation_syntheses (id, snapshot_id, status, schema_version, prompt_version, model_id, provider_base_url, input_fingerprint, context_evidence) VALUES (?, ?, 'READY', '1', ?, ?, ?, ?, ?)",
+                synthesisId, snapshotId, PromptTemplate.SYNTHESIS_VERSION, model, provider, input, toJson(context.evidenceItems()));
+            purposes.forEach((id, purpose) -> jdbcTemplate.update("INSERT INTO class_pre_explanations (symbol_id, synthesis_id, business_logic) VALUES (?, ?, ?) ON CONFLICT(symbol_id) DO UPDATE SET synthesis_id = excluded.synthesis_id, business_logic = excluded.business_logic", id, synthesisId, purpose));
+            invalidateChangedDependencies(snapshotId);
+        });
+        return inputs;
+    }
+
+    private Map<String, String> validateSynthesis(String response, Set<String> expected) {
+        try {
+            if (response == null || response.length() > 1_000_000) throw new IllegalArgumentException();
+            JsonNode root = objectMapper.readTree(response);
+            if (!root.isObject() || root.size() != 1 || !root.path("classes").isArray()) throw new IllegalArgumentException();
+            Map<String, String> purposes = new LinkedHashMap<>();
+            for (JsonNode item : root.get("classes")) {
+                if (!item.isObject() || item.size() != 2 || !item.path("symbolId").isTextual() || !item.path("businessLogic").isTextual()) throw new IllegalArgumentException();
+                String id = item.get("symbolId").asText(), purpose = item.get("businessLogic").asText().strip();
+                if (!expected.contains(id) || purpose.isEmpty() || purpose.length() > 2000 || purposes.putIfAbsent(id, purpose) != null) throw new IllegalArgumentException();
+            }
+            if (!purposes.keySet().equals(expected)) throw new IllegalArgumentException();
+            return purposes;
+        } catch (Exception e) {
+            throw new SynthesisException("Architecture response must contain every CLASS exactly once with a nonempty businessLogic (up to 2000 characters). No drafts were saved; retry Explain all or increase Output Budget.");
+        }
+    }
+
+    private void invalidateChangedDependencies(String snapshot) {
+        // A refreshed consumed output can stale downstream explanations; bounded fixed point also
+        // handles cycles. Merely adding a new explanation has no effect on earlier independent work.
+        boolean changed;
+        do {
+            changed = false;
+            for (var row : jdbcTemplate.queryForList("SELECT id, context_dependencies FROM explanations WHERE snapshot_id = ? AND status = 'READY' AND context_dependencies != '[]'", snapshot)) {
+                try {
+                    List<ContextBuilder.ContextDependency> dependencies = objectMapper.readValue((String)row.get("context_dependencies"), new TypeReference<>() {});
+                    if (!contextBuilder.dependenciesFresh(snapshot, dependencies)) {
+                        jdbcTemplate.update("UPDATE explanations SET status = 'STALE', updated_at = CURRENT_TIMESTAMP WHERE id = ?", row.get("id"));
+                        jdbcTemplate.update("UPDATE explanation_queue SET status = 'SKIPPED', updated_at = CURRENT_TIMESTAMP WHERE snapshot_id = ? AND status = 'COMPLETED' AND EXISTS (SELECT 1 FROM explanations e WHERE e.id = ? AND e.subject_version_id = explanation_queue.subject_id AND e.subject_type = explanation_queue.subject_type)", snapshot, row.get("id"));
+                        changed = true;
+                    }
+                } catch (com.fasterxml.jackson.core.JsonProcessingException e) { throw new IllegalStateException("Invalid stored context dependencies", e); }
+            }
+        } while (changed);
     }
 
     private record ParsedExplanation(String label, String summary, List<Map<String,Object>> claims, List<String> unknowns, List<String> next) {}
@@ -124,7 +202,7 @@ public class ExplanationService {
                 try { ClaimBasis.valueOf(basis); } catch(Exception e) {throw new IllegalArgumentException("Use SOURCE_FACT, INFERRED_PURPOSE or UNKNOWN for claim basis");}
                 List<String> ids=array(claim.path("evidenceIds"));
                 if(description.isBlank() || ids.isEmpty() || !allowed.containsAll(ids)) throw new IllegalArgumentException("Each claim must cite only supplied evidence IDs");
-                if("SOURCE_FACT".equals(basis) && ids.stream().allMatch(e->e.startsWith("doc-"))) throw new IllegalArgumentException("Document-only claims must be INFERRED_PURPOSE, not SOURCE_FACT");
+                if("SOURCE_FACT".equals(basis) && ids.stream().allMatch(e->e.startsWith("doc-") || e.startsWith("ai-"))) throw new IllegalArgumentException("Document/generated-only claims must be INFERRED_PURPOSE, not SOURCE_FACT");
                 claims.add(Map.of("description",description,"basis",basis,"evidenceIds",ids));
             }
             List<String> next=array(root.path("suggestedNextSymbolIds"));
@@ -144,6 +222,20 @@ public class ExplanationService {
         return getExplanation(snapshotId, symbolId, "symbol");
     }
     public ExplanationResponse getExplanation(String snapshotId, String symbolId, String subjectType) {
+        var full = getFullExplanation(snapshotId, symbolId, subjectType);
+        ExplanationResponse.PreExplanation pre = null;
+        if ("symbol".equals(subjectType)) {
+            var rows = jdbcTemplate.queryForList("SELECT p.business_logic, a.status, a.model_id, a.generated_at, a.input_fingerprint FROM class_pre_explanations p JOIN explanation_syntheses a ON a.id = p.synthesis_id JOIN symbol_versions s ON s.id = p.symbol_id WHERE a.snapshot_id = ? AND (s.id = ? OR s.qualified_name = ?)", snapshotId, symbolId, symbolId);
+            if (!rows.isEmpty()) {
+                var row = rows.get(0);
+                pre = new ExplanationResponse.PreExplanation((String)row.get("business_logic"), "READY".equals(row.get("status")) ? "DRAFT" : "STALE",
+                    row.get("model_id") + " · " + row.get("generated_at") + " · Architecture " + row.get("input_fingerprint"));
+            }
+        }
+        return new ExplanationResponse(full.shortLabel(), full.hoverSummary(), full.claims(), full.unknowns(), full.suggestedNextSymbolIds(), full.status(), full.provenance(), pre);
+    }
+
+    private ExplanationResponse getFullExplanation(String snapshotId, String symbolId, String subjectType) {
         // Resolve target symbol canonical ID
         String targetId = symbolId;
         try {

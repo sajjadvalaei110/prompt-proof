@@ -74,7 +74,8 @@ This script validates:
 - Strict loopback binding (`127.0.0.1:8085`) and CORS policy rejection of external origins.
 - 100-class project indexing and graph retrieval via REST APIs.
 - Spring stereotype recognition, HTTP route discovery, and dependency injection candidate resolution.
-- Priority explanation queue (user-click priority 100, bulk Explain All, cancellation, and restart recovery).
+- Hierarchical Explain All: complete architecture synthesis into class drafts, then active classes/methods ordered by relation count and LOC. Processing is sequential; the legacy concurrency hint is accepted but does not increase workers. Relationships are explained on demand. Cancellation/resume preserves successful work.
+- Context propagates existing explanations between classes, methods and relationship endpoints. READY elements display a sparkle; drafts and stale results do not. See [ADR 0003](docs/adr/0003-hierarchical-explanations.md).
 
 ---
 

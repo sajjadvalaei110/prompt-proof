@@ -39,7 +39,7 @@ public class GraphQueryService {
         List<GraphNode> nodes = jdbcTemplate.query(
                 "SELECT sv.id, sv.kind, sv.qualified_name, sv.simple_name, sv.module, " +
                         "sv.parent_symbol_id, sv.roles, sv.source_status, " +
-                        "COALESCE(e.status, 'NOT_REQUESTED') AS explanation_status " +
+                        "COALESCE((SELECT CASE q.status WHEN 'PENDING' THEN 'QUEUED' WHEN 'IN_PROGRESS' THEN 'RUNNING' WHEN 'FAILED' THEN 'FAILED' END FROM explanation_queue q WHERE q.snapshot_id = sv.snapshot_id AND q.subject_id = sv.id AND q.subject_type = 'symbol'), e.status, 'NOT_REQUESTED') AS explanation_status " +
                         "FROM symbol_versions sv " +
                         "LEFT JOIN explanations e ON sv.id = e.subject_version_id AND e.subject_type = 'symbol' " +
                         "WHERE sv.snapshot_id = ? AND COALESCE(sv.source_status, 'ACTIVE') != 'DELETED'",
@@ -67,9 +67,9 @@ public class GraphQueryService {
 
         // Fetch edges including new R3 types (INJECTS, DECLARES_BEAN, HANDLES_ROUTE)
         List<GraphEdge> edges = jdbcTemplate.query(
-                "SELECT id, source_symbol_id, target_symbol_id, kind, resolution, reason " +
-                        "FROM relationship_occurrences " +
-                        "WHERE snapshot_id = ? AND target_symbol_id IS NOT NULL",
+                "SELECT r.id, r.source_symbol_id, r.target_symbol_id, r.kind, r.resolution, r.reason, COALESCE((SELECT CASE q.status WHEN 'PENDING' THEN 'QUEUED' WHEN 'IN_PROGRESS' THEN 'RUNNING' WHEN 'FAILED' THEN 'FAILED' END FROM explanation_queue q WHERE q.snapshot_id = r.snapshot_id AND q.subject_id = r.id AND q.subject_type = 'relationship'), e.status, 'NOT_REQUESTED') AS explanation_status " +
+                        "FROM relationship_occurrences r LEFT JOIN explanations e ON e.subject_version_id = r.id AND e.subject_type = 'relationship' AND e.snapshot_id = r.snapshot_id " +
+                        "WHERE r.snapshot_id = ? AND r.target_symbol_id IS NOT NULL",
                 (rs, rowNum) -> {
                     String kindStr = rs.getString("kind");
                     RelationshipKind kind;
@@ -98,7 +98,8 @@ public class GraphQueryService {
                             resolution,
                             label,
                             buildEdgeHoverSummary(kind, reason),
-                            1
+                            1,
+                            parseExplanationStatus(rs.getString("explanation_status"))
                     );
                 },
                 snapshotId

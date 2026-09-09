@@ -1,11 +1,15 @@
 import { useState, useEffect } from 'react';
+import GeminiBadge from '../../components/GeminiBadge';
 import { apiClient } from '../../api/client';
 import { AtlasNode, AtlasEdge, AtlasGraph, isType } from '../explorer/graphModel';
-interface Props { selectedNode: AtlasNode | null; selectedEdge: AtlasEdge | null; workspaceId: string | null; snapshotId: string | null; graph: AtlasGraph; routes: any[]; revision: number; onSelect: (node: AtlasNode) => void; onExplore: (node: AtlasNode) => void; onSource: (node: {id:string;simpleName?:string}, type?:string) => void; onClose: () => void }
-export default function InspectorPanel({selectedNode: node, selectedEdge: edge, workspaceId, snapshotId, graph, routes, revision, onSelect, onExplore, onSource, onClose}: Props) {
-  const [explanation,setExplanation]=useState<any>(null), [evidence,setEvidence]=useState<any[]>([]), [error,setError]=useState(''), [requesting,setRequesting]=useState(false), [site,setSite]=useState(0);
+interface Props { selectedNode: AtlasNode | null; selectedEdge: AtlasEdge | null; workspaceId: string | null; snapshotId: string | null; graph: AtlasGraph; routes: any[]; revision: number; onSelect: (node: AtlasNode) => void; onExplore: (node: AtlasNode) => void; onSource: (node: {id:string;simpleName?:string}, type?:string) => void; onClose: () => void; onInspectEdge: (edge:AtlasEdge) => void }
+export default function InspectorPanel({selectedNode: node, selectedEdge: edge, workspaceId, snapshotId, graph, routes, revision, onSelect, onExplore, onSource, onClose, onInspectEdge}: Props) {
+  const [rawExplanation,setExplanation]=useState<any>(null), [loadedSubject,setLoadedSubject]=useState<string|null>(null), [evidence,setEvidence]=useState<any[]>([]), [error,setError]=useState(''), [requesting,setRequesting]=useState(false), [site,setSite]=useState(0), [requestRevision,setRequestRevision]=useState(0);
   const type=edge?'relationship':'symbol';
   const subject=edge?(edge.occurrenceIds?.[site] || edge.id):node?.id;
+  const explanation=loadedSubject===subject?rawExplanation:null;
+  const graphStatus=edge?graph.edges.find(e=>e.id===subject)?.explanationStatus:graph.nodes.find(n=>n.id===subject)?.explanationStatus;
+  useEffect(()=>{setExplanation(null);setEvidence([]);setError('');},[snapshotId,subject]);
   useEffect(()=>{setSite(0);setExplanation(null);setError('');setEvidence([]);},[node?.id,edge?.id]);
   useEffect(()=>{
     if (!snapshotId || !subject || node?.kind==='PACKAGE') return;
@@ -15,13 +19,13 @@ export default function InspectorPanel({selectedNode: node, selectedEdge: edge, 
       try{
         const [result,ev]=await Promise.all([apiClient.getSubjectExplanation(snapshotId!,subject!,type),apiClient.getExplanationEvidence(snapshotId!,subject!,type)]);
         if(!alive)return;
-        setExplanation(result);setEvidence(ev);setError('');
-        if(timer&&['READY','FAILED'].includes(result?.status)){clearInterval(timer);timer=null;}
+        setLoadedSubject(subject!);setExplanation(result);setEvidence(ev);setError('');
+        if(timer&&!['QUEUED','RUNNING'].includes(result?.status)){clearInterval(timer);timer=null;}
       }catch(e:any){if(alive)setError(e.message);}
     }
     load(); timer=setInterval(load,2500);
     return()=>{alive=false;if(timer)clearInterval(timer);};
-  },[snapshotId,subject,type,revision,node?.kind]);
+  },[snapshotId,subject,type,revision,requestRevision,graphStatus,node?.kind]);
   const parent=graph.nodes.find(n=>n.id===node?.parentId);
   const children=graph.nodes.filter(n=>n.parentId===node?.id);
   const methods=children.filter(n=>n.kind==='METHOD');
@@ -31,16 +35,17 @@ export default function InspectorPanel({selectedNode: node, selectedEdge: edge, 
   const outgoing=graph.edges.filter(e=>relatedIds.has(e.sourceId)&&(!e.targetId||!relatedIds.has(e.targetId)));
   const find=(id:string|null|undefined)=>graph.nodes.find(n=>n.id===id);
   const status=explanation?.status||'NOT_REQUESTED';
-  async function explain(){if(!workspaceId||!snapshotId||!subject)return;setRequesting(true);try{await apiClient.requestExplanation(workspaceId,snapshotId,subject,type);setExplanation((prev:any)=>({...prev,status:'QUEUED'}));setError('');}catch(e:any){setError(e.message);}finally{setRequesting(false);}}
+  async function explain(){if(!workspaceId||!snapshotId||!subject)return;setRequesting(true);try{await apiClient.requestExplanation(workspaceId,snapshotId,subject,type);setLoadedSubject(subject);setExplanation((prev:any)=>({...prev,status:'QUEUED'}));setRequestRevision(r=>r+1);setError('');}catch(e:any){setError(e.message);}finally{setRequesting(false);}}
   function groupEdges(edges:AtlasEdge[],incoming:boolean){ const unique=new Map<string,{node:AtlasNode;count:number}>();for(const e of edges){const n=find(incoming?e.sourceId:e.targetId);if(!n)continue;const old=unique.get(n.id);unique.set(n.id,{node:n,count:(old?.count||0)+1});}return [...unique.values()]; }
   function renderGroups(groups:{node:AtlasNode;count:number}[]){ return groups.map(({node:n,count})=><button className="related-row" key={n.id} onClick={()=>onSelect(n)}><span>{n.simpleName}<small>{find(n.parentId)?.simpleName}</small></span><span>{count} {count===1?'site':'sites'} ↗</span></button>); }
   const incomingGroups=groupEdges(incoming,true), outgoingGroups=groupEdges(outgoing,false);
   if(!node&&!edge) return <aside className="inspector idle"><div className="inspector-label">Your reading companion</div><div className="empty-symbol">◇</div><h2>Start with the big picture.</h2><p>Select a package to see what it contains, or a class to follow its dependencies.</p><div className="reading-guide"><h3>A path into the codebase</h3><p><b>Explore packages</b><br/>See how the system is organized.</p><p><b>Follow an entry point</b><br/>Trace a request through its collaborators.</p><p><b>Understand a method</b><br/>Read its explanation, then open the code.</p></div><div className="quiet-note">Graph facts remain available without a model connection.</div></aside>;
-  return <aside className="inspector"><header className="inspector-top"><span>{edge?'Relationship':node?.kind.toLowerCase()}</span><button className="icon-button" onClick={onClose} aria-label="Close inspector">✕</button></header>
-    <div className="subject-heading"><span className="subject-icon">{node?.kind==='METHOD'?'ƒ':edge?'↗':'◇'}</span><div><h2>{edge?`${find(edge.sourceId)?.simpleName} → ${find(edge.targetId)?.simpleName}`:node?.simpleName}</h2><p>{node?.qualifiedName||edge?.kind.toLowerCase().replaceAll('_',' ')}</p></div></div>
+  return <aside className="inspector"><header className="inspector-top"><span>{edge?'Relationship':node?.kind.toLowerCase()}</span>{status==='READY'&&<span className="explanation-ready"><GeminiBadge/><span className="tag">Ready</span></span>}<button className="icon-button" onClick={onClose} aria-label="Close inspector">✕</button></header>
+    <div className="subject-heading"><span className="subject-icon">{node?.kind==='METHOD'?'ƒ':edge?'↗':'◇'}</span><div><h2>{edge?`${find(edge.sourceId)?.simpleName||'Unknown source'} → ${find(edge.targetId)?.simpleName||edge.descriptiveLabel||'Unresolved target'}`:node?.simpleName}</h2><p>{node?.qualifiedName||edge?.kind.toLowerCase().replaceAll('_',' ')}</p></div></div>
     {node?.roles?.length ? <div className="role-list">{node.roles.map(r=><span className="tag" key={r}>{r.toLowerCase().replaceAll('_',' ')}</span>)}</div>:null}
     {node?.kind==='PACKAGE'?<><section><h3>Inside this package <span className="count">{children.length}</span></h3><p>Explore the declarations that make up {node.simpleName}.</p><button className="primary full-width" onClick={()=>onExplore(node)}>Explore classes ↗</button>{children.map(n=><button className="related-row" key={n.id} onClick={()=>onSelect(n)}><span>◇ {n.simpleName}</span><span>↗</span></button>)}</section></>:<>
     {edge && <section><div className={`tag ${edge.resolution==='RESOLVED'?'':'amber'}`}>{edge.resolution.toLowerCase()}</div><p>{edge.occurrenceCount || 1} underlying occurrence(s). Arrows follow static source direction.</p>{(edge.occurrenceIds?.length||0)>1&&<label>Occurrence<select value={site} onChange={e=>setSite(Number(e.target.value))}>{edge.occurrenceIds!.map((_,i)=><option value={i} key={i}>Source occurrence {i+1}</option>)}</select></label>}<button className="full-width" onClick={()=>onSource({id:subject!},'relationship')}>View source evidence</button>{[find(edge.sourceId),find(edge.targetId)].filter(Boolean).map(n=><button key={n!.id} className="related-row" onClick={()=>onSelect(n!)}>Go to {n!.simpleName}<span>↗</span></button>)}</section>}
+    {explanation?.preExplanation&&<details className="architecture-draft" open={!explanation?.hoverSummary}><summary>Architecture draft{explanation.preExplanation.status==='STALE'?' · stale':''}</summary><p>{explanation.preExplanation.businessLogic}</p><small>Inferred from the project inventory and documents. Full code explanation is separate.</small><small>{explanation.preExplanation.provenance}</small></details>}
     <section className="explanation-section"><div className="section-heading"><h3>✧ Explanation</h3><span className={`tag ${['FAILED','STALE'].includes(status)?'amber':''}`}>{status.toLowerCase().replaceAll('_',' ')}</span></div>
     {explanation?.hoverSummary&&<><h3 className="responsibility">{explanation.shortLabel}</h3><p>{explanation.hoverSummary}</p></>}
     {status==='NOT_REQUESTED'&&<p>Understand this {edge?'relationship':node?.kind.toLowerCase()} in the context of the application, its collaborators, and your project documents.</p>}
@@ -55,7 +60,7 @@ export default function InspectorPanel({selectedNode: node, selectedEdge: edge, 
     {node&&<section className="source-action"><button className="full-width" onClick={()=>onSource(node)}>〈/〉 View {node.kind==='METHOD'?'method':'class'} code</button><small>Opens only when you need the implementation.</small></section>}
     </>}
     {methods.length>0&&<section><div className="section-heading"><h3>Methods</h3><span className="count">{methods.length}</span></div>{methods.map(m=><div className="method-row" key={m.id}><button onClick={()=>onSelect(m)} title={m.qualifiedName}><span>ƒ</span> {m.qualifiedName?.slice((node?.qualifiedName?.length||0)+1)||m.simpleName}</button><button aria-label={`View code for ${m.simpleName}`} title="View method code" onClick={()=>onSource(m)}>〈/〉</button></div>)}<button className="text-button" onClick={()=>onExplore(node!)}>See method call graph ↗</button></section>}
-    {node&&node.kind!=='PACKAGE'&&<><section><h3>Called or used by <span className="count">{incomingGroups.length}</span></h3>{renderGroups(incomingGroups)}{!incomingGroups.length&&<p>No incoming relationships in this snapshot.</p>}</section><section><h3>Depends on <span className="count">{outgoingGroups.length+unresolved.length}</span></h3>{renderGroups(outgoingGroups)}{unresolved.map((e:any)=><div className="unresolved-row" key={e.id}><span className="tag amber">Unresolved {e.kind.toLowerCase()}</span><p>{e.unresolvedTarget}</p><small>{e.reason}</small><button className="text-button" onClick={()=>onSource({id:e.id},'relationship')}>View occurrence</button></div>)}{!outgoingGroups.length&&!unresolved.length&&<p>No outgoing relationships in this snapshot.</p>}</section></>}
+    {node&&node.kind!=='PACKAGE'&&<><section><h3>Called or used by <span className="count">{incomingGroups.length}</span></h3>{renderGroups(incomingGroups)}{!incomingGroups.length&&<p>No incoming relationships in this snapshot.</p>}</section><section><h3>Depends on <span className="count">{outgoingGroups.length+unresolved.length}</span></h3>{renderGroups(outgoingGroups)}{unresolved.map((e:any)=><div className="unresolved-row" key={e.id}><span className="tag amber">Unresolved {e.kind.toLowerCase()}</span><p>{e.unresolvedTarget}</p><small>{e.reason}</small><button className="text-button" onClick={()=>onSource({id:e.id},'relationship')}>View occurrence</button><button className="text-button" onClick={()=>onInspectEdge({...e,targetId:null,descriptiveLabel:e.unresolvedTarget})}>Inspect relationship</button></div>)}{!outgoingGroups.length&&!unresolved.length&&<p>No outgoing relationships in this snapshot.</p>}</section></>}
     {node&&routes.filter(r=>relatedIds.has(r.symbol_version_id)).length>0&&<section><h3>Entry points</h3>{routes.filter(r=>relatedIds.has(r.symbol_version_id)).map(r=><p key={r.id}><span className="tag">{r.http_method}</span> {r.path}</p>)}</section>}
     {parent&&<section><h3>Belongs to</h3><button className="related-row" onClick={()=>onSelect(parent)}>{parent.simpleName}<span>↗</span></button></section>}
     {node&&isType(node)&&<div className="quiet-note">Relationships describe static dependencies. Runtime dispatch may vary.</div>}

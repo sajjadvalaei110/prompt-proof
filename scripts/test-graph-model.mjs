@@ -16,3 +16,20 @@ const methods=projectGraph(graph,'METHOD','a','ALL');assert.deepEqual(new Set(me
 assert.equal(projectGraph(graph,'CLASS',null,'INJECTS').edges.length,1);
 const limited=projectGraph(graph,'METHOD',null,'ALL',1);assert.equal(limited.nodes.length,1);assert.equal(limited.omitted,2);assert.ok(limited.edges.every(e=>limited.nodes.some(n=>n.id===e.sourceId)&&limited.nodes.some(n=>n.id===e.targetId)));
 console.log('PASS: package/class aggregation, direction, occurrence counts, uncertainty, method neighbors, filters, and bounded views');
+
+// A grouped edge is READY only when every underlying occurrence is READY.
+const mixed={nodes,edges:edges.map(e=>({...e,explanationStatus:e.id==='e1'?'READY':'NOT_REQUESTED'}))};
+assert.notEqual(projectGraph(mixed,'CLASS',null,'CALLS').edges[0].explanationStatus,'READY');
+const ready={nodes,edges:edges.map(e=>({...e,explanationStatus:'READY'}))};
+assert.equal(projectGraph(ready,'CLASS',null,'CALLS').edges[0].explanationStatus,'READY');
+ready.edges[1].explanationStatus='STALE';
+assert.notEqual(projectGraph(ready,'CLASS',null,'CALLS').edges[0].explanationStatus,'READY');
+const cardCompiled=ts.transpileModule(fs.readFileSync(new URL('../frontend/src/features/explorer/nodeCard.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.ES2022,target:ts.ScriptTarget.ES2022}}).outputText;
+const {nodeCard}=await import('data:text/javascript;base64,'+Buffer.from(cardCompiled).toString('base64'));
+for(const kind of ['CLASS','METHOD']){
+ const node={id:'n',kind,simpleName:'<script>&unsafe'};
+ const svg=decodeURIComponent(nodeCard({...node,explanationStatus:'READY'}).image);
+ assert.ok(svg.includes('id="sparkle"'));assert.ok(!svg.includes('<script>'));assert.ok(svg.includes('&lt;script&gt;'));
+ assert.ok(!decodeURIComponent(nodeCard({...node,explanationStatus:'STALE'}).image).includes('id="sparkle"'));
+}
+console.log('PASS: READY aggregation, stale badge removal, escaped class/method sparkle cards');

@@ -92,10 +92,10 @@ class DeveloperWorkflowTest {
         assertTrue(ctx.formattedContext().contains("demo.Worker.run() --CALLS--> demo.Worker.audit()"));
         assertTrue(ctx.evidenceItems().stream().anyMatch(e->e.id().startsWith("ev-site-")));
     }
-    @Test void bulkIncludesAllMethodsAndCallOccurrencesAndCanResume() {
+    @Test void bulkIncludesOnlyClassesAndMethodsAndCanResume() {
         String job=queue.startExplainAllJob(ws,snap,1);
         assertEquals(1,db.queryForObject("SELECT COUNT(*) FROM explanation_queue WHERE subject_id = ? AND job_id = ?",Integer.class,id("demo.Worker.audit()"),job));
-        assertEquals(db.queryForObject("SELECT COUNT(*) FROM relationship_occurrences WHERE snapshot_id = ?",Integer.class,snap),db.queryForObject("SELECT COUNT(*) FROM explanation_queue WHERE snapshot_id = ? AND subject_type = 'relationship'",Integer.class,snap));
+        assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM explanation_queue WHERE snapshot_id = ? AND subject_type = 'relationship'",Integer.class,snap));
         queue.cancelJob(job);String resumed=queue.startExplainAllJob(ws,snap,1);assertNotEquals(job,resumed);
         assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM explanation_queue WHERE snapshot_id = ? AND status = 'SKIPPED'",Integer.class,snap));
         assertThrows(IllegalArgumentException.class,()->queue.startExplainAllJob("other",snap,1));
