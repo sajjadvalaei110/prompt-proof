@@ -4,6 +4,9 @@
 - Date: 2026-09-09
 - Scope: R6 Explain all and on-demand context propagation
 
+> The single-turn and oversized-input-failure policy below is superseded by
+> [ADR 0004](0004-bounded-architecture-batches.md). Other hierarchy decisions remain.
+
 ## Decision
 
 Explain all includes active `CLASS` and `METHOD` symbols only. Interfaces, records,

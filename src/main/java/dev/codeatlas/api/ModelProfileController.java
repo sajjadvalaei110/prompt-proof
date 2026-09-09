@@ -5,6 +5,7 @@ import dev.codeatlas.api.dto.ModelProfileResponse;
 import dev.codeatlas.api.dto.ModelTestResponse;
 import dev.codeatlas.config.CodeAtlasProperties;
 import dev.codeatlas.modelclient.ModelClientService;
+import dev.codeatlas.modelclient.ModelRequestBudget;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
@@ -64,6 +65,11 @@ public class ModelProfileController {
 
     private void applyProfile(ModelProfileRequest request) {
         var m = properties.getModel();
+        int contextBudget = request.contextBudget() > 0 ? request.contextBudget() : m.getContextBudget();
+        int outputBudget = request.outputBudget() > 0 ? request.outputBudget() : m.getOutputBudget();
+        // Validate the effective pair before changing any profile field. Large model
+        // windows are accepted; the constraint only reserves usable input space.
+        new ModelRequestBudget(contextBudget, outputBudget);
         if (request.baseUrl() != null) {
             m.setBaseUrl(request.baseUrl().trim());
         }
@@ -73,12 +79,8 @@ public class ModelProfileController {
         if (request.apiKey() != null && !request.apiKey().isBlank() && !request.apiKey().equals("****")) {
             m.setApiKey(request.apiKey().trim());
         }
-        if (request.contextBudget() > 0) {
-            m.setContextBudget(request.contextBudget());
-        }
-        if (request.outputBudget() > 0) {
-            m.setOutputBudget(request.outputBudget());
-        }
+        m.setContextBudget(contextBudget);
+        m.setOutputBudget(outputBudget);
         if (request.timeoutSeconds() > 0) {
             m.setTimeoutSeconds(request.timeoutSeconds());
         }

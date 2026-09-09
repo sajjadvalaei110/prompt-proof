@@ -20,6 +20,7 @@ OUTPUT.mkdir(parents=True, exist_ok=True)
 import tempfile
 RUN = Path(tempfile.mkdtemp(prefix='run-', dir=OUTPUT))
 RELEASE = threading.Event()
+CONTEXT_RELEASE = threading.Event()
 REQUESTS = []
 
 class MockModel(BaseHTTPRequestHandler):
@@ -27,6 +28,8 @@ class MockModel(BaseHTTPRequestHandler):
         pass
 
     def do_GET(self):
+        if self.path == '/release-context':
+            CONTEXT_RELEASE.set()
         if self.path == '/release':
             RELEASE.set()
         self.send_response(200)
@@ -36,7 +39,13 @@ class MockModel(BaseHTTPRequestHandler):
     def do_POST(self):
         request = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         system, user = [message['content'] for message in request['messages']]
-        if system.startswith('Infer concise'):
+        if system.startswith('Summarize a slice'):
+            CONTEXT_RELEASE.wait(timeout=60)
+            REQUESTS.append('context-summary')
+            content = {'summary': 'Synthetic project brief: the fixture implements order processing. Documented intent requires source verification.'}
+        elif system.startswith('Infer concise'):
+            if 'TARGET CLASSES (complete declarations for this batch):' in user:
+                user = user.split('TARGET CLASSES (complete declarations for this batch):', 1)[1].split('[ev-neighbors]', 1)[0]
             classes = re.findall(r'\{symbolId=([^,}]+), qualified_name=([^,}]+),[^\n]*?kind=CLASS,', user)
             assert classes, 'No classes in complete inventory'
             REQUESTS.append('architecture')
@@ -106,6 +115,7 @@ def main():
         print(f'Screenshots: {RUN}')
     finally:
         RELEASE.set()
+        CONTEXT_RELEASE.set()
         for process in reversed(processes):
             process.terminate()
             try:

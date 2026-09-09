@@ -123,7 +123,9 @@ public class ExplanationQueueService {
         String id = (String) job.get("id");
         if (db.update("UPDATE jobs SET synthesis_status = 'RUNNING', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'RUNNING' AND synthesis_status = 'PENDING'", id) == 0) return;
         try {
-            var inputs = explanations.synthesizeArchitecture((String) job.get("snapshot_id"));
+            var inputs = explanations.synthesizeArchitecture((String) job.get("snapshot_id"),
+                () -> db.queryForObject("SELECT COUNT(*) FROM jobs WHERE id = ? AND status = 'RUNNING'", Integer.class, id) > 0,
+                progress -> db.update("UPDATE jobs SET synthesis_stage = ?, synthesis_completed = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'RUNNING'", progress.stage(), progress.completed(), id));
             transactions.executeWithoutResult(transaction -> {
                 // Cancellation and phase release are serialized database mutations, without
                 // holding a transaction open during the preceding model request.
@@ -134,6 +136,8 @@ public class ExplanationQueueService {
                 if (db.update("UPDATE jobs SET synthesis_status = 'READY', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'RUNNING'", id) > 0)
                     enqueueBulkSubjects((String)job.get("workspace_id"), (String)job.get("snapshot_id"), id);
             });
+        } catch (java.util.concurrent.CancellationException cancelled) {
+            db.update("UPDATE jobs SET synthesis_status = 'PENDING' WHERE id = ? AND status = 'RUNNING'", id);
         } catch (Exception e) {
             // Only our own bounded validation errors are safe for the UI. Provider errors are opaque.
             String error = e instanceof ExplanationService.SynthesisException ? e.getMessage()
@@ -220,11 +224,13 @@ public class ExplanationQueueService {
         var counts = new java.util.HashMap<String, Integer>();
         db.queryForList("SELECT status, COUNT(*) AS n FROM explanation_queue WHERE workspace_id = ? GROUP BY status", workspaceId)
             .forEach(row -> counts.put((String) row.get("status"), ((Number) row.get("n")).intValue()));
-        var jobs = db.queryForList("SELECT id, status, synthesis_status, error_message FROM jobs WHERE workspace_id = ? AND operation = 'EXPLAIN_ALL' ORDER BY CASE WHEN status = 'RUNNING' THEN 0 ELSE 1 END, created_at DESC, rowid DESC LIMIT 1", workspaceId);
+        var jobs = db.queryForList("SELECT id, status, synthesis_status, synthesis_stage, synthesis_completed, error_message, strftime('%Y-%m-%dT%H:%M:%SZ', updated_at) AS synthesis_stage_started_at FROM jobs WHERE workspace_id = ? AND operation = 'EXPLAIN_ALL' ORDER BY CASE WHEN status = 'RUNNING' THEN 0 ELSE 1 END, created_at DESC, rowid DESC LIMIT 1", workspaceId);
         var job = jobs.isEmpty() ? Map.<String, Object>of() : jobs.get(0);
         return new QueueStatus(counts.getOrDefault("PENDING", 0), counts.getOrDefault("IN_PROGRESS", 0), counts.getOrDefault("COMPLETED", 0),
             counts.getOrDefault("FAILED", 0), counts.getOrDefault("SKIPPED", 0), "RUNNING".equals(job.get("status")) ? (String) job.get("id") : null,
-            (String) job.get("synthesis_status"), (String) job.get("error_message"));
+            (String) job.get("synthesis_status"), (String) job.get("error_message"),
+            (String) job.get("synthesis_stage"), ((Number)job.getOrDefault("synthesis_completed", 0)).intValue(),
+            (String) job.get("synthesis_stage_started_at"));
     }
 
     private void completeFinalizedJobs() {

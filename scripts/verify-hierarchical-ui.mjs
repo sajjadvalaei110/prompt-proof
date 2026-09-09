@@ -72,15 +72,28 @@ assert.equal(await evaluate(`getComputedStyle(document.querySelector('.inspector
 await cdp('Emulation.setDeviceMetricsOverride',{width:430,height:900,deviceScaleFactor:1,mobile:false});
 await screenshot('narrow-edge-ready');
 assert.equal(await evaluate('document.documentElement.scrollWidth>innerWidth'),false,'no horizontal page overflow');
-// Synthesis budget failures remain readable on a narrow screen and do not hide the graph.
-await api('/api/model-profiles',{contextBudget:8192});
-await api(`/api/workspaces/${ws.id}/documents`,{title:'Oversized synthetic guide',content:'x'.repeat(12000)});
-const failed=await api(`/api/explanation-jobs?workspaceId=${ws.id}&snapshotId=${snapshot}`,{});
-await until(async()=>(await api(`/api/jobs/${failed.jobId}`)).status==='FAILED','oversized synthesis');
-await until(()=>evaluate(`document.querySelector('.error-banner')?.textContent.includes('Context Budget')`),'visible budget error');
-await screenshot('narrow-synthesis-failed');
-assert.equal(await evaluate('document.documentElement.scrollWidth>innerWidth'),false,'budget error has no horizontal overflow');
+// Large input succeeds through visible, bounded architecture stages at a modest model window.
+await api('/api/model-profiles',{contextBudget:8192,outputBudget:1024});
+await api(`/api/workspaces/${ws.id}/documents`,{title:'Large synthetic guide',content:'Order shipment policy. '.repeat(2800)+'DOCUMENT TAIL'});
+const batched=await api(`/api/explanation-jobs?workspaceId=${ws.id}&snapshotId=${snapshot}`,{});
+await until(()=>evaluate(`(()=>{const text=document.querySelector('.synthesis-progress')?.textContent||'';return text.includes('Summarizing project context · batch 1')&&text.includes('validated')})()`),'visible batch progress');
+assert.equal(await evaluate(`document.querySelectorAll('.synthesis-progress>i').length`),1,'in-flight request indicator');
+await until(()=>evaluate(`/ · [1-9]\\d*s ·/.test(document.querySelector('.synthesis-progress')?.textContent||'')`),'advancing request timer');
+await screenshot('narrow-context-progress');
+assert.equal(await evaluate('document.documentElement.scrollWidth>innerWidth'),false,'batch progress has no horizontal overflow');
+await fetch(model+'/release-context');
+await until(async()=>(await api(`/api/jobs/${batched.jobId}`)).status==='COMPLETED','large context bulk completion');
+const queue=await api(`/api/workspaces/${ws.id}/queue-status`);
+assert.ok(queue.synthesisCompleted>2,'large project used multiple durable batches');
+await screenshot('narrow-batched-ready');
+// Settings accept model capacities beyond the former arbitrary UI caps.
+await cdp('Emulation.setDeviceMetricsOverride',{width:1500,height:980,deviceScaleFactor:1,mobile:false});
+await evaluate(`document.querySelector('button[aria-label="Model settings"]').click()`);
+await until(()=>evaluate(`!!document.querySelector('.settings-grid input')`),'settings');
+assert.equal(await evaluate(`document.querySelector('.settings-grid input').hasAttribute('max')`),false);
+assert.equal(await evaluate(`document.querySelectorAll('.settings-grid input')[1].hasAttribute('max')`),false);
+await screenshot('model-context-settings');
 assert.deepEqual(errors,[],'browser runtime errors');
-await fs.writeFile(`${output}/run.json`,JSON.stringify({snapshot,workspace:ws.id,bulk:bulk.jobId,symbolCount:readyGraph.nodes.filter(n=>['CLASS','METHOD'].includes(n.kind)).length,screenshots:7}));
+await fs.writeFile(`${output}/run.json`,JSON.stringify({snapshot,workspace:ws.id,bulk:bulk.jobId,symbolCount:readyGraph.nodes.filter(n=>['CLASS','METHOD'].includes(n.kind)).length,screenshots:9}));
 socket.close();
-console.log('PASS: drafts, live class/method READY badges, explicit edge generation, edge hover, refresh polling, viewport preservation, reduced motion, narrow layout, visible synthesis failure');
+console.log('PASS: drafts, live class/method READY badges, explicit edge generation, edge hover, refresh polling, viewport preservation, reduced motion, narrow layout, bounded large-context batches, visible progress, model context settings');

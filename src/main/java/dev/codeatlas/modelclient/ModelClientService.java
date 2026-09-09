@@ -123,7 +123,18 @@ public class ModelClientService {
         }
     }
 
+    public static class ContextLimitException extends RuntimeException {
+        public ContextLimitException() { super("The configured model rejected the input context size."); }
+    }
+    public static class OutputLimitException extends RuntimeException {
+        public OutputLimitException() { super("The model response was truncated at its output limit."); }
+    }
+
     public String getExplanation(String systemPrompt, String userPrompt) {
+        return getExplanation(systemPrompt, userPrompt, properties.getModel().getOutputBudget());
+    }
+
+    public String getExplanation(String systemPrompt, String userPrompt, int outputTokens) {
         String baseUrl = properties.getModel().getBaseUrl();
         String modelId = properties.getModel().getModelId();
         if (baseUrl == null || baseUrl.isBlank()) {
@@ -134,7 +145,7 @@ public class ModelClientService {
 
         HttpHeaders headers = createHeaders();
         double temperature = properties.getModel().getTemperature();
-        int maxTokens = properties.getModel().getOutputBudget();
+        int maxTokens = outputTokens;
         if (maxTokens <= 0) {
             maxTokens = 2048;
         }
@@ -153,11 +164,19 @@ public class ModelClientService {
 
         try {
             return executeChatCompletion(url, headers, requestWithFormat);
+        } catch (ContextLimitException | OutputLimitException e) {
+            throw e;
         } catch (HttpStatusCodeException e) {
+            if (isContextLimit(e)) throw new ContextLimitException();
             if (e.getStatusCode().value() == 400) {
                 log.info("Request with response_format failed (HTTP 400), retrying without response_format...");
                 try {
                     return executeChatCompletion(url, headers, requestBody);
+                } catch (ContextLimitException | OutputLimitException retryEx) {
+                    throw retryEx;
+                } catch (HttpStatusCodeException retryEx) {
+                    if (isContextLimit(retryEx)) throw new ContextLimitException();
+                    throw new RuntimeException("Model rejected the request (HTTP " + retryEx.getStatusCode().value() + ")");
                 } catch (Exception retryEx) {
                     throw new RuntimeException(sanitize("Failed to request model without response_format: " + retryEx.getMessage()), retryEx);
                 }
@@ -169,12 +188,26 @@ public class ModelClientService {
                 log.info("Retrying chat completion without response_format after provider rejection");
                 try {
                     return executeChatCompletion(url, headers, requestBody);
+                } catch (ContextLimitException | OutputLimitException retryEx) {
+                    throw retryEx;
+                } catch (HttpStatusCodeException retryEx) {
+                    if (isContextLimit(retryEx)) throw new ContextLimitException();
+                    throw new RuntimeException("Model rejected the request (HTTP " + retryEx.getStatusCode().value() + ")");
                 } catch (Exception retryEx) {
                     throw new RuntimeException(sanitize("Retry failed: " + retryEx.getMessage()), retryEx);
                 }
             }
             throw new RuntimeException(sanitize("Failed to request model: " + e.getMessage()), e);
         }
+    }
+
+    private boolean isContextLimit(HttpStatusCodeException error) {
+        String body = error.getResponseBodyAsString().toLowerCase(java.util.Locale.ROOT);
+        return error.getStatusCode().value() == 413
+            || (error.getStatusCode().value() == 400 || error.getStatusCode().value() == 422)
+            && (body.contains("context_length_exceeded") || body.contains("maximum context length")
+                || body.contains("context window") || body.contains("input too long") || body.contains("prompt is too long") || body.contains("too many input tokens")
+                || (body.contains("input token") && (body.contains("exceed") || body.contains("limit"))));
     }
 
     private String executeChatCompletion(String url, HttpHeaders headers, Map<String, Object> requestBody) throws Exception {
@@ -197,6 +230,7 @@ public class ModelClientService {
 
             List<Map> choices = (List<Map>) body.get("choices");
             if (choices != null && !choices.isEmpty()) {
+                if ("length".equals(choices.get(0).get("finish_reason"))) throw new OutputLimitException();
                 Map message = (Map) choices.get(0).get("message");
                 String rawContent = (String) message.get("content");
                 return stripMarkdownCodeFences(rawContent);

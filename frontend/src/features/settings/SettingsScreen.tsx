@@ -188,14 +188,12 @@ export default function SettingsScreen({
                 key: 'contextBudget',
                 label: 'Context tokens',
                 min: 4096,
-                max: 1000000,
                 step: 1024,
               },
               {
                 key: 'outputBudget',
                 label: 'Output tokens',
                 min: 256,
-                max: 32768,
                 step: 256,
               },
               {
@@ -219,7 +217,7 @@ export default function SettingsScreen({
               <input
                 type="number"
                 min={f.min}
-                max={f.max}
+                max={'max' in f ? f.max : undefined}
                 step={f.step}
                 value={profile[f.key]}
                 onChange={(e) =>
@@ -235,8 +233,10 @@ export default function SettingsScreen({
 
         <p className="muted">
           Source and saved project documents are sent only to this endpoint. A
-          conservative context budget reserves room for the answer and reports
-          omitted evidence. Keys are kept on the server, never in browser
+          context window includes input and output; set both limits to values your model supports.
+          Explain all automatically summarizes large projects and splits class drafts
+          into resumable batches. Larger output limits leave less room for input.
+          Individual explanations report omitted evidence. Keys are kept on the server, never in browser
           storage.
         </p>
 

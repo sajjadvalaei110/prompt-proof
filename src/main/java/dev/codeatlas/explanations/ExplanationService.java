@@ -22,6 +22,7 @@ public class ExplanationService {
 
     private final ModelClientService modelClient;
     private final ContextBuilder contextBuilder;
+    private final ArchitectureBatchProcessor architecture;
     private final PromptTemplate promptTemplate;
     private final JdbcTemplate jdbcTemplate;
     private final CodeAtlasProperties properties;
@@ -32,8 +33,9 @@ public class ExplanationService {
                               ContextBuilder contextBuilder,
                               PromptTemplate promptTemplate,
                               JdbcTemplate jdbcTemplate,
-                              CodeAtlasProperties properties, org.springframework.transaction.PlatformTransactionManager transactionManager) {
+                              CodeAtlasProperties properties, org.springframework.transaction.PlatformTransactionManager transactionManager, ArchitectureBatchProcessor architecture) {
         this.transactions = new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+        this.architecture = architecture;
         this.modelClient = modelClient;
         this.contextBuilder = contextBuilder;
         this.promptTemplate = promptTemplate;
@@ -121,53 +123,46 @@ public class ExplanationService {
             && jdbcTemplate.queryForObject("SELECT COUNT(*) FROM explanation_syntheses WHERE snapshot_id = ? AND input_fingerprint = ? AND status = 'READY'", Integer.class, snapshot, inputs.fingerprint()) > 0;
     }
 
-    /** One structured synthesis turn; validation is all-or-nothing and never writes graph facts. */
+    /** Bounded resumable preparation; publishing complete class coverage is atomic. */
     public ArchitectureInputs synthesizeArchitecture(String snapshotId) {
+        return synthesizeArchitecture(snapshotId, () -> true, progress -> {});
+    }
+
+    public ArchitectureInputs synthesizeArchitecture(String snapshotId, java.util.function.BooleanSupplier active,
+            java.util.function.Consumer<ArchitectureBatchProcessor.Progress> progress) {
         String documents = contextBuilder.documentsFingerprint(snapshotId);
         String profile = profileIdentity();
         var context = contextBuilder.buildArchitectureContext(snapshotId);
         String system = promptTemplate.getSynthesisSystemPrompt();
         String user = context.formattedContext();
-        String input = fingerprint(system + user + profile);
+        String input = fingerprint(ArchitectureBatchProcessor.VERSION + system + user + profile);
         var inputs = new ArchitectureInputs(documents, profile, input);
         if (architectureInputsFresh(snapshotId, inputs)) return inputs;
-        // UTF-8 bytes are a conservative token upper bound. Never silently truncate global input.
-        long size = (system + user).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
-        if (size + properties.getModel().getOutputBudget() + 256 > properties.getModel().getContextBudget())
-            throw new SynthesisException("Complete architecture inventory and documents exceed the context budget. Increase Context Budget in model settings and retry Explain all.");
         String provider = properties.getModel().getBaseUrl();
         String model = properties.getModel().getModelId();
-        Map<String, String> purposes = context.classIds().isEmpty() ? Map.of()
-            : validateSynthesis(modelClient.getExplanation(system, user), context.classIds());
+        ArchitectureBatchProcessor.Result result;
+        try {
+            result = architecture.generate(snapshotId, input, context, () -> {
+                if (!documents.equals(contextBuilder.documentsFingerprint(snapshotId)) || !profile.equals(profileIdentity()))
+                    throw new SynthesisException("Project documents or model settings changed during synthesis. Retry Explain all.");
+                return active.getAsBoolean();
+            }, progress);
+        } catch (IllegalArgumentException error) { throw new SynthesisException(error.getMessage()); }
+        if (!active.getAsBoolean()) throw new java.util.concurrent.CancellationException();
+        var evidence = new ArrayList<>(context.evidenceItems());
+        evidence.addAll(result.stages());
+        Map<String, String> purposes = result.purposes();
         transactions.executeWithoutResult(transaction -> {
             if (!documents.equals(contextBuilder.documentsFingerprint(snapshotId)) || !profile.equals(profileIdentity()))
                 throw new SynthesisException("Project documents or model settings changed during synthesis. Retry Explain all.");
             String synthesisId = UUID.randomUUID().toString();
             jdbcTemplate.update("UPDATE explanation_syntheses SET status = 'STALE' WHERE snapshot_id = ? AND status = 'READY'", snapshotId);
             jdbcTemplate.update("INSERT INTO explanation_syntheses (id, snapshot_id, status, schema_version, prompt_version, model_id, provider_base_url, input_fingerprint, context_evidence) VALUES (?, ?, 'READY', '1', ?, ?, ?, ?, ?)",
-                synthesisId, snapshotId, PromptTemplate.SYNTHESIS_VERSION, model, provider, input, toJson(context.evidenceItems()));
+                synthesisId, snapshotId, PromptTemplate.SYNTHESIS_VERSION, model, provider, input, toJson(evidence));
             purposes.forEach((id, purpose) -> jdbcTemplate.update("INSERT INTO class_pre_explanations (symbol_id, synthesis_id, business_logic) VALUES (?, ?, ?) ON CONFLICT(symbol_id) DO UPDATE SET synthesis_id = excluded.synthesis_id, business_logic = excluded.business_logic", id, synthesisId, purpose));
             invalidateChangedDependencies(snapshotId);
         });
         return inputs;
-    }
-
-    private Map<String, String> validateSynthesis(String response, Set<String> expected) {
-        try {
-            if (response == null || response.length() > 1_000_000) throw new IllegalArgumentException();
-            JsonNode root = objectMapper.readTree(response);
-            if (!root.isObject() || root.size() != 1 || !root.path("classes").isArray()) throw new IllegalArgumentException();
-            Map<String, String> purposes = new LinkedHashMap<>();
-            for (JsonNode item : root.get("classes")) {
-                if (!item.isObject() || item.size() != 2 || !item.path("symbolId").isTextual() || !item.path("businessLogic").isTextual()) throw new IllegalArgumentException();
-                String id = item.get("symbolId").asText(), purpose = item.get("businessLogic").asText().strip();
-                if (!expected.contains(id) || purpose.isEmpty() || purpose.length() > 2000 || purposes.putIfAbsent(id, purpose) != null) throw new IllegalArgumentException();
-            }
-            if (!purposes.keySet().equals(expected)) throw new IllegalArgumentException();
-            return purposes;
-        } catch (Exception e) {
-            throw new SynthesisException("Architecture response must contain every CLASS exactly once with a nonempty businessLogic (up to 2000 characters). No drafts were saved; retry Explain all or increase Output Budget.");
-        }
     }
 
     private void invalidateChangedDependencies(String snapshot) {

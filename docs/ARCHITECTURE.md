@@ -116,12 +116,13 @@ The frontend is structured by functional domain under `frontend/src/features/`:
 
 ## 7. Hierarchical explanations (R6)
 
-The current explanation flow is defined in [ADR 0003](adr/0003-hierarchical-explanations.md):
+The current explanation flow is defined in [ADR 0003](adr/0003-hierarchical-explanations.md)
+and [ADR 0004](adr/0004-bounded-architecture-batches.md):
 
 ```mermaid
 flowchart LR
     A[Explain all] --> B[Complete inventory, coupling and documents]
-    B --> C[One validated architecture synthesis]
+    B --> C[Bounded resumable context summaries and class batches]
     C --> D[Persist class drafts with provenance]
     D --> E[CLASS and METHOD queue: degree, LOC, ID]
     E --> F[Sequential source-grounded explanations]
@@ -141,3 +142,9 @@ The active React `InspectorPanel` implements all inspector types. Graph statuses
 refresh through the graph API; Cytoscape updates card/edge display data without
 recreating the canvas or resetting its viewport. Shared sparkle styling is purely
 a READY marker and preserves relationship resolution styling.
+
+Architecture preparation adapts to both input and output limits. Small projects use
+one request; large projects summarize all input slices and draft exact class batches.
+Validated stages survive retries/cancellation in SQLite, while final class coverage
+is published atomically. The queue reports the stage and saved batch count. Token
+estimates reserve output/framing space; configured limits remain model-specific.

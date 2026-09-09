@@ -1,5 +1,7 @@
 package dev.codeatlas.explanations;
 
+import dev.codeatlas.modelclient.ModelRequestBudget;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.codeatlas.config.CodeAtlasProperties;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -18,7 +20,7 @@ public class ContextBuilder {
         List<EvidenceItem> evidenceItems, String formattedContext, List<ContextDependency> dependencies) {}
     public record ContextDependency(String symbolId, String kind, String version) {}
     public record PriorExplanation(ContextDependency dependency, String content) {}
-    public record ArchitectureContext(Set<String> classIds, List<EvidenceItem> evidenceItems, String formattedContext) {}
+    public record ArchitectureContext(Set<String> classIds, List<EvidenceItem> evidenceItems, String formattedContext, Map<String, String> classInventory) {}
     public ContextBuilder(JdbcTemplate db, CodeAtlasProperties properties, PromptTemplate templates) { this.db = db; this.properties = properties; this.templates = templates; }
 
     public SymbolContext buildSymbolContext(String snapshotId, String subjectId) { return buildContext(snapshotId, subjectId, "symbol"); }
@@ -50,8 +52,8 @@ public class ContextBuilder {
         List<ContextDependency> dependencies = new ArrayList<>();
         StringBuilder out = new StringBuilder("TARGET " + (edge ? "RELATIONSHIP" : "SYMBOL") + ": " + id + " " + subject.get("kind") + " " + subject.get("qualified_name") + "\n");
         List<String> omissions = new ArrayList<>();
-        // Conservative UTF-8 byte estimate plus reserved space for template and output. No tokenizer dependency.
-        int budget = Math.max(0, properties.getModel().getContextBudget() - properties.getModel().getOutputBudget() - templates.getSystemPrompt().getBytes(java.nio.charset.StandardCharsets.UTF_8).length - 1024);
+        // Token estimate with framing/variance margin and reserved template/repair space.
+        int budget = Math.max(0, new ModelRequestBudget(properties.getModel().getContextBudget(), properties.getModel().getOutputBudget()).inputTokens(properties.getModel().getOutputBudget()) - ModelRequestBudget.estimate(templates.getSystemPrompt()) - 1024);
         Budget writer = new Budget(out, evidence, omissions, budget);
         String source = source(snapshotId, symbolId, (String) subject.get("content_hash"));
         writer.add("ev-source", "Target source declaration", source, Math.max(300, budget / 5));
@@ -127,7 +129,7 @@ public class ContextBuilder {
         else out.append("\nCONTEXT LIMITS: Inventory covers this indexed snapshot; source is target and relevant collaborators, not every file. Runtime behavior and missing classpaths are not established.\n");
         return new SymbolContext(id, (String)subject.get("simple_name"), (String)subject.get("qualified_name"), (String)subject.get("kind"), parentName, roles, strings(subject.get("annotations")), source, evidence, out.toString(), List.copyOf(dependencies));
     }
-    /** Complete, untruncated inventory and documents for the single architecture request. */
+    /** Complete, untruncated inventory and documents for resumable architecture preparation. */
     public ArchitectureContext buildArchitectureContext(String snapshotId) {
         String workspace = db.queryForObject("SELECT workspace_id FROM snapshots WHERE id = ?", String.class, snapshotId);
         var types = db.queryForList("SELECT id AS symbolId, qualified_name, parent_symbol_id, kind, roles FROM symbol_versions WHERE snapshot_id = ? AND kind IN ('CLASS','INTERFACE','ENUM','RECORD','ANNOTATION') AND COALESCE(source_status, 'ACTIVE') = 'ACTIVE' ORDER BY qualified_name, id", snapshotId);
@@ -142,7 +144,9 @@ public class ContextBuilder {
         }
         StringBuilder out = new StringBuilder("Snapshot: " + snapshotId + "\n");
         evidence.forEach(e -> out.append("\n[").append(e.id()).append("] ").append(e.label()).append(":\n").append(e.content()).append('\n'));
-        return new ArchitectureContext(classIds, List.copyOf(evidence), out.toString());
+        Map<String, String> classInventory = new LinkedHashMap<>();
+        types.stream().filter(t -> "CLASS".equals(t.get("kind"))).forEach(t -> classInventory.put((String)t.get("symbolId"), t.toString()));
+        return new ArchitectureContext(Collections.unmodifiableSet(classIds), List.copyOf(evidence), out.toString(), Collections.unmodifiableMap(classInventory));
     }
 
     private List<Map<String, Object>> packageCoupling(String snapshotId) {
@@ -209,18 +213,15 @@ public class ContextBuilder {
         boolean add(String id, String label, String content, int allowance) {
             if (content == null || content.isBlank()) return false;
             String header = "\n[" + id + "] " + label + ":\n";
-            int limit = Math.min(allowance, remaining - bytes(header) - 40);
+            int limit = Math.min(allowance, remaining - ModelRequestBudget.estimate(header) - 40);
             if (limit < 80) { omissions.add(label); return false; }
             String actual = content;
-            if (bytes(actual) > limit) {
-                int end = Math.min(actual.length(), limit);
-                while (end > 0 && bytes(actual.substring(0, end)) > limit) end--;
-                actual = actual.substring(0, end) + "\n[Context shortened]"; omissions.add(label);
+            if (ModelRequestBudget.estimate(actual) > limit) {
+                actual = ModelRequestBudget.prefix(actual, limit) + "\n[Context shortened]"; omissions.add(label);
             }
-            out.append(header).append(actual).append('\n'); remaining -= bytes(header) + bytes(actual) + 1;
+            out.append(header).append(actual).append('\n'); remaining -= ModelRequestBudget.estimate(header) + ModelRequestBudget.estimate(actual) + 1;
             evidence.add(new EvidenceItem(id, label, actual));
             return true;
         }
-        private int bytes(String s) { return s.getBytes(java.nio.charset.StandardCharsets.UTF_8).length; }
     }
 }

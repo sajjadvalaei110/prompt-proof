@@ -94,7 +94,7 @@ python3 scripts/verify_hierarchical_pipeline.py
 ```
 
 The new backend tests cover exact degree/LOC/ID ordering, excluded subject kinds,
-complete synthesis validation, oversized global context, cancellation/restart/resume,
+complete synthesis validation, bounded large-context batches, cancellation/restart/resume,
 document invalidation, method callers/callees and class owners, endpoint evidence,
 generated-only SOURCE_FACT rejection, consumed-output freshness and migration from
 V003. The frontend model check covers partial versus fully explained edge groups,
@@ -107,9 +107,27 @@ unused loopback ports, with an isolated database/profile in
 `build/hierarchy-smoke/run-*/`. It imports only the checked-in Spring fixture,
 checks before/after source hashes and SQLite integrity, and terminates its processes.
 
-Seven screenshots cover architecture drafts, class READY, method READY, edge READY,
-edge hover READY, a 430px narrow inspector and an actionable synthesis budget failure. Browser assertions also cover live
+Nine screenshots cover architecture drafts, class READY, method READY, edge READY,
+edge hover READY, a 430px narrow inspector, large-context progress/completion and
+model Settings without arbitrary context/output maxima. Browser assertions also cover live
 status refresh, refreshing after READY, preserved pan/zoom, reduced-motion behavior,
 no horizontal page overflow and no runtime exceptions. Inspect the resulting PNGs;
 a script pass alone is not visual review. This test never proves live-model quality
 or substitutes for a configured real-model acceptance run.
+
+Large-context backend coverage includes 500 classes, five methods and ten context documents (877,120 characters total, about 857 KiB) at
+an 8192-token window/512-token output allowance, exact input-slice reconstruction,
+complete bulk execution and stage provenance, provider rejection/truncated-response splitting, failed-batch
+retry, cancellation retaining successful checkpoints, and document changes
+preventing checkpoint reuse. Model adapter tests use a local HTTP fixture to
+verify `finish_reason=length` rejection and context-limit classification without
+an identical response-format retry. Budget tests include Unicode boundaries and
+configured windows above the previous HTML maxima. No live-model quality claim
+is made by these deterministic fixtures.
+
+A delayed-provider regression uses 262 classes with a 65,536-token output setting.
+It verifies that the planner still selects only classes 1–16 for the first request,
+reports the exact in-flight range and UTC stage start, retains the completed context
+checkpoint, and publishes no partial drafts when cancelled. The packaged browser
+test holds a context request open and asserts that its spinner and elapsed seconds
+advance before releasing the deterministic provider.

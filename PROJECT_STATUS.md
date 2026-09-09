@@ -1,9 +1,35 @@
 # Project status
 Last updated: 2026-09-09
 Active milestone: R6 — Developer comprehension redesign (in progress)
-Current revision: R6 explicit scope control (verified)
+Current revision: R6 scalable explanation context (verified with synthetic providers)
 
-## Current acceptance slice: explicit graph scope control — complete
+## Current acceptance slice: 500 classes and ten context documents — complete
+
+Implemented on 2026-09-09:
+- `ArchitectureBatchProcessor` keeps small projects on a single architecture request, while large projects summarize every inventory/document/coupling slice and draft bounded class batches. Input and output limits both influence planning. Provider context rejection, truncated output and incomplete class coverage split work into smaller requests; malformed/foreign/duplicate outputs never publish partial coverage.
+- Pipeline 2.1 caps architecture output batches at 16 classes even when Settings names a very large output allowance. The footer shows the exact class range or context batch in flight, an animated activity mark, elapsed request time and the independently truthful count of validated checkpoints. A slow first model response no longer looks like an idle `0/262` job.
+- V005 adds durable architecture checkpoints with exact input/output provenance and job stage/count fields. Cancellation stops between requests; successful in-flight stages can be retained. Retries reuse matching checkpoints; changed documents/model inputs select new keys. Complete class drafts publish atomically before the existing sequential degree/LOC/ID queue proceeds. Relationships remain on-demand.
+- Provider-neutral token estimates replace the one-byte-per-token restriction, reserving output, framing and a variance margin. Context slicing scans only the next bounded slice, preserving Unicode and every document tail. The model adapter detects output truncation before parsing JSON and classifies explicit context/payload-size rejection.
+- Settings no longer impose arbitrary 1,000,000-context/32,768-output HTML maxima. They explain the configured model's finite per-request limits and automatic batching. The footer reports current preparation activity and saved batches. Individual contexts retain source/neighbor/owner purposes with disclosed omissions; prompt 3.1 emphasizes business rules, branches, state changes and collaborator responsibilities.
+
+Verification:
+- `./gradlew test bootJar` — BUILD SUCCESSFUL; **72 tests, 0 failures/errors/skips**. Frontend TypeScript/Vite compiles and the executable jar packages successfully. The existing >500 kB main-bundle advisory remains.
+- The scale acceptance fixture contains **500 classes, five methods and ten documents totaling 877,120 characters (about 857 KiB)**. At **8192 context tokens / 512 output tokens**, it verifies complete reconstruction of original context slices, exact class coverage, bounded requests, provenance, and full bulk execution: **52 saved context stages, 250 class batches, 505 READY full explanations, zero relationship explanations**. These are synthetic database/model fixtures, not live semantic-quality measurements.
+- Additional tests cover cancellation/resume without replaying validated batches, provider outages, document invalidation, provider context rejection, truncated class output, large individual context retaining its owner's purpose, Unicode boundaries, and model windows above the former UI caps. Existing ordering, edge exclusion, generated-evidence grounding, freshness and migration tests pass.
+- `node scripts/test-graph-model.mjs` — PASS, including the user's explicit scope controls and READY aggregation.
+- `python3 scripts/verify_hierarchical_pipeline.py` — PASS with packaged app, isolated database, local mock HTTP provider and Chromium. It verifies 61 fixture bulk symbols, deterministic request order, explicit edges, large-context batching, saved-stage progress, Settings maxima removal, SQLite integrity and unchanged source hashes.
+- Browser assertions cover live READY updates, refresh polling, preserved viewport, reduced motion, narrow layout and no runtime exceptions. Visually inspected `narrow-context-progress.png` and `narrow-batched-ready.png` in `build/hierarchy-smoke/run-xgmstwuu/`; the progress view shows the active batch and advancing timer at 430px without horizontal overflow. The run contains nine screenshots. The selected edge correctly remains STALE after document changes because bulk does not regenerate relationships.
+- `python3 -m py_compile scripts/verify_hierarchical_pipeline.py`, `node --check scripts/verify-hierarchical-ui.mjs`, and `git diff --check` — successful.
+- Intermediate checks caught outdated oversized-input-failure expectations, a TypeScript optional-max access, a test document exceeding the existing document-size contract, and a CDP test serializing a DOM element. Each was corrected before the passing checks above.
+
+Remaining limits:
+- **No live-model quality or latency verification for this revision.** Summaries are necessarily lossy; configured context/output values must match the actual model. There is no unlimited-context claim or provider fallback. Individual source windows still disclose shortening/omission.
+- Total requests, latency and local checkpoint storage grow with project size. Successful checkpoints are retained; this slice does not introduce eviction or semantic document retrieval. The existing document API permits up to 30 documents of 100,000 characters each.
+- Previous successful prose is preserved under existing freshness rules. The user's committed graph scope changes and unrelated untracked `.claude/` / `skills-lock.json` are preserved.
+
+Decision: [ADR 0004](docs/adr/0004-bounded-architecture-batches.md), with updated [architecture](docs/ARCHITECTURE.md), [schema](docs/DATA_MODEL.md) and [testing](docs/TESTING.md). The original single-request/oversized-failure statements in earlier status entries below are historical and superseded.
+
+## Previous acceptance slice: explicit graph scope control — complete
 
 Implemented on 2026-09-09, frontend-only:
 - New `ScopeSelection` model (`frontend/src/features/explorer/scopeModel.ts`): `mode: 'ALL' | 'CUSTOM'` plus explicit `selectedPackageIds`/`selectedClassIds` sets, with pure helpers (`isClassInScope`, `isNodeInScope`, `getPackageCheckState`, `getScopeCounts`, `scopeToLabel`, `togglePackage`, `toggleClass`, `focusScopeSelection`). Packages are flat in this data model (`JavaParserAdapter` never links a `PACKAGE` to another `PACKAGE`), so package/class membership resolves via the existing `ownerAt('PACKAGE', …)` helper — no invented package-nesting concept.
@@ -200,5 +226,3 @@ Known remaining limitations:
 - Zoom toolbar placement: Positioned at top-right of canvas to avoid collision with Cytoscape navigator/minimap at bottom-right.
 - Squarish package layout & coupling proximity: Replaced single-column Dagre TB ranking with a 2D multi-column child distribution and a physics-driven coupling simulation, ensuring balanced package aspect ratios (~1:1 to 4:3) and proximity for strongly coupled packages.
 - Safe API deserialization: Extracted a reusable `requestJson` helper in `frontend/src/api/client.ts` that checks HTTP status (`res.ok`) and `Content-Type` header, extracting error messages from structured JSON or truncating HTML/text before throwing descriptive errors instead of raw `JSON.parse` crashes.
-
-

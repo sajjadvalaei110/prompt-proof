@@ -23,6 +23,8 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.anyInt;
+import dev.codeatlas.modelclient.ModelRequestBudget;
 import static org.mockito.Mockito.*;
 
 @SpringBootTest
@@ -144,7 +146,7 @@ class HierarchicalExplanationTest {
             assertThrows(ExplanationService.SynthesisException.class, () -> explanations.synthesizeArchitecture(snapshot));
             assertEquals(0, db.queryForObject("SELECT COUNT(*) FROM explanation_syntheses WHERE snapshot_id = ?", Integer.class, snapshot));
         }
-        verify(model, times(4)).getExplanation(anyString(), anyString()); // No hidden repair turns.
+        // Missing coverage may be retried in smaller batches; malformed/foreign IDs never publish.
     }
 
     @Test void synthesisFailureBlocksSymbolsButExplicitEdgesStillWork() throws Exception {
@@ -152,19 +154,206 @@ class HierarchicalExplanationTest {
         String job = queue.startExplainAllJob(ws, snapshot, 1);
         assertTrue(queue.processNextItem()); assertFalse(queue.processNextItem());
         assertEquals("FAILED", db.queryForObject("SELECT status FROM jobs WHERE id = ?", String.class, job));
-        assertTrue(queue.getQueueStatus(ws).errorMessage().contains("every CLASS"));
+        assertNotNull(queue.getQueueStatus(ws).errorMessage());
         when(model.getExplanation(anyString(), anyString())).thenReturn(full("An explicit edge"));
         queue.enqueueExplanation(ws, snapshot, id("call-one"), "relationship"); queue.processNextItem();
         assertEquals("READY", explanations.getExplanation(snapshot, id("call-one"), "relationship").status().name());
         assertEquals("READY", graph.getGraph(snapshot).edges().stream().filter(e -> e.id().equals(id("call-one"))).findFirst().orElseThrow().explanationStatus().name());
     }
 
-    @Test void oversizedGlobalContextFailsWithoutDroppingDocumentsOrCallingModel() {
+    // Respond only to explicitly requested target IDs; inventing or omitting an ID fails validation.
+    String batchResponse(String user) throws Exception {
+        String selected = user.contains("TARGET CLASSES (complete declarations for this batch):")
+            ? user.split("TARGET CLASSES \\(complete declarations for this batch\\):\n", 2)[1].split("\n\\[ev-neighbors\\]", 2)[0] : user;
+        var matcher = java.util.regex.Pattern.compile("symbolId=([^,}]+),[^\n]*kind=CLASS").matcher(selected);
+        List<Map<String, String>> entries = new ArrayList<>();
+        while (matcher.find()) entries.add(Map.of("symbolId", matcher.group(1), "businessLogic", "Coordinates shipment processing; runtime rules need source verification."));
+        assertFalse(entries.isEmpty(), selected);
+        return json.writeValueAsString(Map.of("classes", entries));
+    }
+
+    @Test void fiveHundredClassesAndTenDocumentsUseCompleteBoundedResumableBatches() throws Exception {
         properties.getModel().setContextBudget(8192);
-        documents.save(ws, null, "Large guide", "x".repeat(12000) + "TAIL");
-        assertTrue(context.buildArchitectureContext(snapshot).formattedContext().contains("TAIL"));
-        assertThrows(ExplanationService.SynthesisException.class, () -> explanations.synthesizeArchitecture(snapshot));
+        properties.getModel().setOutputBudget(512);
+        for (int i = 0; i < 498; i++) symbol("extra-" + i, "CLASS", "package-b", 4);
+        for (int doc = 0; doc < 10; doc++) {
+            StringBuilder document = new StringBuilder();
+            for (int line = 0; line < 1200; line++) document.append("Guide ").append(doc).append(" rule ").append(line).append(": regional shipment requires validation before dispatch.\n");
+            document.append("UNIQUE DOCUMENT TAIL ").append(doc);
+            documents.save(ws, null, "Large guide " + doc, document.toString());
+        }
+        List<String> chunks = new ArrayList<>();
+        var budget = new ModelRequestBudget(8192, 512);
+        when(model.getExplanation(anyString(), anyString(), anyInt())).thenAnswer(inv -> {
+            String system = inv.getArgument(0), user = inv.getArgument(1); int output = inv.getArgument(2);
+            assertTrue(budget.fits(system, user, output)); chunks.add(user);
+            return "{\"summary\":\"Regional shipment processing; documented rules require verification in source.\"}";
+        });
+        when(model.getExplanation(anyString(), anyString())).thenAnswer(inv -> {
+            assertTrue(budget.fits(inv.getArgument(0), inv.getArgument(1), 512));
+            if (!((String)inv.getArgument(0)).startsWith("Infer concise")) return full("Shipment responsibility");
+            String response = batchResponse(inv.getArgument(1));
+            assertTrue(json.readTree(response).get("classes").size() <= 2);
+            return response;
+        });
+        String job = queue.startExplainAllJob(ws, snapshot, 1);
+        queue.processNextItem();
+        assertEquals("READY", queue.getQueueStatus(ws).synthesisStatus());
+        assertTrue(chunks.size() > 1);
+        for (int doc = 0; doc < 10; doc++) assertTrue(String.join("", chunks).contains("UNIQUE DOCUMENT TAIL " + doc));
+        // Each original character reaches a summary request; whitespace and split boundaries survive.
+        String original = context.buildArchitectureContext(snapshot).formattedContext();
+        StringBuilder firstRound = new StringBuilder();
+        int firstRoundChunks = 0;
+        while (firstRound.length() < original.length()) {
+            String chunk = chunks.get(firstRoundChunks++);
+            firstRound.append(chunk.substring(chunk.indexOf('\n') + 1));
+        }
+        assertEquals(original, firstRound.toString());
+        assertEquals(500, db.queryForObject("SELECT COUNT(*) FROM class_pre_explanations p JOIN symbol_versions s ON s.id=p.symbol_id WHERE s.snapshot_id=?", Integer.class, snapshot));
+        int saved = db.queryForObject("SELECT COUNT(*) FROM architecture_checkpoints WHERE snapshot_id=?", Integer.class, snapshot);
+        assertEquals(chunks.size() + 250, saved);
+        assertEquals(saved, queue.getQueueStatus(ws).synthesisCompleted());
+        assertTrue(db.queryForObject("SELECT context_evidence FROM explanation_syntheses WHERE snapshot_id=?", String.class, snapshot).contains("stage-"));
+        assertEquals(0, db.queryForObject("SELECT COUNT(*) FROM explanations WHERE snapshot_id=?", Integer.class, snapshot));
+        for (int i = 0; i < 505; i++) assertTrue(queue.processNextItem());
+        assertEquals("COMPLETED", db.queryForObject("SELECT status FROM jobs WHERE id=?", String.class, job));
+        assertEquals(505, db.queryForObject("SELECT COUNT(*) FROM explanations WHERE snapshot_id=? AND status='READY' AND subject_type='symbol'", Integer.class, snapshot));
+        assertEquals(0, db.queryForObject("SELECT COUNT(*) FROM explanations WHERE snapshot_id=? AND subject_type='relationship'", Integer.class, snapshot));
+        clearInvocations(model);
+        explanations.synthesizeArchitecture(snapshot);
         verifyNoInteractions(model);
+    }
+
+    @Test void largeOutputSettingStillShowsAConcreteBoundedBatchWhileModelIsWorking() throws Exception {
+        properties.getModel().setContextBudget(1_000_000);
+        properties.getModel().setOutputBudget(65_536);
+        for (int i = 0; i < 260; i++) symbol("progress-" + i, "CLASS", "package-b", 4);
+
+        when(model.getExplanation(argThat(system -> system.startsWith("Summarize a slice")),
+            anyString(), anyInt())).thenReturn("{\"summary\":\"Shipment processing architecture.\"}");
+        CountDownLatch enteredClassBatch = new CountDownLatch(1);
+        CountDownLatch releaseClassBatch = new CountDownLatch(1);
+        when(model.getExplanation(argThat(system -> system.startsWith("Infer concise")),
+            anyString())).thenAnswer(invocation -> {
+                enteredClassBatch.countDown();
+                assertTrue(releaseClassBatch.await(5, TimeUnit.SECONDS));
+                return batchResponse(invocation.getArgument(1));
+            });
+
+        String job = queue.startExplainAllJob(ws, snapshot, 1);
+        var task = CompletableFuture.supplyAsync(queue::processNextItem);
+        assertTrue(enteredClassBatch.await(5, TimeUnit.SECONDS));
+
+        QueueStatus status = queue.getQueueStatus(ws);
+        assertEquals("Drafting class purposes 1–16 of 262", status.synthesisStage());
+        assertTrue(status.synthesisCompleted() > 0, "The completed context batch remains visible");
+        assertNotNull(status.synthesisStageStartedAt());
+
+        queue.cancelJob(job);
+        releaseClassBatch.countDown();
+        assertTrue(task.get(5, TimeUnit.SECONDS));
+        assertEquals(0, db.queryForObject(
+            "SELECT COUNT(*) FROM class_pre_explanations p JOIN symbol_versions s ON s.id=p.symbol_id WHERE s.snapshot_id=?",
+            Integer.class, snapshot));
+        assertEquals(16, json.readTree(db.queryForObject(
+            "SELECT output_json FROM architecture_checkpoints WHERE snapshot_id=? AND stage_kind='classes'",
+            String.class, snapshot)).get("classes").size());
+    }
+
+    @Test void providerContextRejectionSplitsSlicesAndClassBatches() throws Exception {
+        properties.getModel().setContextBudget(8192);
+        properties.getModel().setOutputBudget(512);
+        documents.save(ws, null, "Guide", "Regional delivery rules. ".repeat(600));
+        var accepted = new ArrayList<String>();
+        java.util.concurrent.atomic.AtomicInteger rejections = new java.util.concurrent.atomic.AtomicInteger();
+        when(model.getExplanation(anyString(), anyString(), anyInt())).thenAnswer(inv -> {
+            String user = inv.getArgument(1);
+            if (user.length() > 3000) { rejections.incrementAndGet(); throw new ModelClientService.ContextLimitException(); }
+            accepted.add(user.substring(user.indexOf('\n') + 1));
+            return "{\"summary\":\"Regional delivery.\"}";
+        });
+        when(model.getExplanation(anyString(), anyString())).thenAnswer(inv -> {
+            String response = batchResponse(inv.getArgument(1));
+            if (json.readTree(response).get("classes").size() > 1) { rejections.incrementAndGet(); throw new ModelClientService.ContextLimitException(); }
+            return response;
+        });
+        explanations.synthesizeArchitecture(snapshot);
+        assertTrue(rejections.get() > 2);
+        assertEquals(context.buildArchitectureContext(snapshot).formattedContext(), String.join("", accepted));
+        assertNotNull(context.priorExplanation(snapshot, id("class-a")));
+        assertNotNull(context.priorExplanation(snapshot, id("class-b")));
+    }
+
+    @Test void largeIndividualContextFitsWindowAndKeepsParentPurposeWithHonestOmissions() throws Exception {
+        for (int i = 0; i < 40; i++) {
+            symbol("neighbor-" + i, "METHOD", "class-b", 100);
+            relationship("extra-call-" + i, "caller", "neighbor-" + i, "CALLS");
+        }
+        db.update("UPDATE evidence SET snippet=? WHERE id LIKE ?", "if (shipment.isReady()) dispatch(shipment);\n".repeat(300), snapshot + "%");
+        when(model.getExplanation(anyString(), anyString())).thenReturn(synthesis());
+        explanations.synthesizeArchitecture(snapshot);
+        properties.getModel().setContextBudget(8192); properties.getModel().setOutputBudget(2048);
+        var templates = new PromptTemplate();
+        var result = context.buildSymbolContext(snapshot, id("caller"));
+        assertTrue(new ModelRequestBudget(8192, 2048).fits(templates.getSystemPrompt(), templates.getUserPrompt(result), 2048));
+        assertTrue(result.formattedContext().contains("Coordinates shipments."));
+        assertTrue(result.formattedContext().contains("Context shortened"));
+        assertTrue(result.formattedContext().contains("Do not imply complete source coverage"));
+    }
+
+    @Test void outputTruncationSplitsClassBatchesWithoutPublishingPartialCoverage() throws Exception {
+        properties.getModel().setOutputBudget(512);
+        when(model.getExplanation(anyString(), anyString(), anyInt())).thenReturn("{\"summary\":\"Shipment architecture.\"}");
+        List<Integer> sizes = new ArrayList<>();
+        when(model.getExplanation(anyString(), anyString())).thenAnswer(inv -> {
+            String response = batchResponse(inv.getArgument(1));
+            int size = json.readTree(response).get("classes").size(); sizes.add(size);
+            assertEquals(0, db.queryForObject("SELECT COUNT(*) FROM class_pre_explanations WHERE symbol_id IN (?, ?)", Integer.class, id("class-a"), id("class-b")));
+            if (size > 1) throw new ModelClientService.OutputLimitException();
+            return response;
+        });
+        explanations.synthesizeArchitecture(snapshot);
+        assertTrue(sizes.contains(2)); assertEquals(List.of(1, 1), sizes.subList(sizes.size() - 2, sizes.size()));
+        assertNotNull(context.priorExplanation(snapshot, id("class-a")));
+        assertNotNull(context.priorExplanation(snapshot, id("class-b")));
+    }
+
+    @Test void cancellationRetainsValidatedClassBatchAndResumeSkipsItsModelCall() throws Exception {
+        properties.getModel().setOutputBudget(256); // One class per response.
+        String job = queue.startExplainAllJob(ws, snapshot, 1);
+        var calls = new ArrayList<String>();
+        when(model.getExplanation(anyString(), anyString())).thenAnswer(inv -> {
+            String user = inv.getArgument(1); calls.add(user);
+            if (calls.size() == 1) queue.cancelJob(job);
+            return batchResponse(user);
+        });
+        queue.processNextItem();
+        assertEquals("CANCELLED", db.queryForObject("SELECT status FROM jobs WHERE id=?", String.class, job));
+        assertEquals(1, calls.size());
+        assertEquals(1, db.queryForObject("SELECT COUNT(*) FROM architecture_checkpoints WHERE snapshot_id=?", Integer.class, snapshot));
+        assertNull(context.priorExplanation(snapshot, id("class-a")));
+        queue.startExplainAllJob(ws, snapshot, 1); queue.processNextItem();
+        assertEquals(2, calls.size()); // First class came from its durable checkpoint.
+        assertEquals("READY", queue.getQueueStatus(ws).synthesisStatus());
+        assertNotNull(context.priorExplanation(snapshot, id("class-b")));
+    }
+
+    @Test void failedBatchRetryUsesCheckpointButDocumentChangesPreventReuse() throws Exception {
+        properties.getModel().setOutputBudget(256);
+        var doc = documents.save(ws, null, "Guide", "Shipments");
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        when(model.getExplanation(anyString(), anyString())).thenAnswer(inv -> {
+            if (calls.incrementAndGet() == 2) throw new RuntimeException("synthetic provider outage");
+            return batchResponse(inv.getArgument(1));
+        });
+        assertThrows(RuntimeException.class, () -> explanations.synthesizeArchitecture(snapshot));
+        assertNull(context.priorExplanation(snapshot, id("class-a")));
+        explanations.synthesizeArchitecture(snapshot);
+        assertEquals(3, calls.get());
+        documents.save(ws, doc.id(), doc.title(), "Changed shipment policy");
+        explanations.synthesizeArchitecture(snapshot);
+        assertEquals(5, calls.get());
     }
 
     @Test void methodClassAndEdgePromptsPropagateCurrentExplanationsAndEndpointEvidence() throws Exception {

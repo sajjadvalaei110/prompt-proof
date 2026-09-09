@@ -88,6 +88,28 @@ class ModelProfileControllerTest {
     }
 
     @Test
+    void acceptsLargeModelWindowsAndRejectsImpossibleBudgetsAtomically() {
+        var large = new ModelProfileRequest(
+            "http://large-model.test/v1", "large-model", "", 2_000_000,
+            65_536, 120, 1, 0.2
+        );
+        var saved = controller.createOrUpdateProfile(large);
+        assertEquals(2_000_000, saved.contextBudget());
+        assertEquals(65_536, saved.outputBudget());
+
+        var impossible = new ModelProfileRequest(
+            "http://must-not-be-saved.test/v1", "bad-model", "", 4096,
+            4096, 120, 1, 0.2
+        );
+        assertThrows(IllegalArgumentException.class,
+            () -> controller.createOrUpdateProfile(impossible));
+        assertEquals("http://large-model.test/v1", properties.getModel().getBaseUrl());
+        assertEquals("large-model", properties.getModel().getModelId());
+        assertEquals(2_000_000, properties.getModel().getContextBudget());
+        assertEquals(65_536, properties.getModel().getOutputBudget());
+    }
+
+    @Test
     void testTestProfileDelegatesToService() {
         ModelTestResponse response = controller.testProfile("default", null);
         assertTrue(response.reachable());

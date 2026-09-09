@@ -122,10 +122,30 @@ Explanations produced by local language models record complete provenance for re
 The version-1 synthesis response contract is in
 [`prompts/architecture-synthesis-schema.json`](../prompts/architecture-synthesis-schema.json).
 The service adds snapshot membership and exact CLASS coverage validation. Full
-explanations now record prompt version `3.0`; successful earlier prompt versions
+explanations now record prompt version `3.1`; successful earlier prompt versions
 are preserved and can be explicitly refreshed.
 
 Additive API fields: graph edges expose `explanationStatus`; explanation responses
 can include `preExplanation { businessLogic, status: DRAFT|STALE, provenance }`;
 queue status exposes `synthesisStatus` and `errorMessage`. Consumers must not equate
 DRAFT with READY. A grouped edge is READY only when all occurrences are READY.
+
+## 7. Resumable architecture stages (V005)
+
+`architecture_checkpoints` has primary key `(snapshot_id, stage_key)` and retains
+`stage_kind` (context/classes), `prompt_version`, `model_id`, `provider_base_url`,
+exact `input_context`, validated `output_json`, and `generated_at`. Keys include
+original-input/profile identity and the actual stage prompt/output allowance.
+Checkpoint records alone never imply READY draft or full-explanation coverage.
+Final synthesis evidence includes references to all consumed stage keys.
+
+`jobs.synthesis_stage` and `jobs.synthesis_completed` expose the exact class range
+or context batch currently in flight and the number of validated stages
+reused/generated in that attempt. The workspace queue-status response adds
+`synthesisStage`, `synthesisCompleted`, and `synthesisStageStartedAt` (the current
+job update time in UTC). This lets the UI show elapsed request time without
+claiming incomplete work has been saved.
+There is no fixed total because truncation/context rejection can split batches.
+The architecture response schema remains version 1; the synthesis prompt remains
+version 2.0 and the resumable planning pipeline is version 2.1. V004 is unchanged,
+allowing existing databases to migrate cleanly.
