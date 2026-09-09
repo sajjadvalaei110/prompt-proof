@@ -69,7 +69,11 @@ class DeveloperWorkflowTest {
         assertEquals(3,calls.size());assertEquals(2,Collections.frequency(calls,id("demo.Worker.work(String)")));assertTrue(calls.contains(id("demo.Worker.audit()")));
         assertEquals(1,db.queryForObject("SELECT COUNT(*) FROM relationship_occurrences WHERE source_symbol_id = ? AND target_symbol_id = ? AND kind = 'CALLS'",Integer.class,id("demo.Worker.audit()"),id("demo.Worker.work(int)")));
         assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM relationship_occurrences r WHERE snapshot_id = ? AND NOT EXISTS (SELECT 1 FROM relationship_evidence e WHERE e.relationship_id = r.id)",Integer.class,snap));
-        var code=source.symbol(snap,id("demo.Worker.work(int)"));assertTrue(code.exact());assertEquals("public int work(int value) { return value + 1; }",code.content());assertFalse(code.content().contains("trim"));assertEquals("src/main/java/demo/Worker.java",code.path());
+        var code=source.symbol(snap,id("demo.Worker.work(int)"));assertTrue(code.exact());assertEquals("src/main/java/demo/Worker.java",code.path());
+        assertTrue(code.content().contains("package demo;"));assertTrue(code.content().contains("public String work(String value)"));
+        assertEquals(4,code.startLine());
+        var lines=code.content().split("\n",-1);var declared=new StringBuilder();for(int line=code.startLine();line<=code.endLine();line++)declared.append(line>code.startLine()?"\n":"").append(lines[line-1]);
+        assertEquals("public int work(int value) { return value + 1; }",declared.toString().strip());
     }
     @Test void documentsAreScopedAndExplanationContextContainsArchitectureAndNeighbors() {
         var doc=documents.save(ws,null,"Domain guide","Workers validate shipment requests for the fulfillment workflow.");

@@ -14,7 +14,7 @@ public class SourceService {
     public record Source(String schemaVersion, String path, int startLine, int endLine, String content, boolean exact) {}
 
     private static final String SYMBOL_QUERY =
-        "SELECT f.relative_path, e.start_line, e.end_line, e.snippet, f.content_hash, w.canonical_root " +
+        "SELECT f.relative_path, e.start_line, e.end_line, f.source_content, f.content_hash, w.canonical_root " +
         "FROM symbol_evidence se JOIN evidence e ON e.id = se.evidence_id " +
         "JOIN source_file_versions f ON f.id = e.source_file_version_id " +
         "JOIN symbol_versions s ON s.id = se.symbol_version_id " +
@@ -23,7 +23,7 @@ public class SourceService {
         "WHERE s.snapshot_id = ? AND f.snapshot_id = ? AND s.id = ? ORDER BY e.start_line LIMIT 1";
 
     private static final String RELATIONSHIP_QUERY =
-        "SELECT f.relative_path, e.start_line, e.end_line, e.snippet, f.content_hash, w.canonical_root " +
+        "SELECT f.relative_path, e.start_line, e.end_line, f.source_content, f.content_hash, w.canonical_root " +
         "FROM relationship_evidence re JOIN evidence e ON e.id = re.evidence_id " +
         "JOIN source_file_versions f ON f.id = e.source_file_version_id " +
         "JOIN relationship_occurrences r ON r.id = re.relationship_id " +
@@ -46,16 +46,16 @@ public class SourceService {
         String relativePath = rs.getString(1);
         int startLine = rs.getInt(2);
         int endLine = rs.getInt(3);
-        String snippet = rs.getString(4);
+        String fileContent = rs.getString(4);
         String storedHash = rs.getString(5);
         String canonicalRoot = rs.getString(6);
-        return new Source("1", relativePath, startLine, endLine, snippet, isStillExact(canonicalRoot, relativePath, storedHash));
+        return new Source("1", relativePath, startLine, endLine, fileContent, isStillExact(canonicalRoot, relativePath, storedHash));
     }
 
     /**
      * Re-hashes the live file (if it still exists) and compares against the hash captured at
      * index time, per DATA_MODEL.md's tamper-detection invariant. A missing file or mismatched
-     * hash means the retained snippet can no longer be trusted as an exact match for the file on disk.
+     * hash means the retained file content can no longer be trusted as an exact match for the file on disk.
      */
     private boolean isStillExact(String canonicalRoot, String relativePath, String storedHash) {
         try {
