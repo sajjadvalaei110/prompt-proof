@@ -206,6 +206,14 @@ await until(() => evaluate(`!!document.querySelector('.graph-canvas')?._cyreg?.c
 await probe();
 
 const clickLevel = name => evaluate(`[...document.querySelectorAll('.segmented button')].find(b=>b.textContent===${JSON.stringify(name)}).click()`);
+/** Fresh page load. Re-selecting an already-active level is now a genuine no-op (Step 2), so a
+ * level's displayed page persists once grown; the only reliable way back to a small starting page
+ * for a scenario that needs one is a real reload, not clicking the same level again. */
+async function reload() {
+  await cdp('Page.navigate', { url: `${base}/?snapshotId=${snapshot}` });
+  await until(() => evaluate(`!!document.querySelector('.graph-canvas')?._cyreg?.cy`), 'canvas mount (reload)');
+  await probe();
+}
 async function revealClasses(target) {
   await clickLevel('Classes');
   await until(async () => (await evaluate(`${CY}.nodes().length`)) > 1, 'class level');
@@ -273,11 +281,13 @@ console.log(`mode: ${mode}`);
   const d = delta(before, after);
   d.subject = after.inspectorSubject.slice(0, 40);
   record('reveal-36-then-click-class', before, after, d, {
+    // Step 2 fixed the membership/canvas-identity half of this regression: inspection no longer
+    // resets the display limit, and a stable topology means the canvas is no longer torn down.
+    // Only the position/camera half (Step 3's job) remains reproducible.
     baseline: [
       ['inspector opened', after.inspectorOpen],
-      ['displayed page collapses back to 12', d.countBefore === 36 && d.countAfter === 12],
-      ['24 classes dropped', d.dropped === 24],
-      ['canvas destroyed and recreated', d.canvasRecreated],
+      ['still 36 displayed (Step 2 fixed)', d.countAfter === 36],
+      ['canvas instance survives (Step 2 fixed)', !d.canvasRecreated],
       ['surviving cards move', d.survivorsMoved > 0],
       ['the user camera is discarded', d.zoomChanged || d.panChanged]
     ],
@@ -371,6 +381,47 @@ console.log(`mode: ${mode}`);
 }
 
 // ---------------------------------------------------------------------------
+// S4b — inspect an unresolved relationship from the inspector's "Depends on" list.
+// Regression guard for a defect found in review: the aggregate-edge-only lookup
+// used for an inspected edge initially missed unresolved relationships (which
+// never reach projectDisplayed's edge aggregation, since a null target has
+// nothing to aggregate onto), collapsing the inspector back to its idle state.
+// ---------------------------------------------------------------------------
+{
+  await revealClasses(12);
+  const typeInto = (id, text) => evaluate(`(()=>{
+    const input = document.getElementById(${JSON.stringify(id)});
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    setter.call(input, ${JSON.stringify(text)});
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
+  // ExternalPaymentGateway extends GatewayBase, an external supertype the source-only parser
+  // cannot resolve — an inspectable unresolved EXTENDS relationship by fixture design.
+  await typeInto('global-search', 'ExternalPaymentGateway');
+  await pause(300);
+  await until(() => evaluate(`!![...document.querySelectorAll('.search-results button')].find(b=>b.textContent.includes('ExternalPaymentGateway'))`), 'search result for ExternalPaymentGateway');
+  await evaluate(`[...document.querySelectorAll('.search-results button')].find(b=>b.textContent.includes('ExternalPaymentGateway')).click()`);
+  await until(() => evaluate(`!!document.querySelector('.unresolved-row')`), 'inspector shows an unresolved relationship row');
+  const before = await state();
+  await evaluate(`[...document.querySelectorAll('.unresolved-row button')].find(b=>b.textContent==='Inspect relationship').click()`);
+  await pause(400);
+  const after = await state();
+  const d = delta(before, after);
+  const inspectorIdle = await evaluate(`!!document.querySelector('.inspector.idle')`);
+  const relationshipShown = await evaluate(`(document.querySelector('.inspector-top')?.textContent||'').includes('Relationship')`);
+  const checks = [
+    ['inspector stays open, not idle', !inspectorIdle],
+    ['relationship content is shown', relationshipShown],
+    ['displayed page count unaffected', d.countAfter === d.countBefore]
+  ];
+  record('inspect-unresolved-relationship', before, after, d, { baseline: checks, acceptance: checks });
+  await screenshot('s4b-inspect-unresolved-relationship');
+  await typeInto('global-search', ''); // clear so later scenarios are not affected by leftover results
+  await pause(200);
+}
+
+// ---------------------------------------------------------------------------
 // S5 — change the relationship filter. Node membership must not react at all.
 // ---------------------------------------------------------------------------
 {
@@ -418,7 +469,11 @@ console.log(`mode: ${mode}`);
     await pause(250);
   }
   const shown = await revealClasses(36);
-  assert.equal(shown, 36, 'explicit four-package scope still reveals 36 classes');
+  // Each package checkbox is now its own scope edit that appends its own bounded batch (Step 2
+  // Appendix A2), so checking 4 packages one at a time can already exceed 36 before Show more is
+  // ever clicked; the exact count is no longer load-bearing here, only that a substantial,
+  // `service`-excluding page exists before the addition below.
+  assert.ok(shown >= 12, `expected a substantial class page before the add-package test, saw ${shown}`);
   await panAndZoom();
   await probe();
   await resetCounters();
@@ -428,11 +483,13 @@ console.log(`mode: ${mode}`);
   const after = await state();
   const d = delta(before, after);
   record('add-package-to-scope', before, after, d, {
+    // Step 2 fixed the membership half: survivors are never evicted and the page grows
+    // append-only. The canvas still tears down and repositions everything (Step 3's job).
     baseline: [
       ['scope changed', d.scopeChanged],
       ['canvas destroyed and recreated', d.canvasRecreated],
-      ['already displayed classes are evicted by degree re-ranking', d.dropped > 0],
-      ['the displayed page does not grow, it is re-selected', d.countAfter === d.countBefore],
+      ['no previously displayed class is evicted (Step 2 fixed)', d.dropped === 0],
+      ['the displayed page grows rather than being re-selected (Step 2 fixed)', d.countAfter > d.countBefore],
       ['surviving cards move', d.survivorsMoved > 0]
     ],
     acceptance: [
@@ -453,10 +510,11 @@ console.log(`mode: ${mode}`);
   const afterRemove = await state();
   const dr = delta(beforeRemove, afterRemove);
   record('remove-package-from-scope', beforeRemove, afterRemove, dr, {
+    // Step 2 fixed the refill-from-hidden-queue defect: removal only drops now-ineligible IDs.
     baseline: [
       ['scope changed', dr.scopeChanged],
       ['canvas destroyed and recreated', dr.canvasRecreated],
-      ['holes left by removal are refilled from the hidden queue', dr.added > 0],
+      ['no holes filled from the hidden queue (Step 2 fixed)', dr.added === 0],
       ['surviving cards move', dr.survivorsMoved > 0]
     ],
     acceptance: [
@@ -563,7 +621,10 @@ console.log(`mode: ${mode}`);
   });
 
   // (a0) Control: a real double-click on empty canvas. Cytoscape's core `dbltap` fires here,
-  // which proves the CDP gesture synthesis is sound and isolates the node cases below.
+  // which proves the CDP gesture synthesis is sound and isolates the node cases below. A previously
+  // grown page now persists (Step 2), so start from a fresh reload rather than relying on
+  // re-clicking the active level to shrink it back down.
+  await reload();
   await revealClasses(12);
   await resetCounters();
   const beforeEmpty = await state();
@@ -590,6 +651,7 @@ console.log(`mode: ${mode}`);
   // (a) Human-paced double-click (90 ms) on the initial 12-class page. The limit reset is a
   // no-op here, so the canvas survives — but the first tap's automatic arrangement moves the
   // card out from under the pointer before the second press lands.
+  await reload();
   const shown12 = await revealClasses(12);
   assert.equal(shown12, 12, 'page restored before the 12-class double-click case');
   await resetCounters();
@@ -621,6 +683,7 @@ console.log(`mode: ${mode}`);
 
   // (a2) Same page, minimal 15 ms gap: establishes whether the gesture is reachable at all
   // when the second press arrives before React re-renders and re-arranges the map.
+  await reload();
   const shownFast = await revealClasses(12);
   assert.equal(shownFast, 12, 'page restored before the fast double-click case');
   await resetCounters();
@@ -645,6 +708,7 @@ console.log(`mode: ${mode}`);
 
   // (b) On an expanded page the first tap resets the limit, which changes the topology key and
   // destroys the Cytoscape instance. The second tap lands on a new core, so `dbltap` never fires.
+  await reload();
   const shown36 = await revealClasses(36);
   assert.equal(shown36, 36, 'page restored before the 36-class double-click case');
   await resetCounters();
@@ -654,11 +718,16 @@ console.log(`mode: ${mode}`);
   const afterDouble = await state();
   const dd = delta(beforeDouble, afterDouble);
   record('real-double-click-at-36', beforeDouble, afterDouble, dd, {
+    // Step 2 fixed both the membership collapse and, as an emergent consequence of a stable
+    // topology, canvas survival: the first tap no longer tears the canvas down mid-gesture. The
+    // gesture is still lost (Step 5's job: move arrangement to a dedicated double-click command),
+    // but now because the position-shift-on-select from Step 1 (unfixed until Step 3) moves the
+    // card out from under the second press, not because the canvas was replaced underneath it.
     baseline: [
-      ['the first tap destroys the canvas', dd.canvasRecreated],
-      ['the double-click gesture is lost', dd.dbltaps === 0],
+      ['canvas instance survives the first tap (Step 2 fixed)', !dd.canvasRecreated],
+      ['the double-click gesture still does not reach the node', dd.dbltaps === 0],
       ['level does not change, so the drill-down is lost too', dd.levelAfter === 'Classes'],
-      ['the page still collapses to 12', dd.countAfter === 12]
+      ['still 36 displayed (Step 2 fixed)', dd.countAfter === 36]
     ],
     acceptance: [
       ['double-click gesture reaches Cytoscape', dd.dbltaps === 1],

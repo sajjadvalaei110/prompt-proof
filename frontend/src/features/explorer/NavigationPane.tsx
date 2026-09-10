@@ -7,7 +7,9 @@ interface Props {
   scope: ScopeSelection;
   selectedNode: AtlasNode | null;
   search: string;
-  onScopeChange: (scope: ScopeSelection) => void;
+  /** `explicitClassAddId` is set only when this change is a direct single-class checkbox add, so the
+   * displayed page can append exactly that class instead of a ranked batch (Appendix A2). */
+  onScopeChange: (scope: ScopeSelection, explicitClassAddId?: string) => void;
   onSelect: (node: AtlasNode) => void;
   onExplore: (node: AtlasNode) => void;
 }
@@ -20,10 +22,10 @@ function TriStateCheckbox({ state, onChange, label }: { state: 'checked'|'indete
 }
 
 function ClassRow({ node, graph, scope, selected, onScopeChange, onSelect, onExplore }:
-  { node: AtlasNode; graph: AtlasGraph; scope: ScopeSelection; selected: boolean; onScopeChange: (s: ScopeSelection) => void; onSelect: (n: AtlasNode) => void; onExplore: (n: AtlasNode) => void }) {
+  { node: AtlasNode; graph: AtlasGraph; scope: ScopeSelection; selected: boolean; onScopeChange: (s: ScopeSelection, explicitClassAddId?: string) => void; onSelect: (n: AtlasNode) => void; onExplore: (n: AtlasNode) => void }) {
   const inScope = isClassInScope(node, scope, graph);
   return <div className={`scope-row scope-row-class ${selected ? 'selected' : ''}`}>
-    <TriStateCheckbox state={inScope ? 'checked' : 'unchecked'} onChange={() => onScopeChange(toggleClass(scope, node, graph))} label={`${inScope ? 'Remove' : 'Add'} ${node.simpleName} from scope`} />
+    <TriStateCheckbox state={inScope ? 'checked' : 'unchecked'} onChange={() => onScopeChange(toggleClass(scope, node, graph), inScope ? undefined : node.id)} label={`${inScope ? 'Remove' : 'Add'} ${node.simpleName} from scope`} />
     <button className="scope-label" title={node.qualifiedName} onClick={() => onSelect(node)}><span className="tree-icon">◇</span>{node.simpleName}</button>
     <button className="scope-explore" onClick={() => onExplore(node)} aria-label={`Explore ${node.simpleName}`} title="Explore this class">⌖</button>
   </div>;

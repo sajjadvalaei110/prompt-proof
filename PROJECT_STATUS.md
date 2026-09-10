@@ -1,9 +1,73 @@
 # Project status
 Last updated: 2026-09-10
 Active milestone: R6 — Developer comprehension redesign (in progress)
-Current revision: R6 stable-map failure baseline captured (Step 1 of 10)
+Current revision: R6 stable-map inspection/membership separation (Step 2 of 10)
 
-## Current acceptance slice: stable graph interactions — Step 1 of 10 complete (baseline only)
+## Implementation-plan review — documentation only
+
+Reviewed `/home/sajjad/prompts/steps.md` against the current reducer, graph projection,
+fixture, and Step 1/2 handoff evidence. Step 1 and Step 2 instructions remain
+byte-for-byte unchanged; application source and scripts were not edited in this review.
+Continue at Step 3. Milestones 6–9 now have separate A/B sessions, giving 12 remaining
+sessions with focused reading, implementation boundaries, and exit gates. Updated
+state-extension guidance preserves the implemented `priorEligibleIds` contract;
+algorithm details distinguish candidate scoring from actual renderer verification.
+
+Verification: document structure/content checks and SHA-256 comparison of protected
+steps/source files — PASS; `git diff --check` — PASS. Runtime tests, builds, and
+screenshots skipped for this documentation-only review. Existing implementation
+results below retain their original evidence and limitations.
+
+## Current acceptance slice: stable graph interactions — Step 2 of 10 complete
+
+Executed on 2026-09-10. Ledger: [docs/STABLE_GRAPH_IMPLEMENTATION.md](docs/STABLE_GRAPH_IMPLEMENTATION.md#step-2--separate-inspection-from-displayed-page-membership).
+Acceptance criterion: inspecting a class or edge cannot change scope, abstraction level, or the
+set/count of displayed resources.
+
+Delivered:
+
+- `frontend/src/features/explorer/explorerViewState.ts` (new) — a pure reducer that owns
+  inspection, active level, and per-level displayed-page membership as one state machine
+  (Appendix A/F). Inspection actions never touch membership; scope/level actions reconcile
+  survivors by ID and append only genuinely new eligibility, bounded to a batch of 12 (or the
+  explicit single class being checked). Positions/camera are deliberately not tracked yet — Step 3.
+- `graphModel.ts` refactored (not duplicated): `getEligibleIds`/`rankEligibleIds`/`projectDisplayed`
+  are new reusable primitives; `projectGraph` is rebuilt on top of them with its exact prior
+  external contract (verified unchanged against the existing test suite).
+- `App.tsx` rewired onto the reducer: `select()`/edge inspection are pure dispatches with no
+  level/limit side effect; scope edits, Show more, level switches, and Back each dispatch one
+  explicit membership/navigation action. A new inspector notice distinguishes an out-of-scope
+  inspected subject from one that is in scope but simply not on the current page.
+- `scripts/test-explorer-view-state.mjs` (new) — 17 pure reducer tests, including the exact Step 1
+  regression (reveal 36 via two Show-mores, inspect one, still the same 36 IDs in the same order).
+
+**No canvas/position changes.** `GraphCanvas.tsx`, `graphLayout.ts`, and `nodeCard.ts` are
+untouched; cards and camera still move on every interaction (Step 3's job) — but node **membership**
+is now provably stable, in both pure tests and the real packaged browser.
+
+Browser evidence: `python3 scripts/verify_stable_graph_pipeline.py acceptance` unmet assertions
+dropped from 34 (13 scenarios, Step 1) to 26 (10 scenarios) — every remaining failure is
+position/camera/canvas-identity (Step 3) or double-click gesture reachability (Step 5); zero
+membership/level/scope assertions remain unmet. `baseline` mode retired 8 assertions across 4
+scenarios that Step 2 fixed (page no longer collapses 36→12; a package addition no longer evicts
+displayed classes via degree re-ranking; a package removal no longer refills holes from the hidden
+queue) and re-verified PASS with the corresponding now-true statements. Evidence:
+`docs/evidence/stable-graph-step2/` (2 full reports + 3 screenshots); full runs in
+`build/stable-graph/{baseline,acceptance}-*/` (git-ignored).
+
+Verification: `node scripts/test-graph-model.mjs` PASS (7 suites, unchanged);
+`node scripts/test-explorer-view-state.mjs` PASS (17 checks); `npx tsc -b --force` exit 0;
+`npm run build` PASS; `./gradlew bootJar --no-daemon` BUILD SUCCESSFUL (rebuilt to bundle the new
+frontend before the browser run); `python3 scripts/verify_stable_graph_pipeline.py baseline` PASS;
+`acceptance` FAIL as intended (26 unmet, down from 34). `git diff --check` clean. `./gradlew test`
+skipped — no backend source changed. Explanation harnesses skipped — no explanation code path
+touched.
+
+Remaining work: Steps 3–10 of the plan. Next is Step 3 — preserve the canvas and append resources
+without moving survivors (incremental Cytoscape reconciliation, camera stability, A3 coordinate
+placement for newly admitted IDs).
+
+## Previous acceptance slice: stable graph interactions — Step 1 of 10 complete (baseline only)
 
 Executed on 2026-09-10. Ledger: [docs/STABLE_GRAPH_IMPLEMENTATION.md](docs/STABLE_GRAPH_IMPLEMENTATION.md).
 Plan: `/home/sajjad/prompts/steps.md`. Specification: `/home/sajjad/prompts/product-design.md`.

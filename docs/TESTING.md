@@ -187,7 +187,7 @@ at 71,516,008 bytes with a 268,435,456-byte maximum. The packaged mock-provider
 browser run passed for 61 bulk symbols and produced nine inspected screenshots in
 `build/hierarchy-smoke/run-do7c60_n/`. No live-provider claim is made.
 
-## 7. Stable-map interaction baseline (R6, Step 1)
+## 7. Stable-map interaction baseline and pure state tests (R6, Steps 1-2)
 
 The stable-map work needs browser evidence that survives refactoring: node IDs, model
 coordinates, pan, zoom and displayed counts before and after **real** pointer input. A
@@ -238,3 +238,34 @@ layout. Twelve screenshots are written per run and must be visually inspected.
 Baseline results, the trigger inventory behind them, and the two cases classified as *not
 reproduced* with inspected alternative causes are recorded in
 `docs/STABLE_GRAPH_IMPLEMENTATION.md`.
+
+### Pure reducer tests (Step 2)
+
+```bash
+node scripts/test-explorer-view-state.mjs
+```
+
+17 checks against `frontend/src/features/explorer/explorerViewState.ts` in isolation (same
+runtime-`typescript`-transpile-to-`data:` URL approach as `test-graph-model.mjs`, no bundler). Covers:
+inspection never touching level/membership; re-inspecting the same subject/kind being a true no-op;
+history deduplication and its 20-entry cap; a never-visited level's first batch in caller-given rank
+order; idempotent re-navigation to an unchanged level; the exact Step 1 regression (reveal 36 via two
+Show-mores, inspect one, still the same 36 IDs in the same order); an explicit single-class add vs. a
+bounded package-batch add; removal without backfill; re-adding a removed class landing at the end,
+not its old slot; Show more's full-pending-queue semantics; `NAVIGATE_BACK`'s conservative
+never-auto-admit-new-eligibility behavior; and `RESET` reinitializing every level. A passing pure
+test proves the reducer's contract, not gesture handling or canvas behavior — the browser pipeline
+below is still required for that.
+
+### Step 2 browser re-verification
+
+Re-running `verify_stable_graph_pipeline.py` after a change that fixes previously-baselined defects
+requires updating the baseline scenarios whose assertions the fix falsifies — see
+`docs/STABLE_GRAPH_IMPLEMENTATION.md`'s Step 2 section for the exact 8 retired assertions across 4
+scenarios and their replacements. One mechanical consequence is worth noting for future steps: fixing
+"re-selecting the active level is a no-op" retired the test harness's own trick of clicking the
+already-active level button to shrink a grown page back down for a scenario's precondition (that
+click is now correctly a no-op, so a grown page stays grown). `verify-stable-graph-ui.mjs` gained a
+`reload()` helper (fresh page navigation) for scenarios that need a guaranteed small starting page —
+any future step that changes navigation/membership semantics should expect similar harness
+adjustments, not just application-code changes.

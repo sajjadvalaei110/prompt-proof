@@ -15,7 +15,7 @@ This ledger tracks the implementation of stable class traversal, predictable ins
 | Step | Objective | Status | Completed Date | Evidence |
 |---|---|---|---|---|
 | **Step 1** | Capture failures & create 60-class CDP fixture | **Complete** | 2026-09-10 | `scripts/verify_stable_graph_pipeline.py baseline` — 15 scenarios, 12 screenshots |
-| **Step 2** | Separate inspection from displayed-page membership (`explorerViewState.ts`) | Pending | — | Pure state tests |
+| **Step 2** | Separate inspection from displayed-page membership (`explorerViewState.ts`) | **Complete** | 2026-09-10 | 17 pure reducer tests; browser acceptance failures 34→26 |
 | **Step 3** | Incremental canvas updates & append-below placement | Pending | — | Browser coordinate assertions |
 | **Step 4** | Class traversal (A→B→C) and restorative Back navigation | Pending | — | Navigation history tests |
 | **Step 5** | Double-click focused arrangement around resource | Pending | — | Single vs double click checks |
@@ -228,6 +228,219 @@ assertions unmet across 13 scenarios. Only the gesture control passes. This is t
 
 ---
 
+---
+
+## Step 2 — Separate inspection from displayed-page membership
+
+### What changed
+
+- **New `frontend/src/features/explorer/explorerViewState.ts`** (Appendix A/F). A small pure
+  reducer owns `activeLevel`, per-level `LevelViewState` (`displayedIds`, `priorEligibleIds`,
+  `initialized`), `inspectedSubjectId`/`inspectedKind`, and Back-navigation `history` (deduped,
+  capped at 20). Positions, camera, and edge routes are **not** tracked yet — that is Step 3's
+  contract extension, not built ahead of schedule with no caller.
+  - `INSPECT_NODE`/`INSPECT_EDGE`/`CLEAR_INSPECTION` never touch `levelViews` or `activeLevel`.
+  - `reconcileLevelView` implements Appendix A2 exactly: `survivors` = previous `displayedIds`
+    filtered by new eligibility (order preserved); `newlyEligible` = eligible IDs absent from the
+    **previous eligible boundary** (`priorEligibleIds`), not merely absent from the displayed page —
+    this is what stops an unrelated scope edit from revealing classes that were already
+    eligible-but-pending. An `explicitClassAddId` (a direct class checkbox) appends exactly that
+    one class; otherwise the next bounded batch of `newlyEligible` is appended.
+  - `SHOW_MORE` uses a separate `appendPendingBatch` helper that reveals from *all*
+    eligible-but-undisplayed IDs regardless of when they became eligible (Appendix A2's `pending`).
+  - `NAVIGATE_LEVEL` re-runs the same reconcile for the target level every time, so a level's page
+    is lazily reconciled against the *current* scope only when the user actually returns to it
+    (Story 6: "Changing scope while visiting another level is applied when returning to Classes").
+    Called with unchanged eligibility it is provably idempotent (verified by test), which is what
+    makes "re-selecting the active level is a no-op" hold without a special-cased guard.
+  - `NAVIGATE_BACK` is deliberately conservative: it drops now-ineligible survivors but passes
+    `batchSize: 0`, so it never auto-admits new eligibility. Restoring an old view should not
+    surprise the user with cards they never asked to see; Show more / an explicit scope edit are
+    the only things that grow a page.
+  - `RESET` reinitializes every level (used when a new snapshot loads) and populates only the
+    starting level, so a stale level from a previous snapshot cannot leak forward.
+- **`frontend/src/features/explorer/graphModel.ts`** refactored, not duplicated. `projectGraph` is
+  now built from three reusable primitives: `getEligibleIds` (scope+level candidates, no ranking),
+  `rankEligibleIds` (degree/simpleName/ID ranking, used only to order a *new batch*, never to
+  re-rank survivors), and `projectDisplayed` (renders an explicit ID list — no ranking, no
+  slicing). `projectGraph` itself is kept, now expressed in terms of these, purely because the
+  existing `scripts/test-graph-model.mjs` suite exercises it and other future callers may want a
+  single ranked/bounded view; the live application no longer calls it. A single `aggregateEdges`
+  helper is shared by `projectGraph` and `projectDisplayed`, per Appendix A's "do not create two
+  subtly different occurrence aggregation implementations."
+- **`frontend/src/App.tsx`** rewired: `node`/`edge`/`history`/`nodeLimit`/`level` local state
+  removed in favor of the reducer. `select()` and `inspectEdge()` now dispatch pure inspection
+  events with no other side effect. `explore()`, the level segmented control, `openCodeMap()`,
+  Show more, and Back all dispatch the appropriate membership/navigation action instead of calling
+  `setNodeLimit`/`setLevel` directly. `handleScopeChange()` centralizes every scope mutation
+  (checkbox, Reset to whole system, canvas "Remove from scope") so each one recomputes eligibility
+  for the active level and dispatches `SCOPE_UPDATED` once. A `mapStatus` derived value
+  (`OUT_OF_SCOPE` / `IN_SCOPE_NOT_DISPLAYED` / `DISPLAYED`) is computed from the inspected
+  subject's own natural level (not necessarily the currently active one) and passed to the
+  inspector.
+- **`NavigationPane.tsx`**: `onScopeChange` gained an optional `explicitClassAddId` second
+  argument; `ClassRow`'s checkbox passes the class's own ID only when it is being **added** (not
+  removed), so App.tsx can tell a direct single-class add apart from a package/bulk toggle.
+- **`InspectorPanel.tsx`**: new optional `mapStatus` prop renders "Outside current scope." or "In
+  scope, not currently displayed." next to an inspected subject, per Story 1/Story 6.
+- GraphCanvas.tsx, graphLayout.ts, nodeCard.ts: **untouched**. The canvas still calls
+  `graphLayout()`/`fit()` on every `selectedId`/`topology` change — positions and camera are
+  still not stable. That is Step 3.
+
+### Why the browser harness itself needed edits
+
+Step 2's own fix — "re-selecting the active level is a no-op" — retired the test harness's
+`revealClasses()` trick of clicking the already-active level button to force the page back down to
+12; under the fix that click is now a genuine no-op, so a grown page (correctly) stays grown.
+`scripts/verify-stable-graph-ui.mjs` gained a `reload()` helper (fresh `Page.navigate`) used before
+the three double-click sub-scenarios that need a guaranteed small starting page, and the
+add-package precondition was loosened from an exact `36` to `>= 12`, because each individual
+package checkbox is now its own scope edit that appends its own bounded batch (checking 4 packages
+one at a time can legitimately exceed 36 before Show more is ever clicked — this is the intended
+Appendix A2 behavior, not a bug). Both are mechanical consequences of the fix working, not new
+application behavior.
+
+### Baseline — 8 assertions retired, all re-verified as PASS
+
+`python3 scripts/verify_stable_graph_pipeline.py baseline` → **PASS**, 15 scenarios (previously
+crashed on a stale precondition before this session's fixes; full run after fixing it is durable
+evidence). Retired exactly the assertions the real browser run showed are no longer reproducible,
+replacing them with the corresponding now-true statement so the file keeps recording current
+behavior instead of silently going stale:
+
+| Scenario | Retired (no longer true) | Replaced with (now true, Step 2) | Still true (Step 3+) |
+|---|---|---|---|
+| `reveal-36-then-click-class` | collapses to 12; 24 dropped; canvas recreated | still 36 displayed; canvas survives | cards move; camera discarded |
+| `add-package-to-scope` | evicted by degree re-ranking; page re-selected, not grown | no class evicted; page grows (38→50) | canvas recreated; cards move |
+| `remove-package-from-scope` | holes refilled from hidden queue | no holes filled (38→50→38, exact) | canvas recreated; cards move |
+| `real-double-click-at-36` | first tap destroys canvas; page collapses to 12 | canvas survives the first tap; still 36 displayed | gesture still lost (Step 5); no drill-down |
+
+### Acceptance — 34 → 26 unmet assertions; every membership assertion now passes
+
+`python3 scripts/verify_stable_graph_pipeline.py acceptance` → still **FAIL** by design (26 unmet
+contract assertions across 10 scenarios; was 34 across 13 in Step 1). The remaining 26 are
+exclusively position/camera/canvas-identity (Step 3) and double-click gesture reachability
+(Step 5) — every single membership/level/scope assertion for every scenario now passes, including:
+"still 36 displayed", "same displayed IDs in the same order", "no previously displayed class is
+dropped", "a bounded first batch of newly eligible classes is appended", "the displayed page grows
+rather than being re-selected", "no holes filled from the hidden queue", "level unchanged",
+"displayed count unchanged", "edge set changed / node membership unchanged". Durable evidence:
+`docs/evidence/stable-graph-step2/{baseline,acceptance}-report.json` plus three inspected
+screenshots (`s2-reveal-36-then-click.png` — banner reads "Showing 36 of 74 in scope · show 12
+more" after clicking a class, all 36 cards present; `s6-add-package.png` — banner reads "Showing 50
+of 64 in scope · show 12 more" after adding a 5th package to a 38-class custom scope, all prior
+classes still visible; `s7-remove-package.png`). The full run (all 12 screenshots, both modes'
+complete reports, application/Chromium logs) is in `build/stable-graph/{baseline,acceptance}-*/`
+(git-ignored).
+
+### Pure tests
+
+`node scripts/test-explorer-view-state.mjs` → **PASS, 17 checks**: inspection never touches
+level/membership/revision; re-inspecting the same subject is a no-op (same object reference,
+no duplicate history); history caps at 20 and never duplicates consecutive entries; a never-visited
+level admits its first batch in caller-given rank order; re-navigating to an unchanged level is
+provably idempotent; **the core Step 1 regression** (reveal 36 via two Show-mores, inspect one,
+still exactly the same 36 IDs in the same order); an explicit single-class add appends exactly one;
+a package addition appends a bounded ≤12 batch without touching survivors or leaking
+already-pending classes from an unrelated package; removal drops without backfill; re-adding a
+removed class lands at the end, not its old slot; Show more reveals from the full pending queue
+regardless of when items became eligible; `NAVIGATE_BACK` restores the prior level/subject, drops
+now-ineligible survivors, and never auto-admits new eligibility; `NAVIGATE_BACK` on empty history
+and `RESET` are covered.
+
+`node scripts/test-graph-model.mjs` → **PASS, all 7 suites**, unchanged behavior — the
+`projectGraph` refactor (built from the new `getEligibleIds`/`rankEligibleIds`/`projectDisplayed`
+primitives) preserves its exact external contract; no test needed updating.
+
+### Other checks
+
+- `npx tsc -b --force` (frontend/) — 0 errors.
+- `npm run build` (frontend/) — succeeds; existing >500 kB bundle advisory unchanged.
+- `./gradlew bootJar --no-daemon` — BUILD SUCCESSFUL, rebuilt jar bundles the new frontend (needed
+  before re-running the browser pipeline, since it serves the packaged UI).
+- `node --check scripts/verify-stable-graph-ui.mjs`, `git diff --check` — clean.
+- Not run: `./gradlew test` (no backend source changed this step) and
+  `python3 scripts/verify_hierarchical_pipeline.py` (explanation harness untouched; App.tsx's
+  explanation-related props/effects were not modified beyond routing `onInspectEdge`/`onClose`
+  through the new reducer, which changes no explanation behavior).
+
+### Remaining known limitations (accurately not claimed fixed)
+
+- **Positions and camera still move** on every inspection, scope edit, and filter change — Step 3.
+- **Canvas identity is now stable for pure inspection** (topology unchanged ⇒ no recreation) but
+  **still recreated on any real scope/edge-filter change**, since `GraphCanvas`'s creation effect
+  is still keyed on `topology` — Step 3.
+- **Double-click still cannot reach a node reliably** — the first tap's position-shift (Step 3)
+  moves the card out from under the second press. It no longer *also* destroys the canvas at an
+  expanded page (a stable topology is an emergent benefit of this step), but the gesture itself is
+  Step 5's job to fix by moving arrangement off single/first-tap entirely.
+- **`openCodeMap()` still unconditionally resets to Packages and clears inspection**, even when
+  already there — matching prior behavior deliberately. Story 6's "Code map returns to the last
+  map view; clicking it while already there does not reset" is explicitly Step 4's item, not
+  claimed here.
+- **The level segmented control still clears inspection on a genuine level switch** (not on
+  re-selecting the same level, which is now a true no-op). Whether inspection should survive a
+  deliberate level switch is left to Step 4, which owns navigation predictability end-to-end.
+- **An inspected edge does not survive a relationship-filter change** that excludes its kind
+  (its aggregate ID is a view-scoped computation, not a stable identity) — unaffected by this step
+  either way; not a regression, not claimed fixed.
+- `docs/BUILD_BRIEF.md` remains absent; `docs/BUILD.md` was read in its place, as in Step 1.
+
+---
+
+## Step 2 — Review fixes (`/home/sajjad/prompts/step-2-review.md`)
+
+A four-agent read-only review (`step-2-review.md`, score 91/100, verdict "PASS WITH CAVEATS")
+audited the Step 2 diff. Triaged and resolved every finding that was a genuine defect in code this
+step changed; declined two that are pre-existing performance characteristics inherited unchanged
+from before this step, on the grounds that fixing them would touch files/patterns outside this
+step's actual diff.
+
+### Fixed
+
+| ID | Severity | Fix |
+|---|---|---|
+| **UI-01** | High | `App.tsx`'s `edge` lookup only searched `projected.edges`, which never contains unresolved relationships (`target_symbol_id IS NULL` has nothing to aggregate onto). Clicking "Inspect relationship" on an unresolved row collapsed the inspector to its idle state. Added a fallback to `graph.metadata.unresolvedRelationships`, reconstructing the exact `{...e, targetId:null, descriptiveLabel:e.unresolvedTarget}` shape `InspectorPanel` already builds for that button. **Verified live**: new permanent CDP scenario `inspect-unresolved-relationship` (`ExternalPaymentGateway extends GatewayBase`, unresolved by fixture design) — inspector shows "Relationship" content, not idle; membership count unaffected. |
+| **UI-02** | Medium | `mapStatus` compared the inspected node's *own* natural level's cached page against its ID, so a method cached in `levelViews.METHOD` from an earlier visit reported `DISPLAYED` even while the active canvas showed Classes. Now requires `level === levelOf(node)` before checking `displayedIds`, matching Story 1/6's "not shown in the current map" contract. |
+| **ARC-01** | Medium | `reconcileLevelView`'s explicit-add ternary fell back to a ranked batch of unrelated classes whenever the checked class wasn't a valid candidate at the active level (e.g. the tree checkbox toggled while viewing Packages). Changed so an explicit add is *always* the caller's entire intent: exactly that one class, or nothing — never a silent unrelated batch. New pure test. |
+| **ARC-02** | Low | `membershipRevision` bumped unconditionally on every `NAVIGATE_LEVEL`/`SCOPE_UPDATED`/`SHOW_MORE`/`NAVIGATE_BACK`, including true no-ops. `reconcileLevelView`/`appendPendingBatch` now return `changed`, and the reducer only bumps when `displayedIds` actually changed length or content — inert today (nothing reads the field yet) but avoids handing Step 3 a signal that fires on no-op reconciliations. New pure test. |
+| **ARC-03** | Low | Closing the inspector (`CLEAR_INSPECTION`) dropped the closed subject without pushing it to history, so `A → B → close → C → Back` skipped straight from C to A, silently losing B. Closing is a pane-visibility toggle, not a navigation, so the closed subject now joins history exactly as a normal `INSPECT_*` transition would. New pure test covers the full `A → B → close → C → Back → Back` chain. |
+| **ARC-04** | (not in final table, fixed anyway — free) | `appendPendingBatch` assumed every ID in `view.displayedIds` was still eligible. Added the same defensive `filter(eligibleSet.has)` pruning `reconcileLevelView` already had, so Show more is correct even if ever called without an intervening reconciliation. New pure test. |
+| **UI-03** | Low | `history` only dedupes *consecutive* repeats, so `A → B → A` produced a duplicate React key in the "Recently viewed" list's naive `slice(-3)`. Replaced with a walk-from-the-end loop collecting up to 3 distinct, most-recent-first `subjectId`s. |
+| **MOD-03** | Low | `projectGraph` re-implemented `projectDisplayed`'s node/edge construction instead of calling it. Now delegates directly; verified byte-identical behavior against the unchanged `test-graph-model.mjs` suite. |
+
+### Declined (pre-existing, out of this step's diff)
+
+- **MOD-01** (`getEligibleIds` → `scopeModel.isNodeInScope` rebuilds a `Map` per candidate) and
+  **MOD-02** (`decorate()`'s per-node `graph.nodes.filter(parentId===...)` scan) are both patterns
+  the *original* `projectGraph` already had before Step 2 — this step extracted them into shared
+  helpers without changing their complexity. Fixing them means touching `scopeModel.ts` and the
+  shared node-decoration path for a performance concern with no evidence it matters at the
+  fixture's current scale; left for a dedicated performance pass (the reviewer's own suggestion —
+  Step 3, once real card dimensions make a natural place to also pre-index `parentId`/`nodeMap`).
+
+### Verification after fixes
+
+- `node scripts/test-explorer-view-state.mjs` → **PASS, 21 checks** (17 original + 4 new: explicit
+  class add with an invalid target, `CLEAR_INSPECTION` history preservation across a close,
+  `membershipRevision` only bumping on real change, Show more's defensive pruning).
+- `node scripts/test-graph-model.mjs` → PASS, 7 suites, unchanged (confirms the `projectGraph`
+  delegation change is behavior-preserving).
+- `npx tsc -b --force`, `npm run build` — clean.
+- `./gradlew bootJar --no-daemon` rebuilt; full baseline+acceptance browser re-run:
+  **identical 26 acceptance failures, zero new ones** — the review fixes are internal correctness
+  improvements the existing 15 scenarios don't otherwise exercise. Added a 16th scenario,
+  `inspect-unresolved-relationship`, specifically to give UI-01 real browser evidence (screenshot:
+  `docs/evidence/stable-graph-step2/s4b-inspect-unresolved-relationship.png`, inspector correctly
+  shows "ExternalPaymentGateway → GatewayBase · extends · unresolved"). Evidence refreshed in
+  `docs/evidence/stable-graph-step2/{baseline,acceptance}-report.json`.
+- UI-02's fix has no dedicated new browser scenario (constructing the specific cross-level cached-page
+  precondition cheaply within the existing harness wasn't warranted for a one-line comparison fix);
+  confirmed by code inspection and `tsc` type-checking only. Flagged here so a future step can add
+  one if this class of bug recurs.
+
+---
+
 ## Per-Step Handoff Records
 
 ```text
@@ -297,4 +510,101 @@ Next step / precise remaining task: Step 2 — introduce the view-state module
   render. Positions may still move until Step 3; record that as a remaining failure. Add
   scripts/test-explorer-view-state.mjs and re-run the baseline and acceptance modes, updating the
   baseline expectations that Step 2 legitimately turns green.
+```
+
+```text
+Step and date: Step 2 — 2026-09-10
+Acceptance criterion completed: Inspecting a class or edge cannot change scope, abstraction level,
+  or the set/count of displayed resources. Verified by 17 pure reducer tests and, in the real
+  packaged browser, every membership/level/scope acceptance assertion across all 15 scenarios now
+  passes (26 of the original 34 unmet acceptance assertions remain, all exclusively position/camera
+  (Step 3) or double-click gesture reachability (Step 5)).
+Files changed and important interfaces:
+  - frontend/src/features/explorer/explorerViewState.ts (new) — pure reducer: ExplorerViewState,
+    ExplorerAction, explorerViewReducer, initExplorerViewState. Owns activeLevel, per-level
+    LevelViewState (displayedIds/priorEligibleIds/initialized), inspectedSubjectId/inspectedKind,
+    and Back history. No positions/camera yet (Step 3).
+  - frontend/src/features/explorer/graphModel.ts — added getEligibleIds, rankEligibleIds,
+    projectDisplayed, aggregateEdges; projectGraph rebuilt on top of them (same external contract,
+    verified against the existing test suite unchanged).
+  - frontend/src/App.tsx — node/edge/history/nodeLimit/level local state removed; derived from the
+    reducer. select()/inspectEdge() are pure inspection dispatches. explore()/level
+    control/openCodeMap()/Show more/Back dispatch NAVIGATE_LEVEL/SCOPE_UPDATED/SHOW_MORE/
+    NAVIGATE_BACK. handleScopeChange() centralizes every scope mutation. New mapStatus derived
+    value passed to InspectorPanel.
+  - frontend/src/features/explorer/NavigationPane.tsx — onScopeChange gained an optional
+    explicitClassAddId second argument (ClassRow's checkbox passes it only on an add).
+  - frontend/src/features/inspector/InspectorPanel.tsx — new optional mapStatus prop renders
+    "Outside current scope." / "In scope, not currently displayed."
+  - scripts/test-explorer-view-state.mjs (new) — 17 pure transition tests.
+  - scripts/verify-stable-graph-ui.mjs — added a reload() helper and used it before the three
+    double-click sub-scenarios that need a guaranteed small starting page (re-selecting the active
+    level is now a genuine no-op, so the old "re-click to shrink back to 12" trick no longer works);
+    loosened the add-package precondition from an exact 36 to >= 12 (each package checkbox is now
+    its own scope edit with its own bounded batch, so 4 individual checks can already exceed 36);
+    retired 8 now-false baseline assertions across 4 scenarios, replacing each with the
+    corresponding now-true statement (see the ledger table above) — never weakened acceptance.
+  - docs/evidence/stable-graph-step2/** (new) — baseline-report.json, acceptance-report.json, and
+    3 inspected screenshots.
+  - docs/STABLE_GRAPH_IMPLEMENTATION.md (this ledger), PROJECT_STATUS.md, docs/TESTING.md.
+  - GraphCanvas.tsx, graphLayout.ts, nodeCard.ts: untouched, as intended for this step.
+Actual commands and outcomes:
+  - node scripts/test-graph-model.mjs                                   -> PASS (7 suites, unchanged)
+  - node scripts/test-explorer-view-state.mjs                           -> PASS (17 checks)
+  - node --check scripts/verify-stable-graph-ui.mjs                     -> ok
+  - (frontend/) npx tsc -b --force                                      -> exit 0
+  - (frontend/) npm run build                                           -> built in ~1.1s, 45 modules
+  - ./gradlew bootJar --no-daemon                                       -> BUILD SUCCESSFUL (rebuilt
+    jar with the new frontend, required before re-running the browser pipeline)
+  - python3 scripts/verify_stable_graph_pipeline.py baseline            -> PASS, 15 scenarios,
+    12 screenshots, fixture hashes identical before/after (first attempt crashed on a stale
+    precondition in the add-package scenario — see verify-stable-graph-ui.mjs changes above — fixed
+    before this passing run)
+  - python3 scripts/verify_stable_graph_pipeline.py acceptance          -> FAIL (expected), 26 unmet
+    contract assertions across 10 scenarios (down from 34 across 13 in Step 1); every remaining
+    failure is position/camera/canvas-identity (Step 3) or double-click gesture reachability
+    (Step 5) — zero remaining membership/level/scope failures.
+  - git diff --check                                                    -> clean
+  - Skipped: ./gradlew test. No backend source changed.
+  - Skipped: python3 scripts/verify_hierarchical_pipeline.py and other explanation harnesses. Only
+    App.tsx's onInspectEdge/onClose call sites changed (still call the same InspectorPanel
+    contract); no explanation code path touched.
+  - Not run: any lint pass. This repository has no lint tooling configured; no lint claim is made.
+Browser scenarios and screenshots inspected: all 15 scenarios' JSON deltas read directly (see the
+  ledger tables above); s2-reveal-36-then-click.png and s6-add-package.png opened and visually
+  confirmed (banner text "Showing 36 of 74 in scope · show 12 more" and "Showing 50 of 64 in scope
+  · show 12 more" respectively, with the full class grid present in each — not collapsed).
+  s7-remove-package.png is on disk in the evidence directory (not separately opened).
+Unresolved failures or limitations: see "Remaining known limitations" above. In summary: positions
+  and camera still move on every interaction (Step 3); canvas is now stable for pure inspection but
+  still recreated on scope/filter changes (Step 3); double-click still cannot reach a node reliably,
+  though it no longer also destroys the canvas at an expanded page (Step 5); openCodeMap() and the
+  level segmented control still unconditionally clear inspection on a real navigation (Step 4);
+  an inspected edge does not survive a filter change that excludes its kind (unaffected either way).
+Processes started, ports, output directories, and whether stopped:
+  - Per run: one packaged jar on an ephemeral loopback port and one headless Chromium with an
+    ephemeral CDP port and a per-run --user-data-dir, both terminated in the runner's finally block;
+    verified stopped after each run. Nothing left listening.
+  - Output: build/stable-graph/baseline-x09iy68i/ (final baseline) and
+    build/stable-graph/acceptance-ps9gjkrb/ (final acceptance); several earlier iteration
+    directories from this session remain under build/stable-graph/ and can be deleted. build/ is
+    git-ignored, so the exit-gate evidence is duplicated under docs/evidence/stable-graph-step2/.
+  - Temporary fixture copies under /tmp removed in the same finally block.
+What the next session must read:
+  - This ledger's Step 2 section (design decisions, baseline retirement table, remaining
+    limitations) and docs/evidence/stable-graph-step2/*-report.json for exact before/after state.
+  - /home/sajjad/prompts/steps.md Step 3 and Appendix A (A3 coordinate placement specifically).
+  - frontend/src/features/explorer/explorerViewState.ts (the exact LevelViewState/ExplorerAction
+    shape to extend with positions/camera/geometryRevision — do not redesign it from scratch) and
+    frontend/src/features/explorer/GraphCanvas.tsx (every layout/fit/center/create call site, all
+    still exactly as inventoried in Step 1).
+Next step / precise remaining task: Step 3 — make GraphCanvas create Cytoscape once per mounted
+  canvas and reconcile elements by stable ID in a batch (remove absent, add new with positions,
+  update survivor data) instead of recreating on every topology change; eliminate layout/fit/center
+  calls from selection, scope, filter, and resize; extend explorerViewState's LevelViewState with
+  positions/camera/geometryRevision per Appendix A3, and implement the append-below-existing-bounds
+  placement algorithm for newly admitted IDs (the reducer currently admits membership correctly but
+  computes no coordinates for the new arrivals). Re-run the baseline/acceptance browser pipeline
+  again afterward and retire the position/camera-related baseline assertions that Step 3 fixes,
+  the same way this step retired the membership ones.
 ```
