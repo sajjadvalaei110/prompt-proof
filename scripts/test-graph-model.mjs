@@ -11,7 +11,7 @@ const stripLocalImport=(src,name)=>src.replace(new RegExp(`import \\{[^}]*\\} fr
 const scopeCompiled=stripLocalImport(compile('../frontend/src/features/explorer/scopeModel.ts'),'graphModel');
 const graphCompiled=stripLocalImport(compile('../frontend/src/features/explorer/graphModel.ts'),'scopeModel');
 const combined=scopeCompiled+'\n'+graphCompiled;
-const {projectGraph,wholeSystemScope,emptyScope,isClassInScope,getPackageCheckState,togglePackage,toggleClass,scopeToLabel}=await import('data:text/javascript;base64,'+Buffer.from(combined).toString('base64'));
+const {projectGraph,wholeSystemScope,emptyScope,isClassInScope,getPackageCheckState,getPackageGroupCheckState,buildPackageHierarchy,togglePackages,togglePackage,toggleClass,scopeToLabel}=await import('data:text/javascript;base64,'+Buffer.from(combined).toString('base64'));
 
 const nodes=[{id:'p1',kind:'PACKAGE',simpleName:'api'},{id:'p2',kind:'PACKAGE',simpleName:'service'}, {id:'a',kind:'CLASS',simpleName:'Controller',parentId:'p1'}, {id:'b',kind:'INTERFACE',simpleName:'Worker',parentId:'p2'}, {id:'a1',kind:'METHOD',simpleName:'handle',parentId:'a'}, {id:'b1',kind:'METHOD',simpleName:'work',parentId:'b'}, {id:'b2',kind:'METHOD',simpleName:'audit',parentId:'b'}];
 const edges=[{id:'e1',sourceId:'a1',targetId:'b1',kind:'CALLS',resolution:'RESOLVED'},{id:'e2',sourceId:'a1',targetId:'b1',kind:'CALLS',resolution:'RESOLVED'},{id:'e3',sourceId:'a',targetId:'b',kind:'INJECTS',resolution:'CANDIDATE'},{id:'e4',sourceId:'b1',targetId:'b2',kind:'CALLS',resolution:'RESOLVED'},{id:'e5',sourceId:'a1',targetId:null,kind:'CALLS',resolution:'UNRESOLVED'}];
@@ -75,6 +75,36 @@ assert.equal(splitOne.mode,'CUSTOM');assert.ok(!splitOne.selectedPackageIds.has(
 assert.ok(scopeToLabel(graph,ALL).startsWith('Whole system'));
 assert.ok(scopeToLabel(graph,empty).includes('No packages or classes selected'));
 console.log('PASS: scope helper toggles are immutable and materialize ALL mode correctly on first edit');
+
+// Dotted package names are backend facts with no parent links. The client builds visual
+// namespaces and derives each synthetic checkbox from all real package descendants.
+const hierarchyGraph={nodes:[
+ {id:'p-root',kind:'PACKAGE',simpleName:'com.example',qualifiedName:'com.example'},
+ {id:'p-orders',kind:'PACKAGE',simpleName:'com.example.orders',qualifiedName:'com.example.orders'},
+ {id:'p-web',kind:'PACKAGE',simpleName:'com.example.orders.web',qualifiedName:'com.example.orders.web'},
+ {id:'p-billing',kind:'PACKAGE',simpleName:'com.example.billing',qualifiedName:'com.example.billing'},
+ {id:'root-class',kind:'CLASS',simpleName:'RootType',parentId:'p-root'},
+ {id:'orders-class',kind:'CLASS',simpleName:'OrderService',parentId:'p-orders'},
+ {id:'web-class',kind:'CLASS',simpleName:'OrderController',parentId:'p-web'},
+ {id:'billing-class',kind:'CLASS',simpleName:'Invoice',parentId:'p-billing'}
+],edges:[]};
+const hierarchy=buildPackageHierarchy(hierarchyGraph);
+assert.equal(hierarchy.length,1);assert.equal(hierarchy[0].name,'com');assert.equal(hierarchy[0].packageNode,undefined);
+const example=hierarchy[0].children[0];assert.equal(example.qualifiedName,'com.example');assert.equal(example.packageNode.id,'p-root');
+assert.deepEqual(example.children.map(child=>child.name),['billing','orders']);
+const orders=example.children.find(child=>child.name==='orders');assert.deepEqual(orders.packageIds,['p-orders','p-web']);assert.equal(orders.children[0].name,'web');
+assert.equal(getPackageGroupCheckState(hierarchy[0].packageIds,ALL,hierarchyGraph),'checked');
+const webOnly=custom([],['web-class']);
+assert.equal(getPackageGroupCheckState(orders.packageIds,webOnly,hierarchyGraph),'indeterminate');
+assert.equal(getPackageGroupCheckState(example.children.find(child=>child.name==='billing').packageIds,webOnly,hierarchyGraph),'unchecked');
+const selectedNamespace=togglePackages(emptyScope(),orders.packageIds,hierarchyGraph);
+assert.deepEqual(selectedNamespace.selectedPackageIds,new Set(['p-orders','p-web']));
+assert.equal(togglePackages(emptyScope(),hierarchy[0].packageIds,hierarchyGraph).mode,'ALL');
+const removedNamespace=togglePackages(ALL,orders.packageIds,hierarchyGraph);
+assert.ok(!removedNamespace.selectedPackageIds.has('p-orders'));assert.ok(!removedNamespace.selectedPackageIds.has('p-web'));assert.ok(removedNamespace.selectedPackageIds.has('p-root'));assert.ok(removedNamespace.selectedPackageIds.has('p-billing'));
+const clearedPartialNamespace=togglePackages(webOnly,orders.packageIds,hierarchyGraph);
+assert.equal(getPackageGroupCheckState(orders.packageIds,clearedPartialNamespace,hierarchyGraph),'unchecked');
+console.log('PASS: dotted package trie, synthetic namespace aggregate state, and batch package toggles');
 
 // A grouped edge is READY only when every underlying occurrence is READY.
 const mixed={nodes,edges:edges.map(e=>({...e,explanationStatus:e.id==='e1'?'READY':'NOT_REQUESTED'}))};

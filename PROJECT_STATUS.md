@@ -1,9 +1,34 @@
 # Project status
 Last updated: 2026-09-10
 Active milestone: R6 — Developer comprehension redesign (in progress)
-Current revision: R6 bounded explanation working sets (verified with synthetic providers)
+Current revision: R6 hierarchical graph scope and explicit canvas deselection
 
-## Current acceptance slice: repository-size-independent explanation memory — complete
+## Current acceptance slice: hierarchical graph scope and explicit canvas deselection — complete
+
+Implemented on 2026-09-10, frontend-only:
+- The navigation pane now preserves the complete flex-height chain: `.scope-tree` is a shrinking flex column, its toolbar is fixed, and `.package-tree` is the sole `flex: 1; min-height: 0; overflow: auto` region. Large trees scroll inside the pane while recent symbols and workspace controls remain visible. Shared single-child namespace paths start open, branch points start collapsed, and selecting/searching a symbol reveals its owning package path.
+- `scopeModel.ts` builds a display-only trie from flat dotted PACKAGE facts. Synthetic namespaces never become graph symbols. Their checkbox state aggregates the existing real-package check states, and their batch toggle selects or removes every real descendant package. A selection that covers the whole graph normalizes to `ALL`; leaf package and class behavior remains unchanged.
+- Scope changes during an open snapshot are explicitly limited to the tree controls, scope-labelled reset/select-all controls, and canvas removal. Search results, node/edge inspection, graph double-click, package/class inspector exploration, route cards, the brand, breadcrumbs, and Code map navigation preserve scope. `explore()` changes only the inspected subject and useful graph level; loading a different snapshot still initializes a valid whole-system scope.
+- Cytoscape `cxttap` on an in-scope package, class, method or constructor opens a focused, keyboard-visible “Remove from scope” menu. Package/class removal uses `togglePackage`/`toggleClass`; method/constructor removal resolves the enclosing class through `ownerAt('CLASS', …)` and uses `toggleClass`. Native graph context menus are suppressed, and Escape, outside click, graph navigation, or topology changes dismiss the menu.
+- The packaged browser fixture is created as a temporary read-only copy with 36 extra dotted package branches. No backend or persisted graph schema changed; parser PACKAGE facts remain flat and authoritative.
+
+Verification:
+- `node scripts/test-graph-model.mjs` — PASS, including dotted package-trie construction, nested ordering, synthetic aggregate checked/indeterminate/unchecked states, multi-package immutable toggles, whole-system normalization, existing scope projection, and polling checks.
+- `npx tsc -b --force` (from `frontend/`) — 0 errors.
+- `npm run build` (from `frontend/`) — successful production build; 44 modules transformed. The existing >500 kB bundle advisory remains.
+- `./gradlew test bootJar` — BUILD SUCCESSFUL; **84 tests, 0 failures/errors/skips**, and the executable jar contains the rebuilt frontend.
+- `node --check scripts/verify-hierarchical-ui.mjs`, `python3 -m py_compile scripts/verify_hierarchical_pipeline.py`, and `git diff --check` — successful.
+- `python3 scripts/verify_hierarchical_pipeline.py` — PASS against the packaged jar, isolated SQLite, temporary 41-package/17-class source fixture, local mock provider, and headless Chromium. Raw CDP verified compact initial expansion, selected-package reveal, internal tree overflow/scrolling after expansion, `com > example > overflow > area00` nesting, namespace checked/indeterminate transitions, scope stability across every reported non-scope action, native context-menu prevention, Escape/outside dismissal, and real right-button removal of package/class/method nodes. Existing explanation acceptance also passed for 61 CLASS/METHOD subjects in exact SQL order, SQLite integrity, and unchanged source hashes. This is mock-provider verification, not live-provider verification.
+- Captured 12 screenshots in `build/hierarchy-smoke/run-s7okddha/`. Visually inspected `scope-tree-desktop.png`, `scope-context-menu.png`, and `narrow-scope-tree.png` at 1500×980 / 430×900: hierarchy indentation and check states are legible, branch points are compact until opened, the selected package path is revealed, the scrollbar stays within the expanded tree, fixed navigation/footer controls remain accessible, the focused context action is unobscured, and there is no horizontal page overflow.
+
+Remaining limits:
+- Package hierarchy is a visual projection of dotted names. It does not invent parent PACKAGE symbols or graph relationships, and modules that deliberately reuse an identical package name remain represented by the backend's existing package identity behavior.
+- Physical mouse right-clicks and the shared Cytoscape `cxttap` path were verified. A physical touch long-press was not separately emulated. No live-provider quality, latency, or tokenizer claim was made.
+- `docs/BUILD_BRIEF.md` remains absent; `docs/BUILD.md` is the available build brief and was read. Unrelated untracked `.agents/`, `.claude/`, root `package.json`, `skills-lock.json`, and prior user files remain untouched.
+
+No ADR was needed: this completes the existing frontend scope boundary without changing backend facts, schemas, dependencies, or infrastructure. The previous explicit-scope entry below is historical and superseded where it described Focus actions as scope mutations.
+
+## Previous acceptance slice: repository-size-independent explanation memory — complete
 
 Implemented on 2026-09-10:
 - `ArchitectureBatchProcessor` pipeline 3.0 no longer accepts or returns repository-sized DTOs. Packages/types use `(qualified_name,id)` keysets; relationships/package coupling use `id` keysets with ancestry resolved only for the current page; documents use `id` plus bounded character ranges; checkpoint reductions use fixed fan-in; and classes use ID-keyset batches capped at 16. Every validated slice summary and class purpose is written transactionally to SQLite before the next batch. Downstream reduction and final publication page persisted artifacts; no complete inventory String or all-class purpose Map is reconstructed.

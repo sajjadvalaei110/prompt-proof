@@ -104,14 +104,20 @@ The browser script needs Chromium (`CHROMIUM` can override `/snap/bin/chromium`)
 Java, Python and Node 22. It uses Node's built-in WebSocket for CDP; it adds no test
 package dependency. It launches the packaged jar and a **local mock provider** on
 unused loopback ports, with an isolated database/profile in
-`build/hierarchy-smoke/run-*/`. It imports only the checked-in Spring fixture,
-checks before/after source hashes and SQLite integrity, and terminates its processes.
+`build/hierarchy-smoke/run-*/`. It copies the checked-in Spring fixture to an isolated
+temporary directory and adds source-only package declarations for a 41-package overflow
+case, checks before/after source hashes and SQLite integrity, and terminates its processes.
 
-Nine screenshots cover architecture drafts, class READY, method READY, edge READY,
+Twelve screenshots cover the scrollable hierarchical scope tree and graph context menu
+at desktop/narrow widths, architecture drafts, class READY, method READY, edge READY,
 edge hover READY, a 430px narrow inspector, large-context progress/completion and
 model Settings without arbitrary context/output maxima. Browser assertions also cover live
 status refresh, refreshing after READY, preserved pan/zoom, reduced-motion behavior,
-no horizontal page overflow and no runtime exceptions. Inspect the resulting PNGs;
+no horizontal page overflow and no runtime exceptions. Scope assertions cover synthetic
+namespace aggregate state, compact initial expansion, selected-package reveal, internal
+overflow after expansion, explicit-only scope mutation, native context-menu prevention,
+Escape/outside dismissal, and physical CDP right-click removal for package/class/method nodes.
+Inspect the resulting PNGs;
 a script pass alone is not visual review. This test never proves live-model quality
 or substitutes for a configured real-model acceptance run.
 

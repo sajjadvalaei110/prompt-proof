@@ -4,12 +4,13 @@ import { AtlasNode, AtlasEdge } from './graphModel';
 import { nodeCard } from './nodeCard';
 import GeminiBadge from '../../components/GeminiBadge';
 import { graphLayout } from './graphLayout';
-interface Props { nodes: AtlasNode[]; edges: AtlasEdge[]; selectedId?: string; onNodeSelect: (node: AtlasNode) => void; onEdgeSelect: (edge: AtlasEdge) => void; onExplore: (node: AtlasNode) => void }
-export default function GraphCanvas({ nodes, edges, selectedId, onNodeSelect, onEdgeSelect, onExplore }: Props) {
-  const container = useRef<HTMLDivElement>(null), cyRef = useRef<cytoscape.Core | null>(null);
-  const callbacks = useRef({ onNodeSelect, onEdgeSelect, onExplore }); callbacks.current = { onNodeSelect, onEdgeSelect, onExplore };
+interface Props { nodes: AtlasNode[]; edges: AtlasEdge[]; selectedId?: string; onNodeSelect: (node: AtlasNode) => void; onEdgeSelect: (edge: AtlasEdge) => void; onExplore: (node: AtlasNode) => void; canRemoveFromScope: (node: AtlasNode) => boolean; onRemoveFromScope: (node: AtlasNode) => void }
+export default function GraphCanvas({ nodes, edges, selectedId, onNodeSelect, onEdgeSelect, onExplore, canRemoveFromScope, onRemoveFromScope }: Props) {
+  const container = useRef<HTMLDivElement>(null), cyRef = useRef<cytoscape.Core | null>(null), menuRef = useRef<HTMLDivElement>(null);
+  const callbacks = useRef({ onNodeSelect, onEdgeSelect, onExplore, canRemoveFromScope, onRemoveFromScope }); callbacks.current = { onNodeSelect, onEdgeSelect, onExplore, canRemoveFromScope, onRemoveFromScope };
   const [mini, setMini] = useState<{ nodes: { id: string; x: number; y: number }[]; box: { x1: number; y1: number; w: number; h: number }; viewport: { x1: number; y1: number; w: number; h: number }; zoom: number } | null>(null);
   const [hover,setHover]=useState<{title:string;description:string;x:number;y:number;ready:boolean}|null>(null);
+  const [contextMenu,setContextMenu]=useState<{node:AtlasNode;x:number;y:number}|null>(null);
   const [mapOpen, setMapOpen] = useState(true);
   const model = useMemo(() => ({nodes, edges}), [nodes, edges]);
   const currentModel=useRef(model); currentModel.current=model;
@@ -40,6 +41,14 @@ export default function GraphCanvas({ nodes, edges, selectedId, onNodeSelect, on
     cy.on('pan zoom position', updateMap); updateMap();
     cy.on('tap', 'node', e => callbacks.current.onNodeSelect(currentModel.current.nodes.find(n => n.id === e.target.id())!));
     cy.on('dbltap', 'node', e => callbacks.current.onExplore(currentModel.current.nodes.find(n => n.id === e.target.id())!));
+    cy.on('cxttap', 'node', e => {
+      (e.originalEvent as Event | undefined)?.preventDefault();
+      const node=currentModel.current.nodes.find(n=>n.id===e.target.id());
+      if(!node||!callbacks.current.canRemoveFromScope(node)){setContextMenu(null);return;}
+      const position=e.renderedPosition || e.target.renderedPosition();
+      setHover(null);
+      setContextMenu({node,x:Math.max(8,Math.min(position.x,cy.width()-178)),y:Math.max(8,Math.min(position.y,cy.height()-54))});
+    });
     cy.on('mouseover', 'edge', e => {
       const edge = currentModel.current.edges.find(n=>n.id===e.target.id()); if(!edge)return;
       const a=currentModel.current.nodes.find(n=>n.id===edge.sourceId),b=currentModel.current.nodes.find(n=>n.id===edge.targetId);
@@ -47,10 +56,23 @@ export default function GraphCanvas({ nodes, edges, selectedId, onNodeSelect, on
       setHover({ready:edge.explanationStatus==='READY',title:`${a?.simpleName} → ${b?.simpleName}`,description:`${edge.kind.toLowerCase().replaceAll('_',' ')} · ${edge.occurrenceCount||1} source occurrence(s) · ${edge.resolution.toLowerCase()}. Click to inspect evidence.`,x:Math.max(12,Math.min(position.x,cy.width()-280)),y:Math.max(12,position.y-100)});
     });
     cy.on('mouseout pan zoom tap',()=>setHover(null));
+    cy.on('pan zoom tap',()=>setContextMenu(null));
     cy.on('tap', 'edge', e => callbacks.current.onEdgeSelect(currentModel.current.edges.find(n => n.id === e.target.id())!));
-    const observer = new ResizeObserver(() => { if (!container.current?.clientWidth || !container.current?.clientHeight) return; cy.resize(); if(nodes.length) { cy.fit(undefined, 45); if(cy.zoom()>1){cy.zoom(1);cy.center();} } updateMap(); }); observer.observe(container.current);
-    return () => { observer.disconnect(); cy.destroy(); cyRef.current = null; };
+    const canvas=container.current;
+    const preventContextMenu=(event:MouseEvent)=>event.preventDefault();
+    canvas.addEventListener('contextmenu',preventContextMenu);
+    const observer = new ResizeObserver(() => { if (!container.current?.clientWidth || !container.current?.clientHeight) return; cy.resize(); if(nodes.length) { cy.fit(undefined, 45); if(cy.zoom()>1){cy.zoom(1);cy.center();} } updateMap(); }); observer.observe(canvas);
+    return () => { canvas.removeEventListener('contextmenu',preventContextMenu);observer.disconnect(); cy.destroy(); cyRef.current = null; };
   }, [topology]);
+  useEffect(()=>{setContextMenu(null);},[topology]);
+  useEffect(()=>{
+    if(!contextMenu)return;
+    const dismiss=(event:PointerEvent)=>{if(!menuRef.current?.contains(event.target as Node))setContextMenu(null);};
+    const escape=(event:KeyboardEvent)=>{if(event.key==='Escape')setContextMenu(null);};
+    window.addEventListener('pointerdown',dismiss,true);window.addEventListener('keydown',escape);
+    menuRef.current?.querySelector<HTMLButtonElement>('button')?.focus();
+    return()=>{window.removeEventListener('pointerdown',dismiss,true);window.removeEventListener('keydown',escape);};
+  },[contextMenu]);
   useEffect(()=>{
     const cy=cyRef.current;if(!cy)return;
     cy.batch(()=>{
@@ -73,6 +95,7 @@ export default function GraphCanvas({ nodes, edges, selectedId, onNodeSelect, on
     <div ref={container} className="graph-canvas" aria-label="Dependency graph" />
     {!nodes.length && <div className="canvas-empty">No symbols in this view. Choose another level or clear the filter.</div>}
     {hover&&<div className="edge-hover" style={{left:hover.x,top:hover.y}}><strong>{hover.ready&&<GeminiBadge/>} {hover.title}</strong><p>{hover.description}</p></div>}
+    {contextMenu&&<div ref={menuRef} className="graph-context-menu" role="menu" aria-label={`Scope actions for ${contextMenu.node.simpleName}`} style={{left:contextMenu.x,top:contextMenu.y}}><button role="menuitem" onClick={()=>{callbacks.current.onRemoveFromScope(contextMenu.node);setContextMenu(null);}}><span aria-hidden="true">−</span> Remove from scope</button></div>}
     <div className="canvas-hint">Arrows point from caller to dependency</div>
     <div className="zoom-controls"><button onClick={() => zoom(1.2)} aria-label="Zoom in">+</button><span>{Math.round((mini?.zoom || 1)*100)}%</span><button onClick={() => zoom(1/1.2)} aria-label="Zoom out">−</button><button onClick={fit}>Fit map</button></div>
     <div className={`minimap ${mapOpen ? '' : 'collapsed'}`}>

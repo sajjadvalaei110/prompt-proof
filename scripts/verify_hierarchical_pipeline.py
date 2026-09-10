@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import socket
 import sqlite3
 import subprocess
@@ -85,7 +86,16 @@ def hashes(directory):
     return {str(file): hashlib.sha256(file.read_bytes()).hexdigest() for file in directory.rglob('*') if file.is_file()}
 
 def main():
-    fixture = ROOT / 'test-fixtures' / 'spring-project'
+    fixture_parent = Path(tempfile.mkdtemp(prefix='code-atlas-scope-fixture-'))
+    fixture = fixture_parent / 'spring-project-many-packages'
+    shutil.copytree(ROOT / 'test-fixtures' / 'spring-project', fixture)
+    # Package declarations have no persisted parent links. Add source-only package facts so the
+    # browser acceptance can prove that the client hierarchy scrolls under realistic overflow.
+    overflow_root = fixture / 'src' / 'main' / 'java' / 'com' / 'example' / 'overflow'
+    for index in range(36):
+        package_dir = overflow_root / f'area{index:02d}' / 'detail'
+        package_dir.mkdir(parents=True, exist_ok=True)
+        (package_dir / 'package-info.java').write_text(f'package com.example.overflow.area{index:02d}.detail;\n')
     before = hashes(fixture)
     mock = ThreadingHTTPServer(('127.0.0.1', 0), MockModel)
     threading.Thread(target=mock.serve_forever, daemon=True).start()
@@ -128,6 +138,7 @@ def main():
             except subprocess.TimeoutExpired:
                 process.kill()
         mock.shutdown()
+        shutil.rmtree(fixture_parent, ignore_errors=True)
 
 if __name__ == '__main__':
     main()

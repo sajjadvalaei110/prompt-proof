@@ -1,5 +1,6 @@
-import { AtlasGraph, AtlasNode } from './graphModel';
-import { ScopeSelection, classesUnderPackage, getPackageCheckState, isClassInScope, getScopeCounts, selectAllScope, clearScope, togglePackage, toggleClass } from './scopeModel';
+import { useEffect, useState } from 'react';
+import { AtlasGraph, AtlasNode, isType, ownerAt } from './graphModel';
+import { PackageHierarchyNode, ScopeSelection, buildPackageHierarchy, classesUnderPackage, getPackageGroupCheckState, isClassInScope, getScopeCounts, selectAllScope, clearScope, togglePackages, toggleClass } from './scopeModel';
 
 interface Props {
   graph: AtlasGraph;
@@ -8,7 +9,7 @@ interface Props {
   search: string;
   onScopeChange: (scope: ScopeSelection) => void;
   onSelect: (node: AtlasNode) => void;
-  onFocusScope: (node: AtlasNode) => void;
+  onExplore: (node: AtlasNode) => void;
 }
 
 /** Tri-state checkbox: HTML has no `indeterminate` attribute, only the DOM property. */
@@ -18,36 +19,46 @@ function TriStateCheckbox({ state, onChange, label }: { state: 'checked'|'indete
     onClick={e => e.stopPropagation()} onChange={onChange} aria-label={label} />;
 }
 
-function ClassRow({ node, graph, scope, selected, onScopeChange, onSelect, onFocusScope }:
-  { node: AtlasNode; graph: AtlasGraph; scope: ScopeSelection; selected: boolean; onScopeChange: (s: ScopeSelection) => void; onSelect: (n: AtlasNode) => void; onFocusScope: (n: AtlasNode) => void }) {
+function ClassRow({ node, graph, scope, selected, onScopeChange, onSelect, onExplore }:
+  { node: AtlasNode; graph: AtlasGraph; scope: ScopeSelection; selected: boolean; onScopeChange: (s: ScopeSelection) => void; onSelect: (n: AtlasNode) => void; onExplore: (n: AtlasNode) => void }) {
   const inScope = isClassInScope(node, scope, graph);
   return <div className={`scope-row scope-row-class ${selected ? 'selected' : ''}`}>
     <TriStateCheckbox state={inScope ? 'checked' : 'unchecked'} onChange={() => onScopeChange(toggleClass(scope, node, graph))} label={`${inScope ? 'Remove' : 'Add'} ${node.simpleName} from scope`} />
     <button className="scope-label" title={node.qualifiedName} onClick={() => onSelect(node)}><span className="tree-icon">◇</span>{node.simpleName}</button>
-    <button className="scope-focus" onClick={() => onFocusScope(node)} aria-label={`Focus scope to ${node.simpleName}`} title="Focus scope to this class">⌖</button>
+    <button className="scope-explore" onClick={() => onExplore(node)} aria-label={`Explore ${node.simpleName}`} title="Explore this class">⌖</button>
   </div>;
 }
 
-function PackageRow({ node, graph, scope, selectedNode, forceOpen, onScopeChange, onSelect, onFocusScope }:
-  { node: AtlasNode; graph: AtlasGraph; scope: ScopeSelection; selectedNode: AtlasNode | null; forceOpen: boolean; onScopeChange: (s: ScopeSelection) => void; onSelect: (n: AtlasNode) => void; onFocusScope: (n: AtlasNode) => void }) {
-  const classes = classesUnderPackage(node, graph).sort((a, b) => a.simpleName.localeCompare(b.simpleName));
-  const state = getPackageCheckState(node, scope, graph);
-  const shortName = node.simpleName.split('.').pop()!;
-  const open = forceOpen || selectedNode?.id === node.id || classes.some(c => c.id === selectedNode?.id) || undefined;
-  return <details className="tree-branch scope-row-package" open={open}>
+function PackageRow({ branch, graph, scope, selectedNode, forceOpen, defaultOpen, onScopeChange, onSelect, onExplore }:
+  { branch: PackageHierarchyNode; graph: AtlasGraph; scope: ScopeSelection; selectedNode: AtlasNode | null; forceOpen: boolean; defaultOpen: boolean; onScopeChange: (s: ScopeSelection) => void; onSelect: (n: AtlasNode) => void; onExplore: (n: AtlasNode) => void }) {
+  const node = branch.packageNode;
+  const classes = node ? classesUnderPackage(node, graph).sort((a, b) => a.simpleName.localeCompare(b.simpleName)) : [];
+  const all = new Map(graph.nodes.map(n => [n.id, n]));
+  const descendantClassCount = graph.nodes.filter(n => isType(n) && branch.packageIds.includes(ownerAt(n, 'PACKAGE', all)?.id || '')).length;
+  const state = getPackageGroupCheckState(branch.packageIds, scope, graph);
+  const selectedPackage = selectedNode ? ownerAt(selectedNode, 'PACKAGE', all) : undefined;
+  const selectedWithin = !!selectedPackage && branch.packageIds.includes(selectedPackage.id);
+  const [open, setOpen] = useState(defaultOpen);
+  useEffect(() => { if (forceOpen || selectedWithin) setOpen(true); }, [forceOpen, selectedWithin]);
+  return <details className={`tree-branch scope-row-package ${node ? '' : 'scope-row-namespace'}`} open={open} onToggle={event => setOpen(event.currentTarget.open)}>
     <summary>
-      <TriStateCheckbox state={state} onChange={() => onScopeChange(togglePackage(scope, node, graph))} label={`${state === 'unchecked' ? 'Add' : 'Remove'} package ${shortName} ${state === 'unchecked' ? 'to' : 'from'} scope`} />
+      <TriStateCheckbox state={state} onChange={() => onScopeChange(togglePackages(scope, branch.packageIds, graph))} label={`${state === 'unchecked' ? 'Add' : 'Remove'} ${node && !branch.children.length ? 'package' : 'namespace'} ${branch.qualifiedName} ${state === 'unchecked' ? 'to' : 'from'} scope`} />
       <span className="tree-icon">▱</span>
-      <button className={`scope-label ${selectedNode?.id === node.id ? 'selected' : ''}`} title={node.qualifiedName} onClick={() => onSelect(node)}>{shortName}</button>
-      <button className="scope-focus" onClick={() => onFocusScope(node)} aria-label={`Focus scope to ${shortName}`} title="Focus scope to this package">⌖</button>
-      <small>{classes.length}</small>
+      {node
+        ? <button className={`scope-label ${selectedNode?.id === node.id ? 'selected' : ''}`} title={node.qualifiedName} onClick={() => onSelect(node)}>{branch.name}</button>
+        : <span className="scope-label scope-namespace-label" title={branch.qualifiedName}>{branch.name}</span>}
+      {node && <button className="scope-explore" onClick={() => onExplore(node)} aria-label={`Explore ${branch.name}`} title="Explore this package">⌖</button>}
+      <small>{descendantClassCount}</small>
     </summary>
-    <div>{classes.map(c => <ClassRow key={c.id} node={c} graph={graph} scope={scope} selected={selectedNode?.id === c.id} onScopeChange={onScopeChange} onSelect={onSelect} onFocusScope={onFocusScope} />)}</div>
+    <div>
+      {classes.map(c => <ClassRow key={c.id} node={c} graph={graph} scope={scope} selected={selectedNode?.id === c.id} onScopeChange={onScopeChange} onSelect={onSelect} onExplore={onExplore} />)}
+      {branch.children.map(child => <PackageRow key={child.qualifiedName} branch={child} graph={graph} scope={scope} selectedNode={selectedNode} forceOpen={forceOpen} defaultOpen={defaultOpen && !branch.packageNode && branch.children.length === 1} onScopeChange={onScopeChange} onSelect={onSelect} onExplore={onExplore} />)}
+    </div>
   </details>;
 }
 
-export default function NavigationPane({ graph, scope, selectedNode, search, onScopeChange, onSelect, onFocusScope }: Props) {
-  const packages = graph.nodes.filter(n => n.kind === 'PACKAGE').sort((a, b) => a.simpleName.localeCompare(b.simpleName));
+export default function NavigationPane({ graph, scope, selectedNode, search, onScopeChange, onSelect, onExplore }: Props) {
+  const packages = buildPackageHierarchy(graph);
   const counts = getScopeCounts(graph, scope);
   const forceOpen = !!search;
   return <div className="scope-tree">
@@ -57,7 +68,7 @@ export default function NavigationPane({ graph, scope, selectedNode, search, onS
       <span className="scope-count">{scope.mode === 'ALL' ? 'Whole system' : `${counts.selectedClasses} class${counts.selectedClasses === 1 ? '' : 'es'} selected`}</span>
     </div>
     <div className="package-tree">
-      {packages.map(p => <PackageRow key={p.id} node={p} graph={graph} scope={scope} selectedNode={selectedNode} forceOpen={forceOpen} onScopeChange={onScopeChange} onSelect={onSelect} onFocusScope={onFocusScope} />)}
+      {packages.map(branch => <PackageRow key={branch.qualifiedName} branch={branch} graph={graph} scope={scope} selectedNode={selectedNode} forceOpen={forceOpen} defaultOpen onScopeChange={onScopeChange} onSelect={onSelect} onExplore={onExplore} />)}
       {!packages.length && <p className="muted">No packages in this snapshot.</p>}
     </div>
   </div>;

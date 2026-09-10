@@ -25,10 +25,78 @@ async function evaluate(expression){const result=await cdp('Runtime.evaluate',{e
 async function screenshot(name){await pause(1600);const result=await cdp('Page.captureScreenshot',{format:'png'});await fs.writeFile(`${output}/${name}.png`,Buffer.from(result.data,'base64'));}
 async function navigate(symbol){await cdp('Page.navigate',{url:`${base}/?snapshotId=${snapshot}&selectedSymbol=${encodeURIComponent(symbol)}`});await until(()=>evaluate(`document.querySelector('.subject-heading h2')?.textContent.length>0`),'inspector navigation');}
 const cy="document.querySelector('.graph-canvas')._cyreg.cy";
+async function rightClickNode(id){
+ const point=await evaluate(`(()=>{const position=${cy}.getElementById('${id}').renderedPosition(),box=document.querySelector('.graph-canvas').getBoundingClientRect();return{x:box.left+position.x,y:box.top+position.y}})()`);
+ await cdp('Input.dispatchMouseEvent',{type:'mousePressed',x:point.x,y:point.y,button:'right',buttons:2,clickCount:1});
+ await pause(50);
+ await cdp('Input.dispatchMouseEvent',{type:'mouseReleased',x:point.x,y:point.y,button:'right',buttons:0,clickCount:1});
+}
+const centerNodeId=()=>evaluate(`(()=>{const core=${cy},center={x:core.width()/2,y:core.height()/2};return [...core.nodes()].sort((a,b)=>{const ap=a.renderedPosition(),bp=b.renderedPosition();return Math.hypot(ap.x-center.x,ap.y-center.y)-Math.hypot(bp.x-center.x,bp.y-center.y)})[0].id()})()`);
 await cdp('Runtime.enable');await cdp('Page.enable');await cdp('Emulation.setDeviceMetricsOverride',{width:1500,height:980,deviceScaleFactor:1,mobile:false});
 await navigate(controller.id);
 await until(()=>evaluate(`document.querySelector('.architecture-draft')?.textContent.includes('Synthetic')`),'draft display');
 assert.equal(await evaluate(`document.querySelectorAll('.inspector-top .gemini-badge').length`),0);
+// The package tree owns the remaining navigation height, renders a dotted-name trie, and scrolls.
+assert.equal(await evaluate(`(()=>{const tree=document.querySelector('.scope-tree'),list=document.querySelector('.package-tree');const t=getComputedStyle(tree),l=getComputedStyle(list);return t.display==='flex'&&t.flexDirection==='column'&&t.minHeight==='0px'&&l.overflowY==='auto'&&l.minHeight==='0px'})()`),true,'scope tree flex/overflow chain');
+assert.equal(await evaluate(`document.querySelectorAll('.package-tree details[open]').length<document.querySelectorAll('.package-tree details').length`),true,'branching namespaces start collapsed');
+await evaluate(`[...document.querySelectorAll('.package-tree details:not([open])')].forEach(branch=>branch.querySelector(':scope > summary').click())`);
+await until(()=>evaluate(`document.querySelectorAll('.package-tree details[open]').length===document.querySelectorAll('.package-tree details').length`),'expand overflow fixture');
+assert.equal(await evaluate(`document.querySelector('.package-tree').scrollHeight>document.querySelector('.package-tree').clientHeight`),true,'large package tree overflows panel');
+assert.equal(await evaluate(`(()=>{const list=document.querySelector('.package-tree');list.scrollTop=160;return list.scrollTop>0})()`),true,'package tree scrolls internally');
+assert.deepEqual(await evaluate(`(()=>{const names=[];let branch=document.querySelector('.scope-row-namespace');for(let i=0;i<4&&branch;i++){names.push(branch.querySelector(':scope > summary .scope-label').textContent.trim());branch=branch.querySelector(':scope > div > .scope-row-namespace, :scope > div > .scope-row-package')}return names})()`),['com','example','overflow','area00'],'dotted package nesting');
+await evaluate(`document.querySelector('.package-tree').scrollTop=0`);
+const rootCheckbox=`document.querySelector('.scope-row-namespace>summary .scope-checkbox')`;
+await evaluate(`document.querySelector('.scope-toolbar button:nth-of-type(2)').click()`);
+assert.equal(await evaluate(`${rootCheckbox}.checked||${rootCheckbox}.indeterminate`),false,'Clear unchecks namespace');
+await evaluate(`document.querySelector('button.scope-label[title="com.example.spring.controller"]').closest('summary').querySelector('.scope-checkbox').click()`);
+assert.equal(await evaluate(`${rootCheckbox}.indeterminate`),true,'ancestor namespace becomes indeterminate');
+await evaluate(`${rootCheckbox}.click()`);
+assert.equal(await evaluate(`${rootCheckbox}.checked`),false,'clicking an indeterminate namespace clears descendants');
+await evaluate(`${rootCheckbox}.click()`);
+assert.equal(await evaluate(`${rootCheckbox}.checked`),true,'checking a synthetic namespace selects every real package beneath it');
+const scopeFingerprint=()=>evaluate(`JSON.stringify([...document.querySelectorAll('.scope-checkbox')].map(input=>[input.checked,input.indeterminate]))`);
+const explicitScope=await scopeFingerprint();
+// Inspection, exploration, route, search, brand, and Code map navigation must preserve scope.
+async function scopeUnchanged(label,action){await action();await pause(100);assert.equal(await scopeFingerprint(),explicitScope,label);}
+await scopeUnchanged('search result preserves scope',async()=>{await evaluate(`{const input=document.querySelector('#global-search');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'OrderService');input.dispatchEvent(new Event('input',{bubbles:true}));}`);await until(()=>evaluate(`!!document.querySelector('.search-results button')`),'service search result');await evaluate(`document.querySelector('.search-results button').click()`);});
+await scopeUnchanged('graph node inspection preserves scope',async()=>evaluate(`${cy}.nodes()[0].emit('tap');true`));
+await scopeUnchanged('graph node exploration preserves scope',async()=>evaluate(`${cy}.nodes()[0].emit('dbltap');true`));
+await scopeUnchanged('inspector exploration preserves scope',async()=>{await evaluate(`{const input=document.querySelector('#global-search');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'OrderController');input.dispatchEvent(new Event('input',{bubbles:true}));}`);await until(()=>evaluate(`!!document.querySelector('.search-results button')`),'controller search result');await evaluate(`document.querySelector('.search-results button').click()`);await evaluate(`[...document.querySelectorAll('.inspector .text-button')].find(button=>button.textContent.includes('method call graph')).click()`);});
+await scopeUnchanged('route entry point preserves scope',async()=>{await evaluate(`[...document.querySelectorAll('.workspace-nav button')].find(button=>button.textContent.includes('Entry points')).click()`);await evaluate(`document.querySelector('.route-card').click()`);});
+await scopeUnchanged('brand navigation preserves scope',async()=>evaluate(`document.querySelector('.brand').click()`));
+await scopeUnchanged('Code map navigation preserves scope',async()=>evaluate(`[...document.querySelectorAll('.workspace-nav button')].find(button=>button.textContent.includes('Code map')).click()`));
+await scopeUnchanged('graph edge inspection preserves scope',async()=>evaluate(`{const edge=${cy}.edges()[0];if(edge)edge.emit('tap');true}`));
+await screenshot('scope-tree-desktop');
+// Native menus are suppressed; Cytoscape right-click/long-press opens an accessible scope action.
+assert.equal(await evaluate(`document.querySelector('.graph-canvas').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}))`),false,'native graph context menu prevented');
+const contextNodeId=await centerNodeId();await rightClickNode(contextNodeId);
+await until(()=>evaluate(`!!document.querySelector('.graph-context-menu')`),'graph context menu');
+await screenshot('scope-context-menu');
+await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`);
+assert.equal(await evaluate(`!!document.querySelector('.graph-context-menu')`),false,'Escape dismisses context menu');
+await rightClickNode(contextNodeId);await until(()=>evaluate(`!!document.querySelector('.graph-context-menu')`),'context menu reopen');
+await evaluate(`document.body.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}))`);
+assert.equal(await evaluate(`!!document.querySelector('.graph-context-menu')`),false,'outside click dismisses context menu');
+const packageNode=await evaluate(`${cy}.getElementById('${contextNodeId}').data()`);
+await rightClickNode(packageNode.id);
+await until(()=>evaluate(`!!document.querySelector('.graph-context-menu')`),'package remove menu');
+await evaluate(`document.querySelector('.graph-context-menu button').click()`);
+await until(()=>evaluate(`!${cy}.getElementById('${packageNode.id}').length`),'package removed from scope');
+// Restore all explicitly, then exercise the same action for a class and a method/owner class.
+await evaluate(`document.querySelector('.scope-toolbar button:first-child').click();[...document.querySelectorAll('.segmented button')].find(button=>button.textContent==='Classes').click()`);
+await until(()=>evaluate(`${cy}.nodes().length>1`),'class graph');
+const classNodeId=await centerNodeId(),classNode=await evaluate(`${cy}.getElementById('${classNodeId}').data()`);
+await rightClickNode(classNode.id);await until(()=>evaluate(`!!document.querySelector('.graph-context-menu')`),'class remove menu');await evaluate(`document.querySelector('.graph-context-menu button').click()`);
+await until(()=>evaluate(`!${cy}.getElementById('${classNode.id}').length`),'class removed from scope');
+await evaluate(`document.querySelector('.scope-toolbar button:first-child').click();[...document.querySelectorAll('.segmented button')].find(button=>button.textContent==='Methods').click()`);
+await until(()=>evaluate(`${cy}.nodes().length>1`),'method graph');
+const methodNodeId=await centerNodeId(),methodNode=await evaluate(`${cy}.getElementById('${methodNodeId}').data()`);const methodOwner=graph.nodes.find(node=>node.id===methodNode.parentId);assert.ok(methodOwner);
+await rightClickNode(methodNode.id);await until(()=>evaluate(`!!document.querySelector('.graph-context-menu')`),'method remove menu');await evaluate(`document.querySelector('.graph-context-menu button').click()`);
+await until(()=>evaluate(`!${cy}.nodes().some(node=>node.data('parentId')==='${methodOwner.id}')`),'method owner class removed from scope');
+await evaluate(`document.querySelector('.scope-toolbar button:first-child').click();{const input=document.querySelector('#global-search');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'OrderController');input.dispatchEvent(new Event('input',{bubbles:true}));}`);
+await until(()=>evaluate(`!!document.querySelector('.search-results button')`),'controller search result restored');
+await evaluate(`document.querySelector('.search-results button').click()`);
+await until(()=>evaluate(`document.querySelector('.architecture-draft')?.textContent.includes('Synthetic')`),'draft restored after scope checks');
 await screenshot('architecture-draft');
 await fetch(model+'/release');
 await until(async()=>(await api(`/api/jobs/${bulk.jobId}`)).status==='COMPLETED','bulk completion');
@@ -70,6 +138,12 @@ await screenshot('edge-hover-ready');
 await cdp('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
 assert.equal(await evaluate(`getComputedStyle(document.querySelector('.inspector-top .gemini-badge svg')).animationName`),'none');
 await cdp('Emulation.setDeviceMetricsOverride',{width:430,height:900,deviceScaleFactor:1,mobile:false});
+await evaluate(`[...document.querySelectorAll('.mobile-tabs button')].find(button=>button.textContent==='explorer').click()`);
+await screenshot('narrow-scope-tree');
+await evaluate(`[...document.querySelectorAll('.package-tree details:not([open])')].forEach(branch=>branch.querySelector(':scope > summary').click())`);
+await until(()=>evaluate(`document.querySelectorAll('.package-tree details[open]').length===document.querySelectorAll('.package-tree details').length`),'expand narrow overflow fixture');
+assert.equal(await evaluate(`document.querySelector('.package-tree').scrollHeight>document.querySelector('.package-tree').clientHeight`),true,'narrow package tree scrolls');
+await evaluate(`[...document.querySelectorAll('.mobile-tabs button')].find(button=>button.textContent==='map').click()`);
 await screenshot('narrow-edge-ready');
 assert.equal(await evaluate('document.documentElement.scrollWidth>innerWidth'),false,'no horizontal page overflow');
 // Large input succeeds through visible, bounded architecture stages at a modest model window.
@@ -98,6 +172,6 @@ assert.equal(await evaluate(`document.querySelector('.settings-grid input').hasA
 assert.equal(await evaluate(`document.querySelectorAll('.settings-grid input')[1].hasAttribute('max')`),false);
 await screenshot('model-context-settings');
 assert.deepEqual(errors,[],'browser runtime errors');
-await fs.writeFile(`${output}/run.json`,JSON.stringify({snapshot,workspace:ws.id,bulk:bulk.jobId,symbolCount:readyGraph.nodes.filter(n=>['CLASS','METHOD'].includes(n.kind)).length,screenshots:9}));
+await fs.writeFile(`${output}/run.json`,JSON.stringify({snapshot,workspace:ws.id,bulk:bulk.jobId,symbolCount:readyGraph.nodes.filter(n=>['CLASS','METHOD'].includes(n.kind)).length,screenshots:12}));
 socket.close();
-console.log('PASS: drafts, live class/method READY badges, explicit edge generation, edge hover, refresh polling, viewport preservation, reduced motion, narrow layout, bounded large-context batches, visible progress, model context settings');
+console.log('PASS: scope scrolling/hierarchy/explicit mutations, graph right-click removal, drafts, READY badges, edge generation/hover, polling, viewport, reduced motion, narrow layout, bounded batches, settings');

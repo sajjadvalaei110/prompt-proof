@@ -104,6 +104,21 @@ The frontend is structured by functional domain under `frontend/src/features/`:
 - **`flows/`**: Static request flow explorer tracking paths from HTTP endpoints through services to repositories.
 - **`settings/`**: Configuration interface for local model endpoints (LM Studio, Ollama), token budgets, and indexing rules.
 
+### Explorer scope boundary
+
+Backend PACKAGE symbols remain flat parser facts. The explorer constructs a display-only
+trie from their dotted qualified names so missing namespace prefixes can be shown without
+creating canonical symbols or edges. Synthetic namespace checkboxes aggregate and batch-edit
+their real descendant package IDs through the same immutable `ScopeSelection` helpers used
+by leaf package/class controls. Shared single-child namespace paths start expanded, branch
+points start collapsed, and selection/search expands the owning package path.
+
+Within an active snapshot, navigation and inspection do not mutate scope. Scope changes only
+through explicitly labelled tree/reset controls or Cytoscape's “Remove from scope” command.
+That command resolves methods/constructors to their owning class and delegates to the existing
+package/class toggles. Loading another snapshot initializes a new whole-system selection because
+the prior snapshot's symbol IDs are no longer a valid boundary.
+
 ---
 
 ## 6. Key Design Decisions
