@@ -42,3 +42,6 @@ imported-repos/
 
 # Generated
 src/main/resources/static/
+
+.agents/
+.claude/

@@ -186,3 +186,55 @@ request, 16,787 prompt bytes and 1,517 response bytes. Its sampled used heap pea
 at 71,516,008 bytes with a 268,435,456-byte maximum. The packaged mock-provider
 browser run passed for 61 bulk symbols and produced nine inspected screenshots in
 `build/hierarchy-smoke/run-do7c60_n/`. No live-provider claim is made.
+
+## 7. Stable-map interaction baseline (R6, Step 1)
+
+The stable-map work needs browser evidence that survives refactoring: node IDs, model
+coordinates, pan, zoom and displayed counts before and after **real** pointer input. A
+passing scope-model test cannot establish canvas stability, and `element.emit('tap')`
+cannot establish gesture handling.
+
+```bash
+python3 scripts/verify_stable_graph_pipeline.py baseline     # records today's behaviour; passes
+python3 scripts/verify_stable_graph_pipeline.py acceptance   # asserts the product contract; fails today
+node --check scripts/verify-stable-graph-ui.mjs
+python3 -m py_compile scripts/verify_stable_graph_pipeline.py
+```
+
+`baseline` asserts the known R6 defects so they cannot silently disappear or change shape;
+it is expected to start failing when Steps 2-3 land, and that failure means the baseline case
+should be retired. `acceptance` encodes the stable-map contract from the product specification
+and must never be weakened to accept broken behaviour.
+
+**Fixture.** `test-fixtures/stable-graph-fixture/` holds 74 types across 6 packages. The
+17-class `spring-project` fixture cannot exercise the 36 → 12 display-limit regression, because
+the Classes page needs more than 36 in-scope types before two **Show more** actions reveal 36.
+The fixture's verified topology and its parser limits — unresolved-target relationships never
+reach the canvas, self-loops are dropped above METHOD level, field declarations produce no
+relationships — are documented in that directory's `README.md`. Pure layout fixtures for
+crossings, collinear overlap and self-loop clearance are deliberately separate.
+
+**Runner.** Same Chromium/CDP approach as `verify_hierarchical_pipeline.py`, with an isolated
+SQLite data directory and browser profile per run under `build/stable-graph/<mode>-*/`. The
+fixture is copied to a temporary directory and SHA-256 hashed before and after, proving
+source read-only. Unlike the explanation harness it starts **no** provider: the model base URL
+points at a closed loopback port, which verifies that graph exploration works with the model
+unavailable. The header still reads "Model configured" because a base URL string is present;
+that label is not evidence of reachability.
+
+**Instrumentation.** Counters are installed from the test side onto Cytoscape's own registry
+(`.graph-canvas._cyreg.cy`). The application ships no debug object and no graph data leaves the
+page. Because the canvas is destroyed and recreated on the same container element, DOM identity
+proves nothing, so each core is stamped with an incrementing id and the counters
+(`layouts`, `fits`, `centers`, `taps`, `dbltaps`, `anyDbltaps`) live on `window` to survive
+recreation. Clicks, double-clicks and background drags use `Input.dispatchMouseEvent`.
+
+Fifteen scenarios cover: clicking a class at 12 and at 36 displayed, clicking a package,
+clicking an edge, changing the relationship filter, adding and removing a package, closing the
+details pane, resizing the viewport, two spaced single clicks, a double-click control on empty
+canvas, real double-clicks on a card at two pacings and at two page sizes, and a narrow 430px
+layout. Twelve screenshots are written per run and must be visually inspected.
+
+Baseline results, the trigger inventory behind them, and the two cases classified as *not
+reproduced* with inspected alternative causes are recorded in
+`docs/STABLE_GRAPH_IMPLEMENTATION.md`.

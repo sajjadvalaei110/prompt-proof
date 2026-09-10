@@ -1,9 +1,82 @@
 # Project status
 Last updated: 2026-09-10
 Active milestone: R6 — Developer comprehension redesign (in progress)
-Current revision: R6 hierarchical graph scope and explicit canvas deselection
+Current revision: R6 stable-map failure baseline captured (Step 1 of 10)
 
-## Current acceptance slice: hierarchical graph scope and explicit canvas deselection — complete
+## Current acceptance slice: stable graph interactions — Step 1 of 10 complete (baseline only)
+
+Executed on 2026-09-10. Ledger: [docs/STABLE_GRAPH_IMPLEMENTATION.md](docs/STABLE_GRAPH_IMPLEMENTATION.md).
+Plan: `/home/sajjad/prompts/steps.md`. Specification: `/home/sajjad/prompts/product-design.md`.
+`docs/BUILD_BRIEF.md` is absent; `docs/BUILD.md` was read in its place.
+
+**No application behaviour changed.** `git diff -- frontend src` is empty. Step 1 only captures
+evidence and adds a reusable browser fixture, so every stable-map story below remains unimplemented.
+
+Delivered:
+
+- `test-fixtures/stable-graph-fixture/` — 74 types (72 CLASS + 2 INTERFACE) across 6 packages, with a
+  visible A→B→C chain, a reciprocal pair, a three-node cycle, 21 disconnected types, parallel
+  relationship kinds and 4 drawn `CANDIDATE` edges. The existing 17-class fixture cannot reach the
+  36→12 case. Verified topology and parser limits: `test-fixtures/stable-graph-fixture/README.md`.
+- `scripts/verify_stable_graph_pipeline.py` + `scripts/verify-stable-graph-ui.mjs` — an isolated
+  Chromium/CDP runner with two explicit modes. `baseline` records today's behaviour and passes;
+  `acceptance` asserts the product contract and fails today by design. All gestures are real pointer
+  input; instrumentation is installed test-side onto Cytoscape's own registry, so the application
+  ships no debug object.
+
+Reproduced with browser evidence (15 scenarios, 12 screenshots, `build/stable-graph/baseline-*/`):
+clicking a class at 36 displayed collapses the page to 12 and destroys the canvas; clicking a class
+at 12, clicking a package and clicking an edge each run an arrangement and refit the camera; an edge
+click falls back to the alphabetical grid because an aggregate edge ID is not a node ID; a
+relationship-filter change destroys and recreates the canvas and loses the user's camera; adding one
+package evicted 23 of 36 displayed classes through degree re-ranking and removing it refilled the
+holes; closing the inspector re-runs the unfocused arrangement; a viewport resize refits the camera;
+and a real double-click never reaches a card — a control double-click on empty canvas proves the
+gesture synthesis works, while on a card the first tap either moves it 334 px away or destroys the
+canvas outright.
+
+Classified as not reproduced, with inspected causes: explanation-refresh reordering (the canvas
+`topology` key excludes `explanationStatus`; the data effect is a `cy.batch()` with no layout) and
+inspector open/close resizing the canvas (the pane stays mounted; the observed disturbance comes from
+clearing `selectedId` instead).
+
+Verification: `node scripts/test-graph-model.mjs` PASS; `npx tsc -b --force` exit 0; `npm run build`
+PASS; `python3 scripts/verify_stable_graph_pipeline.py baseline` PASS; `acceptance` FAIL as intended
+(34 contract assertions unmet). `./gradlew test bootJar` skipped — no backend source changed and the
+existing jar was reused. No lint claim: this repository has no lint tooling configured. No model was
+contacted; the runner points the provider at a closed port, so this is not a live-model verification.
+
+Remaining work: Steps 2–10 of the plan. Next is Step 2 — separate inspection from displayed-page
+membership.
+
+## Superseded proposal record: stable graph interactions — design only
+
+Prepared on 2026-09-10: [product design and acceptance stories](docs/STABLE_GRAPH_INTERACTIONS.md).
+The expanded user-requested deliverable is `/home/sajjad/prompts/product-design.md`:
+six stories, explicit design decisions, class-to-class traversal/Back behavior, and
+a complete acceptance journey. The file was read back and checked for coverage;
+it is a design proposal, with runtime verification deferred to implementation.
+The implementation handoff is `/home/sajjad/prompts/steps.md`: ten sequential
+Claude-session prompts with exit gates and detailed state, layout, routing,
+worker-lifecycle, and acceptance-test specifications. This is documentation only;
+the implementation steps have not been executed.
+The bounded criterion is that inspection and incremental scope changes preserve
+existing positions, viewport, and the expanded page. The proposal defines only two
+automatic arrangement commands: double-click/Arrange around this resource and
+Reorder map using the currently displayed, filtered relationships.
+
+Code inspection identified selection-triggered layout/fit, topology-triggered canvas
+recreation, resize-triggered fitting, and `select()` resetting non-package display
+limits to 12. Degree-ranked page slicing can also displace existing classes on scope
+addition. These are inspected causes, not a new browser reproduction or implemented fixes.
+
+Verification: `git diff --check` — PASS; local Markdown target check for the new
+proposal — PASS. Runtime tests, builds, and screenshot inspection skipped because
+this change only records the requested product design; no application UI changed.
+Remaining work: implement and verify the five stories. Existing completed work below
+retains its original status; stable-map behavior is not yet verified.
+
+## Previous acceptance slice: hierarchical graph scope and explicit canvas deselection — complete
 
 Implemented on 2026-09-10, frontend-only:
 - The navigation pane now preserves the complete flex-height chain: `.scope-tree` is a shrinking flex column, its toolbar is fixed, and `.package-tree` is the sole `flex: 1; min-height: 0; overflow: auto` region. Large trees scroll inside the pane while recent symbols and workspace controls remain visible. Shared single-child namespace paths start open, branch points start collapsed, and selecting/searching a symbol reveals its owning package path.
