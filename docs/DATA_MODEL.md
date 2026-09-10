@@ -122,7 +122,7 @@ Explanations produced by local language models record complete provenance for re
 The version-1 synthesis response contract is in
 [`prompts/architecture-synthesis-schema.json`](../prompts/architecture-synthesis-schema.json).
 The service adds snapshot membership and exact CLASS coverage validation. Full
-explanations now record prompt version `3.1`; successful earlier prompt versions
+explanations now record prompt version `4.0`; successful earlier prompt versions
 are preserved and can be explicitly refreshed.
 
 Additive API fields: graph edges expose `explanationStatus`; explanation responses
@@ -146,6 +146,28 @@ reused/generated in that attempt. The workspace queue-status response adds
 job update time in UTC). This lets the UI show elapsed request time without
 claiming incomplete work has been saved.
 There is no fixed total because truncation/context rejection can split batches.
-The architecture response schema remains version 1; the synthesis prompt remains
-version 2.0 and the resumable planning pipeline is version 2.1. V004 is unchanged,
-allowing existing databases to migrate cleanly.
+The architecture response schema remains version 1. This V005 description is
+historical; pipeline 3.0 and synthesis prompt 3.0 are described below.
+
+## 8. Bounded working-set persistence (V006–V009)
+
+| Migration / field | Contract |
+| --- | --- |
+| V006 checkpoint plan fields | `run_fingerprint`, `reduction_level`, `stage_sequence`, `range_start`, and `range_end` make persisted map/reduce levels deterministic and keyset-pageable. |
+| `architecture_class_purposes` | Transactional staging keyed by `(snapshot_id, run_fingerprint, symbol_id)`. A row is validated bounded output, but it is never a visible DRAFT/READY result by itself. |
+| `jobs.total_items = -1` | Internal resumable marker: synthesis is ready but all queue pages are not committed. Values `>= 0` mean population completed, including a valid empty queue. API schema 2 clamps the marker to zero. |
+| Queue order columns | `relation_count`, `loc`, `subject_id`, and queue `id` give deterministic indexed claims. Bulk inserts select only active CLASS/METHOD symbols; relationship work remains explicit. |
+| V008 indexes | Cover symbol/relationship keysets, explanation dependency pages, synthesis fingerprints, queue aggregates, and latest Explain-all job lookup. |
+| V007/V009 cleanup | Snapshot deletion removes snapshot graph rows, generated outputs, queue/jobs, staged purposes, and checkpoints in foreign-key order. Workspace logical symbols, notes, bookmarks, and documents remain. |
+
+Pipeline 3.0 creates one checkpoint for every validated summary or class-purpose
+request. Summary levels have fixed fan-in and no row contains a repository-wide raw
+inventory. A READY `explanation_syntheses.context_evidence` stores schema 2 metadata
+(run fingerprint, final brief stage key, validated class count, checkpoint count),
+not a duplicate array of every stage. Final publication transactionally checks exact
+active-class coverage and copies staged purposes with `INSERT … SELECT`.
+
+Document revision invalidation deletes only unfinished staged runs not referenced by
+any synthesis. Published/stale synthesis artifacts remain auditable; successful full
+explanations are retained and marked STALE. Explicit snapshot deletion necessarily
+removes snapshot-scoped generated outputs but preserves workspace notes/bookmarks.

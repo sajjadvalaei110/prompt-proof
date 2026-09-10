@@ -131,3 +131,52 @@ reports the exact in-flight range and UTC stage start, retains the completed con
 checkpoint, and publishes no partial drafts when cancelled. The packaged browser
 test holds a context request open and asserts that its spinner and elapsed seconds
 advance before releasing the deterministic provider.
+
+## 7. Bounded-memory explanation acceptance (pipeline 3.0)
+
+Run the normal suite and the separately constrained scale fixture:
+
+```bash
+./gradlew test --no-daemon
+./gradlew constrainedMemoryTest --no-daemon
+./gradlew bootJar --no-daemon
+node scripts/test-graph-model.mjs
+python3 scripts/verify_hierarchical_pipeline.py
+```
+
+`BoundedExplanationScaleTest` runs only in `constrainedMemoryTest`, whose test worker
+uses `-Xmx256m`. It inserts parser-owned facts directly into isolated SQLite: 100
+packages, 10,000 classes, 50,000 methods, 100,000 relationships with evidence, and
+several large project documents. It does not compile, run, or modify target code.
+The deterministic mock provider verifies the memory/control-flow contract, not
+semantic quality or live-provider latency.
+
+The fixture asserts complete staged and published class coverage, fixed-fan-in
+checkpoint levels, 60,000 CLASS/METHOD queue rows, zero relationship bulk rows,
+degree/LOC/stable-ID order, cache reuse, stale `IN_PROGRESS` recovery, bounded
+context omissions, and independent request/response caps. `BoundedWorkMetrics`
+records high-water marks for rows returned by one Java query, retained symbols in
+one batch/context, simultaneous provider requests, and prompt/response UTF-8 bytes.
+The test asserts those counters instead of treating JVM heap sampling as its sole
+proof. A lightweight heap sampler is reported as supporting evidence.
+
+Focused tests additionally cover: incremental checkpoint reuse after failure and
+restart; idempotent recovery of partially populated queues using the `total_items=-1`
+marker; cancellation before checkpoint/class publication; oversized provider stream
+termination; response-array limits before Java list creation; context truncation and
+the `context-limits` evidence record; exact bounded edge call-site evidence; and full
+snapshot cleanup while workspace notes/bookmarks survive.
+
+The frontend polling assertion executes the shared `serialPolling.ts` module with
+deferred promises and a deterministic scheduler. It proves that no next timer is
+scheduled until the current request settles, maximum in-flight load is one, stop
+cancels timers, and late results after stop are ignored. Packaged Chromium remains
+the verification for visible phase/range/validated/elapsed/failure/cancellation state;
+all generated screenshots must be visually inspected.
+
+Final 2026-09-10 results: the normal suite passed 78/78 tests. The constrained
+fixture passed with maximums of 128 rows/query, 16 symbols/batch, one simultaneous
+request, 16,787 prompt bytes and 1,517 response bytes. Its sampled used heap peaked
+at 71,516,008 bytes with a 268,435,456-byte maximum. The packaged mock-provider
+browser run passed for 61 bulk symbols and produced nine inspected screenshots in
+`build/hierarchy-smoke/run-do7c60_n/`. No live-provider claim is made.

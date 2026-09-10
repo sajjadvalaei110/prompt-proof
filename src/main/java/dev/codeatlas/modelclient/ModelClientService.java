@@ -1,126 +1,50 @@
 package dev.codeatlas.modelclient;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.codeatlas.config.CodeAtlasProperties;
 import dev.codeatlas.api.dto.ModelTestResponse;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
-import org.springframework.http.ResponseEntity;
-import org.springframework.http.HttpEntity;
+import dev.codeatlas.config.CodeAtlasProperties;
+import dev.codeatlas.explanations.BoundedWorkMetrics;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.MediaType;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
-import org.springframework.web.client.HttpStatusCodeException;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.stereotype.Service;
 
+import java.io.InputStream;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.LinkedHashMap;
-import java.util.Map;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.Semaphore;
 
+/** OpenAI-compatible adapter with independent hard request/response byte limits. */
 @Service
 public class ModelClientService {
-
-    private static final Logger log = LoggerFactory.getLogger(ModelClientService.class);
-
     private final CodeAtlasProperties properties;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final BoundedWorkMetrics metrics;
+    private final ObjectMapper json = new ObjectMapper();
+    private final Semaphore requests = new Semaphore(1, true);
+    private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(60))
+        .followRedirects(HttpClient.Redirect.NEVER).build();
 
-    public ModelClientService(CodeAtlasProperties properties) {
+    @Autowired
+    public ModelClientService(CodeAtlasProperties properties, BoundedWorkMetrics metrics) {
         this.properties = properties;
+        this.metrics = metrics;
     }
 
-    private RestTemplate createRestTemplate() {
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        int timeoutSeconds = properties.getModel().getTimeoutSeconds();
-        if (timeoutSeconds <= 0) {
-            timeoutSeconds = 60;
-        }
-        int timeoutMs = timeoutSeconds * 1000;
-        factory.setConnectTimeout(timeoutMs);
-        factory.setReadTimeout(timeoutMs);
-        return new RestTemplate(factory);
+    /** Kept for focused adapter tests outside Spring. */
+    public ModelClientService(CodeAtlasProperties properties) {
+        this(properties, new BoundedWorkMetrics());
     }
 
     public String normalizeBaseUrl(String rawUrl) {
-        if (rawUrl == null || rawUrl.isBlank()) {
-            return rawUrl;
-        }
-        return rawUrl.trim().replaceAll("/+$", "");
-    }
-
-    private HttpHeaders createHeaders() {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        String userAgent = properties.getModel().getUserAgent();
-        if (userAgent != null && !userAgent.isBlank()) {
-            headers.set("User-Agent", userAgent.trim());
-        }
-
-        String apiKey = properties.getModel().getApiKey();
-        if (apiKey != null && !apiKey.isBlank()) {
-            headers.setBearerAuth(apiKey.trim());
-        }
-        return headers;
-    }
-
-    private String sanitize(String message) {
-        if (message == null) return "";
-        String apiKey = properties.getModel().getApiKey();
-        if (apiKey != null && !apiKey.isBlank() && message.contains(apiKey.trim())) {
-            return message.replace(apiKey.trim(), "[REDACTED]");
-        }
-        return message;
-    }
-
-    public ModelTestResponse testConnection() {
-        String baseUrl = properties.getModel().getBaseUrl();
-        if (baseUrl == null || baseUrl.isBlank()) {
-            return new ModelTestResponse(false, false, false, "Not configured", 0, List.of("No base URL configured"));
-        }
-        String modelId = properties.getModel().getModelId();
-        if (modelId == null || modelId.isBlank()) {
-            modelId = "gpt-4o";
-        }
-
-        String normalizedBase = normalizeBaseUrl(baseUrl);
-        String url = normalizedBase + (normalizedBase.endsWith("/chat/completions") ? "" : "/chat/completions");
-        long start = System.currentTimeMillis();
-
-        try {
-            HttpHeaders headers = createHeaders();
-
-            Map<String, Object> requestBody = new LinkedHashMap<>();
-            requestBody.put("model", modelId);
-            requestBody.put("messages", List.of(Map.of("role", "user", "content", "Reply with 'OK' only.")));
-            requestBody.put("temperature", 0.0);
-            requestBody.put("max_tokens", 10);
-
-            String payload = objectMapper.writeValueAsString(requestBody);
-
-            ResponseEntity<Map> response = createRestTemplate().exchange(
-                url,
-                HttpMethod.POST,
-                new HttpEntity<>(payload, headers),
-                Map.class
-            );
-
-            long latency = System.currentTimeMillis() - start;
-            boolean working = response.getStatusCode().is2xxSuccessful();
-            return new ModelTestResponse(working, working, working, modelId, latency, List.of("Connection successful"));
-        } catch (HttpStatusCodeException e) {
-            long latency = System.currentTimeMillis() - start;
-            String errorMsg = "HTTP " + e.getStatusCode().value() + " " + e.getStatusText();
-            String responseBody = e.getResponseBodyAsString();
-            if (responseBody != null && !responseBody.isBlank()) {
-                errorMsg += ": " + sanitize(responseBody);
-            }
-            return new ModelTestResponse(false, false, false, modelId, latency, List.of(errorMsg));
-        } catch (Exception e) {
-            long latency = System.currentTimeMillis() - start;
-            return new ModelTestResponse(false, false, false, modelId, latency, List.of(sanitize("Error: " + e.getMessage())));
-        }
+        return rawUrl == null || rawUrl.isBlank() ? rawUrl : rawUrl.trim().replaceAll("/+$", "");
     }
 
     public static class ContextLimitException extends RuntimeException {
@@ -129,6 +53,36 @@ public class ModelClientService {
     public static class OutputLimitException extends RuntimeException {
         public OutputLimitException() { super("The model response was truncated at its output limit."); }
     }
+    public static class RequestLimitException extends RuntimeException {
+        public RequestLimitException() { super("The bounded model request exceeds the configured request byte limit."); }
+    }
+    public static class OversizedResponseException extends RuntimeException {
+        public OversizedResponseException() { super("The provider response exceeded the configured response byte limit; retry the bounded batch."); }
+    }
+
+    public ModelTestResponse testConnection() {
+        String baseUrl = properties.getModel().getBaseUrl();
+        if (baseUrl == null || baseUrl.isBlank())
+            return new ModelTestResponse(false, false, false, "Not configured", 0, List.of("No base URL configured"));
+        String modelId = properties.getModel().getModelId();
+        if (modelId == null || modelId.isBlank()) modelId = "gpt-4o";
+        long start = System.currentTimeMillis();
+        try {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("model", modelId);
+            body.put("messages", List.of(Map.of("role", "user", "content", "Reply with 'OK' only.")));
+            body.put("temperature", 0.0);
+            body.put("max_tokens", 10);
+            RawResponse response = execute(endpoint(baseUrl), body);
+            long latency = System.currentTimeMillis() - start;
+            if (response.status() >= 200 && response.status() < 300)
+                return new ModelTestResponse(true, true, true, modelId, latency, List.of("Connection successful"));
+            return new ModelTestResponse(false, false, false, modelId, latency, List.of("HTTP " + response.status()));
+        } catch (Exception e) {
+            return new ModelTestResponse(false, false, false, modelId, System.currentTimeMillis() - start,
+                List.of("Error: " + safeMessage(e)));
+        }
+    }
 
     public String getExplanation(String systemPrompt, String userPrompt) {
         return getExplanation(systemPrompt, userPrompt, properties.getModel().getOutputBudget());
@@ -136,129 +90,118 @@ public class ModelClientService {
 
     public String getExplanation(String systemPrompt, String userPrompt, int outputTokens) {
         String baseUrl = properties.getModel().getBaseUrl();
-        String modelId = properties.getModel().getModelId();
-        if (baseUrl == null || baseUrl.isBlank()) {
-            throw new IllegalStateException("Configure a model endpoint before requesting explanations");
+        if (baseUrl == null || baseUrl.isBlank()) throw new IllegalStateException("Configure a model endpoint before requesting explanations");
+        // A declared output maximum above what the response-byte cap could ever hold is
+        // never honorable: the response reader truncates/rejects past maxResponseBytes
+        // regardless of what the provider sends. Never send a value the app itself cannot accept back.
+        int responseCeiling = ModelRequestBudget.maxTokensForBytes(properties.getModel().getMaxResponseBytes());
+        int maxTokens = outputTokens > 0 ? Math.min(outputTokens, responseCeiling) : 2048;
+        metrics.prompt(systemPrompt, userPrompt);
+        Map<String, Object> body = requestBody(systemPrompt, userPrompt, maxTokens);
+        Map<String, Object> formatted = new LinkedHashMap<>(body);
+        formatted.put("response_format", Map.of("type", "json_object"));
+        RawResponse response = execute(endpoint(baseUrl), formatted);
+        if (isContextLimit(response)) throw new ContextLimitException();
+        if (response.status() == 400) {
+            response = execute(endpoint(baseUrl), body);
+            if (isContextLimit(response)) throw new ContextLimitException();
         }
-        String normalizedBase = normalizeBaseUrl(baseUrl);
-        String url = normalizedBase + (normalizedBase.endsWith("/chat/completions") ? "" : "/chat/completions");
-
-        HttpHeaders headers = createHeaders();
-        double temperature = properties.getModel().getTemperature();
-        int maxTokens = outputTokens;
-        if (maxTokens <= 0) {
-            maxTokens = 2048;
-        }
-
-        Map<String, Object> requestBody = new LinkedHashMap<>();
-        requestBody.put("model", modelId);
-        requestBody.put("messages", List.of(
-            Map.of("role", "system", "content", systemPrompt),
-            Map.of("role", "user", "content", userPrompt)
-        ));
-        requestBody.put("temperature", temperature);
-        requestBody.put("max_tokens", maxTokens);
-
-        Map<String, Object> requestWithFormat = new LinkedHashMap<>(requestBody);
-        requestWithFormat.put("response_format", Map.of("type", "json_object"));
-
-        try {
-            return executeChatCompletion(url, headers, requestWithFormat);
-        } catch (ContextLimitException | OutputLimitException e) {
-            throw e;
-        } catch (HttpStatusCodeException e) {
-            if (isContextLimit(e)) throw new ContextLimitException();
-            if (e.getStatusCode().value() == 400) {
-                log.info("Request with response_format failed (HTTP 400), retrying without response_format...");
-                try {
-                    return executeChatCompletion(url, headers, requestBody);
-                } catch (ContextLimitException | OutputLimitException retryEx) {
-                    throw retryEx;
-                } catch (HttpStatusCodeException retryEx) {
-                    if (isContextLimit(retryEx)) throw new ContextLimitException();
-                    throw new RuntimeException("Model rejected the request (HTTP " + retryEx.getStatusCode().value() + ")");
-                } catch (Exception retryEx) {
-                    throw new RuntimeException(sanitize("Failed to request model without response_format: " + retryEx.getMessage()), retryEx);
-                }
-            }
-            throw new RuntimeException(sanitize("Failed to request model: HTTP " + e.getStatusCode().value()), e);
-        } catch (Exception e) {
-            String errStr = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
-            if (errStr.contains("response_format") || errStr.contains("content-blocked") || errStr.contains("400")) {
-                log.info("Retrying chat completion without response_format after provider rejection");
-                try {
-                    return executeChatCompletion(url, headers, requestBody);
-                } catch (ContextLimitException | OutputLimitException retryEx) {
-                    throw retryEx;
-                } catch (HttpStatusCodeException retryEx) {
-                    if (isContextLimit(retryEx)) throw new ContextLimitException();
-                    throw new RuntimeException("Model rejected the request (HTTP " + retryEx.getStatusCode().value() + ")");
-                } catch (Exception retryEx) {
-                    throw new RuntimeException(sanitize("Retry failed: " + retryEx.getMessage()), retryEx);
-                }
-            }
-            throw new RuntimeException(sanitize("Failed to request model: " + e.getMessage()), e);
-        }
+        if (response.status() < 200 || response.status() >= 300)
+            throw new RuntimeException("Model rejected the bounded request (HTTP " + response.status() + ")");
+        return content(response.body());
     }
 
-    private boolean isContextLimit(HttpStatusCodeException error) {
-        String body = error.getResponseBodyAsString().toLowerCase(java.util.Locale.ROOT);
-        return error.getStatusCode().value() == 413
-            || (error.getStatusCode().value() == 400 || error.getStatusCode().value() == 422)
-            && (body.contains("context_length_exceeded") || body.contains("maximum context length")
-                || body.contains("context window") || body.contains("input too long") || body.contains("prompt is too long") || body.contains("too many input tokens")
+    private Map<String, Object> requestBody(String system, String user, int output) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", properties.getModel().getModelId());
+        body.put("messages", List.of(Map.of("role", "system", "content", system), Map.of("role", "user", "content", user)));
+        body.put("temperature", properties.getModel().getTemperature());
+        body.put("max_tokens", output);
+        return body;
+    }
+
+    private RawResponse execute(String url, Map<String, Object> body) {
+        byte[] payload;
+        try { payload = json.writeValueAsBytes(body); }
+        catch (Exception e) { throw new IllegalStateException("Could not encode bounded model request", e); }
+        if (payload.length > properties.getModel().getMaxRequestBytes()) throw new RequestLimitException();
+        boolean acquired = false;
+        try {
+            requests.acquire();
+            acquired = true;
+            try (AutoCloseable ignored = metrics.requestStarted()) {
+                HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(url))
+                    .timeout(Duration.ofSeconds(Math.max(1, properties.getModel().getTimeoutSeconds())))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(payload));
+                String userAgent = properties.getModel().getUserAgent();
+                if (userAgent != null && !userAgent.isBlank()) request.header("User-Agent", userAgent.trim());
+                String apiKey = properties.getModel().getApiKey();
+                if (apiKey != null && !apiKey.isBlank()) request.header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey.trim());
+                HttpResponse<InputStream> response = client.send(request.build(), HttpResponse.BodyHandlers.ofInputStream());
+                int max = properties.getModel().getMaxResponseBytes();
+                byte[] bytes;
+                try (InputStream stream = response.body()) { bytes = stream.readNBytes(max + 1); }
+                metrics.responseBytes(bytes.length);
+                if (bytes.length > max) throw new OversizedResponseException();
+                return new RawResponse(response.statusCode(), bytes);
+            }
+        } catch (OversizedResponseException | RequestLimitException e) { throw e; }
+        catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new RuntimeException("Model request interrupted"); }
+        catch (Exception e) { throw new RuntimeException("Failed to request configured model: " + safeMessage(e), e); }
+        finally { if (acquired) requests.release(); }
+    }
+
+    private String content(byte[] response) {
+        try {
+            JsonNode root = json.readTree(response);
+            JsonNode choice = root.path("choices").path(0);
+            if ("length".equals(choice.path("finish_reason").asText())) throw new OutputLimitException();
+            if (root.hasNonNull("error")) throw new RuntimeException("Model provider rejected the bounded request");
+            JsonNode value = choice.path("message").path("content");
+            if (!value.isTextual()) throw new RuntimeException("Empty or invalid response from model");
+            String content = value.asText();
+            if (BoundedWorkMetrics.utf8Bytes(content) > properties.getModel().getMaxResponseBytes()) throw new OversizedResponseException();
+            return stripMarkdownCodeFences(content);
+        } catch (OutputLimitException | OversizedResponseException e) { throw e; }
+        catch (RuntimeException e) { throw e; }
+        catch (Exception e) { throw new RuntimeException("Invalid bounded response from model", e); }
+    }
+
+    private boolean isContextLimit(RawResponse response) {
+        String body = new String(response.body(), StandardCharsets.UTF_8).toLowerCase(Locale.ROOT);
+        return response.status() == 413 || (response.status() == 400 || response.status() == 422)
+            && (body.contains("context_length_exceeded") || body.contains("maximum context length") || body.contains("context window")
+                || body.contains("input too long") || body.contains("prompt is too long") || body.contains("too many input tokens")
                 || (body.contains("input token") && (body.contains("exceed") || body.contains("limit"))));
     }
 
-    private String executeChatCompletion(String url, HttpHeaders headers, Map<String, Object> requestBody) throws Exception {
-        String payload = objectMapper.writeValueAsString(requestBody);
-
-        ResponseEntity<Map> response = createRestTemplate().exchange(
-            url,
-            HttpMethod.POST,
-            new HttpEntity<>(payload, headers),
-            Map.class
-        );
-
-        if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-            Map body = response.getBody();
-            if (body.containsKey("error") && body.get("error") != null) {
-                Map errMap = (Map) body.get("error");
-                String errMsg = errMap.get("message") != null ? errMap.get("message").toString() : errMap.toString();
-                throw new RuntimeException(errMsg.toLowerCase().contains("response_format") ? "Model provider rejected response_format" : "Model provider rejected the request");
-            }
-
-            List<Map> choices = (List<Map>) body.get("choices");
-            if (choices != null && !choices.isEmpty()) {
-                if ("length".equals(choices.get(0).get("finish_reason"))) throw new OutputLimitException();
-                Map message = (Map) choices.get(0).get("message");
-                String rawContent = (String) message.get("content");
-                return stripMarkdownCodeFences(rawContent);
-            }
-        }
-        throw new RuntimeException("Empty or invalid response from model");
+    private String endpoint(String baseUrl) {
+        String normalized = normalizeBaseUrl(baseUrl);
+        return normalized + (normalized.endsWith("/chat/completions") ? "" : "/chat/completions");
     }
+
+    private String safeMessage(Exception error) {
+        String value = error.getMessage();
+        if (value == null || value.isBlank()) return error.getClass().getSimpleName();
+        String apiKey = properties.getModel().getApiKey();
+        if (apiKey != null && !apiKey.isBlank()) value = value.replace(apiKey.trim(), "[REDACTED]");
+        return value.substring(0, Math.min(300, value.length()));
+    }
+
+    private record RawResponse(int status, byte[] body) {}
 
     public static String stripMarkdownCodeFences(String raw) {
         if (raw == null) return null;
         String trimmed = raw.trim();
-
         int firstBrace = trimmed.indexOf('{');
         int lastBrace = trimmed.lastIndexOf('}');
-        if (firstBrace != -1 && lastBrace > firstBrace) {
-            return trimmed.substring(firstBrace, lastBrace + 1).trim();
-        }
-
+        if (firstBrace != -1 && lastBrace > firstBrace) return trimmed.substring(firstBrace, lastBrace + 1).trim();
         if (trimmed.startsWith("```")) {
-            String[] lines = trimmed.split("\n");
-            StringBuilder sb = new StringBuilder();
-            for (String line : lines) {
-                if (line.trim().startsWith("```")) continue;
-                sb.append(line).append("\n");
-            }
-            return sb.toString().trim();
+            StringBuilder result = new StringBuilder(trimmed.length());
+            for (String line : trimmed.split("\n")) if (!line.trim().startsWith("```")) result.append(line).append('\n');
+            return result.toString().trim();
         }
-
         return trimmed;
     }
 }

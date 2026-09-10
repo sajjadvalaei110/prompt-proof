@@ -21,6 +21,7 @@ import tempfile
 RUN = Path(tempfile.mkdtemp(prefix='run-', dir=OUTPUT))
 RELEASE = threading.Event()
 CONTEXT_RELEASE = threading.Event()
+CONTEXT_RELEASE.set()  # Initial architecture preparation should run immediately.
 REQUESTS = []
 
 class MockModel(BaseHTTPRequestHandler):
@@ -28,6 +29,8 @@ class MockModel(BaseHTTPRequestHandler):
         pass
 
     def do_GET(self):
+        if self.path == '/hold-context':
+            CONTEXT_RELEASE.clear()
         if self.path == '/release-context':
             CONTEXT_RELEASE.set()
         if self.path == '/release':
@@ -39,13 +42,13 @@ class MockModel(BaseHTTPRequestHandler):
     def do_POST(self):
         request = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         system, user = [message['content'] for message in request['messages']]
-        if system.startswith('Summarize a slice'):
+        if system.startswith('Summarize a bounded slice'):
             CONTEXT_RELEASE.wait(timeout=60)
             REQUESTS.append('context-summary')
             content = {'summary': 'Synthetic project brief: the fixture implements order processing. Documented intent requires source verification.'}
         elif system.startswith('Infer concise'):
-            if 'TARGET CLASSES (complete declarations for this batch):' in user:
-                user = user.split('TARGET CLASSES (complete declarations for this batch):', 1)[1].split('[ev-neighbors]', 1)[0]
+            if '[ev-types] TARGET CLASSES:' in user:
+                user = user.split('[ev-types] TARGET CLASSES:', 1)[1].split('[ev-neighbors]', 1)[0]
             classes = re.findall(r'\{symbolId=([^,}]+), qualified_name=([^,}]+),[^\n]*?kind=CLASS,', user)
             assert classes, 'No classes in complete inventory'
             REQUESTS.append('architecture')
@@ -105,8 +108,10 @@ def main():
         with sqlite3.connect(RUN / 'codeatlas.db') as db:
             snapshot = result['snapshot']
             expected = [row[0] for row in db.execute('SELECT subject_id FROM explanation_queue WHERE snapshot_id = ? AND subject_type = \'symbol\' ORDER BY relation_count, loc, subject_id', (snapshot,))]
-            assert REQUESTS[0] == 'architecture'
-            assert REQUESTS[1:1+len(expected)] == expected, 'Model request order differs from degree/LOC order'
+            first_symbol = REQUESTS.index(expected[0])
+            assert set(REQUESTS[:first_symbol]) <= {'context-summary', 'architecture'}
+            assert 'context-summary' in REQUESTS[:first_symbol] and 'architecture' in REQUESTS[:first_symbol]
+            assert REQUESTS[first_symbol:first_symbol+len(expected)] == expected, 'Model request order differs from degree/LOC order'
             assert len(expected) == result['symbolCount']
             assert db.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
             assert not db.execute('PRAGMA foreign_key_check').fetchall()

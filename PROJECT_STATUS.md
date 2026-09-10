@@ -1,9 +1,42 @@
 # Project status
-Last updated: 2026-09-09
+Last updated: 2026-09-10
 Active milestone: R6 — Developer comprehension redesign (in progress)
-Current revision: R6 scalable explanation context (verified with synthetic providers)
+Current revision: R6 bounded explanation working sets (verified with synthetic providers)
 
-## Current acceptance slice: 500 classes and ten context documents — complete
+## Current acceptance slice: repository-size-independent explanation memory — complete
+
+Implemented on 2026-09-10:
+- `ArchitectureBatchProcessor` pipeline 3.0 no longer accepts or returns repository-sized DTOs. Packages/types use `(qualified_name,id)` keysets; relationships/package coupling use `id` keysets with ancestry resolved only for the current page; documents use `id` plus bounded character ranges; checkpoint reductions use fixed fan-in; and classes use ID-keyset batches capped at 16. Every validated slice summary and class purpose is written transactionally to SQLite before the next batch. Downstream reduction and final publication page persisted artifacts; no complete inventory String or all-class purpose Map is reconstructed.
+- Architecture run/checkpoint identity is scoped to immutable snapshot facts, document revisions, endpoint/model, prompt/pipeline versions, token/body budgets, and relevant batch settings. A failed bounded request receives at most three capped-backoff attempts. Size failures split only the current bounded input. Cancellation is checked inside checkpoint/publication transactions; incomplete staging never becomes a visible DRAFT/READY synthesis. Final publication checks exact active-class coverage and uses `INSERT … SELECT`.
+- Explain All creates no Java list of the complete queue. SQLite keyset-pages active CLASS/METHOD IDs, computes indexed degree/LOC metadata, and idempotently upserts one bounded page. `jobs.total_items=-1` distinguishes incomplete population from a valid empty queue, enabling restart recovery without premature completion. Claims remain ordered by `relation_count ASC, loc ASC, subject_id ASC, id ASC`; relationships remain on-demand. One worker/semaphore limits outstanding provider requests to one and abandoned `IN_PROGRESS` work is reset safely.
+- The shared `ContextBuilder` bounds related symbols/methods, relationship and call-site occurrences, source/prior-explanation characters, project documents, and global inventory rows. It fetches source/TEXT lazily with SQL `substr`, spends a combined token/body-aware budget, and adds a structured `context-limits` evidence record. Symbol, method, bulk and edge explanations all use this path; bounded edge contexts retain endpoint and exact call-site evidence subject to the occurrence cap.
+- `ModelClientService` now uses Java's streaming HTTP body handler, serializes each bounded request once, reads at most `maxResponseBytes + 1`, and rejects request/response oversize independently of token settings. Response text/array/claim/ID counts are validated before publication. Logs contain neither prompts/source/responses nor credentials. There is no provider fallback.
+- Flyway V006 adds reduction-plan fields, staged class purposes, and initial ordered-query indexes; V007 adds generated-work cleanup; V008 adds keyset/status indexes; V009 supplies full foreign-key-ordered snapshot cleanup while preserving workspace logical symbols, notes, bookmarks and documents. Document invalidation removes only unfinished unreferenced runs and marks successful prose stale rather than deleting it.
+- Queue-status schema 2 is aggregate-only. The shared React serial poller never overlaps requests, schedules only after resolution, stops on terminal/inactive state, workspace change or unmount, and ignores late results. Inspector-only requests emit one terminal graph refresh so edge READY indicators update without reviving global polling. Current phase/range, validated count, elapsed time, failure/cancellation, and existing READY shine remain visible.
+
+Measured root cause and bounds:
+- Before this slice, code-path inspection found unbounded `queryForList`/collection growth for all architecture types/packages/couplings/documents, all summaries, every class purpose, all bulk subjects, and complete collaborator/member/relationship sets; the synthetic dimensions would have produced a 10,000-entry purpose Map and a 60,000-row Java queue list, with relationship collections able to reach 100,000. The old implementation had no bounded counters, so these are inspected cardinalities, not reconstructed measurements.
+- The pre-change baseline `./gradlew test --no-daemon` had 72 tests and `/usr/bin/time -v` reported 535,372 KiB maximum RSS for the combined Gradle/test processes. The final normal suite has more tests and reports 596,876 KiB; this whole-process RSS is included for transparency and is not an isolated heap comparison.
+- The final 10,000-class / 50,000-method / 100,000-relationship constrained fixture completed under a 256 MiB test-worker heap. Deterministic high-water marks were **128 rows returned by one instrumented query, 16 symbols retained in a batch, 1 simultaneous model request, 16,787 prompt UTF-8 bytes, and 1,517 response bytes**. Sampled used test-worker heap peaked at **71,516,008 bytes** of a 268,435,456-byte maximum. `/usr/bin/time -v` reported 544,544 KiB maximum RSS for the combined Gradle daemon and test JVM, so it is not presented as worker heap.
+
+Verification:
+- `./gradlew test --no-daemon` — BUILD SUCCESSFUL; **78 tests, 0 failures/errors/skips**.
+- `./gradlew constrainedMemoryTest --no-daemon` — BUILD SUCCESSFUL in 2m22s with `-Xmx256m`; one synthetic scale test, metrics above, no `OutOfMemoryError`.
+- `./gradlew bootJar --no-daemon` — BUILD SUCCESSFUL; packaged frontend included. Vite's existing >500 kB bundle advisory remains.
+- `node scripts/test-graph-model.mjs` — PASS, including execution of the real shared polling module with deferred requests (maximum one in flight, no schedule-before-settle, late result ignored after stop).
+- `python3 -m py_compile scripts/verify_hierarchical_pipeline.py`, `node --check scripts/verify-hierarchical-ui.mjs`, and `git diff --check` — successful.
+- `python3 scripts/verify_hierarchical_pipeline.py` — PASS against the packaged jar, isolated SQLite, local mock provider and Chromium: 61 CLASS/METHOD bulk subjects in exact SQL order, zero bulk relationships, visible bounded-stage progress and stop control, READY updates, refresh/poll lifecycle, SQLite integrity, and unchanged imported-source hashes. This is mock-provider verification, not live-provider verification.
+- Visually inspected all nine 1500×980 / 430×900 screenshots in `build/hierarchy-smoke/run-do7c60_n/`. Phase/range/timer/validated state fits the narrow footer without horizontal overflow; completed state reads “Explain all completed,” shows 61 explained / 0 queued, and removes the stop control; class/method/edge shine and hover remain visible; settings and evidence panels remain usable.
+
+Remaining limits:
+- **No live-provider quality, latency, streaming-protocol, or provider-tokenizer verification.** The HTTP body is consumed incrementally to a hard cap, but the OpenAI-compatible endpoint used here returns one JSON response rather than token-by-token application streaming. Summaries remain lossy generated interpretation.
+- Total SQLite storage, provider calls and elapsed time grow with repository size. Sequential generation is deliberate for deterministic bottom-up ordering and a one-request memory bound. Checkpoint artifacts referenced by a synthesis remain for provenance until that snapshot is explicitly deleted.
+- The document management API still returns its contract-limited set (maximum 30 × 100,000 characters) for editing; explanation construction never loads that set and instead pages metadata/content slices. The main frontend bundle warning is unchanged.
+- `docs/BUILD_BRIEF.md` is absent; `docs/BUILD.md` is the available build brief and was read. Unrelated `.claude/` and `skills-lock.json` remain untouched.
+
+Decision: [ADR 0005](docs/adr/0005-bounded-explanation-working-sets.md), with updated [architecture](docs/ARCHITECTURE.md), [schema](docs/DATA_MODEL.md), [testing](docs/TESTING.md), and prompt notes. The codebase-design deep-module vocabulary shaped the narrow `ArchitectureBatchProcessor` and shared `ContextBuilder` boundaries.
+
+## Previous acceptance slice: 500 classes and ten context documents — complete
 
 Implemented on 2026-09-09:
 - `ArchitectureBatchProcessor` keeps small projects on a single architecture request, while large projects summarize every inventory/document/coupling slice and draft bounded class batches. Input and output limits both influence planning. Provider context rejection, truncated output and incomplete class coverage split work into smaller requests; malformed/foreign/duplicate outputs never publish partial coverage.

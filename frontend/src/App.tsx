@@ -9,6 +9,7 @@ import InspectorPanel from './features/inspector/InspectorPanel';
 import SettingsScreen from './features/settings/SettingsScreen';
 import ProjectDocuments from './features/context/ProjectDocuments';
 import SourceDialog from './features/source/SourceDialog';
+import { startSerialPolling } from './utils/serialPolling';
 
 export default function App() {
   const params = new URLSearchParams(location.search);
@@ -37,13 +38,21 @@ export default function App() {
   }
   useEffect(()=>{apiClient.listWorkspaces().then(setRecent).catch(e=>setError(e.message));if(params.get('snapshotId')){setBusy(true);loadSnapshot(params.get('snapshotId')!).catch(e=>setError(e.message)).finally(()=>setBusy(false));}else if(params.get('autoPath'))analyze(params.get('autoPath')!);},[]);
   useEffect(()=>{apiClient.getModelProfiles().then(p=>setProfile(p[0])).catch(()=>setProfile(null));},[settings]);
-  useEffect(()=>{if(!workspace)return;let alive=true;const poll=()=>apiClient.getQueueStatus(workspace.id).then(q=>{if(alive)setQueue(q);}).catch(()=>{});poll();const timer=setInterval(poll,2000);return()=>{alive=false;clearInterval(timer);};},[workspace?.id]);
+  useEffect(()=>{
+    if(!workspace)return;
+    return startSerialPolling({
+      load:()=>apiClient.getQueueStatus(workspace.id),
+      onValue:q=>{setQueue(q);if(!q.activeJobId){if(q.jobStatus==='COMPLETED')setStatus('Explain all completed');else if(q.jobStatus==='FAILED')setStatus('Explain all failed');else if(q.jobStatus==='CANCELLED')setStatus('Explain all cancelled');}},
+      shouldContinue:q=>Boolean(q.activeJobId),
+      intervalMs:2000
+    });
+  },[workspace?.id,queue?.activeJobId]);
   useEffect(()=>{
     if(!snapshot)return;
     let alive=true;
     apiClient.getGraph(snapshot).then(data=>{if(alive)setGraph(previous=>JSON.stringify(previous)===JSON.stringify(data)?previous:data);}).catch(()=>{});
     return()=>{alive=false;};
-  },[snapshot,revision,queue]);
+  },[snapshot,revision,queue?.completed,queue?.failed,queue?.synthesisStatus]);
   useEffect(()=>{const key=(e:KeyboardEvent)=>{if((e.ctrlKey||e.metaKey)&&e.key==='k'){e.preventDefault();document.getElementById('global-search')?.focus();}if(e.key==='Escape'){setSearch('');}};window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key);},[]);
   function select(n:AtlasNode){if(node&&node.id!==n.id)setHistory(h=>[...h.slice(-19),node]);setNode(n);setEdge(null);setSearch('');if(n.kind!=='PACKAGE'){setLevel(n.kind==='METHOD'?'METHOD':'CLASS');setNodeLimit(12);}setMobilePane('details');}
   function explore(n:AtlasNode){if(!graph)return;const focused=focusScopeSelection(n,graph);select(n);setScope(focused.scope);setLevel(focused.level);setNodeLimit(12);setTab('map');setMobilePane('map');}
@@ -84,9 +93,9 @@ export default function App() {
           <div className="graph-legend"><span><i className="line-sample"/>Static dependency</span><span><i className="line-sample uncertain"/>Candidate / unresolved</span><span>{level==='METHOD'?'Method call occurrences':`${level==='PACKAGE'?'Package':'Class'} connections group occurrences by kind and resolution`}</span></div>
         </>}
       </section>
-      {tab!=='context'&&<InspectorPanel selectedNode={node} selectedEdge={edge} workspaceId={workspace?.id||null} snapshotId={snapshot} graph={graph} routes={routes} revision={revision} onInspectEdge={e=>{setEdge(e);setNode(null);setMobilePane('details');}} onSelect={select} onExplore={explore} onSource={(n,type='symbol')=>setSource({node:n,type})} onClose={()=>{setNode(null);setEdge(null);setMobilePane('map');}}/>}
+      {tab!=='context'&&<InspectorPanel selectedNode={node} selectedEdge={edge} workspaceId={workspace?.id||null} snapshotId={snapshot} graph={graph} routes={routes} revision={revision} onExplanationReady={()=>setRevision(r=>r+1)} onInspectEdge={e=>{setEdge(e);setNode(null);setMobilePane('details');}} onSelect={select} onExplore={explore} onSource={(n,type='symbol')=>setSource({node:n,type})} onClose={()=>{setNode(null);setEdge(null);setMobilePane('map');}}/>}
     </main></>}
-    <footer className="app-footer">{graph?.metadata?.diagnostics?.warnings?.length>0&&<details className="analysis-warnings"><summary>{graph?.metadata?.diagnostics?.warnings.length} analysis warning(s)</summary><div>{graph?.metadata?.diagnostics?.warnings.map((w:string,i:number)=><p key={i}>{w}</p>)}</div></details>}<span><i className={`status-dot ${graph?'configured':''}`}/>{status}</span>{graph&&<span>{graph.metadata?.unresolvedCount||0} unresolved external targets</span>}<div className="queue-summary">{queue?.activeJobId&&queue.synthesisStatus!=='READY'&&<span className="synthesis-progress"><i aria-hidden="true"/>{queue.synthesisStage || 'Preparing architecture'} · {synthesisElapsed}s · {queue.synthesisCompleted || 0} validated</span>}{queue&&<span>{queue.completed} explained · {queue.pending+queue.inProgress} queued · {queue.failed} failed</span>}{snapshot&&<button className={queue?.activeJobId?'':'primary'} onClick={explainAll}>{queue?.activeJobId?'Stop explain all':'✧ Explain all'}</button>}</div></footer>
+    <footer className="app-footer">{graph?.metadata?.diagnostics?.warnings?.length>0&&<details className="analysis-warnings"><summary>{graph?.metadata?.diagnostics?.warnings.length} analysis warning(s)</summary><div>{graph?.metadata?.diagnostics?.warnings.map((w:string,i:number)=><p key={i}>{w}</p>)}</div></details>}<span><i className={`status-dot ${graph?'configured':''}`}/>{status}</span>{graph&&<span>{graph.metadata?.unresolvedCount||0} unresolved external targets</span>}<div className="queue-summary">{queue?.activeJobId&&queue.synthesisStatus!=='READY'&&<span className="synthesis-progress"><i aria-hidden="true"/>{queue.synthesisStage || 'Preparing architecture'} · {synthesisElapsed}s · {queue.synthesisCompleted || 0} validated</span>}{!queue?.activeJobId&&queue?.jobStatus==='CANCELLED'&&<span>Explain all cancelled</span>}{queue&&<span>{queue.completed} explained · {queue.pending+queue.inProgress} queued · {queue.failed} failed</span>}{snapshot&&<button className={queue?.activeJobId?'':'primary'} onClick={explainAll}>{queue?.activeJobId?'Stop explain all':'✧ Explain all'}</button>}</div></footer>
     <SettingsScreen isOpen={settings} onClose={()=>setSettings(false)}/>
     {source&&snapshot&&<SourceDialog snapshot={snapshot} subject={source.node} type={source.type} onClose={()=>setSource(null)}/>}
   </div>;

@@ -92,3 +92,22 @@ for(const kind of ['CLASS','METHOD']){
  assert.ok(!decodeURIComponent(nodeCard({...node,explanationStatus:'STALE'}).image).includes('id="sparkle"'));
 }
 console.log('PASS: READY aggregation, stale badge removal, escaped class/method sparkle cards');
+
+// Exercise the shared polling module with a deterministic scheduler: no timer is
+// scheduled while a request is unresolved, and stop prevents a late response from
+// updating state or scheduling another request.
+const pollingCompiled=compile('../frontend/src/utils/serialPolling.ts');
+const {startSerialPolling}=await import('data:text/javascript;base64,'+Buffer.from(pollingCompiled).toString('base64'));
+let resolveFirst,resolveSecond,activeRequests=0,maxRequests=0,updates=0;
+const pending=[new Promise(resolve=>{resolveFirst=resolve}),new Promise(resolve=>{resolveSecond=resolve})];
+const scheduled=[];
+const stop=startSerialPolling({
+ load:()=>{activeRequests++;maxRequests=Math.max(maxRequests,activeRequests);return pending.shift().finally(()=>activeRequests--);},
+ onValue:()=>updates++,shouldContinue:value=>value.active,intervalMs:2000,
+ schedule:callback=>{scheduled.push(callback);return scheduled.length;},cancel:()=>{}
+});
+await Promise.resolve();assert.equal(maxRequests,1);assert.equal(scheduled.length,0);
+resolveFirst({active:true});await new Promise(resolve=>setTimeout(resolve,0));assert.equal(updates,1);assert.equal(scheduled.length,1);
+scheduled.shift()();await Promise.resolve();assert.equal(maxRequests,1);stop();resolveSecond({active:true});await new Promise(resolve=>setTimeout(resolve,0));
+assert.equal(updates,1);assert.equal(scheduled.length,0);
+console.log('PASS: queue/inspector polling is non-overlapping and stops when inactive');

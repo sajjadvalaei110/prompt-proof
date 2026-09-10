@@ -19,6 +19,16 @@ public record ModelRequestBudget(int contextTokens, int outputTokens) {
         return estimate(system) + (long)estimate(user) <= inputTokens(output);
     }
 
+    /**
+     * Conservative ceiling on output tokens whose serialized text could ever fit
+     * a byte-capped response, assuming worst-case UTF-8 expansion (3 bytes/token).
+     * Declaring an output maximum above this is provably useless: the app's own
+     * response-byte cap would truncate/reject the reply regardless of provider behavior.
+     */
+    public static int maxTokensForBytes(int bytes) {
+        return Math.max(128, bytes / 3);
+    }
+
     public static int estimate(String text) {
         long ascii = 0, other = 0;
         for (int i = 0; i < text.length();) {

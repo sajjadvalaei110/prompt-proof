@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -42,6 +43,8 @@ class HierarchicalExplanationTest {
     @Autowired ProjectDocumentService documents;
     @Autowired CodeAtlasProperties properties;
     @Autowired GraphQueryService graph;
+    @Autowired ArchitectureBatchProcessor architecture;
+    @Autowired PlatformTransactionManager transactionManager;
     @MockitoBean ModelClientService model;
     final ObjectMapper json = new ObjectMapper();
     String ws, snapshot;
@@ -54,8 +57,12 @@ class HierarchicalExplanationTest {
         ws = UUID.randomUUID().toString(); snapshot = UUID.randomUUID().toString();
         properties.getModel().setContextBudget(100_000);
         properties.getModel().setOutputBudget(4096);
+        properties.getModel().setMaxRequestBytes(1_048_576);
+        properties.getModel().setMaxResponseBytes(262_144);
         properties.getModel().setModelId("fixture-model");
         properties.getModel().setBaseUrl("http://127.0.0.1:19999/v1");
+        lenient().when(model.getExplanation(argThat(system -> system != null && system.startsWith("Summarize a bounded slice")), anyString(), anyInt()))
+            .thenReturn("{\"summary\":\"Bounded shipment architecture summary.\"}");
         db.update("INSERT INTO workspaces (id, canonical_root, display_name, created_at, updated_at) VALUES (?, ?, 'Hierarchy', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)", ws, "/tmp/hierarchy-" + ws);
         db.update("INSERT INTO snapshots (id, workspace_id, status, created_at) VALUES (?, ?, 'published', CURRENT_TIMESTAMP)", snapshot, ws);
         symbol("package-a", "PACKAGE", null, 1);
@@ -110,15 +117,17 @@ class HierarchicalExplanationTest {
         documents.save(ws, null, "Purpose", "Shipments cross package boundaries. Last document sentence.");
         var requests = new ArrayList<String>(); normalModel(requests);
         String job = queue.startExplainAllJob(ws, snapshot, 4);
-        assertEquals(ordered(), db.queryForList("SELECT subject_id FROM explanation_queue WHERE job_id = ? ORDER BY relation_count, loc, subject_id", String.class, job));
+        assertEquals(0, db.queryForObject("SELECT COUNT(*) FROM explanation_queue WHERE job_id=?", Integer.class, job));
         assertEquals(0, db.queryForObject("SELECT COUNT(*) FROM explanation_queue WHERE snapshot_id = ? AND subject_type = 'relationship'", Integer.class, snapshot));
+        assertTrue(queue.processNextItem());
+        assertEquals(ordered(), db.queryForList("SELECT subject_id FROM explanation_queue WHERE job_id = ? ORDER BY relation_count, loc, subject_id", String.class, job));
         assertEquals(3, db.queryForObject("SELECT relation_count FROM explanation_queue WHERE subject_id = ?", Integer.class, id("caller")));
-        for (int i = 0; i < 8; i++) assertTrue(queue.processNextItem());
+        for (int i = 0; i < 7; i++) assertTrue(queue.processNextItem());
         assertFalse(queue.processNextItem());
         var expected = new ArrayList<>(List.of("architecture")); expected.addAll(ordered()); assertEquals(expected, requests);
         assertEquals("COMPLETED", db.queryForObject("SELECT status FROM jobs WHERE id = ?", String.class, job));
         assertEquals(7, db.queryForObject("SELECT completed_items FROM jobs WHERE id = ?", Integer.class, job));
-        verify(model).getExplanation(argThat(s -> s.startsWith("Infer concise")), argThat(s -> s.contains("Last document sentence.") && s.contains("Complete package tree") && s.contains("Package coupling") && s.contains("SERVICE")));
+        assertTrue(db.queryForObject("SELECT COUNT(*) FROM architecture_checkpoints WHERE snapshot_id=? AND input_context LIKE '%Last document sentence.%'", Integer.class, snapshot) > 0);
         assertEquals(0, db.queryForObject("SELECT COUNT(*) FROM explanations WHERE snapshot_id = ? AND subject_type = 'relationship'", Integer.class, snapshot));
     }
 
@@ -134,10 +143,24 @@ class HierarchicalExplanationTest {
         queue.processNextItem(); queue.cancelJob(first);
         String resumed = queue.startExplainAllJob(ws, snapshot, 1);
         assertNotEquals(first, resumed);
-        assertEquals(6, db.queryForObject("SELECT total_items FROM jobs WHERE id = ?", Integer.class, resumed));
+        assertEquals(-1, db.queryForObject("SELECT total_items FROM jobs WHERE id = ?", Integer.class, resumed));
         queue.processNextItem(); // Cached synthesis establishes barrier without another request.
+        assertEquals(6, db.queryForObject("SELECT total_items FROM jobs WHERE id = ?", Integer.class, resumed));
         assertEquals(List.of("architecture", id("a-short")), requests);
         queue.processNextItem(); assertEquals(id("b-tie"), requests.getLast());
+    }
+
+    @Test void restartFinishesOnlyMissingQueuePagesBeforeClaimingWork() {
+        String job = UUID.randomUUID().toString();
+        db.update("INSERT INTO jobs(id,workspace_id,snapshot_id,operation,status,synthesis_status,total_items,created_at,updated_at) VALUES(?,?,?,'EXPLAIN_ALL','RUNNING','READY',-1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)", job, ws, snapshot);
+        db.update("INSERT INTO explanation_queue(id,workspace_id,snapshot_id,subject_id,subject_type,job_id,dedup_key) VALUES(?,?,?,?, 'symbol',?,?)",
+            job + ":" + id("class-a"), ws, snapshot, id("class-a"), job, job + ":symbol:" + id("class-a"));
+
+        assertTrue(queue.processNextItem());
+        assertEquals(7, db.queryForObject("SELECT total_items FROM jobs WHERE id=?", Integer.class, job));
+        assertEquals(7, db.queryForObject("SELECT COUNT(*) FROM explanation_queue WHERE job_id=?", Integer.class, job));
+        assertEquals("PENDING", db.queryForObject("SELECT status FROM explanation_queue WHERE job_id=? AND subject_id=?", String.class, job, id("class-a")));
+        assertEquals("RUNNING", db.queryForObject("SELECT status FROM jobs WHERE id=?", String.class, job));
     }
 
     @Test void incompleteDuplicateAndForeignIdsNeverPartiallySaveDrafts() throws Exception {
@@ -201,20 +224,13 @@ class HierarchicalExplanationTest {
         assertEquals("READY", queue.getQueueStatus(ws).synthesisStatus());
         assertTrue(chunks.size() > 1);
         for (int doc = 0; doc < 10; doc++) assertTrue(String.join("", chunks).contains("UNIQUE DOCUMENT TAIL " + doc));
-        // Each original character reaches a summary request; whitespace and split boundaries survive.
-        String original = context.buildArchitectureContext(snapshot).formattedContext();
-        StringBuilder firstRound = new StringBuilder();
-        int firstRoundChunks = 0;
-        while (firstRound.length() < original.length()) {
-            String chunk = chunks.get(firstRoundChunks++);
-            firstRound.append(chunk.substring(chunk.indexOf('\n') + 1));
-        }
-        assertEquals(original, firstRound.toString());
+        // Source pages are retained independently; no complete inventory string is reconstructed.
+        assertTrue(db.queryForObject("SELECT COUNT(*) FROM architecture_checkpoints WHERE snapshot_id=? AND reduction_level=0", Integer.class, snapshot) > 10);
         assertEquals(500, db.queryForObject("SELECT COUNT(*) FROM class_pre_explanations p JOIN symbol_versions s ON s.id=p.symbol_id WHERE s.snapshot_id=?", Integer.class, snapshot));
         int saved = db.queryForObject("SELECT COUNT(*) FROM architecture_checkpoints WHERE snapshot_id=?", Integer.class, snapshot);
         assertEquals(chunks.size() + 250, saved);
         assertEquals(saved, queue.getQueueStatus(ws).synthesisCompleted());
-        assertTrue(db.queryForObject("SELECT context_evidence FROM explanation_syntheses WHERE snapshot_id=?", String.class, snapshot).contains("stage-"));
+        assertTrue(db.queryForObject("SELECT context_evidence FROM explanation_syntheses WHERE snapshot_id=?", String.class, snapshot).contains("finalBriefStageKey"));
         assertEquals(0, db.queryForObject("SELECT COUNT(*) FROM explanations WHERE snapshot_id=?", Integer.class, snapshot));
         for (int i = 0; i < 505; i++) assertTrue(queue.processNextItem());
         assertEquals("COMPLETED", db.queryForObject("SELECT status FROM jobs WHERE id=?", String.class, job));
@@ -256,9 +272,9 @@ class HierarchicalExplanationTest {
         assertEquals(0, db.queryForObject(
             "SELECT COUNT(*) FROM class_pre_explanations p JOIN symbol_versions s ON s.id=p.symbol_id WHERE s.snapshot_id=?",
             Integer.class, snapshot));
-        assertEquals(16, json.readTree(db.queryForObject(
-            "SELECT output_json FROM architecture_checkpoints WHERE snapshot_id=? AND stage_kind='classes'",
-            String.class, snapshot)).get("classes").size());
+        assertEquals(0, db.queryForObject(
+            "SELECT COUNT(*) FROM architecture_checkpoints WHERE snapshot_id=? AND stage_kind='classes'",
+            Integer.class, snapshot));
     }
 
     @Test void providerContextRejectionSplitsSlicesAndClassBatches() throws Exception {
@@ -280,7 +296,7 @@ class HierarchicalExplanationTest {
         });
         explanations.synthesizeArchitecture(snapshot);
         assertTrue(rejections.get() > 2);
-        assertEquals(context.buildArchitectureContext(snapshot).formattedContext(), String.join("", accepted));
+        assertTrue(String.join("", accepted).contains("Regional delivery rules."));
         assertNotNull(context.priorExplanation(snapshot, id("class-a")));
         assertNotNull(context.priorExplanation(snapshot, id("class-b")));
     }
@@ -299,7 +315,7 @@ class HierarchicalExplanationTest {
         assertTrue(new ModelRequestBudget(8192, 2048).fits(templates.getSystemPrompt(), templates.getUserPrompt(result), 2048));
         assertTrue(result.formattedContext().contains("Coordinates shipments."));
         assertTrue(result.formattedContext().contains("Context shortened"));
-        assertTrue(result.formattedContext().contains("Do not imply complete source coverage"));
+        assertTrue(result.formattedContext().contains("Do not imply omitted facts are absent"));
     }
 
     @Test void outputTruncationSplitsClassBatchesWithoutPublishingPartialCoverage() throws Exception {
@@ -319,7 +335,114 @@ class HierarchicalExplanationTest {
         assertNotNull(context.priorExplanation(snapshot, id("class-b")));
     }
 
-    @Test void cancellationRetainsValidatedClassBatchAndResumeSkipsItsModelCall() throws Exception {
+    @Test void verboseButCompleteSummaryIsClippedRatherThanFailingTheRun() throws Exception {
+        // Regression for a reported crash: a large-window Gemini-style profile (512K context /
+        // 256K output) whose model answers a tiny package-summary prompt in full, without any
+        // provider truncation, but longer than the app's internal per-slice compaction target.
+        // The old code treated "valid but verbose" the same as "input too large to fit" and
+        // recursively bisected the (already tiny) input down to a false
+        // "cannot fit even a minimal bounded batch" failure. It must now clip and continue.
+        properties.getModel().setContextBudget(512_000);
+        properties.getModel().setOutputBudget(256_000);
+        // Comfortably under maxResponseBytes (262144, so the response is never rejected as
+        // oversized) yet, once decoded, well past the ~55.6K-token per-slice compaction target
+        // that this context/output pair computes.
+        String verboseSummary = "Shipment architecture detail. ".repeat(6_000);
+        when(model.getExplanation(argThat(system -> system != null && system.startsWith("Summarize a bounded slice")), anyString(), anyInt()))
+            .thenReturn(json.writeValueAsString(Map.of("summary", verboseSummary)));
+        when(model.getExplanation(anyString(), anyString())).thenAnswer(inv -> batchResponse(inv.getArgument(1)));
+        explanations.synthesizeArchitecture(snapshot);
+        assertNotNull(context.priorExplanation(snapshot, id("class-a")));
+        assertNotNull(context.priorExplanation(snapshot, id("class-b")));
+    }
+
+    @Test void navigationSuggestionsThatAreNamesAreDroppedInsteadOfLosingTheExplanation() throws Exception {
+        // Regression: every class and method explanation failed against a real provider. The model
+        // answered with qualified names in suggestedNextSymbolIds, which no supplied block describes
+        // the format of, and validation threw away the whole grounded explanation over an optional
+        // field the UI never renders. Unknown IDs must be dropped, not fatal.
+        String answer = json.writeValueAsString(Map.of("shortLabel", "Coordinates shipments",
+            "hoverSummary", "Routes shipment requests to the store.",
+            "claims", List.of(Map.of("description", "Visible declaration", "basis", "SOURCE_FACT", "evidenceIds", List.of("ev-source"))),
+            "unknowns", List.of("Runtime dispatch is not established."),
+            "suggestedNextSymbolIds", List.of("com.demo.class-b", "OrderService", id("class-b"))));
+        when(model.getExplanation(anyString(), anyString())).thenReturn(answer);
+        queue.enqueueExplanation(ws, snapshot, id("class-a"), "symbol");
+        assertTrue(queue.processNextItem());
+        var explanation = explanations.getExplanation(snapshot, id("class-a"), "symbol");
+        assertEquals("READY", explanation.status().name());
+        assertEquals("Coordinates shipments", explanation.shortLabel());
+        // The one real ID survives; invented names never reach the UI.
+        assertEquals(List.of(id("class-b")), explanation.suggestedNextSymbolIds());
+        verify(model, times(1)).getExplanation(anyString(), anyString());
+    }
+
+    @Test void aContextWindowSmallerThanConfiguredRebuildsTheSubjectInsteadOfFailingIt() throws Exception {
+        // Regression: architecture batches are tiny and succeeded, while every per-symbol prompt was
+        // built up to the request-byte cap and rejected by a model whose real window is far smaller
+        // than the configured one. Declared limits are a claim; only the provider's answer is proof.
+        properties.getModel().setContextBudget(512_000);
+        properties.getModel().setOutputBudget(256_000);
+        db.update("UPDATE evidence SET snippet=? WHERE id LIKE ?", "if (shipment.isReady()) dispatch(shipment);\n".repeat(400), snapshot + "%");
+        var sizes = new ArrayList<Integer>();
+        when(model.getExplanation(anyString(), anyString())).thenAnswer(inv -> {
+            String user = inv.getArgument(1);
+            sizes.add(user.length());
+            if (user.length() > 6_000) throw new ModelClientService.ContextLimitException();
+            return full("Coordinates shipments");
+        });
+        queue.enqueueExplanation(ws, snapshot, id("class-a"), "symbol");
+        assertTrue(queue.processNextItem());
+        assertEquals("READY", explanations.getExplanation(snapshot, id("class-a"), "symbol").status().name());
+        // The first attempt was rejected on size; the rebuilt one was materially smaller.
+        assertTrue(sizes.size() >= 2, sizes.toString());
+        assertTrue(sizes.get(sizes.size() - 1) < sizes.get(0) / 2, sizes.toString());
+    }
+
+    @Test void transientProviderFaultOnASubjectIsRetriedWithoutAHumanRetry() throws Exception {
+        var attempts = new java.util.concurrent.atomic.AtomicInteger();
+        when(model.getExplanation(anyString(), anyString())).thenAnswer(inv -> {
+            if (attempts.incrementAndGet() < 3) throw new RuntimeException("Failed to request configured model: Connection reset");
+            return full("Coordinates shipments");
+        });
+        queue.enqueueExplanation(ws, snapshot, id("class-a"), "symbol");
+        assertTrue(queue.processNextItem());
+        assertEquals(3, attempts.get());
+        assertEquals("READY", explanations.getExplanation(snapshot, id("class-a"), "symbol").status().name());
+        assertEquals("COMPLETED", db.queryForObject("SELECT status FROM explanation_queue WHERE snapshot_id=? AND subject_id=?", String.class, snapshot, id("class-a")));
+    }
+
+    @Test void boundedOutputLimitOnASubjectReportsTheSettingsThatDecideIt() throws Exception {
+        when(model.getExplanation(anyString(), anyString())).thenThrow(new ModelClientService.OutputLimitException());
+        queue.enqueueExplanation(ws, snapshot, id("class-a"), "symbol");
+        for (int attempt = 0; attempt < 3; attempt++) assertTrue(queue.processNextItem());
+        var explanation = explanations.getExplanation(snapshot, id("class-a"), "symbol");
+        assertEquals("FAILED", explanation.status().name());
+        assertNotNull(explanation.errorDetail());
+        assertTrue(explanation.errorDetail().contains("output-budget=" + properties.getModel().getOutputBudget()), explanation.errorDetail());
+        assertTrue(explanation.errorDetail().contains("max-response-bytes="), explanation.errorDetail());
+    }
+
+    @Test void transientSynthesisFaultResumesTheJobInsteadOfRequiringExplainAllAgain() throws Exception {
+        var attempts = new java.util.concurrent.atomic.AtomicInteger();
+        when(model.getExplanation(anyString(), anyString(), anyInt())).thenAnswer(inv -> {
+            if (attempts.incrementAndGet() == 1) throw new ModelClientService.OversizedResponseException();
+            return "{\"summary\":\"Bounded shipment architecture summary.\"}";
+        });
+        when(model.getExplanation(anyString(), anyString())).thenAnswer(inv -> batchResponse(inv.getArgument(1)));
+        String job = queue.startExplainAllJob(ws, snapshot, 1);
+        assertTrue(queue.processNextItem());
+        // The job stays alive and re-enters synthesis by itself; validated checkpoints are kept.
+        assertEquals("RUNNING", db.queryForObject("SELECT status FROM jobs WHERE id=?", String.class, job));
+        assertEquals("PENDING", db.queryForObject("SELECT synthesis_status FROM jobs WHERE id=?", String.class, job));
+        assertEquals(1, db.queryForObject("SELECT synthesis_attempts FROM jobs WHERE id=?", Integer.class, job));
+        assertTrue(queue.processNextItem());
+        assertEquals("READY", db.queryForObject("SELECT synthesis_status FROM jobs WHERE id=?", String.class, job));
+        assertEquals(0, db.queryForObject("SELECT synthesis_attempts FROM jobs WHERE id=?", Integer.class, job));
+        assertNotNull(context.priorExplanation(snapshot, id("class-a")));
+    }
+
+    @Test void cancellationBeforeClassBatchPublicationRequiresOnlyThatBoundedBatchToRetry() throws Exception {
         properties.getModel().setOutputBudget(256); // One class per response.
         String job = queue.startExplainAllJob(ws, snapshot, 1);
         var calls = new ArrayList<String>();
@@ -331,15 +454,16 @@ class HierarchicalExplanationTest {
         queue.processNextItem();
         assertEquals("CANCELLED", db.queryForObject("SELECT status FROM jobs WHERE id=?", String.class, job));
         assertEquals(1, calls.size());
-        assertEquals(1, db.queryForObject("SELECT COUNT(*) FROM architecture_checkpoints WHERE snapshot_id=?", Integer.class, snapshot));
+        assertEquals(0, db.queryForObject("SELECT COUNT(*) FROM architecture_checkpoints WHERE snapshot_id=? AND stage_kind='classes'", Integer.class, snapshot));
+        assertEquals(0, db.queryForObject("SELECT COUNT(*) FROM architecture_class_purposes WHERE snapshot_id=?", Integer.class, snapshot));
         assertNull(context.priorExplanation(snapshot, id("class-a")));
         queue.startExplainAllJob(ws, snapshot, 1); queue.processNextItem();
-        assertEquals(2, calls.size()); // First class came from its durable checkpoint.
+        assertEquals(3, calls.size()); // Both one-class batches complete on the resumed run.
         assertEquals("READY", queue.getQueueStatus(ws).synthesisStatus());
         assertNotNull(context.priorExplanation(snapshot, id("class-b")));
     }
 
-    @Test void failedBatchRetryUsesCheckpointButDocumentChangesPreventReuse() throws Exception {
+    @Test void transientFailureRetriesOnlyCurrentBoundedBatchAndDocumentChangesPreventReuse() throws Exception {
         properties.getModel().setOutputBudget(256);
         var doc = documents.save(ws, null, "Guide", "Shipments");
         java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
@@ -347,13 +471,35 @@ class HierarchicalExplanationTest {
             if (calls.incrementAndGet() == 2) throw new RuntimeException("synthetic provider outage");
             return batchResponse(inv.getArgument(1));
         });
-        assertThrows(RuntimeException.class, () -> explanations.synthesizeArchitecture(snapshot));
-        assertNull(context.priorExplanation(snapshot, id("class-a")));
         explanations.synthesizeArchitecture(snapshot);
         assertEquals(3, calls.get());
+        assertNotNull(context.priorExplanation(snapshot, id("class-a")));
         documents.save(ws, doc.id(), doc.title(), "Changed shipment policy");
         explanations.synthesizeArchitecture(snapshot);
         assertEquals(5, calls.get());
+    }
+
+    @Test void freshProcessorInstanceResumesPersistedCheckpointsAfterRestart() throws Exception {
+        properties.getModel().setOutputBudget(256); // One class per purpose batch.
+        java.util.concurrent.atomic.AtomicInteger classCalls = new java.util.concurrent.atomic.AtomicInteger();
+        when(model.getExplanation(argThat(system -> system.startsWith("Infer concise")), anyString())).thenAnswer(inv -> {
+            classCalls.incrementAndGet();
+            return batchResponse(inv.getArgument(1));
+        });
+        java.util.concurrent.atomic.AtomicBoolean active = new java.util.concurrent.atomic.AtomicBoolean(true);
+        assertThrows(java.util.concurrent.CancellationException.class, () -> architecture.generate(snapshot, "restart-run", active::get, progress -> {
+            if (progress.stage().startsWith("Saved class purposes through 1")) active.set(false);
+        }));
+        assertEquals(1, db.queryForObject("SELECT COUNT(*) FROM architecture_class_purposes WHERE snapshot_id=? AND run_fingerprint='restart-run'", Integer.class, snapshot));
+        int savedBeforeRestart = db.queryForObject("SELECT COUNT(*) FROM architecture_checkpoints WHERE snapshot_id=? AND run_fingerprint='restart-run'", Integer.class, snapshot);
+
+        var restarted = new ArchitectureBatchProcessor(db, model, properties, new PromptTemplate(), new BoundedWorkMetrics(), transactionManager);
+        var result = restarted.generate(snapshot, "restart-run", () -> true, progress -> {});
+
+        assertEquals(2, result.classCount());
+        assertEquals(2, db.queryForObject("SELECT COUNT(*) FROM architecture_class_purposes WHERE snapshot_id=? AND run_fingerprint='restart-run'", Integer.class, snapshot));
+        assertTrue(db.queryForObject("SELECT COUNT(*) FROM architecture_checkpoints WHERE snapshot_id=? AND run_fingerprint='restart-run'", Integer.class, snapshot) > savedBeforeRestart);
+        assertEquals(2, classCalls.get(), "the fresh processor reuses all summaries and the first class batch");
     }
 
     @Test void methodClassAndEdgePromptsPropagateCurrentExplanationsAndEndpointEvidence() throws Exception {
@@ -385,6 +531,30 @@ class HierarchicalExplanationTest {
         when(model.getExplanation(anyString(), anyString())).thenReturn(invented);
         assertThrows(IllegalArgumentException.class, () -> explanations.explainSubject(snapshot, id("caller"), "symbol"));
         assertEquals(0, db.queryForObject("SELECT COUNT(*) FROM explanations WHERE snapshot_id = ?", Integer.class, snapshot));
+    }
+
+    @Test void responseCollectionsAreRejectedBeforeUnboundedMaterialization() throws Exception {
+        List<String> unknowns = new ArrayList<>();
+        for (int i = 0; i <= properties.getExplanations().getEvidenceOccurrences(); i++) unknowns.add("unknown-" + i);
+        String oversizedCollection = json.writeValueAsString(Map.of(
+            "shortLabel", "Bounded output", "hoverSummary", "A bounded summary",
+            "claims", List.of(Map.of("description", "Visible declaration", "basis", "SOURCE_FACT", "evidenceIds", List.of("ev-source"))),
+            "unknowns", unknowns, "suggestedNextSymbolIds", List.of()));
+        when(model.getExplanation(anyString(), anyString())).thenReturn(oversizedCollection);
+        assertThrows(IllegalArgumentException.class, () -> explanations.explainSubject(snapshot, id("caller"), "symbol"));
+        assertEquals(0, db.queryForObject("SELECT COUNT(*) FROM explanations WHERE snapshot_id=?", Integer.class, snapshot));
+    }
+
+    @Test void oversizedLegacyEvidenceIsNotLoadedIntoTheApiDto() {
+        properties.getModel().setMaxRequestBytes(65_536);
+        db.update("""
+            INSERT INTO explanations(id,subject_version_id,subject_type,snapshot_id,status,schema_version,
+              context_evidence,created_at,updated_at)
+            VALUES(?,?, 'symbol',?,'READY','1',?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+            """, UUID.randomUUID().toString(), id("caller"), snapshot, "x".repeat(70_000));
+        Object evidence = explanations.getEvidence(snapshot, id("caller"), "symbol");
+        assertTrue(evidence.toString().contains("Legacy evidence omitted"));
+        assertFalse(evidence.toString().contains("x".repeat(1_000)));
     }
 
     @Test void documentChangesStaleDraftsAndBlockMidFlightSynthesisPublication() throws Exception {
@@ -419,11 +589,9 @@ class HierarchicalExplanationTest {
         assertFalse(queue.processNextItem());
         String resumed = queue.startExplainAllJob(ws, snapshot, 1);
         db.update("UPDATE jobs SET synthesis_status = 'RUNNING' WHERE id = ?", resumed);
-        db.update("UPDATE explanation_queue SET status = 'IN_PROGRESS' WHERE job_id = ? AND subject_id = ?", resumed, id("a-short"));
         queue.recoverAbandonedWork();
         assertEquals("PENDING", db.queryForObject("SELECT synthesis_status FROM jobs WHERE id = ?", String.class, resumed));
-        assertEquals("PENDING", db.queryForObject("SELECT status FROM explanation_queue WHERE subject_id = ?", String.class, id("a-short")));
-        assertTrue(queue.processNextItem()); verify(model, times(1)).getExplanation(anyString(), anyString());
+        assertTrue(queue.processNextItem()); verify(model, times(2)).getExplanation(anyString(), anyString());
     }
     @Test void cancellationDuringFailedItemDoesNotResurrectPendingWork() throws Exception {
         when(model.getExplanation(anyString(), anyString())).thenReturn(synthesis());

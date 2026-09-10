@@ -75,14 +75,18 @@ assert.equal(await evaluate('document.documentElement.scrollWidth>innerWidth'),f
 // Large input succeeds through visible, bounded architecture stages at a modest model window.
 await api('/api/model-profiles',{contextBudget:8192,outputBudget:1024});
 await api(`/api/workspaces/${ws.id}/documents`,{title:'Large synthetic guide',content:'Order shipment policy. '.repeat(2800)+'DOCUMENT TAIL'});
-const batched=await api(`/api/explanation-jobs?workspaceId=${ws.id}&snapshotId=${snapshot}`,{});
-await until(()=>evaluate(`(()=>{const text=document.querySelector('.synthesis-progress')?.textContent||'';return text.includes('Summarizing project context · batch 1')&&text.includes('validated')})()`),'visible batch progress');
+await fetch(model+'/hold-context');
+await evaluate(`document.querySelector('.queue-summary button').click();true`);
+let batched;
+await until(async()=>{const status=await api(`/api/workspaces/${ws.id}/queue-status`);if(status.activeJobId){batched={jobId:status.activeJobId};return true;}return false;},'second bulk start');
+await until(()=>evaluate(`(()=>{const text=document.querySelector('.synthesis-progress')?.textContent||'';return text.includes('Summarizing project context · level 0 batch 1')&&text.includes('validated')})()`),'visible batch progress');
 assert.equal(await evaluate(`document.querySelectorAll('.synthesis-progress>i').length`),1,'in-flight request indicator');
 await until(()=>evaluate(`/ · [1-9]\\d*s ·/.test(document.querySelector('.synthesis-progress')?.textContent||'')`),'advancing request timer');
 await screenshot('narrow-context-progress');
 assert.equal(await evaluate('document.documentElement.scrollWidth>innerWidth'),false,'batch progress has no horizontal overflow');
 await fetch(model+'/release-context');
 await until(async()=>(await api(`/api/jobs/${batched.jobId}`)).status==='COMPLETED','large context bulk completion');
+await until(()=>evaluate(`(()=>{const footer=document.querySelector('.app-footer')?.textContent||'';const button=document.querySelector('.queue-summary button')?.textContent||'';return footer.includes('Explain all completed')&&footer.includes('61 explained')&&button.includes('Explain all')&&!button.includes('Stop')})()`),'terminal queue UI');
 const queue=await api(`/api/workspaces/${ws.id}/queue-status`);
 assert.ok(queue.synthesisCompleted>2,'large project used multiple durable batches');
 await screenshot('narrow-batched-ready');

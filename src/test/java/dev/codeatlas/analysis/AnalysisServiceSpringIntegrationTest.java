@@ -139,13 +139,14 @@ public class AnalysisServiceSpringIntegrationTest {
         assertNotNull(bulkJobId, "Bulk job ID must not be null");
 
         QueueStatus statusAfterBulk = explanationQueueService.getQueueStatus(workspaceId);
-        assertTrue(statusAfterBulk.pending() > 10, "Bulk job must have enqueued >10 items");
+        assertEquals(statusAfterSingle.pending(), statusAfterBulk.pending(), "Bulk rows are inserted only after the architecture barrier");
         assertEquals(bulkJobId, statusAfterBulk.activeJobId(), "Active job ID must match");
 
         // Cancel job
         explanationQueueService.cancelJob(bulkJobId);
         QueueStatus statusAfterCancel = explanationQueueService.getQueueStatus(workspaceId);
-        assertTrue(statusAfterCancel.skipped() > 0, "Cancelled bulk items must be SKIPPED");
+        assertEquals(0, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM explanation_queue WHERE job_id=?", Integer.class, bulkJobId),
+            "Cancellation before synthesis has no bulk rows to retain in memory or skip");
         assertNull(statusAfterCancel.activeJobId(), "No active job ID after cancellation");
 
         // 9. Verify R4: Incremental Analysis

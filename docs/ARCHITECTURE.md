@@ -116,20 +116,24 @@ The frontend is structured by functional domain under `frontend/src/features/`:
 
 ## 7. Hierarchical explanations (R6)
 
-The current explanation flow is defined in [ADR 0003](adr/0003-hierarchical-explanations.md)
-and [ADR 0004](adr/0004-bounded-architecture-batches.md):
+The current explanation flow is defined in [ADR 0003](adr/0003-hierarchical-explanations.md),
+[ADR 0004](adr/0004-bounded-architecture-batches.md), and its bounded-working-set
+refinement [ADR 0005](adr/0005-bounded-explanation-working-sets.md):
 
 ```mermaid
 flowchart LR
-    A[Explain all] --> B[Complete inventory, coupling and documents]
-    B --> C[Bounded resumable context summaries and class batches]
-    C --> D[Persist class drafts with provenance]
-    D --> E[CLASS and METHOD queue: degree, LOC, ID]
-    E --> F[Sequential source-grounded explanations]
+    A[Explain all] --> B[Keyset pages: inventory, relationships, documents]
+    B --> C[Persist each bounded slice summary]
+    C --> D[Fixed-fan-in persisted reduction]
+    D --> E[Validate and stage bounded class-purpose batches]
+    E --> H[Atomic complete draft publication]
+    H --> I[Keyset-populate SQLite CLASS/METHOD queue]
+    I --> J[Claim bounded page: degree, LOC, ID]
+    J --> F[Sequential source-grounded explanations]
     F --> G[Earlier READY prose enriches later contexts]
     G --> F
-    H[Explicit symbol or edge request] --> I[Same enriched context builder]
-    I --> F
+    K[Explicit symbol or edge request] --> L[Same bounded context builder]
+    L --> F
 ```
 
 The loop represents reading already stored prose, not recursive generation. Relations
@@ -143,8 +147,17 @@ refresh through the graph API; Cytoscape updates card/edge display data without
 recreating the canvas or resetting its viewport. Shared sparkle styling is purely
 a READY marker and preserves relationship resolution styling.
 
-Architecture preparation adapts to both input and output limits. Small projects use
-one request; large projects summarize all input slices and draft exact class batches.
-Validated stages survive retries/cancellation in SQLite, while final class coverage
-is published atomically. The queue reports the stage and saved batch count. Token
-estimates reserve output/framing space; configured limits remain model-specific.
+Architecture preparation never constructs a complete inventory String or purpose
+Map. It retains one page/fan-in/class batch, persists validated work immediately,
+and reconstructs downstream inputs from ordered SQLite pages. Coupling ancestry is
+resolved for only the current relationship page. Final class coverage is published
+atomically; partial staging cannot become READY. Queue population and claims are
+also bounded SQL pages, with `-1` as the resumable not-yet-populated job marker.
+
+The same `ContextBuilder` limits source, collaborators, methods, evidence occurrences,
+documents, prior prose and global inventories for bulk, explicit symbol/method, and
+edge explanations. Its `context-limits` evidence block makes omitted/truncated input
+visible. The model adapter independently caps serialized request and streamed response
+bytes and permits one outstanding request. Queue status is aggregate-only. React
+polling is serialized and lifecycle-scoped, so slow requests do not overlap or update
+an inactive workspace.

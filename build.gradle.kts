@@ -40,6 +40,17 @@ dependencies {
 
 tasks.withType<Test> {
     useJUnitPlatform()
+    if (name == "test") exclude("**/BoundedExplanationScaleTest.class")
+}
+
+tasks.register<Test>("constrainedMemoryTest") {
+    description = "Runs the 10k/50k/100k explanation fixture with a 256 MiB test heap."
+    group = "verification"
+    useJUnitPlatform()
+    include("**/BoundedExplanationScaleTest.class")
+    maxHeapSize = "256m"
+    jvmArgs("-XX:+HeapDumpOnOutOfMemoryError")
+    shouldRunAfter(tasks.test)
 }
 
 // Task to copy frontend build into backend resources for packaging
@@ -59,4 +70,3 @@ tasks.register<Exec>("npmBuild") {
 tasks.named("processResources") {
     dependsOn("copyFrontend")
 }
-

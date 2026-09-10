@@ -77,6 +77,16 @@ class ModelClientServiceTest {
         });
     }
 
+    @Test
+    void oversizedProviderResponseIsStoppedAtTheByteLimit() throws Exception {
+        properties.getModel().setMaxResponseBytes(16_384);
+        String response = "{\"choices\":[{\"finish_reason\":\"stop\",\"message\":{\"content\":\"" + "x".repeat(20_000) + "\"}}]}";
+        withProvider(200, response, count -> {
+            assertThrows(ModelClientService.OversizedResponseException.class, () -> service.getExplanation("system", "synthetic"));
+            assertEquals(1, count.get());
+        });
+    }
+
     private void withProvider(int status, String response, java.util.function.Consumer<java.util.concurrent.atomic.AtomicInteger> verify) throws Exception {
         var server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
         var count = new java.util.concurrent.atomic.AtomicInteger();

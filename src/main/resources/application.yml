@@ -19,6 +19,22 @@ codeatlas:
     output-budget: 2048
     timeout-seconds: 120
     concurrency: 1
+    max-request-bytes: 1048576
+    max-response-bytes: 262144
+  explanations:
+    architecture-page-rows: 128
+    architecture-document-chars: 12000
+    architecture-summary-fan-in: 8
+    architecture-class-batch: 16
+    class-neighbor-rows: 64
+    related-symbols: 24
+    related-methods: 16
+    evidence-occurrences: 12
+    source-chars: 16000
+    explanation-chars: 8000
+    project-documents: 12
+    inventory-rows: 64
+    queue-claim-rows: 1
 
 # Local overrides: create application-local.yml with your model config
 # Example:

@@ -81,7 +81,7 @@ class DeveloperWorkflowTest {
         assertTrue(ctx.formattedContext().contains("fulfillment workflow"));
         assertTrue(ctx.formattedContext().contains("demo.Caller"));
         assertTrue(ctx.formattedContext().contains("demo.Worker"));
-        assertTrue(ctx.formattedContext().contains("CONTEXT LIMITS"));
+        assertTrue(ctx.formattedContext().contains("BOUNDED EVIDENCE RECORD"));
         assertTrue(ctx.evidenceItems().stream().anyMatch(e->e.id().startsWith("doc-"+doc.id())));
         assertThrows(NoSuchElementException.class,()->documents.list("unknown-workspace"));
         assertThrows(IllegalArgumentException.class,()->documents.save(ws,null,"x","x".repeat(100001)));
@@ -94,7 +94,7 @@ class DeveloperWorkflowTest {
     }
     @Test void bulkIncludesOnlyClassesAndMethodsAndCanResume() {
         String job=queue.startExplainAllJob(ws,snap,1);
-        assertEquals(1,db.queryForObject("SELECT COUNT(*) FROM explanation_queue WHERE subject_id = ? AND job_id = ?",Integer.class,id("demo.Worker.audit()"),job));
+        assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM explanation_queue WHERE job_id = ?",Integer.class,job));
         assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM explanation_queue WHERE snapshot_id = ? AND subject_type = 'relationship'",Integer.class,snap));
         queue.cancelJob(job);String resumed=queue.startExplainAllJob(ws,snap,1);assertNotEquals(job,resumed);
         assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM explanation_queue WHERE snapshot_id = ? AND status = 'SKIPPED'",Integer.class,snap));

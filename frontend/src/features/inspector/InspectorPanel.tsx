@@ -1,10 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import GeminiBadge from '../../components/GeminiBadge';
 import { apiClient } from '../../api/client';
 import { AtlasNode, AtlasEdge, AtlasGraph, isType } from '../explorer/graphModel';
-interface Props { selectedNode: AtlasNode | null; selectedEdge: AtlasEdge | null; workspaceId: string | null; snapshotId: string | null; graph: AtlasGraph; routes: any[]; revision: number; onSelect: (node: AtlasNode) => void; onExplore: (node: AtlasNode) => void; onSource: (node: {id:string;simpleName?:string}, type?:string) => void; onClose: () => void; onInspectEdge: (edge:AtlasEdge) => void }
-export default function InspectorPanel({selectedNode: node, selectedEdge: edge, workspaceId, snapshotId, graph, routes, revision, onSelect, onExplore, onSource, onClose, onInspectEdge}: Props) {
+import { startSerialPolling } from '../../utils/serialPolling';
+interface Props { selectedNode: AtlasNode | null; selectedEdge: AtlasEdge | null; workspaceId: string | null; snapshotId: string | null; graph: AtlasGraph; routes: any[]; revision: number; onSelect: (node: AtlasNode) => void; onExplore: (node: AtlasNode) => void; onSource: (node: {id:string;simpleName?:string}, type?:string) => void; onClose: () => void; onInspectEdge: (edge:AtlasEdge) => void; onExplanationReady: () => void }
+export default function InspectorPanel({selectedNode: node, selectedEdge: edge, workspaceId, snapshotId, graph, routes, revision, onSelect, onExplore, onSource, onClose, onInspectEdge, onExplanationReady}: Props) {
   const [rawExplanation,setExplanation]=useState<any>(null), [loadedSubject,setLoadedSubject]=useState<string|null>(null), [evidence,setEvidence]=useState<any[]>([]), [error,setError]=useState(''), [requesting,setRequesting]=useState(false), [site,setSite]=useState(0), [requestRevision,setRequestRevision]=useState(0);
+  const requestedSubject=useRef<string|null>(null);
   const type=edge?'relationship':'symbol';
   const subject=edge?(edge.occurrenceIds?.[site] || edge.id):node?.id;
   const explanation=loadedSubject===subject?rawExplanation:null;
@@ -13,18 +15,16 @@ export default function InspectorPanel({selectedNode: node, selectedEdge: edge, 
   useEffect(()=>{setSite(0);setExplanation(null);setError('');setEvidence([]);},[node?.id,edge?.id]);
   useEffect(()=>{
     if (!snapshotId || !subject || node?.kind==='PACKAGE') return;
-    let alive=true;
-    let timer:ReturnType<typeof setInterval>|null=null;
-    async function load(){
-      try{
+    return startSerialPolling({
+      load:async()=>{
         const [result,ev]=await Promise.all([apiClient.getSubjectExplanation(snapshotId!,subject!,type),apiClient.getExplanationEvidence(snapshotId!,subject!,type)]);
-        if(!alive)return;
-        setLoadedSubject(subject!);setExplanation(result);setEvidence(ev);setError('');
-        if(timer&&!['QUEUED','RUNNING'].includes(result?.status)){clearInterval(timer);timer=null;}
-      }catch(e:any){if(alive)setError(e.message);}
-    }
-    load(); timer=setInterval(load,2500);
-    return()=>{alive=false;if(timer)clearInterval(timer);};
+        return {result,ev};
+      },
+      onValue:({result,ev})=>{setLoadedSubject(subject!);setExplanation(result);setEvidence(ev);setError('');if(result?.status==='READY'&&requestedSubject.current===subject){requestedSubject.current=null;onExplanationReady();}},
+      shouldContinue:({result})=>['QUEUED','RUNNING'].includes(result?.status),
+      intervalMs:2500,
+      onError:(e:any)=>setError(e.message)
+    });
   },[snapshotId,subject,type,revision,requestRevision,graphStatus,node?.kind]);
   const parent=graph.nodes.find(n=>n.id===node?.parentId);
   const children=graph.nodes.filter(n=>n.parentId===node?.id);
@@ -35,7 +35,7 @@ export default function InspectorPanel({selectedNode: node, selectedEdge: edge, 
   const outgoing=graph.edges.filter(e=>relatedIds.has(e.sourceId)&&(!e.targetId||!relatedIds.has(e.targetId)));
   const find=(id:string|null|undefined)=>graph.nodes.find(n=>n.id===id);
   const status=explanation?.status||'NOT_REQUESTED';
-  async function explain(){if(!workspaceId||!snapshotId||!subject)return;setRequesting(true);try{await apiClient.requestExplanation(workspaceId,snapshotId,subject,type);setLoadedSubject(subject);setExplanation((prev:any)=>({...prev,status:'QUEUED'}));setRequestRevision(r=>r+1);setError('');}catch(e:any){setError(e.message);}finally{setRequesting(false);}}
+  async function explain(){if(!workspaceId||!snapshotId||!subject)return;setRequesting(true);try{await apiClient.requestExplanation(workspaceId,snapshotId,subject,type);requestedSubject.current=subject;setLoadedSubject(subject);setExplanation((prev:any)=>({...prev,status:'QUEUED'}));setRequestRevision(r=>r+1);setError('');}catch(e:any){setError(e.message);}finally{setRequesting(false);}}
   function groupEdges(edges:AtlasEdge[],incoming:boolean){ const unique=new Map<string,{node:AtlasNode;count:number}>();for(const e of edges){const n=find(incoming?e.sourceId:e.targetId);if(!n)continue;const old=unique.get(n.id);unique.set(n.id,{node:n,count:(old?.count||0)+1});}return [...unique.values()]; }
   function renderGroups(groups:{node:AtlasNode;count:number}[]){ return groups.map(({node:n,count})=><button className="related-row" key={n.id} onClick={()=>onSelect(n)}><span>{n.simpleName}<small>{find(n.parentId)?.simpleName}</small></span><span>{count} {count===1?'site':'sites'} ↗</span></button>); }
   const incomingGroups=groupEdges(incoming,true), outgoingGroups=groupEdges(outgoing,false);
@@ -51,7 +51,7 @@ export default function InspectorPanel({selectedNode: node, selectedEdge: edge, 
     {status==='NOT_REQUESTED'&&<p>Understand this {edge?'relationship':node?.kind.toLowerCase()} in the context of the application, its collaborators, and your project documents.</p>}
     {status==='STALE'&&<p className="notice">Context has changed. This explanation needs a refresh.</p>}
     {['QUEUED','RUNNING'].includes(status)&&<p>Generating with project context…</p>}
-    {status==='FAILED'&&<p className="notice">Generation failed. Check the configured model or retry.</p>}
+    {status==='FAILED'&&<p className="notice">{explanation?.errorDetail||'Generation failed. Check the configured model or retry.'}</p>}
     {explanation?.claims?.map((claim:any,i:number)=><div className="claim" key={i}><small>{claim.basis==='SOURCE_FACT'?'Source fact':claim.basis==='INFERRED_PURPOSE'?'Inferred purpose':'Unknown'}</small><p>{claim.description||claim.text}</p>{claim.evidenceIds?.map((id:string)=>{const ev=evidence.find(e=>e.id===id);return <details className="evidence-disclosure" key={id}><summary>{ev?.label||id}</summary><pre>{ev?.content||'Evidence text unavailable in this older explanation. Regenerate to store its context.'}</pre></details>;})}</div>)}
     {explanation?.unknowns?.length>0&&<details className="uncertainties"><summary>Uncertainties ({explanation.unknowns.length})</summary><ul>{explanation.unknowns.map((u:string,i:number)=><li key={i}>{u}</li>)}</ul></details>}
     <button className="primary full-width" disabled={requesting||!workspaceId||['QUEUED','RUNNING'].includes(status)} onClick={explain}>{requesting?'Requesting…':status==='READY'||status==='STALE'?'Refresh explanation':'Explain with project context'}</button>

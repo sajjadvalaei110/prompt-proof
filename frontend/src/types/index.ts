@@ -63,6 +63,7 @@ export interface ExplanationResponse {
   unknowns?: string[];
   suggestedNextSymbolIds?: string[];
   provenance?: string;
+  errorDetail?: string;
 }
 
 export interface Claim {

@@ -4,8 +4,8 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class PromptTemplate {
-    public static final String VERSION = "3.1";
-    public static final String SYNTHESIS_VERSION = "2.0";
+    public static final String VERSION = "4.0";
+    public static final String SYNTHESIS_VERSION = "3.0";
 
     public String getSystemPrompt() {
         return """
@@ -34,6 +34,8 @@ public class PromptTemplate {
                - Use basis "INFERRED_PURPOSE" for inferred architectural intent or business responsibility.
                - Use basis "UNKNOWN" if something cannot be determined from the available context.
             3. Every item in the "claims" list MUST cite one or more valid evidence IDs (e.g. ["ev-source", "ev-roles", "ev-route-1"]) from the provided evidence.
+               Copy evidence IDs verbatim from the bracketed block headers above, including opaque ones such as [neighbor-<id>], [ai-<id>] and [doc-<id>-r<n>]. Never invent or reformat an ID.
+               "suggestedNextSymbolIds" holds opaque symbol IDs copied exactly from a TARGET SYMBOL line or a neighbor block header, never qualified names. Leave it [] unless you copied a real ID.
             4. You MUST respond with ONLY a single valid JSON object strictly matching this schema:
             {
               "shortLabel": "Concise 3-6 word label of responsibility",
