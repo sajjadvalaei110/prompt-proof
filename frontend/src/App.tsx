@@ -4,7 +4,9 @@ import { apiClient } from './api/client';
 import GraphCanvas from './features/explorer/GraphCanvas';
 import { AtlasGraph, AtlasNode, AtlasEdge, Level, isType, ownerAt, getEligibleIds, rankEligibleIds, projectDisplayed } from './features/explorer/graphModel';
 import { ScopeSelection, wholeSystemScope, scopeToLabel, isNodeInScope, isClassInScope, togglePackage, toggleClass } from './features/explorer/scopeModel';
-import { explorerViewReducer, initExplorerViewState } from './features/explorer/explorerViewState';
+import { explorerViewReducer, initExplorerViewState, PlacementDims, Point, Camera } from './features/explorer/explorerViewState';
+import { arrangeAroundResource, ArrangeCard, ArrangeEdge } from './features/explorer/focusedArrangement';
+import { nodeCard } from './features/explorer/nodeCard';
 import NavigationPane from './features/explorer/NavigationPane';
 import InspectorPanel from './features/inspector/InspectorPanel';
 import SettingsScreen from './features/settings/SettingsScreen';
@@ -30,9 +32,38 @@ export default function App() {
   const name=workspace?.path?.split('/').filter(Boolean).pop()||'Your workspace';
   const levelOf=(n:AtlasNode):Level=>n.kind==='PACKAGE'?'PACKAGE':isType(n)?'CLASS':'METHOD';
   const eligibleFor=(targetLevel:Level,targetScope:ScopeSelection=scope):string[]=>graph?rankEligibleIds(graph,targetLevel,getEligibleIds(graph,targetLevel,targetScope)):[];
+  // Actual card dimensions (nodeCard.ts owns them) for a set of eligible IDs, so the reducer can
+  // place a newly admitted batch below the current bounding box (Step 3, Appendix A3) without
+  // itself importing nodeCard or duplicating its dimension logic. Always covers survivors too
+  // (dimensions are needed to compute their exact bottom/left edge, not just their center).
+  const placementFor=(ids:string[]):Record<string,PlacementDims>|undefined=>{
+    if(!graph)return undefined;
+    const all=new Map(graph.nodes.map(n=>[n.id,n]));
+    const out:Record<string,PlacementDims>={};
+    for(const id of ids){const n=all.get(id);if(n){const c=nodeCard(n);out[id]={width:c.width,height:c.height,name:n.qualifiedName||n.simpleName};}}
+    return out;
+  };
   const node=graph&&viewState.inspectedKind==='NODE'&&viewState.inspectedSubjectId?graph.nodes.find(n=>n.id===viewState.inspectedSubjectId)||null:null;
   const displayedIds=viewState.levelViews[level].displayedIds;
+  const levelGeometry=viewState.levelViews[level];
+  function handleCameraChange(camera:Camera){dispatchView({type:'SET_CAMERA',level,camera,generation:viewState.generation});}
+  function handleNodeMoved(id:string,position:Point){dispatchView({type:'NODE_MOVED',level,id,position,generation:viewState.generation});}
   const projected=useMemo(()=>graph?projectDisplayed(graph,level,displayedIds,kind):{nodes:[] as AtlasNode[],edges:[] as AtlasEdge[]},[graph,level,displayedIds,kind]);
+  // An inspected aggregate edge must survive a relationship-filter change that excludes its kind
+  // (Step 4, Appendix F3): its identity is resolved independently of the currently filtered
+  // `projected.edges` by also checking an unfiltered ('ALL') projection of the same displayed page.
+  // aggregateEdges() keys its aggregate ID on the underlying edge's own kind, not on this filter
+  // parameter, so the same relationship keeps the same ID in both projections.
+  // Only pay for the second aggregation when it can actually matter: an edge is currently
+  // inspected AND the plain filtered projection above did not already contain it. This runs on
+  // every filter/inspection change rather than unconditionally on every graph/level/displayedIds
+  // change (which the explanation poller retriggers on each `graph` replacement, doubling
+  // `decorate()` over every displayed node for no reason most of the time).
+  const allKindsEdges=useMemo(()=>{
+    if(!graph||viewState.inspectedKind!=='EDGE'||!viewState.inspectedSubjectId)return [] as AtlasEdge[];
+    if(projected.edges.some(e=>e.id===viewState.inspectedSubjectId))return [] as AtlasEdge[];
+    return projectDisplayed(graph,level,displayedIds,'ALL').edges;
+  },[graph,level,displayedIds,viewState.inspectedKind,viewState.inspectedSubjectId,projected.edges]);
   // Unresolved relationships (target_symbol_id IS NULL) never reach projectDisplayed's edge
   // aggregation, since they have no target to aggregate onto — but the inspector's own "Inspect
   // relationship" button on an unresolved row dispatches INSPECT_EDGE with that record's raw ID, so
@@ -42,8 +73,12 @@ export default function App() {
     : undefined;
   const edge=viewState.inspectedKind==='EDGE'&&viewState.inspectedSubjectId
     ? projected.edges.find(e=>e.id===viewState.inspectedSubjectId)
+      || allKindsEdges.find(e=>e.id===viewState.inspectedSubjectId)
       || (unresolvedEdge?{...unresolvedEdge,targetId:null,descriptiveLabel:unresolvedEdge.unresolvedTarget}:null)
     : null;
+  // True only when the inspected edge is real but the current relationship filter hides its
+  // drawing -- distinct from "unresolved" (never drawn regardless of filter, no notice needed).
+  const edgeFilteredOut=!!edge&&!unresolvedEdge&&!projected.edges.some(e=>e.id===edge.id);
   const eligibleIds=useMemo(()=>graph?getEligibleIds(graph,level,scope):[],[graph,level,scope]);
   const scopedCount=eligibleIds.length,visibleCount=projected.nodes.length,omittedCount=Math.max(0,scopedCount-visibleCount);
   // A node can only actually be a rendered card when its own natural level (Package/Class/Method)
@@ -56,13 +91,15 @@ export default function App() {
     if(!ws&&!data?.metadata?.workspaceId)throw new Error('Snapshot response is missing workspace metadata; try re-opening the project.');
     const owner=ws||await apiClient.getWorkspace(data.metadata.workspaceId);
     setWorkspace(owner);setPath(owner.path);setSnapshot(id);setGraph(data);setRoutes(entryPoints);setScope(wholeSystemScope());setTab('map');setQueue(null);setStatus('Source analysis ready');setShowOpen(false);
-    dispatchView({type:'RESET',level:'PACKAGE',eligibleIds:rankEligibleIds(data,'PACKAGE',getEligibleIds(data,'PACKAGE',wholeSystemScope())),batchSize:Infinity});
+    const placementIn=(g:AtlasGraph,ids:string[]):Record<string,PlacementDims>=>{const all=new Map(g.nodes.map(n=>[n.id,n]));const out:Record<string,PlacementDims>={};for(const id of ids){const n=all.get(id);if(n){const c=nodeCard(n);out[id]={width:c.width,height:c.height,name:n.qualifiedName||n.simpleName};}}return out;};
+    const initialPackageIds=rankEligibleIds(data,'PACKAGE',getEligibleIds(data,'PACKAGE',wholeSystemScope()));
+    dispatchView({type:'RESET',level:'PACKAGE',eligibleIds:initialPackageIds,batchSize:Infinity,placement:placementIn(data,initialPackageIds)});
     const selected=params.get('selectedSymbol');
     if(selected){
       const n=data.nodes.find((n:AtlasNode)=>n.id===selected||n.simpleName===selected);
       if(n){
         const targetLevel=levelOf(n);
-        if(targetLevel!=='PACKAGE')dispatchView({type:'NAVIGATE_LEVEL',level:targetLevel,eligibleIds:rankEligibleIds(data,targetLevel,getEligibleIds(data,targetLevel,wholeSystemScope())),batchSize:BATCH_SIZE});
+        if(targetLevel!=='PACKAGE'){const ids=rankEligibleIds(data,targetLevel,getEligibleIds(data,targetLevel,wholeSystemScope()));dispatchView({type:'NAVIGATE_LEVEL',level:targetLevel,eligibleIds:ids,batchSize:BATCH_SIZE,placement:placementIn(data,ids)});}
         dispatchView({type:'INSPECT_NODE',id:n.id});
       }
     }
@@ -93,23 +130,55 @@ export default function App() {
   useEffect(()=>{const key=(e:KeyboardEvent)=>{if((e.ctrlKey||e.metaKey)&&e.key==='k'){e.preventDefault();document.getElementById('global-search')?.focus();}if(e.key==='Escape'){setSearch('');}};window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key);},[]);
   function select(n:AtlasNode){dispatchView({type:'INSPECT_NODE',id:n.id});setSearch('');setMobilePane('details');}
   function inspectEdge(e:AtlasEdge){dispatchView({type:'INSPECT_EDGE',id:e.id});setMobilePane('details');}
-  function explore(n:AtlasNode){
+  // Named navigation commands (Step 4, Story 6/H3): explicit level changes triggered from a
+  // specific resource ("View classes", "View methods", the tree's ⌖ button, the
+  // inspector's "View methods"). Canvas double-click no longer routes through here -- it will get
+  // its own dedicated arrangement command in Step 5 (Appendix B); until then it does nothing.
+  function navigateExplicit(n:AtlasNode,targetLevel:Level){
     if(!graph)return;
-    const targetLevel:Level=n.kind==='PACKAGE'?'CLASS':'METHOD';
+    // NAVIGATE_LEVEL must run first: its reducer case pushes a level-only history breadcrumb when
+    // this navigation starts from a completely uninspected state (Step 5 review remediation B1),
+    // which only fires while inspectedSubjectId is still whatever it was before this call. Dispatching
+    // INSPECT_NODE first would set it before NAVIGATE_LEVEL runs, silently skipping that breadcrumb.
+    const ids=eligibleFor(targetLevel);
+    dispatchView({type:'NAVIGATE_LEVEL',level:targetLevel,eligibleIds:ids,batchSize:BATCH_SIZE,placement:placementFor(ids)});
     dispatchView({type:'INSPECT_NODE',id:n.id});
-    dispatchView({type:'NAVIGATE_LEVEL',level:targetLevel,eligibleIds:eligibleFor(targetLevel),batchSize:BATCH_SIZE});
     setTab('map');setSearch('');setMobilePane('map');
   }
-  function openCodeMap(){
+  function viewClasses(n:AtlasNode){navigateExplicit(n,'CLASS');}
+  function viewMethods(n:AtlasNode){navigateExplicit(n,'METHOD');}
+  // Step 5 (Appendix B): the dedicated focused-arrangement command, wired to canvas double-click
+  // (GraphCanvas's dbltap handler) and the inspector's keyboard/touch-accessible "Arrange around
+  // this resource" action -- never to a single click, level navigation, or inspection. Uses exactly
+  // the current displayed page (`projected`) and current filter, never the full backend graph, and
+  // anchors the focus at its existing stored coordinate so an unchanged camera keeps its screen
+  // position fixed (no fit is performed). A no-op when `id` is absent from the currently displayed
+  // graph -- matching the inspector button's own disabled condition (H3).
+  function arrangeAround(id:string){
     if(!graph)return;
-    dispatchView({type:'NAVIGATE_LEVEL',level:'PACKAGE',eligibleIds:eligibleFor('PACKAGE'),batchSize:Infinity});
-    dispatchView({type:'CLEAR_INSPECTION'});
-    setTab('map');setMobilePane('map');
+    const cards:ArrangeCard[]=projected.nodes.map(n=>{const c=nodeCard(n);return {id:n.id,width:c.width,height:c.height,qualifiedName:n.qualifiedName||n.simpleName};});
+    const arrangeEdges:ArrangeEdge[]=projected.edges.filter(e=>e.targetId).map(e=>({sourceId:e.sourceId,targetId:e.targetId!}));
+    const anchor=levelGeometry.positions[id]||{x:0,y:0};
+    const positions=arrangeAroundResource(cards,arrangeEdges,id,anchor);
+    if(!positions)return;
+    dispatchView({type:'ARRANGE_AROUND_RESOURCE',level,positions,generation:viewState.generation});
   }
+  // Story 6: "Code map" returns to the last map view -- whatever level, scope, and inspection the
+  // user had -- rather than resetting to Packages or clearing selection. viewState already
+  // preserves all of that regardless of which tab is showing, so this is just a tab switch.
+  function openCodeMap(){setTab('map');setMobilePane('map');}
   function handleScopeChange(next:ScopeSelection,explicitClassAddId?:string){
     setScope(next);
     if(!graph)return;
-    dispatchView({type:'SCOPE_UPDATED',eligibleIds:eligibleFor(level,next),explicitClassAddId,batchSize:level==='PACKAGE'?Infinity:BATCH_SIZE});
+    const ids=eligibleFor(level,next);
+    // Appendix F3: a scope edit changes eligibility for every level at once, not just the one
+    // currently on screen. The two inactive levels must drop now-ineligible survivors immediately
+    // too, or a later reconciliation cannot tell "still eligible, never left" apart from "removed
+    // then re-added" (Step 4 point 8). Only set membership is needed here, so use the unranked
+    // eligible-ID set rather than paying for a rank nobody reads.
+    const otherLevels:Partial<Record<Level,string[]>>={};
+    for(const lvl of (['PACKAGE','CLASS','METHOD'] as Level[])) if(lvl!==level) otherLevels[lvl]=getEligibleIds(graph,lvl,next);
+    dispatchView({type:'SCOPE_UPDATED',eligibleIds:ids,explicitClassAddId,batchSize:level==='PACKAGE'?Infinity:BATCH_SIZE,placement:placementFor(ids),otherLevels});
   }
   function resetScope(){handleScopeChange(wholeSystemScope());}
   function removeFromScope(n:AtlasNode){
@@ -124,7 +193,7 @@ export default function App() {
   // Walk from the most recent end so a subject visited twice non-consecutively (dedup in the
   // reducer only collapses immediate repeats) still yields exactly 3 distinct, most-recent-first
   // entries instead of a duplicate React key.
-  const recentHistory=(()=>{const seen=new Set<string>(),out:typeof viewState.history=[];for(let i=viewState.history.length-1;i>=0&&out.length<3;i--){const h=viewState.history[i];if(h.kind!=='NODE'||seen.has(h.subjectId))continue;seen.add(h.subjectId);out.push(h);}return out;})();
+  const recentHistory=(()=>{const seen=new Set<string>(),out:typeof viewState.history=[];for(let i=viewState.history.length-1;i>=0&&out.length<3;i--){const h=viewState.history[i];if(h.kind!=='NODE'||h.subjectId===null||seen.has(h.subjectId))continue;seen.add(h.subjectId);out.push(h);}return out;})();
   function scopeUnitLabel(){if(scope.mode==='ALL')return'whole system';const pkgs=scope.selectedPackageIds.size,cls=scope.selectedClassIds.size;if(pkgs&&cls)return`${pkgs} selected package${pkgs===1?'':'s'} and ${cls} selected class${cls===1?'':'es'}`;if(pkgs)return`${pkgs} selected package${pkgs===1?'':'s'}`;if(cls)return`${cls} selected class${cls===1?'':'es'}`;return'no selection';}
   const levelWord=level==='PACKAGE'?'Packages':level==='CLASS'?'Classes':'Methods';
   const scopeCrumb=scope.mode==='ALL'?'Whole system':scopeUnitLabel();
@@ -143,23 +212,23 @@ export default function App() {
     {(showOpen||!graph)&&<section className={graph?'open-project-bar':'welcome'}><div><span className="welcome-icon">◈</span><h1>{graph?'Open a project':'Find your way through the code.'}</h1><p>Explore the structure. Follow a dependency. Understand why it exists.</p></div><form onSubmit={e=>{e.preventDefault();analyze();}}><label>Local repository path<input value={path} onChange={e=>setPath(e.target.value)} placeholder="/path/to/your/java-project" disabled={busy}/></label><button className="primary" disabled={busy}>{busy?'Analyzing…':'Analyze project'}</button></form><p className="muted">Source-only analysis. Your repository is read-only; no Gradle builds or application code are executed.</p>{recent.length>0&&<div className="recent-projects"><h3>Recent projects</h3>{recent.map(ws=><button key={ws.id} disabled={busy} onClick={()=>{if(ws.activeSnapshotId){setBusy(true);loadSnapshot(ws.activeSnapshotId,ws).catch(e=>setError(e.message)).finally(()=>setBusy(false));}else{setPath(ws.path);analyze(ws.path);}}}><span>▱ {ws.path.split('/').pop()}<small>{ws.path}</small></span><span>Open ↗</span></button>)}</div>}</section>}
     {graph&&<><nav className="mobile-tabs">{['explorer','map','details'].map(p=><button className={mobilePane===p?'active':''} key={p} onClick={()=>setMobilePane(p)}>{p}</button>)}</nav><main className={`app-main pane-${mobilePane}`}>
       <aside className="navigation"><nav className="workspace-nav"><button className={tab==='map'?'active':''} onClick={openCodeMap}>▦ <span>Code map</span></button><button className={tab==='routes'?'active':''} onClick={()=>{setTab('routes');setMobilePane('map');}}>▷ <span>Entry points</span><small>{routes.length}</small></button><button className={tab==='context'?'active':''} onClick={()=>{setTab('context');setMobilePane('map');}}>▤ <span>Project context</span></button></nav>
-        <NavigationPane graph={graph} scope={scope} selectedNode={node} search={search} onScopeChange={handleScopeChange} onSelect={select} onExplore={explore}/>
+        <NavigationPane graph={graph} scope={scope} selectedNode={node} search={search} onScopeChange={handleScopeChange} onSelect={select} onViewClasses={viewClasses} onViewMethods={viewMethods}/>
         {recentHistory.length>0&&<div className="recent-symbols"><h3>Recently viewed</h3>{recentHistory.map(h=>{const n=graph.nodes.find(x=>x.id===h.subjectId);return n?<button key={h.subjectId} onClick={()=>select(n)}>◷ {n.simpleName}</button>:null;})}</div>}
         <div className="workspace-summary"><strong>{name}</strong><span>{typeCount} types across {packages.length} packages</span><button className="text-button" disabled={busy} onClick={()=>analyze()}>↻ Re-analyze source</button></div>
       </aside>
       <section className="workspace-content">
-        {tab==='context'&&workspace?<ProjectDocuments key={workspace.id} workspaceId={workspace.id} onChanged={()=>setRevision(r=>r+1)}/>:tab==='routes'?<section className="entry-view"><div className="page-heading"><div><h1>Start with a request</h1><p>Follow an HTTP entry point into its handler and dependencies.</p></div></div>{routes.length?routes.map(r=>{const handler=graph.nodes.find(n=>n.id===r.symbol_version_id);return <button className="route-card" key={r.id} onClick={()=>{if(handler)explore(handler);}}><span className="tag">{r.http_method}</span><strong>{r.path}</strong><span>{handler?.simpleName||r.handler_qualified}</span><span>Explore ↗</span></button>;}):<div className="empty-state"><h2>No HTTP routes found</h2><p>Explore packages and classes to find this application's entry points.</p><button onClick={openCodeMap}>Open code map</button></div>}</section>:<>
+        {tab==='context'&&workspace?<ProjectDocuments key={workspace.id} workspaceId={workspace.id} onChanged={()=>setRevision(r=>r+1)}/>:tab==='routes'?<section className="entry-view"><div className="page-heading"><div><h1>Start with a request</h1><p>Follow an HTTP entry point into its handler and dependencies.</p></div></div>{routes.length?routes.map(r=>{const handler=graph.nodes.find(n=>n.id===r.symbol_version_id);return <button className="route-card" key={r.id} onClick={()=>{if(handler)(handler.kind==='PACKAGE'?viewClasses:viewMethods)(handler);}}><span className="tag">{r.http_method}</span><strong>{r.path}</strong><span>{handler?.simpleName||r.handler_qualified}</span><span>Explore ↗</span></button>;}):<div className="empty-state"><h2>No HTTP routes found</h2><p>Explore packages and classes to find this application's entry points.</p><button onClick={openCodeMap}>Open code map</button></div>}</section>:<>
           <div className="map-heading"><div className="breadcrumbs"><button onClick={openCodeMap}>{scopeCrumb}</button><span>/</span><span className="breadcrumb-level">{levelWord}</span>{node&&<><span>/</span><button onClick={()=>select(node)}>{node.simpleName}</button></>}</div><div className="page-heading"><div><h1>{node?node.simpleName:'Understand the whole system'}</h1><p>{node?'Follow the relationships around this part of the codebase.':`${typeCount} types across ${packages.length} packages. Choose a starting point.`}</p></div><button onClick={()=>{const entry=viewState.history[viewState.history.length-1];if(entry)dispatchView({type:'NAVIGATE_BACK',eligibleIds:eligibleFor(entry.level)});}} disabled={!viewState.history.length}>← Back</button></div>
-          <div className="graph-toolbar"><div className="segmented" aria-label="Graph level">{(['PACKAGE','CLASS','METHOD'] as Level[]).map(l=><button className={level===l?'active':''} key={l} onClick={()=>{if(l===level)return;dispatchView({type:'NAVIGATE_LEVEL',level:l,eligibleIds:eligibleFor(l),batchSize:l==='PACKAGE'?Infinity:BATCH_SIZE});dispatchView({type:'CLEAR_INSPECTION'});}}>{l==='PACKAGE'?'Packages':l==='CLASS'?'Classes':'Methods'}</button>)}</div><select aria-label="Relationship kind" value={kind} onChange={e=>setKind(e.target.value)}><option value="ALL">All dependencies</option>{[...new Set(graph.edges.map(e=>e.kind))].sort().map(k=><option key={k} value={k}>{k.toLowerCase().replaceAll('_',' ')}</option>)}</select></div>
-          <div className="scope-banner"><span className="scope-banner-icon" aria-hidden="true">{scope.mode==='ALL'?'◈':'⌖'}</span><div className="scope-banner-text"><strong>{graph?scopeToLabel(graph,scope):''}</strong><span>Showing {levelWord.toLowerCase()} · {scopedCount} {levelWord.toLowerCase()}{scope.mode!=='ALL'?` in ${scopeUnitLabel()}`:''}</span></div><div className="scope-banner-actions">{node&&<span className="tag inspecting-chip">Inspecting {node.simpleName}</span>}{edge&&!node&&<span className="tag inspecting-chip">Inspecting a relationship</span>}{omittedCount>0&&<button className="show-more" onClick={()=>dispatchView({type:'SHOW_MORE',eligibleIds:eligibleFor(level),batchSize:BATCH_SIZE})}>Showing {visibleCount} of {scopedCount} in scope · show {Math.min(BATCH_SIZE,omittedCount)} more</button>}{scope.mode==='CUSTOM'&&<button className="text-button" onClick={resetScope}>Reset to whole system</button>}</div></div>
+          <div className="graph-toolbar"><div className="segmented" aria-label="Graph level">{(['PACKAGE','CLASS','METHOD'] as Level[]).map(l=><button className={level===l?'active':''} key={l} onClick={()=>{if(l===level)return;const ids=eligibleFor(l);dispatchView({type:'NAVIGATE_LEVEL',level:l,eligibleIds:ids,batchSize:l==='PACKAGE'?Infinity:BATCH_SIZE,placement:placementFor(ids)});if(viewState.inspectedKind==='EDGE'&&!unresolvedEdge)dispatchView({type:'CLEAR_INSPECTION'});}}>{l==='PACKAGE'?'Packages':l==='CLASS'?'Classes':'Methods'}</button>)}</div><select aria-label="Relationship kind" value={kind} onChange={e=>setKind(e.target.value)}><option value="ALL">All dependencies</option>{[...new Set(graph.edges.map(e=>e.kind))].sort().map(k=><option key={k} value={k}>{k.toLowerCase().replaceAll('_',' ')}</option>)}</select></div>
+          <div className="scope-banner"><span className="scope-banner-icon" aria-hidden="true">{scope.mode==='ALL'?'◈':'⌖'}</span><div className="scope-banner-text"><strong>{graph?scopeToLabel(graph,scope):''}</strong><span>Showing {levelWord.toLowerCase()} · {scopedCount} {levelWord.toLowerCase()}{scope.mode!=='ALL'?` in ${scopeUnitLabel()}`:''}</span></div><div className="scope-banner-actions">{node&&<span className="tag inspecting-chip">Inspecting {node.simpleName}</span>}{edge&&!node&&<span className="tag inspecting-chip">Inspecting a relationship</span>}{viewState.newlyAddedIds.length>0&&displayedIds.length>viewState.newlyAddedIds.length&&<span className="tag added-below-chip">{viewState.newlyAddedIds.length} added below</span>}{omittedCount>0&&<button className="show-more" onClick={()=>{const ids=eligibleFor(level);dispatchView({type:'SHOW_MORE',eligibleIds:ids,batchSize:BATCH_SIZE,placement:placementFor(ids)});}}>Showing {visibleCount} of {scopedCount} in scope · show {Math.min(BATCH_SIZE,omittedCount)} more</button>}{scope.mode==='CUSTOM'&&<button className="text-button" onClick={resetScope}>Reset to whole system</button>}</div></div>
           </div>
           {scopeEmpty
             ? <div className="scope-empty-state"><h2>No packages or classes selected</h2><p>Check packages or classes in the left tree to define what the graph shows.</p><button className="primary" onClick={resetScope}>Select all</button></div>
-            : <GraphCanvas nodes={projected.nodes} edges={projected.edges} selectedId={node?.id||edge?.id} onNodeSelect={select} onExplore={explore} onEdgeSelect={inspectEdge} canRemoveFromScope={n=>isNodeInScope(n,scope,graph)} onRemoveFromScope={removeFromScope}/>}
+            : <GraphCanvas nodes={projected.nodes} edges={projected.edges} positions={levelGeometry.positions} camera={levelGeometry.camera} selectedId={node?.id||edge?.id} onNodeSelect={select} onEdgeSelect={inspectEdge} canRemoveFromScope={n=>isNodeInScope(n,scope,graph)} onRemoveFromScope={removeFromScope} onCameraChange={handleCameraChange} onNodeMoved={handleNodeMoved} onArrangeAroundResource={arrangeAround}/>}
           <div className="graph-legend"><span><i className="line-sample"/>Static dependency</span><span><i className="line-sample uncertain"/>Candidate / unresolved</span><span>{level==='METHOD'?'Method call occurrences':`${level==='PACKAGE'?'Package':'Class'} connections group occurrences by kind and resolution`}</span></div>
         </>}
       </section>
-      {tab!=='context'&&<InspectorPanel selectedNode={node} selectedEdge={edge} mapStatus={mapStatus} workspaceId={workspace?.id||null} snapshotId={snapshot} graph={graph} routes={routes} revision={revision} onExplanationReady={()=>setRevision(r=>r+1)} onInspectEdge={inspectEdge} onSelect={select} onExplore={explore} onSource={(n,type='symbol')=>setSource({node:n,type})} onClose={()=>{dispatchView({type:'CLEAR_INSPECTION'});setMobilePane('map');}}/>}
+      {tab!=='context'&&<InspectorPanel selectedNode={node} selectedEdge={edge} mapStatus={mapStatus} edgeFilteredOut={edgeFilteredOut} workspaceId={workspace?.id||null} snapshotId={snapshot} graph={graph} routes={routes} revision={revision} onExplanationReady={()=>setRevision(r=>r+1)} onInspectEdge={inspectEdge} onSelect={select} onViewClasses={viewClasses} onViewMethods={viewMethods} onArrangeAroundResource={n=>arrangeAround(n.id)} onSource={(n,type='symbol')=>setSource({node:n,type})} onClose={()=>{dispatchView({type:'CLEAR_INSPECTION'});setMobilePane('map');}}/>}
     </main></>}
     <footer className="app-footer">{graph?.metadata?.diagnostics?.warnings?.length>0&&<details className="analysis-warnings"><summary>{graph?.metadata?.diagnostics?.warnings.length} analysis warning(s)</summary><div>{graph?.metadata?.diagnostics?.warnings.map((w:string,i:number)=><p key={i}>{w}</p>)}</div></details>}<span><i className={`status-dot ${graph?'configured':''}`}/>{status}</span>{graph&&<span>{graph.metadata?.unresolvedCount||0} unresolved external targets</span>}<div className="queue-summary">{queue?.activeJobId&&queue.synthesisStatus!=='READY'&&<span className="synthesis-progress"><i aria-hidden="true"/>{queue.synthesisStage || 'Preparing architecture'} · {synthesisElapsed}s · {queue.synthesisCompleted || 0} validated</span>}{!queue?.activeJobId&&queue?.jobStatus==='CANCELLED'&&<span>Explain all cancelled</span>}{queue&&<span>{queue.completed} explained · {queue.pending+queue.inProgress} queued · {queue.failed} failed</span>}{snapshot&&<button className={queue?.activeJobId?'':'primary'} onClick={explainAll}>{queue?.activeJobId?'Stop explain all':'✧ Explain all'}</button>}</div></footer>
     <SettingsScreen isOpen={settings} onClose={()=>setSettings(false)}/>

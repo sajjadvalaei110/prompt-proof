@@ -187,7 +187,7 @@ at 71,516,008 bytes with a 268,435,456-byte maximum. The packaged mock-provider
 browser run passed for 61 bulk symbols and produced nine inspected screenshots in
 `build/hierarchy-smoke/run-do7c60_n/`. No live-provider claim is made.
 
-## 7. Stable-map interaction baseline and pure state tests (R6, Steps 1-2)
+## 7. Stable-map interaction baseline and pure state tests (R6, Steps 1-5)
 
 The stable-map work needs browser evidence that survives refactoring: node IDs, model
 coordinates, pan, zoom and displayed counts before and after **real** pointer input. A
@@ -224,16 +224,26 @@ that label is not evidence of reachability.
 
 **Instrumentation.** Counters are installed from the test side onto Cytoscape's own registry
 (`.graph-canvas._cyreg.cy`). The application ships no debug object and no graph data leaves the
-page. Because the canvas is destroyed and recreated on the same container element, DOM identity
-proves nothing, so each core is stamped with an incrementing id and the counters
-(`layouts`, `fits`, `centers`, `taps`, `dbltaps`, `anyDbltaps`) live on `window` to survive
-recreation. Clicks, double-clicks and background drags use `Input.dispatchMouseEvent`.
+page. Before Step 3, the canvas was destroyed and recreated on almost every interaction, so DOM
+identity proved nothing; each core is still stamped with an incrementing id and the counters
+(`layouts`, `fits`, `centers`, `taps`, `dbltaps`, `anyDbltaps`, `arranges` — Step 5) still live on
+`window` to survive a *genuine* recreation (which Step 3 makes rare — the canvas is created once per
+mount and survives every scope/filter/selection/resize change). Clicks, double-clicks and background
+drags use `Input.dispatchMouseEvent`.
 
-Fifteen scenarios cover: clicking a class at 12 and at 36 displayed, clicking a package,
-clicking an edge, changing the relationship filter, adding and removing a package, closing the
-details pane, resizing the viewport, two spaced single clicks, a double-click control on empty
-canvas, real double-clicks on a card at two pacings and at two page sizes, and a narrow 430px
-layout. Twelve screenshots are written per run and must be visually inspected.
+Thirty-two scenarios (as of Step 5) cover: clicking a class at 12 and at 36 displayed, clicking a
+package, clicking an edge, an unresolved relationship, changing the relationship filter (both for
+plain membership stability and for an inspected edge's own survival — see Step 4 below), adding and
+removing a package, closing the details pane, resizing the viewport, manual drag persistence, two
+spaced single clicks, a double-click control on empty canvas, real double-clicks on a card at two
+pacings and at two page sizes plus a second different card (Step 5), the inspector's "Arrange around
+this resource" action both enabled and disabled (Step 5), A-to-B-to-C traversal and Back-to-Back
+through the real inspector, a Classes→Methods→Classes round trip, out-of-scope inspection, a scope
+edit made while a level is inactive, a narrow 430px layout (plain and with a real inspect/return
+round trip, and via the inspector's "Arrange around this resource" action from the Details pane a
+single tap already switched to — see Step 5 below), and "Code map" returning to the last view. 28
+screenshots are written per run and must
+be visually inspected.
 
 Baseline results, the trigger inventory behind them, and the two cases classified as *not
 reproduced* with inspected alternative causes are recorded in
@@ -269,3 +279,208 @@ click is now correctly a no-op, so a grown page stays grown). `verify-stable-gra
 `reload()` helper (fresh page navigation) for scenarios that need a guaranteed small starting page —
 any future step that changes navigation/membership semantics should expect similar harness
 adjustments, not just application-code changes.
+
+### Pure placement tests (Step 3)
+
+```bash
+node scripts/test-graph-placement.mjs
+```
+
+8 hand-computable checks against `frontend/src/features/explorer/graphPlacement.ts` (Appendix A3),
+same transpile-to-`data:`-URL approach, no bundler: no-survivors places the first card at the
+origin; a new batch starts at or below the survivors' actual bounding-box bottom plus 64 units; rows
+wrap at the stored strip width, never at a size derived from the batch; row height is the tallest
+card actually placed in that row; an oversized card still gets placed and forces itself (and
+whatever follows) onto its own row; the stored `appendWidth` is decided once and echoed back
+unchanged on every later call; the new batch is sorted by name then ID regardless of input order;
+an empty addition list is a true no-op. `explorerViewState.ts`'s own geometry extension (13 new
+checks in `test-explorer-view-state.mjs`, 34 total) additionally covers: a placement-bearing
+admission produces positions and flips `geometryInitialized`; an admission with no `placement`
+record leaves new IDs unpositioned rather than crashing (so callers that only exercise membership,
+like most of the original 21 checks, keep working unmodified); removal discards geometry for
+removed IDs and a later re-add lands at the new bottom, not the old hole; `geometryRevision` only
+bumps when a position is actually written; `geometryInitialized` is monotonic across an
+empty-scope transition; `appendWidth` is never recomputed once stored; `SET_CAMERA` is a strict
+value-equality no-op on repeat and writes to the `level` named in the action rather than
+`activeLevel`; a `SET_CAMERA`/`NODE_MOVED` stamped with a stale `generation` (i.e. from before the
+most recent `RESET`) is dropped entirely; `NODE_MOVED` updates exactly the dragged card and is
+ignored for an ID no longer displayed; `RESET` gives every level fresh (empty) geometry and bumps
+`generation`; and `NAVIGATE_BACK` restores the destination level's camera/positions untouched.
+
+### Step 3 browser re-verification
+
+Step 3 removed `GraphCanvas`'s destroy/recreate-on-topology-change, its selection-triggered
+`cy.layout()`/`cy.fit()`, and its resize-triggered `cy.fit()`; positions for a newly admitted batch
+are now computed by the reducer (via `graphPlacement.ts`) at admission time and never overwritten
+for a survivor. Re-running the pipeline surfaced a harness-side consequence, not an application
+defect: several scenarios picked a click target by raw `cy.nodes()[N]` index, which used to be safe
+because the canvas was always freshly re-fit to whatever was displayed. Once positions and camera
+stop moving automatically, `renderedPosition()` for an arbitrary index can legitimately be outside
+the visible canvas box — e.g. a card appended below the initial fit, or a card the last `panAndZoom()`
+panned away from — and a synthesized click at an off-canvas point lands on whatever real DOM happens
+to sit there (observed: the minimap, which has its own click-to-pan handler, producing a confusing
+spurious `panChanged: true` with zero node taps). Fixed by adding `pickVisibleNodeId()` /
+`visibleEdgeCandidates()`, which filter to elements whose `renderedBoundingBox()`/`renderedMidpoint()`
+actually falls inside the current canvas box before picking a click target — the gesture stays a real
+pointer click, it just targets a card the user could actually see and click. All ten `cy.nodes()[N]`
+call sites and the edge-click loop were switched to these helpers.
+
+With that fixed, every baseline assertion that asserted layout/fit calls, camera discard, canvas
+recreation, or survivor movement on a *non-arrangement* interaction is now false and was retired with
+its now-true replacement (mirroring Step 2's precedent) — 15 of 18 scenarios now pass in `acceptance`
+mode outright. The three real-double-click scenarios are a partial, expected exception: Step 3 fixing
+position stability makes the double-click *gesture* reach the target node reliably for the first
+time (previously the first tap's arrangement moved the card out from under the second press), but
+the gesture is still wired to `explore()` — the same command Step 5 must separate into a dedicated
+`ARRANGE_AROUND_RESOURCE` — so it now reliably causes an unwanted level change (Classes → Methods)
+instead of the target arrangement contract. `layoutCalls` in these three scenarios is a fossil of the
+old `cy.layout()`-based selection effect Step 3 removed entirely; it will always read 0 regardless of
+what Step 5's dedicated command does, since nothing in the current codebase calls `cy.layout()`
+anymore. This is recorded here rather than silently left for Step 5 to discover.
+
+Two more scenarios (`manual-drag-persists`, `manual-drag-persists-across-level-switch`) were added
+after a self-review pass found that manual-drag persistence was reducer-verified only — a pure test
+can prove `NODE_MOVED` preserves state, but not that `dragfree` is actually wired to it end to end.
+Both use a real CDP pointer drag (press, six held `mouseMoved` steps, release), not a synthetic
+dispatch, and assert exactly one card moves, the camera is untouched, and the new position survives
+a level switch away and back.
+
+The same self-review also found that `python3 scripts/verify_hierarchical_pipeline.py` had been
+skipped under Step 2's rationale ("explanation harness untouched"), which stopped holding once
+`GraphCanvas.tsx` was rewritten end to end — it is the only harness exercising `cxttap`
+remove-from-scope, READY sparkle/hover styling, and explanation-refresh camera stability, none of
+which the stable-graph harness covers. Re-run and confirmed **PASS** against the rewritten canvas.
+
+### Pure reducer tests (Step 4)
+
+7 new checks appended to `test-explorer-view-state.mjs` (41 total), covering the Appendix F3
+extension for a scope edit made while a level is inactive: removing then re-adding an already-
+displayed class while a different level is active (appends fresh once actually revisited, not back
+into its old slot — the same guarantee the Step 2/3 same-level case already had, now proven across a
+level boundary); an explicit class add while away being a true same-reference no-op for the inactive
+view (nothing to drop, nothing new tracked yet) and correctly admitted on the next real visit;
+`membershipRevision` bumping from an inactive-level-only change even when the active level's own
+reconciliation is a no-op; `shadowTrimLevel` being a true no-op (same reference, `initialized`
+untouched) on a level that was never visited at all; a `HistoryEntry` recording the geometry
+revision current at push time; Back never rewinding a level's geometry to that recorded value (a
+drag made after the history push survives a later Back to that entry); and the case flagged by
+review as highest-value — an addition made while away is *not* revealed by `NAVIGATE_BACK`
+(`batchSize: 0`, unchanged from Step 2/3), stays truthfully pending, and a subsequent Show more
+reveals both the originally-pending and the while-away addition together.
+
+### Step 4 browser re-verification
+
+Step 4 disconnected canvas double-click from `explore()` entirely (Step 4 point 1: the drill-down
+command must not remain double-click's job once Step 5 needs it for arrangement). This falsified the
+three real-double-click baseline assertions that described "drills down to Methods" — retired and
+replaced with "double-click no longer changes level" (`levelAfter === levelBefore`), the same
+retire-with-a-now-true-replacement pattern Steps 2/3 established. Their `acceptance` checks needed no
+change: `layoutCalls === 1` was already forward-looking and still correctly fails, now for exactly
+one reason (no arrangement command exists yet) instead of two (it also used to drill down).
+
+Six scenarios are new for this step. Two are worth calling out for their harness technique rather
+than just their assertions: **S12** drives the A→B→C traversal through the inspector's own
+"Depends on" `.related-row` buttons (`onSelect`, not the canvas), so it is exercising the exact DOM
+path Story 6 describes — a pure reducer test cannot prove that clicking a real relationship row
+actually reaches `INSPECT_NODE` end to end. **S15** asserts the *exact* resulting ID order
+(`[...survivors, targetId]`) and a demonstrably different position for the re-added card, not just a
+count — a weaker "count is still 12" assertion would pass even if the shadow-trim fix silently didn't
+work and the card had simply never left its slot.
+
+`docs/evidence/stable-graph-step4/` holds the two full reports plus nine inspected screenshots;
+`build/stable-graph/{baseline,acceptance}-*/` (git-ignored) holds the complete 27-scenario run.
+
+### Pure focused-arrangement tests (Step 5)
+
+```bash
+node scripts/test-focused-arrangement.mjs
+```
+
+11 hand-computable checks against `frontend/src/features/explorer/focusedArrangement.ts` (Appendix
+B), same transpile-and-concatenate-to-`data:`-URL approach as `test-graph-placement.mjs` (this module
+imports the real `placeAdditions` from `graphPlacement.ts`, so both compiled outputs are concatenated
+into one self-contained script). Covers: a focus absent from the displayed cards returns `null`
+(the inspector/keyboard action's disabled-state contract); an A→focus→C chain places A at exactly
+`-(halfWidth+96+halfWidth)` and C at the mirrored `+` offset from the focus; a bidirectional neighbor
+lands on the left only, never duplicated on the right; a self-loop does not create a second copy of
+the focus card; an isolated resource (no edges at all) is placed as an unrelated card exactly 64
+units below the focus's bounding-box bottom (reusing `graphPlacement.placeAdditions`, not a second
+row-packing implementation); a reciprocal relationship between two *other* cards does not touch the
+focus's columns; mixed card heights in one column stack by actual height plus a 48-unit gap, not a
+uniform point spacing; the column x-offset uses each card's actual width (verified at both class and
+package dimensions); within-group order is deterministic by qualified name then ID regardless of
+input array order; translating the whole result by a different anchor changes only the focus's own
+coordinate, never the relative structure between cards; and a method/constructor-level focus is
+handled identically to any other card (the algorithm is kind-agnostic).
+
+The 2 new checks appended to `test-explorer-view-state.mjs` (43 total) cover the new
+`ARRANGE_AROUND_RESOURCE` action: it overwrites exactly the given IDs' positions for a level (an ID
+absent from the result is left untouched) and bumps `geometryRevision` exactly once per dispatch, not
+once per repositioned card; and it is dropped when stamped with a stale `generation`, matching
+`SET_CAMERA`/`NODE_MOVED`.
+
+### Step 5 browser re-verification
+
+Step 5 gives canvas double-click and a new inspector action their own dedicated
+`ARRANGE_AROUND_RESOURCE` command via Cytoscape's own `dbltap` gesture recognition (the first tap
+still only inspects, idempotently — a repeat inspect of the same subject is a no-op by construction
+since Step 2, so it cannot itself move or unmount anything). This is the **first fully green
+`acceptance` run since Step 1**: all three real-double-click scenarios now assert `arrangeCalls === 1`
+instead of the retired `layoutCalls === 1` (a fossil noted since Step 3 — nothing in the codebase
+calls `cy.layout()` anymore, so that assertion could never have been satisfied by any future step).
+`arrangeCalls` is fed by a new `arranges` counter wired to a custom `'arranged'` Cytoscape event the
+application now emits (ordinary use of the library's own pub/sub, the same mechanism `'dbltap'`/
+`'pan'`/`'zoom'` already use — not a debug object) exactly once per batch in which
+`GraphCanvas`'s reconciliation effect actually repositioned an already-displayed survivor, which only
+happens for an `ARRANGE_AROUND_RESOURCE` dispatch: an ordinary admission only ever calls `cy.add()`
+for a genuinely new element (never rewrites a survivor's position) and a manual drag's position is
+already reflected live in Cytoscape by the drag itself (so the diff is zero and nothing re-fires).
+
+One case is deliberately *not* asserted to produce a further arrangement count: a second, immediate
+double-click on the exact same already-arranged focus. The algorithm is deterministic and the
+translation anchors the focus to its own current (already-unchanged) position, so re-running it
+recomputes byte-identical positions for every card — correctly moving nothing. `real-double-click-
+second-different-card` proves the command still fires on a genuinely new interaction (a different
+focus), and `two-spaced-single-clicks` was extended with `arrangeCalls === 0` to keep the "two
+single-clicks cause zero arrangements" half of the acceptance criterion explicit rather than
+implied by `dbltaps === 0` alone.
+
+Two new scenarios exercise the inspector's "Arrange around this resource" action — the
+keyboard/touch-accessible equivalent required alongside the canvas gesture (H3):
+`inspector-arrange-around-resource` opens the inspector on a displayed class via a real single click,
+clicks the button, and asserts exactly one arrangement with `dbltaps === 0` (proving the two entry
+points are independent paths to the same command) and scope/level/page/zoom/pan all unchanged;
+`inspector-arrange-disabled-when-not-displayed` searches for a class that is in scope but not on the
+current page and asserts the button is `disabled` with the exact tooltip text ("Resource is not in
+current map view").
+
+Re-running the full pipeline surfaced one regression predating this step, not caused by it: Step 4
+relabeled the inspector's "See method call graph ↗" button to "View methods ↗" but its own ledger
+recorded skipping `verify_hierarchical_pipeline.py` as justified at the time (only navigation/
+edge-lookup call sites had changed, it reasoned) — that harness's `scopeUnchanged('inspector
+exploration...')` scenario still searched DOM text for the old label and crashed on
+`undefined.click()` the first time it was actually re-run against Step 4's change. Fixed the stale
+selector in `scripts/verify-hierarchical-ui.mjs` (`'method call graph'` → `'View methods'`); re-ran
+and confirmed **PASS**. This is recorded here as the concrete argument for re-running every harness
+whose DOM assertions could be affected by a label change, rather than reasoning from "no explanation
+code path touched" alone.
+
+A narrow-layout pass (430×900) verifies Step 5 point 5's "the explicit touch action must remain
+usable when a single tap opens details" concretely rather than by inspection. On this app's mobile
+layout a single tap already switches the pane to Details (`select()` calls `setMobilePane('details')`,
+and `.workspace-content` — the canvas's container — is `display:none` while that pane shows), so a
+recorded (checks-free, observational) scenario confirms a real double-click's second press does not
+reach the canvas there at all (`dbltaps: 0`, only the first tap registers) — empirical evidence for
+*why* the keyboard/touch equivalent exists, not a defect. `narrow-inspector-arrange-from-details-pane`
+then proves the actual requirement: tapping "Arrange around this resource" from that same Details
+pane still drives exactly one arrangement (`arrangeCalls === 1`), and returning to the Map pane shows
+the already-applied geometry (GraphCanvas stays mounted — only its container toggles `display:none` —
+so the reconciliation effect wrote the new positions regardless of visibility) with the camera
+untouched and the canvas instance preserved, exercising `GraphCanvas`'s zero-size `ResizeObserver`
+guard with a real pending geometry write for the first time (Step 4's narrow scenario only exercised
+that guard with no write queued).
+
+`docs/evidence/stable-graph-step5/` holds the two full reports plus eight inspected screenshots
+(before/after pairs for the two real-double-click cases and the inspector action, plus the narrow
+Details-pane action and its arranged Map-pane result);
+`build/stable-graph/{baseline,acceptance}-*/` (git-ignored) holds the complete 30-scenario run.

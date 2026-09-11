@@ -11,7 +11,10 @@ interface Props {
    * displayed page can append exactly that class instead of a ranked batch (Appendix A2). */
   onScopeChange: (scope: ScopeSelection, explicitClassAddId?: string) => void;
   onSelect: (node: AtlasNode) => void;
-  onExplore: (node: AtlasNode) => void;
+  /** Named navigation commands (Step 4): a package's ⌖ button explicitly views its classes; a
+   * class's ⌖ button explicitly views its methods. Neither changes scope or filters. */
+  onViewClasses: (node: AtlasNode) => void;
+  onViewMethods: (node: AtlasNode) => void;
 }
 
 /** Tri-state checkbox: HTML has no `indeterminate` attribute, only the DOM property. */
@@ -21,18 +24,18 @@ function TriStateCheckbox({ state, onChange, label }: { state: 'checked'|'indete
     onClick={e => e.stopPropagation()} onChange={onChange} aria-label={label} />;
 }
 
-function ClassRow({ node, graph, scope, selected, onScopeChange, onSelect, onExplore }:
-  { node: AtlasNode; graph: AtlasGraph; scope: ScopeSelection; selected: boolean; onScopeChange: (s: ScopeSelection, explicitClassAddId?: string) => void; onSelect: (n: AtlasNode) => void; onExplore: (n: AtlasNode) => void }) {
+function ClassRow({ node, graph, scope, selected, onScopeChange, onSelect, onViewMethods }:
+  { node: AtlasNode; graph: AtlasGraph; scope: ScopeSelection; selected: boolean; onScopeChange: (s: ScopeSelection, explicitClassAddId?: string) => void; onSelect: (n: AtlasNode) => void; onViewMethods: (n: AtlasNode) => void }) {
   const inScope = isClassInScope(node, scope, graph);
   return <div className={`scope-row scope-row-class ${selected ? 'selected' : ''}`}>
     <TriStateCheckbox state={inScope ? 'checked' : 'unchecked'} onChange={() => onScopeChange(toggleClass(scope, node, graph), inScope ? undefined : node.id)} label={`${inScope ? 'Remove' : 'Add'} ${node.simpleName} from scope`} />
     <button className="scope-label" title={node.qualifiedName} onClick={() => onSelect(node)}><span className="tree-icon">◇</span>{node.simpleName}</button>
-    <button className="scope-explore" onClick={() => onExplore(node)} aria-label={`Explore ${node.simpleName}`} title="Explore this class">⌖</button>
+    <button className="scope-explore" onClick={() => onViewMethods(node)} aria-label={`View methods of ${node.simpleName}`} title="View methods">⌖</button>
   </div>;
 }
 
-function PackageRow({ branch, graph, scope, selectedNode, forceOpen, defaultOpen, onScopeChange, onSelect, onExplore }:
-  { branch: PackageHierarchyNode; graph: AtlasGraph; scope: ScopeSelection; selectedNode: AtlasNode | null; forceOpen: boolean; defaultOpen: boolean; onScopeChange: (s: ScopeSelection) => void; onSelect: (n: AtlasNode) => void; onExplore: (n: AtlasNode) => void }) {
+function PackageRow({ branch, graph, scope, selectedNode, forceOpen, defaultOpen, onScopeChange, onSelect, onViewClasses, onViewMethods }:
+  { branch: PackageHierarchyNode; graph: AtlasGraph; scope: ScopeSelection; selectedNode: AtlasNode | null; forceOpen: boolean; defaultOpen: boolean; onScopeChange: (s: ScopeSelection) => void; onSelect: (n: AtlasNode) => void; onViewClasses: (n: AtlasNode) => void; onViewMethods: (n: AtlasNode) => void }) {
   const node = branch.packageNode;
   const classes = node ? classesUnderPackage(node, graph).sort((a, b) => a.simpleName.localeCompare(b.simpleName)) : [];
   const all = new Map(graph.nodes.map(n => [n.id, n]));
@@ -49,17 +52,17 @@ function PackageRow({ branch, graph, scope, selectedNode, forceOpen, defaultOpen
       {node
         ? <button className={`scope-label ${selectedNode?.id === node.id ? 'selected' : ''}`} title={node.qualifiedName} onClick={() => onSelect(node)}>{branch.name}</button>
         : <span className="scope-label scope-namespace-label" title={branch.qualifiedName}>{branch.name}</span>}
-      {node && <button className="scope-explore" onClick={() => onExplore(node)} aria-label={`Explore ${branch.name}`} title="Explore this package">⌖</button>}
+      {node && <button className="scope-explore" onClick={() => onViewClasses(node)} aria-label={`View classes in ${branch.name}`} title="View classes">⌖</button>}
       <small>{descendantClassCount}</small>
     </summary>
     <div>
-      {classes.map(c => <ClassRow key={c.id} node={c} graph={graph} scope={scope} selected={selectedNode?.id === c.id} onScopeChange={onScopeChange} onSelect={onSelect} onExplore={onExplore} />)}
-      {branch.children.map(child => <PackageRow key={child.qualifiedName} branch={child} graph={graph} scope={scope} selectedNode={selectedNode} forceOpen={forceOpen} defaultOpen={defaultOpen && !branch.packageNode && branch.children.length === 1} onScopeChange={onScopeChange} onSelect={onSelect} onExplore={onExplore} />)}
+      {classes.map(c => <ClassRow key={c.id} node={c} graph={graph} scope={scope} selected={selectedNode?.id === c.id} onScopeChange={onScopeChange} onSelect={onSelect} onViewMethods={onViewMethods} />)}
+      {branch.children.map(child => <PackageRow key={child.qualifiedName} branch={child} graph={graph} scope={scope} selectedNode={selectedNode} forceOpen={forceOpen} defaultOpen={defaultOpen && !branch.packageNode && branch.children.length === 1} onScopeChange={onScopeChange} onSelect={onSelect} onViewClasses={onViewClasses} onViewMethods={onViewMethods} />)}
     </div>
   </details>;
 }
 
-export default function NavigationPane({ graph, scope, selectedNode, search, onScopeChange, onSelect, onExplore }: Props) {
+export default function NavigationPane({ graph, scope, selectedNode, search, onScopeChange, onSelect, onViewClasses, onViewMethods }: Props) {
   const packages = buildPackageHierarchy(graph);
   const counts = getScopeCounts(graph, scope);
   const forceOpen = !!search;
@@ -70,7 +73,7 @@ export default function NavigationPane({ graph, scope, selectedNode, search, onS
       <span className="scope-count">{scope.mode === 'ALL' ? 'Whole system' : `${counts.selectedClasses} class${counts.selectedClasses === 1 ? '' : 'es'} selected`}</span>
     </div>
     <div className="package-tree">
-      {packages.map(branch => <PackageRow key={branch.qualifiedName} branch={branch} graph={graph} scope={scope} selectedNode={selectedNode} forceOpen={forceOpen} defaultOpen onScopeChange={onScopeChange} onSelect={onSelect} onExplore={onExplore} />)}
+      {packages.map(branch => <PackageRow key={branch.qualifiedName} branch={branch} graph={graph} scope={scope} selectedNode={selectedNode} forceOpen={forceOpen} defaultOpen onScopeChange={onScopeChange} onSelect={onSelect} onViewClasses={onViewClasses} onViewMethods={onViewMethods} />)}
       {!packages.length && <p className="muted">No packages in this snapshot.</p>}
     </div>
   </div>;

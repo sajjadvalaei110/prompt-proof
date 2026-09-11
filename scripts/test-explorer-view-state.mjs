@@ -8,7 +8,13 @@ const compile = path => ts.transpileModule(fs.readFileSync(new URL(path, import.
 // elides since it is never used as a value here; strip the import defensively in case a future
 // edit adds a real value import, so this script keeps working as a standalone reducer test.
 const stripLocalImport = (src, name) => src.replace(new RegExp(`import \\{[^}]*\\} from ['"]\\./${name}['"];?\n?`), '');
-const compiled = stripLocalImport(compile('../frontend/src/features/explorer/explorerViewState.ts'), 'graphModel');
+// explorerViewState.ts also imports the real `placeAdditions` function (plus erased types) from
+// graphPlacement.ts (Step 3). graphPlacement.ts has zero imports of its own, so it is concatenated
+// ahead of explorerViewState's compiled body with its own import line stripped, producing one
+// self-contained module for the data: URL loader (which cannot resolve a relative specifier).
+const placementModule = compile('../frontend/src/features/explorer/graphPlacement.ts');
+const viewStateModule = stripLocalImport(stripLocalImport(compile('../frontend/src/features/explorer/explorerViewState.ts'), 'graphModel'), 'graphPlacement');
+const compiled = placementModule + '\n' + viewStateModule;
 const { explorerViewReducer, initExplorerViewState } = await import('data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'));
 
 let passCount = 0;
@@ -230,16 +236,18 @@ check('SHOW_MORE reveals the next batch from everything eligible-but-undisplayed
 // --- Back navigation: purely restorative ---
 check('NAVIGATE_BACK restores the prior inspection/level and drops now-ineligible survivors, but never auto-admits new eligibility', () => {
   let s = initExplorerViewState('PACKAGE');
+  // Leaving PACKAGE uninspected pushes a level-only breadcrumb (Step 5 review remediation B1).
   s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: ['a', 'b', 'c'], batchSize: 12 });
+  assert.deepEqual(s.history.map(h => [h.subjectId, h.level]), [[null, 'PACKAGE']]);
   s = explorerViewReducer(s, { type: 'INSPECT_NODE', id: 'a' }); // subject a, level CLASS pushed on next inspect
-  s = explorerViewReducer(s, { type: 'INSPECT_NODE', id: 'b' }); // history: [a@CLASS]
-  assert.equal(s.history.length, 1);
+  s = explorerViewReducer(s, { type: 'INSPECT_NODE', id: 'b' }); // history: [null@PACKAGE, a@CLASS]
+  assert.equal(s.history.length, 2);
   // Scope shrinks (b's package is removed) and grows (d becomes eligible) while "away".
   const back = explorerViewReducer(s, { type: 'NAVIGATE_BACK', eligibleIds: ['a', 'c', 'd'] });
   assert.equal(back.inspectedSubjectId, 'a');
   assert.equal(back.activeLevel, 'CLASS');
   assert.deepEqual(back.levelViews.CLASS.displayedIds, ['a', 'c'], 'ineligible survivor b dropped; newly-eligible d NOT auto-revealed');
-  assert.equal(back.history.length, 0);
+  assert.equal(back.history.length, 1, 'the level-only breadcrumb remains for a second Back');
 });
 
 check('NAVIGATE_BACK on empty history is a no-op', () => {
@@ -261,4 +269,361 @@ check('RESET reinitializes every level and populates only the starting level', (
   assert.deepEqual(s.levelViews.CLASS.displayedIds, [], 'a stale level from the previous snapshot must not leak forward');
 });
 
-console.log(`PASS: ${passCount} explorerViewState reducer checks (inspection/membership separation, append-only scope growth, show more, back navigation, reset)`);
+// --- Step 3: geometry (positions/camera) extension ---
+const dims = (w, h, name) => ({ width: w, height: h, name });
+const placementFor = (ids, w = 250, h = 128) => Object.fromEntries(ids.map((id, i) => [id, dims(w, h, `Q${String(i).padStart(3, '0')}`)]));
+
+check('an initial batch with no survivors places the first card at the origin and marks geometryInitialized', () => {
+  let s = initExplorerViewState('PACKAGE');
+  const eligible = ['c0', 'c1', 'c2'];
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: eligible, batchSize: 12, placement: placementFor(eligible) });
+  const view = s.levelViews.CLASS;
+  assert.equal(view.geometryInitialized, true);
+  assert.equal(view.camera, null, 'camera is not set by membership actions -- only SET_CAMERA sets it');
+  for (const id of eligible) assert.ok(view.positions[id], `${id} must have a position`);
+});
+
+check('without a placement record, new IDs are admitted but get no position (membership-only callers keep working)', () => {
+  let s = initExplorerViewState('PACKAGE');
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: ['c0', 'c1'], batchSize: 12 });
+  assert.deepEqual(s.levelViews.CLASS.displayedIds, ['c0', 'c1']);
+  assert.deepEqual(s.levelViews.CLASS.positions, {});
+  assert.equal(s.levelViews.CLASS.geometryInitialized, false);
+});
+
+check('a later addition places new cards below the current bounding box, survivor positions untouched', () => {
+  let s = initExplorerViewState('PACKAGE');
+  const first = ['c0', 'c1'];
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: first, batchSize: 12, placement: placementFor(first) });
+  const before = s.levelViews.CLASS.positions;
+  const bottom = Math.max(...first.map(id => before[id].y + 128 / 2));
+  const grown = [...first, 'c2'];
+  s = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: grown, batchSize: 12, placement: placementFor(grown) });
+  const after = s.levelViews.CLASS.positions;
+  assert.deepEqual(after.c0, before.c0, 'survivor c0 keeps its exact position');
+  assert.deepEqual(after.c1, before.c1, 'survivor c1 keeps its exact position');
+  assert.ok(after.c2.y - 128 / 2 >= bottom + 64, 'the new card lands at or below survivor bottom + 64');
+});
+
+check('removal drops geometry for removed IDs; re-adding lands at the new bottom, not the old hole', () => {
+  let s = initExplorerViewState('PACKAGE');
+  const eligible = ['c0', 'c1', 'c2'];
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: eligible, batchSize: 12, placement: placementFor(eligible) });
+  const originalC1 = s.levelViews.CLASS.positions.c1;
+  s = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: ['c0', 'c2'], batchSize: 12 }); // remove c1
+  assert.ok(!('c1' in s.levelViews.CLASS.positions), 'removed geometry is discarded');
+  s = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: ['c0', 'c1', 'c2'], explicitClassAddId: 'c1', batchSize: 12, placement: placementFor(['c0', 'c1', 'c2']) }); // re-add c1
+  assert.notDeepEqual(s.levelViews.CLASS.positions.c1, originalC1, 're-added c1 gets a fresh position, not its old slot');
+});
+
+check('geometryRevision only bumps when a position is actually placed, not on every admission', () => {
+  let s = initExplorerViewState('PACKAGE');
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: ['c0'], batchSize: 12, placement: placementFor(['c0']) });
+  const revisionAfterFirst = s.levelViews.CLASS.geometryRevision;
+  assert.equal(revisionAfterFirst, 1);
+  // Admitting c1 with no placement record leaves it unpositioned -- no geometry change occurred.
+  const noGeometry = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: ['c0', 'c1'], batchSize: 12 });
+  assert.equal(noGeometry.levelViews.CLASS.geometryRevision, revisionAfterFirst, 'admitting without placement data does not bump geometryRevision');
+});
+
+check('geometryInitialized is monotonic: an empty-scope transition does not clear it (empty-scope transitions must not reset cached geometry)', () => {
+  let s = initExplorerViewState('PACKAGE');
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: ['c0'], batchSize: 12, placement: placementFor(['c0']) });
+  assert.equal(s.levelViews.CLASS.geometryInitialized, true);
+  s = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: [], batchSize: 12 }); // scope cleared
+  assert.deepEqual(s.levelViews.CLASS.displayedIds, []);
+  assert.equal(s.levelViews.CLASS.geometryInitialized, true, 'geometryInitialized must remain true across an empty-scope transition');
+});
+
+check('appendWidth is decided once from the first-ever batch and reused for later batches at that level', () => {
+  let s = initExplorerViewState('PACKAGE');
+  const first = ['c0'];
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: first, batchSize: 12, placement: placementFor(first, 250, 128) });
+  const width = s.levelViews.CLASS.appendWidth;
+  assert.ok(width && width > 0);
+  const grown = ['c0', 'c1'];
+  s = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: grown, batchSize: 12, placement: placementFor(grown, 999, 999) }); // wildly different dims
+  assert.equal(s.levelViews.CLASS.appendWidth, width, 'appendWidth is never recomputed once stored');
+});
+
+check('SET_CAMERA stores the camera, bumps cameraRevision, and is a strict-equality no-op on repeat', () => {
+  let s = initExplorerViewState('PACKAGE');
+  const camera = { zoom: 1, pan: { x: 10, y: 20 } };
+  s = explorerViewReducer(s, { type: 'SET_CAMERA', level: 'PACKAGE', camera, generation: 0 });
+  assert.deepEqual(s.levelViews.PACKAGE.camera, camera);
+  assert.equal(s.levelViews.PACKAGE.cameraRevision, 1);
+  const again = explorerViewReducer(s, { type: 'SET_CAMERA', level: 'PACKAGE', camera: { zoom: 1, pan: { x: 10, y: 20 } }, generation: 0 });
+  assert.strictEqual(again, s, 'an identical camera value is a true no-op (same state reference)');
+});
+
+check('SET_CAMERA writes to the level named in the action, not activeLevel (a debounced event from a different level cannot land on the wrong one)', () => {
+  let s = initExplorerViewState('PACKAGE');
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: ['c0'], batchSize: 12 });
+  assert.equal(s.activeLevel, 'CLASS');
+  s = explorerViewReducer(s, { type: 'SET_CAMERA', level: 'PACKAGE', camera: { zoom: 2, pan: { x: 0, y: 0 } }, generation: 0 });
+  assert.ok(s.levelViews.PACKAGE.camera, 'PACKAGE view got the camera');
+  assert.equal(s.levelViews.CLASS.camera, null, 'CLASS view (the active level) is untouched');
+});
+
+check('a SET_CAMERA/NODE_MOVED stamped with a stale generation is ignored', () => {
+  let s = initExplorerViewState('PACKAGE');
+  s = explorerViewReducer(s, { type: 'RESET', level: 'PACKAGE', eligibleIds: ['p0'], batchSize: Infinity, placement: placementFor(['p0']) });
+  assert.equal(s.generation, 1);
+  const stale = explorerViewReducer(s, { type: 'SET_CAMERA', level: 'PACKAGE', camera: { zoom: 3, pan: { x: 1, y: 1 } }, generation: 0 });
+  assert.strictEqual(stale, s, 'a camera event stamped with the previous generation is dropped entirely');
+  const staleMove = explorerViewReducer(s, { type: 'NODE_MOVED', level: 'PACKAGE', id: 'p0', position: { x: 5, y: 5 }, generation: 0 });
+  assert.strictEqual(staleMove, s, 'a drag event stamped with the previous generation is dropped entirely');
+});
+
+check('NODE_MOVED updates exactly the dragged card and bumps geometryRevision; ignored for an ID no longer displayed', () => {
+  let s = initExplorerViewState('PACKAGE');
+  const eligible = ['c0', 'c1'];
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: eligible, batchSize: 12, placement: placementFor(eligible) });
+  const revisionBefore = s.levelViews.CLASS.geometryRevision;
+  const c1Before = s.levelViews.CLASS.positions.c1;
+  s = explorerViewReducer(s, { type: 'NODE_MOVED', level: 'CLASS', id: 'c0', position: { x: 999, y: 999 }, generation: 0 });
+  assert.deepEqual(s.levelViews.CLASS.positions.c0, { x: 999, y: 999 });
+  assert.deepEqual(s.levelViews.CLASS.positions.c1, c1Before, 'the untouched card keeps its exact position');
+  assert.equal(s.levelViews.CLASS.geometryRevision, revisionBefore + 1);
+  const ignored = explorerViewReducer(s, { type: 'NODE_MOVED', level: 'CLASS', id: 'not-displayed', position: { x: 1, y: 1 }, generation: 0 });
+  assert.strictEqual(ignored, s, 'a drag for an ID no longer displayed is ignored');
+});
+
+check('RESET reinitializes geometry (fresh positions/camera/appendWidth) and bumps generation', () => {
+  let s = initExplorerViewState('PACKAGE');
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: ['c0'], batchSize: 12, placement: placementFor(['c0']) });
+  s = explorerViewReducer(s, { type: 'SET_CAMERA', level: 'CLASS', camera: { zoom: 2, pan: { x: 5, y: 5 } }, generation: 0 });
+  const before = s.generation;
+  s = explorerViewReducer(s, { type: 'RESET', level: 'PACKAGE', eligibleIds: ['p0'], batchSize: Infinity, placement: placementFor(['p0']) });
+  assert.equal(s.generation, before + 1);
+  assert.equal(s.levelViews.CLASS.camera, null, 'a stale level from the previous snapshot has fresh (empty) geometry');
+  assert.deepEqual(s.levelViews.CLASS.positions, {});
+  assert.equal(s.levelViews.PACKAGE.geometryInitialized, true, 'the starting level gets its initial placement immediately in the same RESET');
+});
+
+check('NAVIGATE_BACK preserves the destination level\'s existing camera/positions untouched', () => {
+  let s = initExplorerViewState('PACKAGE');
+  const eligible = ['a', 'b', 'c'];
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: eligible, batchSize: 12, placement: placementFor(eligible) });
+  s = explorerViewReducer(s, { type: 'SET_CAMERA', level: 'CLASS', camera: { zoom: 1.5, pan: { x: 3, y: 4 } }, generation: 0 });
+  const savedPositions = s.levelViews.CLASS.positions;
+  const savedCamera = s.levelViews.CLASS.camera;
+  s = explorerViewReducer(s, { type: 'INSPECT_NODE', id: 'a' });
+  s = explorerViewReducer(s, { type: 'INSPECT_NODE', id: 'b' });
+  const back = explorerViewReducer(s, { type: 'NAVIGATE_BACK', eligibleIds: eligible });
+  assert.deepEqual(back.levelViews.CLASS.camera, savedCamera);
+  assert.deepEqual(back.levelViews.CLASS.positions.a, savedPositions.a);
+});
+
+// --- Step 4 (Appendix F3): scope edits while a level is inactive ---
+check('a scope removal while a level is inactive drops the survivor immediately (shadow trim); re-adding it later appends fresh, not into its old slot', () => {
+  let s = initExplorerViewState('PACKAGE');
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: ['c0', 'c1', 'c2'], batchSize: 12 });
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'METHOD', eligibleIds: ['m0'], batchSize: 12 }); // CLASS is now inactive
+  // Remove c1 from scope while Methods is active.
+  s = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: ['m0'], batchSize: 12, otherLevels: { CLASS: ['c0', 'c2'] } });
+  assert.deepEqual(s.levelViews.CLASS.displayedIds, ['c0', 'c2'], 'c1 is dropped from the inactive CLASS view immediately, not deferred to its next visit');
+  assert.ok(!('c1' in s.levelViews.CLASS.positions), 'its geometry is discarded too');
+  assert.ok(!s.levelViews.CLASS.priorEligibleIds.includes('c1'), 'c1 is forgotten from priorEligibleIds so a later re-add reads as genuinely new');
+  // Re-add c1 while still on Methods.
+  s = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: ['m0'], batchSize: 12, otherLevels: { CLASS: ['c0', 'c1', 'c2'] } });
+  assert.deepEqual(s.levelViews.CLASS.displayedIds, ['c0', 'c2'], 'the inactive view still does not display it -- admission stays deferred to an actual visit');
+  // Now actually return to Classes.
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: ['c0', 'c1', 'c2'], batchSize: 12 });
+  assert.deepEqual(s.levelViews.CLASS.displayedIds, ['c0', 'c2', 'c1'], 'c1 lands at the end as a fresh addition, exactly like the same-level remove/re-add case');
+});
+
+check('an explicit class addition while viewing a different level is a true no-op for the inactive level (same state reference), and is recognized as newly eligible on the next visit', () => {
+  let s = initExplorerViewState('PACKAGE');
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: ['c0', 'c1'], batchSize: 12 });
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'METHOD', eligibleIds: ['m0'], batchSize: 12 });
+  const classViewBefore = s.levelViews.CLASS;
+  // c2 is checked in the tree while Methods is active (explicitClassAddId is irrelevant to Methods).
+  const next = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: ['m0'], explicitClassAddId: 'c2', batchSize: 12, otherLevels: { CLASS: ['c0', 'c1', 'c2'] } });
+  assert.strictEqual(next.levelViews.CLASS, classViewBefore, 'nothing to drop and nothing new tracked in priorEligibleIds -- the inactive view is untouched by reference');
+  const backToClass = explorerViewReducer(next, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: ['c0', 'c1', 'c2'], batchSize: 12 });
+  assert.deepEqual(backToClass.levelViews.CLASS.displayedIds, ['c0', 'c1', 'c2'], 'c2 is admitted as newly eligible on the actual visit');
+});
+
+check('membershipRevision bumps when only an inactive level changes via otherLevels, even though the active level\'s own reconciliation was a no-op', () => {
+  let s = initExplorerViewState('PACKAGE');
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: ['c0', 'c1'], batchSize: 12 });
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'METHOD', eligibleIds: ['m0'], batchSize: 12 });
+  const revisionBefore = s.membershipRevision;
+  // The active (METHOD) reconciliation is an idempotent no-op; only the inactive CLASS view drops c1.
+  const next = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: ['m0'], batchSize: 12, otherLevels: { CLASS: ['c0'] } });
+  assert.equal(next.membershipRevision, revisionBefore + 1, 'an inactive-level-only membership change still bumps the shared revision counter');
+});
+
+check('shadowTrimLevel is a true no-op (same reference, initialized untouched) on a level that has never been visited', () => {
+  let s = initExplorerViewState('PACKAGE');
+  const classViewBefore = s.levelViews.CLASS; // never visited: displayedIds/priorEligibleIds both []
+  const next = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: [], batchSize: 12, otherLevels: { CLASS: ['c0', 'c1'] } });
+  assert.strictEqual(next.levelViews.CLASS, classViewBefore);
+  assert.equal(next.levelViews.CLASS.initialized, false);
+});
+
+// --- Step 4: Back precedence -- latest geometry for a level always wins over its history snapshot ---
+check('a HistoryEntry records the geometryRevision at push time, for a transition test to assert precedence against', () => {
+  let s = initExplorerViewState('PACKAGE');
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: ['a', 'b'], batchSize: 12, placement: placementFor(['a', 'b']) });
+  s = explorerViewReducer(s, { type: 'INSPECT_NODE', id: 'a' });
+  assert.equal(s.levelViews.CLASS.geometryRevision, 1);
+  s = explorerViewReducer(s, { type: 'INSPECT_NODE', id: 'b' }); // pushes {subjectId:'a', ...}
+  assert.equal(s.history[s.history.length - 1].geometryRevision, 1, 'the entry remembers the revision that was current when it was pushed');
+});
+
+check('Back restores the inspected subject but never rewinds a level\'s geometry to the revision recorded on its history entry: a later drag survives Back', () => {
+  let s = initExplorerViewState('PACKAGE');
+  const eligible = ['a', 'b'];
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: eligible, batchSize: 12, placement: placementFor(eligible) });
+  s = explorerViewReducer(s, { type: 'INSPECT_NODE', id: 'a' });
+  s = explorerViewReducer(s, { type: 'INSPECT_NODE', id: 'b' }); // history: [..., {a, CLASS, rev 1}]
+  const revAtPush = s.history[s.history.length - 1].geometryRevision;
+  const draggedPosition = { x: 4321, y: 1234 };
+  s = explorerViewReducer(s, { type: 'NODE_MOVED', level: 'CLASS', id: 'a', position: draggedPosition, generation: 0 }); // rev -> 2
+  assert.equal(s.levelViews.CLASS.geometryRevision, revAtPush + 1);
+  const back = explorerViewReducer(s, { type: 'NAVIGATE_BACK', eligibleIds: eligible });
+  assert.equal(back.inspectedSubjectId, 'a');
+  assert.equal(back.levelViews.CLASS.geometryRevision, revAtPush + 1, 'Back does not roll geometryRevision back to the value recorded on the history entry');
+  assert.deepEqual(back.levelViews.CLASS.positions.a, draggedPosition, 'the later drag -- the latest geometry revision for the level -- is what Back actually shows');
+});
+
+// --- Step 4 (Appendix F3): Back must not silently consume a pending admission made while away ---
+check('an addition made while away from a level is NOT revealed by Back (batchSize 0), but remains truthfully pending and reachable via Show more afterward', () => {
+  const original = Array.from({ length: 14 }, (_, i) => `c${i}`); // 12 shown, c12/c13 pending
+  let s = initExplorerViewState('PACKAGE');
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: original, batchSize: 12 });
+  const displayedBefore = s.levelViews.CLASS.displayedIds.slice();
+  assert.equal(displayedBefore.length, 12);
+  s = explorerViewReducer(s, { type: 'INSPECT_NODE', id: 'c0' }); // first inspect: no history push yet
+  s = explorerViewReducer(s, { type: 'INSPECT_NODE', id: 'away-marker' }); // pushes {c0, CLASS} onto history
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'METHOD', eligibleIds: ['m0'], batchSize: 12 });
+  // A package is added to scope while Methods is active: 3 brand-new classes become eligible.
+  const grown = [...original, 'n0', 'n1', 'n2'];
+  s = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: ['m0'], batchSize: 12, otherLevels: { CLASS: grown } });
+  const back = explorerViewReducer(s, { type: 'NAVIGATE_BACK', eligibleIds: grown });
+  assert.equal(back.inspectedSubjectId, 'c0');
+  assert.equal(back.activeLevel, 'CLASS');
+  assert.deepEqual(back.levelViews.CLASS.displayedIds, displayedBefore, 'Back reveals nothing new -- the page is byte-identical to how the user left it');
+  const shown = explorerViewReducer(back, { type: 'SHOW_MORE', eligibleIds: grown, batchSize: 12 });
+  assert.deepEqual(shown.levelViews.CLASS.displayedIds, [...displayedBefore, 'c12', 'c13', 'n0', 'n1', 'n2'], 'Show more afterward reveals both the originally-pending and the while-away additions -- nothing was silently swallowed');
+});
+
+// --- Step 5: ARRANGE_AROUND_RESOURCE applies a bulk position update in one atomic dispatch ---
+check('ARRANGE_AROUND_RESOURCE overwrites exactly the given IDs\' positions and bumps geometryRevision once', () => {
+  const eligible = ['a', 'b', 'c'];
+  let s = initExplorerViewState('PACKAGE');
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: eligible, batchSize: 12, placement: placementFor(eligible) });
+  const revBefore = s.levelViews.CLASS.geometryRevision;
+  const untouchedBefore = s.levelViews.CLASS.positions.c;
+  const positions = { a: { x: 111, y: 222 }, b: { x: 333, y: 444 } };
+  const next = explorerViewReducer(s, { type: 'ARRANGE_AROUND_RESOURCE', level: 'CLASS', positions, generation: 0 });
+  assert.deepEqual(next.levelViews.CLASS.positions.a, positions.a);
+  assert.deepEqual(next.levelViews.CLASS.positions.b, positions.b);
+  assert.deepEqual(next.levelViews.CLASS.positions.c, untouchedBefore, 'an ID absent from the arrangement result is left exactly as it was');
+  assert.equal(next.levelViews.CLASS.geometryRevision, revBefore + 1, 'one bulk arrangement is one revision bump, not one per card');
+  assert.equal(next.activeLevel, 'CLASS', 'arrangement never changes level, scope, or membership');
+  assert.deepEqual(next.levelViews.CLASS.displayedIds, s.levelViews.CLASS.displayedIds);
+});
+
+check('ARRANGE_AROUND_RESOURCE stamped with a stale generation is ignored, matching SET_CAMERA/NODE_MOVED', () => {
+  const eligible = ['a'];
+  let s = initExplorerViewState('PACKAGE');
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: eligible, batchSize: 12, placement: placementFor(eligible) });
+  s = explorerViewReducer(s, { type: 'RESET', level: 'PACKAGE', eligibleIds: [], batchSize: 12 }); // generation 0 -> 1
+  const stale = explorerViewReducer(s, { type: 'ARRANGE_AROUND_RESOURCE', level: 'CLASS', positions: { a: { x: 9, y: 9 } }, generation: 0 });
+  assert.strictEqual(stale, s, 'a late arrangement from before a snapshot reset must not land');
+});
+
+// --- Step 5 review remediation A1: a HistoryEntry must record the level a subject was actually
+// inspected under, not whatever activeLevel happens to be when the entry is finally pushed ---
+check('A1: inspecting a class on CLASS, switching to METHOD (inspection persists), then inspecting a method pushes the CLASS-level entry, not METHOD', () => {
+  let s = initExplorerViewState('PACKAGE');
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: ['OrderController'], batchSize: 12 });
+  s = explorerViewReducer(s, { type: 'INSPECT_NODE', id: 'OrderController' }); // inspected under CLASS
+  // Switching to METHOD leaves inspectedSubjectId/inspectedLevel untouched (Step 4's cross-level
+  // inspection persistence) -- activeLevel changes underneath the still-inspected subject.
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'METHOD', eligibleIds: ['createOrder'], batchSize: 12 });
+  assert.equal(s.inspectedSubjectId, 'OrderController');
+  assert.equal(s.activeLevel, 'METHOD');
+  s = explorerViewReducer(s, { type: 'INSPECT_NODE', id: 'createOrder' });
+  const pushed = s.history[s.history.length - 1];
+  assert.equal(pushed.subjectId, 'OrderController');
+  assert.equal(pushed.level, 'CLASS', 'the entry must record CLASS -- the level OrderController was actually inspected under -- not METHOD');
+  const back = explorerViewReducer(s, { type: 'NAVIGATE_BACK', eligibleIds: ['OrderController'] });
+  assert.equal(back.activeLevel, 'CLASS', 'Back must return to Classes, not stay stuck on Methods');
+  assert.equal(back.inspectedSubjectId, 'OrderController');
+});
+
+check('A1 second lap: after Back restores the CLASS-level entry, inspecting a third subject pushes CLASS again, not the stale METHOD', () => {
+  let s = initExplorerViewState('PACKAGE');
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: ['A', 'B'], batchSize: 12 });
+  s = explorerViewReducer(s, { type: 'INSPECT_NODE', id: 'A' }); // inspected under CLASS
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'METHOD', eligibleIds: ['m'], batchSize: 12 });
+  s = explorerViewReducer(s, { type: 'INSPECT_NODE', id: 'B' }); // pushes {A, CLASS}; inspected under METHOD
+  s = explorerViewReducer(s, { type: 'NAVIGATE_BACK', eligibleIds: ['A', 'B'] }); // restores A, activeLevel CLASS, inspectedLevel CLASS
+  assert.equal(s.activeLevel, 'CLASS');
+  s = explorerViewReducer(s, { type: 'INSPECT_NODE', id: 'C' }); // pushes {A, ...}
+  const pushed = s.history[s.history.length - 1];
+  assert.equal(pushed.subjectId, 'A');
+  assert.equal(pushed.level, 'CLASS', 'NAVIGATE_BACK must restore inspectedLevel, or this second lap regresses to the same defect one hop later');
+});
+
+check('A1: CLEAR_INSPECTION also uses the level actually inspected under, not activeLevel at close time', () => {
+  let s = initExplorerViewState('PACKAGE');
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: ['A'], batchSize: 12 });
+  s = explorerViewReducer(s, { type: 'INSPECT_NODE', id: 'A' }); // inspected under CLASS
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'METHOD', eligibleIds: ['m'], batchSize: 12 });
+  s = explorerViewReducer(s, { type: 'CLEAR_INSPECTION' }); // closes A while activeLevel is METHOD
+  const pushed = s.history[s.history.length - 1];
+  assert.equal(pushed.subjectId, 'A');
+  assert.equal(pushed.level, 'CLASS', 'closing at METHOD must still record CLASS, the level A was actually inspected under');
+});
+
+// --- Step 5 review remediation B1: an explicit level change from a completely uninspected state
+// must still leave a way back, instead of silently leaving history empty and Back disabled ---
+check('B1: NAVIGATE_LEVEL from a completely uninspected state pushes a level-only breadcrumb naming the level left', () => {
+  let s = initExplorerViewState('PACKAGE');
+  const next = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: ['A'], batchSize: 12 });
+  assert.deepEqual(next.history.map(h => [h.subjectId, h.kind, h.level]), [[null, null, 'PACKAGE']]);
+  const back = explorerViewReducer(next, { type: 'NAVIGATE_BACK', eligibleIds: [] });
+  assert.equal(back.activeLevel, 'PACKAGE', 'Back returns to Packages');
+  assert.equal(back.inspectedSubjectId, null);
+  assert.equal(back.history.length, 0);
+});
+
+check('B1: re-navigating to the already-active level (a no-op elsewhere) must not push a breadcrumb', () => {
+  let s = initExplorerViewState('PACKAGE');
+  const next = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'PACKAGE', eligibleIds: [], batchSize: 12 });
+  assert.equal(next.history.length, 0);
+});
+
+check('B1: two level-only breadcrumbs at different levels do not collapse into one via the dedup guard', () => {
+  let s = initExplorerViewState('PACKAGE');
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: ['A'], batchSize: 12 }); // pushes {null,null,PACKAGE}
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'METHOD', eligibleIds: ['m'], batchSize: 12 }); // pushes {null,null,CLASS}
+  assert.deepEqual(s.history.map(h => h.level), ['PACKAGE', 'CLASS'], 'both breadcrumbs survive -- they name different levels, so the dedup guard must not treat them as the same entry');
+});
+
+check('B1: once something is inspected, leaving that level pushes no extra breadcrumb (only the ordinary inspection entry applies)', () => {
+  let s = initExplorerViewState('PACKAGE');
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: ['A'], batchSize: 12 }); // pushes {null,null,PACKAGE}
+  s = explorerViewReducer(s, { type: 'INSPECT_NODE', id: 'A' });
+  const next = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'METHOD', eligibleIds: ['m'], batchSize: 12 });
+  assert.equal(next.history.length, 1, 'NAVIGATE_LEVEL must never push while something is inspected -- that stays INSPECT_NODE/CLEAR_INSPECTION\'s job');
+});
+
+check('B1 mechanism: an inspected EDGE survives a level switch that clears it, recoverable via a single Back (App.tsx dispatches NAVIGATE_LEVEL then CLEAR_INSPECTION)', () => {
+  let s = initExplorerViewState('PACKAGE');
+  s = explorerViewReducer(s, { type: 'INSPECT_EDGE', id: 'e1' }); // inspected under PACKAGE
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: ['A'], batchSize: 12 }); // level changes; edge inspection untouched
+  s = explorerViewReducer(s, { type: 'CLEAR_INSPECTION' }); // App.tsx's B2 fix: the aggregate edge cannot resolve at CLASS
+  assert.equal(s.inspectedSubjectId, null);
+  const back = explorerViewReducer(s, { type: 'NAVIGATE_BACK', eligibleIds: [] });
+  assert.equal(back.inspectedSubjectId, 'e1');
+  assert.equal(back.inspectedKind, 'EDGE');
+  assert.equal(back.activeLevel, 'PACKAGE', 'one Back both undoes the level switch and restores the edge inspection');
+});
+
+console.log(`PASS: ${passCount} explorerViewState reducer checks (inspection/membership separation, append-only scope growth, show more, back navigation, reset, Step 3 geometry/camera, Step 4 inactive-level scope reconciliation and Back precedence, Step 5 focused arrangement, Step 5 review remediation A1/B1)`);

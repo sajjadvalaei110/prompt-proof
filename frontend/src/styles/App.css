@@ -76,6 +76,7 @@ h1 { font-size: 25px; letter-spacing: -.7px; line-height: 1.3; font-weight: 650;
 .scope-banner-text span { font-size: 10px; color: #5c7c7e; }
 .scope-banner-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .inspecting-chip { color: #48637c; background: #eef2f7; }
+.added-below-chip { color: #166d76; background: #e7f5f5; }
 .scope-empty-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; padding: 40px 20px; color: #62738a; }
 .scope-empty-state h2 { font-size: 16px; }
 .breadcrumb-level { color: #7c8da2; }

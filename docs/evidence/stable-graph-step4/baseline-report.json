@@ -1,0 +1,2315 @@
+{
+  "mode": "baseline",
+  "snapshot": "2c7e613a-ed7f-44f6-98cf-280465342d45",
+  "workspace": "3a648e6f-71a0-4efa-8914-8d8382d8a223",
+  "fixture": {
+    "path": "/tmp/code-atlas-stable-fixture-nh70yrj7/stable-graph-fixture",
+    "typeCount": 74,
+    "packageCount": 6,
+    "edgeKinds": [
+      "CALLS",
+      "DEPENDS_ON",
+      "IMPLEMENTS",
+      "INJECTS"
+    ],
+    "displayedResolutions": [
+      "CANDIDATE",
+      "RESOLVED"
+    ],
+    "unresolvedRelationships": 23
+  },
+  "browserErrors": [],
+  "scenarios": [
+    {
+      "name": "click-class-card-at-12",
+      "delta": {
+        "countBefore": 12,
+        "countAfter": 12,
+        "idOrderPreserved": true,
+        "survivors": 12,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 1,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 33,
+        "edgeCountAfter": 33,
+        "levelBefore": "Classes",
+        "levelAfter": "Classes",
+        "showMoreBefore": "Showing 12 of 74 in scope · show 12 more",
+        "showMoreAfter": "Showing 12 of 74 in scope · show 12 more",
+        "scopeChanged": false,
+        "subject": "class✕"
+      },
+      "before": {
+        "count": 12,
+        "edges": 33,
+        "zoom": 0.4749,
+        "pan": {
+          "x": 45.8074,
+          "y": 210.31
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 12 of 74 in scope · show 12 more",
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "after": {
+        "count": 12,
+        "edges": 33,
+        "zoom": 0.4749,
+        "pan": {
+          "x": 45.8074,
+          "y": 210.31
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 12 of 74 in scope · show 12 more",
+        "inspecting": "Inspecting CatalogService",
+        "inspectorSubject": "class✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "checks": [
+        {
+          "label": "inspector opened",
+          "ok": true
+        },
+        {
+          "label": "canvas instance survives (no topology change)",
+          "ok": true
+        },
+        {
+          "label": "no arrangement command (Step 3 fixed)",
+          "ok": true
+        },
+        {
+          "label": "no card moves (Step 3 fixed)",
+          "ok": true
+        },
+        {
+          "label": "camera is preserved (Step 3 fixed)",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "reveal-36-then-click-class",
+      "delta": {
+        "countBefore": 36,
+        "countAfter": 36,
+        "idOrderPreserved": true,
+        "survivors": 36,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 1,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 93,
+        "edgeCountAfter": 93,
+        "levelBefore": "Classes",
+        "levelAfter": "Classes",
+        "showMoreBefore": "Showing 36 of 74 in scope · show 12 more",
+        "showMoreAfter": "Showing 36 of 74 in scope · show 12 more",
+        "scopeChanged": false,
+        "subject": "class✕"
+      },
+      "before": {
+        "count": 36,
+        "edges": 93,
+        "zoom": 0.5699,
+        "pan": {
+          "x": -144.8311,
+          "y": 123.972
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 36 of 74 in scope · show 12 more",
+        "inspecting": "Inspecting CatalogService",
+        "inspectorSubject": "class✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "after": {
+        "count": 36,
+        "edges": 93,
+        "zoom": 0.5699,
+        "pan": {
+          "x": -144.8311,
+          "y": 123.972
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 36 of 74 in scope · show 12 more",
+        "inspecting": "Inspecting ShipmentService",
+        "inspectorSubject": "class✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "checks": [
+        {
+          "label": "inspector opened",
+          "ok": true
+        },
+        {
+          "label": "still 36 displayed (Step 2 fixed)",
+          "ok": true
+        },
+        {
+          "label": "canvas instance survives (Step 2 fixed)",
+          "ok": true
+        },
+        {
+          "label": "no card moves (Step 3 fixed)",
+          "ok": true
+        },
+        {
+          "label": "the user camera is preserved (Step 3 fixed)",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "click-package-card",
+      "delta": {
+        "countBefore": 6,
+        "countAfter": 6,
+        "idOrderPreserved": true,
+        "survivors": 6,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 1,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 7,
+        "edgeCountAfter": 7,
+        "levelBefore": "Packages",
+        "levelAfter": "Packages",
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 6,
+        "edges": 7,
+        "zoom": 0.4305,
+        "pan": {
+          "x": 45.7318,
+          "y": 250.6439
+        },
+        "level": "Packages",
+        "banner": "Showing packages · 6 packages",
+        "showMore": null,
+        "inspecting": "Inspecting ShipmentService",
+        "inspectorSubject": "class✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 565
+        }
+      },
+      "after": {
+        "count": 6,
+        "edges": 7,
+        "zoom": 0.4305,
+        "pan": {
+          "x": 45.7318,
+          "y": 250.6439
+        },
+        "level": "Packages",
+        "banner": "Showing packages · 6 packages",
+        "showMore": null,
+        "inspecting": "Inspecting com.example.stable.domain",
+        "inspectorSubject": "package✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 565
+        }
+      },
+      "checks": [
+        {
+          "label": "inspector opened",
+          "ok": true
+        },
+        {
+          "label": "package count unchanged (no limit at PACKAGE level)",
+          "ok": true
+        },
+        {
+          "label": "no arrangement command (Step 3 fixed)",
+          "ok": true
+        },
+        {
+          "label": "no card moves (Step 3 fixed)",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "click-edge",
+      "delta": {
+        "countBefore": 36,
+        "countAfter": 36,
+        "idOrderPreserved": true,
+        "survivors": 36,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 93,
+        "edgeCountAfter": 93,
+        "levelBefore": "Classes",
+        "levelAfter": "Classes",
+        "showMoreBefore": "Showing 36 of 74 in scope · show 12 more",
+        "showMoreAfter": "Showing 36 of 74 in scope · show 12 more",
+        "scopeChanged": false,
+        "edgeId": "aggregate:[\"08e07c3b-6a9a-4a41-a857-22b76bce8304\",\"1b559c4e-4f3f-435a-adfe-c9a36db1e1fa\",\"CALLS\",\"RESOLVED\"]"
+      },
+      "before": {
+        "count": 36,
+        "edges": 93,
+        "zoom": 0.6839,
+        "pan": {
+          "x": -373.5974,
+          "y": 20.3664
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 36 of 74 in scope · show 12 more",
+        "inspecting": "Inspecting AuditService",
+        "inspectorSubject": "class✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "after": {
+        "count": 36,
+        "edges": 93,
+        "zoom": 0.6839,
+        "pan": {
+          "x": -373.5974,
+          "y": 20.3664
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 36 of 74 in scope · show 12 more",
+        "inspecting": "Inspecting a relationship",
+        "inspectorSubject": "Relationship✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "checks": [
+        {
+          "label": "relationship inspector opened",
+          "ok": true
+        },
+        {
+          "label": "edge selection does not reset the display limit",
+          "ok": true
+        },
+        {
+          "label": "no arrangement command (Step 3 fixed)",
+          "ok": true
+        },
+        {
+          "label": "no card moves, since selection never arranges the map (Step 3 fixed)",
+          "ok": true
+        },
+        {
+          "label": "the user camera is preserved (Step 3 fixed)",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "inspect-unresolved-relationship",
+      "delta": {
+        "countBefore": 36,
+        "countAfter": 36,
+        "idOrderPreserved": true,
+        "survivors": 36,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 93,
+        "edgeCountAfter": 93,
+        "levelBefore": "Classes",
+        "levelAfter": "Classes",
+        "showMoreBefore": "Showing 36 of 74 in scope · show 12 more",
+        "showMoreAfter": "Showing 36 of 74 in scope · show 12 more",
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 36,
+        "edges": 93,
+        "zoom": 0.6839,
+        "pan": {
+          "x": -373.5974,
+          "y": 20.3664
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 36 of 74 in scope · show 12 more",
+        "inspecting": "Inspecting ExternalPaymentGateway",
+        "inspectorSubject": "class✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "after": {
+        "count": 36,
+        "edges": 93,
+        "zoom": 0.6839,
+        "pan": {
+          "x": -373.5974,
+          "y": 20.3664
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 36 of 74 in scope · show 12 more",
+        "inspecting": "Inspecting a relationship",
+        "inspectorSubject": "Relationship✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "checks": [
+        {
+          "label": "inspector stays open, not idle",
+          "ok": true
+        },
+        {
+          "label": "relationship content is shown",
+          "ok": true
+        },
+        {
+          "label": "displayed page count unaffected",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "change-relationship-filter",
+      "delta": {
+        "countBefore": 36,
+        "countAfter": 36,
+        "idOrderPreserved": true,
+        "survivors": 36,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 93,
+        "edgeCountAfter": 31,
+        "levelBefore": "Classes",
+        "levelAfter": "Classes",
+        "showMoreBefore": "Showing 36 of 74 in scope · show 12 more",
+        "showMoreAfter": "Showing 36 of 74 in scope · show 12 more",
+        "scopeChanged": false,
+        "filterKind": "CALLS"
+      },
+      "before": {
+        "count": 36,
+        "edges": 93,
+        "zoom": 0.8207,
+        "pan": {
+          "x": -648.1168,
+          "y": -103.9603
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 36 of 74 in scope · show 12 more",
+        "inspecting": "Inspecting a relationship",
+        "inspectorSubject": "Relationship✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "after": {
+        "count": 36,
+        "edges": 31,
+        "zoom": 0.8207,
+        "pan": {
+          "x": -648.1168,
+          "y": -103.9603
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 36 of 74 in scope · show 12 more",
+        "inspecting": "Inspecting a relationship",
+        "inspectorSubject": "Relationship✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "checks": [
+        {
+          "label": "edge set changed",
+          "ok": true
+        },
+        {
+          "label": "canvas instance preserved (Step 3 fixed)",
+          "ok": true
+        },
+        {
+          "label": "the user camera is preserved (Step 3 fixed)",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "inspect-edge-survives-filter-change",
+      "delta": {
+        "countBefore": 36,
+        "countAfter": 36,
+        "idOrderPreserved": true,
+        "survivors": 36,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 93,
+        "edgeCountAfter": 31,
+        "levelBefore": "Classes",
+        "levelAfter": "Classes",
+        "showMoreBefore": "Showing 36 of 74 in scope · show 12 more",
+        "showMoreAfter": "Showing 36 of 74 in scope · show 12 more",
+        "scopeChanged": false,
+        "clickedKind": "CALLS",
+        "filteredToKind": "DEPENDS_ON",
+        "notice": "Not shown with the current relationship filter."
+      },
+      "before": {
+        "count": 36,
+        "edges": 93,
+        "zoom": 0.8207,
+        "pan": {
+          "x": -648.1168,
+          "y": -103.9603
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 36 of 74 in scope · show 12 more",
+        "inspecting": "Inspecting a relationship",
+        "inspectorSubject": "Relationship✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "after": {
+        "count": 36,
+        "edges": 31,
+        "zoom": 0.8207,
+        "pan": {
+          "x": -648.1168,
+          "y": -103.9603
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 36 of 74 in scope · show 12 more",
+        "inspecting": "Inspecting a relationship",
+        "inspectorSubject": "Relationship✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "checks": [
+        {
+          "label": "inspector stays open, not idle",
+          "ok": true
+        },
+        {
+          "label": "relationship content is still shown",
+          "ok": true
+        },
+        {
+          "label": "a \"not shown with the current filter\" notice appears",
+          "ok": true
+        },
+        {
+          "label": "node membership unaffected by a filter change",
+          "ok": true
+        },
+        {
+          "label": "no card moved",
+          "ok": true
+        },
+        {
+          "label": "camera preserved",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "add-package-to-scope",
+      "delta": {
+        "countBefore": 38,
+        "countAfter": 50,
+        "idOrderPreserved": false,
+        "survivors": 38,
+        "dropped": 0,
+        "added": 12,
+        "survivorsMoved": 0,
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 6,
+        "edgeCountAfter": 73,
+        "levelBefore": "Classes",
+        "levelAfter": "Classes",
+        "showMoreBefore": "Showing 38 of 40 in scope · show 2 more",
+        "showMoreAfter": "Showing 50 of 64 in scope · show 12 more",
+        "scopeChanged": true
+      },
+      "before": {
+        "count": 38,
+        "edges": 6,
+        "zoom": 0.9848,
+        "pan": {
+          "x": -977.5402,
+          "y": -248.3523
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 40 classes in 4 selected packages",
+        "showMore": "Showing 38 of 40 in scope · show 2 more",
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 2,
+        "canvasBox": {
+          "w": 918,
+          "h": 516
+        }
+      },
+      "after": {
+        "count": 50,
+        "edges": 73,
+        "zoom": 0.9848,
+        "pan": {
+          "x": -977.5402,
+          "y": -248.3523
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 64 classes in 5 selected packages",
+        "showMore": "Showing 50 of 64 in scope · show 12 more",
+        "inspecting": "Inspecting a relationship",
+        "inspectorSubject": "Relationship✕",
+        "probeId": 2,
+        "canvasBox": {
+          "w": 918,
+          "h": 516
+        }
+      },
+      "checks": [
+        {
+          "label": "scope changed",
+          "ok": true
+        },
+        {
+          "label": "canvas instance preserved (Step 3 fixed)",
+          "ok": true
+        },
+        {
+          "label": "no previously displayed class is evicted (Step 2 fixed)",
+          "ok": true
+        },
+        {
+          "label": "the displayed page grows rather than being re-selected (Step 2 fixed)",
+          "ok": true
+        },
+        {
+          "label": "no survivor moves; new cards are appended below (Step 3 fixed)",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "remove-package-from-scope",
+      "delta": {
+        "countBefore": 50,
+        "countAfter": 38,
+        "idOrderPreserved": false,
+        "survivors": 38,
+        "dropped": 12,
+        "added": 0,
+        "survivorsMoved": 0,
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 73,
+        "edgeCountAfter": 6,
+        "levelBefore": "Classes",
+        "levelAfter": "Classes",
+        "showMoreBefore": "Showing 50 of 64 in scope · show 12 more",
+        "showMoreAfter": "Showing 38 of 40 in scope · show 2 more",
+        "scopeChanged": true
+      },
+      "before": {
+        "count": 50,
+        "edges": 73,
+        "zoom": 0.9848,
+        "pan": {
+          "x": -977.5402,
+          "y": -248.3523
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 64 classes in 5 selected packages",
+        "showMore": "Showing 50 of 64 in scope · show 12 more",
+        "inspecting": "Inspecting a relationship",
+        "inspectorSubject": "Relationship✕",
+        "probeId": 2,
+        "canvasBox": {
+          "w": 918,
+          "h": 516
+        }
+      },
+      "after": {
+        "count": 38,
+        "edges": 6,
+        "zoom": 0.9848,
+        "pan": {
+          "x": -977.5402,
+          "y": -248.3523
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 40 classes in 4 selected packages",
+        "showMore": "Showing 38 of 40 in scope · show 2 more",
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 2,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "checks": [
+        {
+          "label": "scope changed",
+          "ok": true
+        },
+        {
+          "label": "canvas instance preserved (Step 3 fixed)",
+          "ok": true
+        },
+        {
+          "label": "no holes filled from the hidden queue (Step 2 fixed)",
+          "ok": true
+        },
+        {
+          "label": "no survivor moves (Step 3 fixed)",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "close-details-pane",
+      "delta": {
+        "countBefore": 50,
+        "countAfter": 50,
+        "idOrderPreserved": true,
+        "survivors": 50,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 73,
+        "edgeCountAfter": 73,
+        "levelBefore": "Classes",
+        "levelAfter": "Classes",
+        "showMoreBefore": "Showing 50 of 74 in scope · show 12 more",
+        "showMoreAfter": "Showing 50 of 74 in scope · show 12 more",
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 50,
+        "edges": 73,
+        "zoom": 0.9848,
+        "pan": {
+          "x": -977.5402,
+          "y": -248.3523
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 50 of 74 in scope · show 12 more",
+        "inspecting": "Inspecting MathTools",
+        "inspectorSubject": "class✕",
+        "probeId": 2,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "after": {
+        "count": 50,
+        "edges": 73,
+        "zoom": 0.9848,
+        "pan": {
+          "x": -977.5402,
+          "y": -248.3523
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 50 of 74 in scope · show 12 more",
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 2,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "checks": [
+        {
+          "label": "inspector closed",
+          "ok": true
+        },
+        {
+          "label": "no arrangement command (Step 3 fixed)",
+          "ok": true
+        },
+        {
+          "label": "no card moves when details close (Step 3 fixed)",
+          "ok": true
+        },
+        {
+          "label": "camera is preserved (Step 3 fixed)",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "resize-pane",
+      "delta": {
+        "countBefore": 50,
+        "countAfter": 50,
+        "idOrderPreserved": true,
+        "survivors": 50,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 73,
+        "edgeCountAfter": 73,
+        "levelBefore": "Classes",
+        "levelAfter": "Classes",
+        "showMoreBefore": "Showing 50 of 74 in scope · show 12 more",
+        "showMoreAfter": "Showing 50 of 74 in scope · show 12 more",
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 50,
+        "edges": 73,
+        "zoom": 0.9848,
+        "pan": {
+          "x": -977.5402,
+          "y": -248.3523
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 50 of 74 in scope · show 12 more",
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 2,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "after": {
+        "count": 50,
+        "edges": 73,
+        "zoom": 0.9848,
+        "pan": {
+          "x": -977.5402,
+          "y": -248.3523
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 50 of 74 in scope · show 12 more",
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 2,
+        "canvasBox": {
+          "w": 685,
+          "h": 458
+        }
+      },
+      "checks": [
+        {
+          "label": "canvas resized",
+          "ok": true
+        },
+        {
+          "label": "resize observer no longer refits the camera (Step 3 fixed)",
+          "ok": true
+        },
+        {
+          "label": "camera unchanged by a resize alone (Step 3 fixed)",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "manual-drag-persists",
+      "delta": {
+        "countBefore": 50,
+        "countAfter": 50,
+        "idOrderPreserved": true,
+        "survivors": 50,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 1,
+        "maxMoveModelUnits": 146.44,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 73,
+        "edgeCountAfter": 73,
+        "levelBefore": "Classes",
+        "levelAfter": "Classes",
+        "showMoreBefore": "Showing 50 of 74 in scope · show 12 more",
+        "showMoreAfter": "Showing 50 of 74 in scope · show 12 more",
+        "scopeChanged": false,
+        "draggedId": "7e4fc850-d0c5-42b0-8127-b262e94dad21"
+      },
+      "before": {
+        "count": 50,
+        "edges": 73,
+        "zoom": 0.9848,
+        "pan": {
+          "x": -977.5402,
+          "y": -248.3523
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 50 of 74 in scope · show 12 more",
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 2,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "after": {
+        "count": 50,
+        "edges": 73,
+        "zoom": 0.9848,
+        "pan": {
+          "x": -977.5402,
+          "y": -248.3523
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 50 of 74 in scope · show 12 more",
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 2,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "checks": [
+        {
+          "label": "exactly the dragged card moved",
+          "ok": true
+        },
+        {
+          "label": "the dragged card actually moved a meaningful distance",
+          "ok": true
+        },
+        {
+          "label": "camera untouched by a node drag",
+          "ok": true
+        },
+        {
+          "label": "no arrangement command",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "manual-drag-persists-across-level-switch",
+      "delta": {
+        "countBefore": 50,
+        "countAfter": 50,
+        "idOrderPreserved": true,
+        "survivors": 50,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 73,
+        "edgeCountAfter": 73,
+        "levelBefore": "Classes",
+        "levelAfter": "Classes",
+        "showMoreBefore": "Showing 50 of 74 in scope · show 12 more",
+        "showMoreAfter": "Showing 50 of 74 in scope · show 12 more",
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 50,
+        "edges": 73,
+        "zoom": 0.9848,
+        "pan": {
+          "x": -977.5402,
+          "y": -248.3523
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 50 of 74 in scope · show 12 more",
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 2,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "after": {
+        "count": 50,
+        "edges": 73,
+        "zoom": 0.9848,
+        "pan": {
+          "x": -977.5402,
+          "y": -248.3523
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 50 of 74 in scope · show 12 more",
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 2,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "checks": [
+        {
+          "label": "the dragged position survives a level switch away and back",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "two-spaced-single-clicks",
+      "delta": {
+        "countBefore": 50,
+        "countAfter": 50,
+        "idOrderPreserved": true,
+        "survivors": 50,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 2,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 73,
+        "edgeCountAfter": 73,
+        "levelBefore": "Classes",
+        "levelAfter": "Classes",
+        "showMoreBefore": "Showing 50 of 74 in scope · show 12 more",
+        "showMoreAfter": "Showing 50 of 74 in scope · show 12 more",
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 50,
+        "edges": 73,
+        "zoom": 0.9848,
+        "pan": {
+          "x": -977.5402,
+          "y": -248.3523
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 50 of 74 in scope · show 12 more",
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 2,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "after": {
+        "count": 50,
+        "edges": 73,
+        "zoom": 0.9848,
+        "pan": {
+          "x": -977.5402,
+          "y": -248.3523
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 50 of 74 in scope · show 12 more",
+        "inspecting": "Inspecting MathTools",
+        "inspectorSubject": "class✕",
+        "probeId": 2,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "checks": [
+        {
+          "label": "two taps dispatched",
+          "ok": true
+        },
+        {
+          "label": "no double-click gesture",
+          "ok": true
+        },
+        {
+          "label": "level unchanged by single clicks",
+          "ok": true
+        },
+        {
+          "label": "single clicks no longer arrange the map (Step 3 fixed)",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "control-double-click-empty-canvas",
+      "delta": {
+        "countBefore": 12,
+        "countAfter": 12,
+        "idOrderPreserved": true,
+        "survivors": 12,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 1,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 33,
+        "edgeCountAfter": 33,
+        "levelBefore": "Classes",
+        "levelAfter": "Classes",
+        "showMoreBefore": "Showing 12 of 74 in scope · show 12 more",
+        "showMoreAfter": "Showing 12 of 74 in scope · show 12 more",
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 12,
+        "edges": 33,
+        "zoom": 0.4749,
+        "pan": {
+          "x": 45.8074,
+          "y": 210.31
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 12 of 74 in scope · show 12 more",
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "after": {
+        "count": 12,
+        "edges": 33,
+        "zoom": 0.4749,
+        "pan": {
+          "x": 45.8074,
+          "y": 210.31
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 12 of 74 in scope · show 12 more",
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "checks": [
+        {
+          "label": "CDP synthesises a double-click Cytoscape recognises",
+          "ok": true
+        },
+        {
+          "label": "no node double-click",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "real-double-click-at-12-human-paced",
+      "delta": {
+        "countBefore": 12,
+        "countAfter": 12,
+        "idOrderPreserved": true,
+        "survivors": 12,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 2,
+        "dbltaps": 1,
+        "anyDbltaps": 1,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 33,
+        "edgeCountAfter": 33,
+        "levelBefore": "Classes",
+        "levelAfter": "Classes",
+        "showMoreBefore": "Showing 12 of 74 in scope · show 12 more",
+        "showMoreAfter": "Showing 12 of 74 in scope · show 12 more",
+        "scopeChanged": false,
+        "targetLeftPointerBy": 0
+      },
+      "before": {
+        "count": 12,
+        "edges": 33,
+        "zoom": 0.4749,
+        "pan": {
+          "x": 45.8074,
+          "y": 210.31
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 12 of 74 in scope · show 12 more",
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "after": {
+        "count": 12,
+        "edges": 33,
+        "zoom": 0.4749,
+        "pan": {
+          "x": 45.8074,
+          "y": 210.31
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 12 of 74 in scope · show 12 more",
+        "inspecting": "Inspecting InvoiceService",
+        "inspectorSubject": "class✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "checks": [
+        {
+          "label": "canvas instance survives the first tap",
+          "ok": true
+        },
+        {
+          "label": "the first tap no longer arranges the map (Step 3 fixed)",
+          "ok": true
+        },
+        {
+          "label": "no card moves under the pointer (Step 3 fixed)",
+          "ok": true
+        },
+        {
+          "label": "the second press now reliably reaches the card and the gesture fires (Step 3 fixed the position-shift-away defect)",
+          "ok": true
+        },
+        {
+          "label": "double-click no longer drills into Methods -- Step 4 disconnected it from explore(); no arrangement exists yet either (Step 5's job)",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "real-double-click-at-12-fast",
+      "delta": {
+        "countBefore": 12,
+        "countAfter": 12,
+        "idOrderPreserved": true,
+        "survivors": 12,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 2,
+        "dbltaps": 1,
+        "anyDbltaps": 1,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 33,
+        "edgeCountAfter": 33,
+        "levelBefore": "Classes",
+        "levelAfter": "Classes",
+        "showMoreBefore": "Showing 12 of 74 in scope · show 12 more",
+        "showMoreAfter": "Showing 12 of 74 in scope · show 12 more",
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 12,
+        "edges": 33,
+        "zoom": 0.4749,
+        "pan": {
+          "x": 45.8074,
+          "y": 210.31
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 12 of 74 in scope · show 12 more",
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "after": {
+        "count": 12,
+        "edges": 33,
+        "zoom": 0.4749,
+        "pan": {
+          "x": 45.8074,
+          "y": 210.31
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 12 of 74 in scope · show 12 more",
+        "inspecting": "Inspecting InvoiceService",
+        "inspectorSubject": "class✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "checks": [
+        {
+          "label": "the first tap no longer arranges the map (Step 3 fixed)",
+          "ok": true
+        },
+        {
+          "label": "no card moves under the pointer (Step 3 fixed)",
+          "ok": true
+        },
+        {
+          "label": "the gesture reaches Cytoscape even at minimal separation (Step 3 fixed)",
+          "ok": true
+        },
+        {
+          "label": "double-click no longer drills into Methods (Step 4); no arrangement exists yet (Step 5's job)",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "real-double-click-at-36",
+      "delta": {
+        "countBefore": 36,
+        "countAfter": 36,
+        "idOrderPreserved": true,
+        "survivors": 36,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 2,
+        "dbltaps": 1,
+        "anyDbltaps": 1,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 93,
+        "edgeCountAfter": 93,
+        "levelBefore": "Classes",
+        "levelAfter": "Classes",
+        "showMoreBefore": "Showing 36 of 74 in scope · show 12 more",
+        "showMoreAfter": "Showing 36 of 74 in scope · show 12 more",
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 36,
+        "edges": 93,
+        "zoom": 0.4749,
+        "pan": {
+          "x": 45.8074,
+          "y": 210.31
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 36 of 74 in scope · show 12 more",
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "after": {
+        "count": 36,
+        "edges": 93,
+        "zoom": 0.4749,
+        "pan": {
+          "x": 45.8074,
+          "y": 210.31
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 36 of 74 in scope · show 12 more",
+        "inspecting": "Inspecting InvoiceService",
+        "inspectorSubject": "class✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "checks": [
+        {
+          "label": "canvas instance survives the first tap (Step 2 fixed)",
+          "ok": true
+        },
+        {
+          "label": "the double-click gesture now reaches the node (Step 3 fixed the position-shift-away defect)",
+          "ok": true
+        },
+        {
+          "label": "no drill-down to Methods -- Step 4 disconnected double-click from explore()",
+          "ok": true
+        },
+        {
+          "label": "the same 36 classes remain displayed (Step 4)",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "narrow-layout",
+      "delta": {
+        "horizontalOverflow": false
+      },
+      "checks": []
+    },
+    {
+      "name": "traverse-a-to-b-to-c-via-inspector",
+      "delta": {
+        "countBefore": 36,
+        "countAfter": 36,
+        "idOrderPreserved": true,
+        "survivors": 36,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 93,
+        "edgeCountAfter": 93,
+        "levelBefore": "Classes",
+        "levelAfter": "Classes",
+        "showMoreBefore": "Showing 36 of 74 in scope · show 12 more",
+        "showMoreAfter": "Showing 36 of 74 in scope · show 12 more",
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 36,
+        "edges": 93,
+        "zoom": 0.5699,
+        "pan": {
+          "x": -144.8311,
+          "y": 123.972
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 36 of 74 in scope · show 12 more",
+        "inspecting": "Inspecting OrderController",
+        "inspectorSubject": "class✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "after": {
+        "count": 36,
+        "edges": 93,
+        "zoom": 0.5699,
+        "pan": {
+          "x": -144.8311,
+          "y": 123.972
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 36 of 74 in scope · show 12 more",
+        "inspecting": "Inspecting OrderRepository",
+        "inspectorSubject": "class✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "checks": [
+        {
+          "label": "the level did not change while following relationships",
+          "ok": true
+        },
+        {
+          "label": "the displayed 36 classes are unaffected",
+          "ok": true
+        },
+        {
+          "label": "no card moved while following relationships",
+          "ok": true
+        },
+        {
+          "label": "camera preserved while following relationships",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "back-restores-b",
+      "delta": {
+        "countBefore": 36,
+        "countAfter": 36,
+        "idOrderPreserved": true,
+        "survivors": 36,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 93,
+        "edgeCountAfter": 93,
+        "levelBefore": "Classes",
+        "levelAfter": "Classes",
+        "showMoreBefore": "Showing 36 of 74 in scope · show 12 more",
+        "showMoreAfter": "Showing 36 of 74 in scope · show 12 more",
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 36,
+        "edges": 93,
+        "zoom": 0.5699,
+        "pan": {
+          "x": -144.8311,
+          "y": 123.972
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 36 of 74 in scope · show 12 more",
+        "inspecting": "Inspecting OrderRepository",
+        "inspectorSubject": "class✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "after": {
+        "count": 36,
+        "edges": 93,
+        "zoom": 0.5699,
+        "pan": {
+          "x": -144.8311,
+          "y": 123.972
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 36 of 74 in scope · show 12 more",
+        "inspecting": "Inspecting OrderService",
+        "inspectorSubject": "class✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "checks": [
+        {
+          "label": "Back restores exactly the previous subject (B)",
+          "ok": true
+        },
+        {
+          "label": "Back does not invoke layout",
+          "ok": true
+        },
+        {
+          "label": "no card moved on Back",
+          "ok": true
+        },
+        {
+          "label": "membership unchanged by Back",
+          "ok": true
+        },
+        {
+          "label": "camera preserved by Back",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "back-restores-a",
+      "delta": {
+        "countBefore": 36,
+        "countAfter": 36,
+        "idOrderPreserved": true,
+        "survivors": 36,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 93,
+        "edgeCountAfter": 93,
+        "levelBefore": "Classes",
+        "levelAfter": "Classes",
+        "showMoreBefore": "Showing 36 of 74 in scope · show 12 more",
+        "showMoreAfter": "Showing 36 of 74 in scope · show 12 more",
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 36,
+        "edges": 93,
+        "zoom": 0.5699,
+        "pan": {
+          "x": -144.8311,
+          "y": 123.972
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 36 of 74 in scope · show 12 more",
+        "inspecting": "Inspecting OrderService",
+        "inspectorSubject": "class✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "after": {
+        "count": 36,
+        "edges": 93,
+        "zoom": 0.5699,
+        "pan": {
+          "x": -144.8311,
+          "y": 123.972
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 36 of 74 in scope · show 12 more",
+        "inspecting": "Inspecting OrderController",
+        "inspectorSubject": "class✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "checks": [
+        {
+          "label": "a second Back is available",
+          "ok": true
+        },
+        {
+          "label": "Back restores exactly the original subject (A)",
+          "ok": true
+        },
+        {
+          "label": "Back does not invoke layout",
+          "ok": true
+        },
+        {
+          "label": "no card moved on the second Back",
+          "ok": true
+        },
+        {
+          "label": "membership unchanged by the second Back",
+          "ok": true
+        },
+        {
+          "label": "camera preserved by the second Back",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "classes-methods-classes-preserves-subject-and-geometry",
+      "delta": {
+        "countBefore": 12,
+        "countAfter": 12,
+        "idOrderPreserved": true,
+        "survivors": 12,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 1,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 33,
+        "edgeCountAfter": 33,
+        "levelBefore": "Classes",
+        "levelAfter": "Classes",
+        "showMoreBefore": "Showing 12 of 74 in scope · show 12 more",
+        "showMoreAfter": "Showing 12 of 74 in scope · show 12 more",
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 12,
+        "edges": 33,
+        "zoom": 0.5699,
+        "pan": {
+          "x": -144.8311,
+          "y": 123.972
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 12 of 74 in scope · show 12 more",
+        "inspecting": "Inspecting CatalogService",
+        "inspectorSubject": "class✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "after": {
+        "count": 12,
+        "edges": 33,
+        "zoom": 0.5699,
+        "pan": {
+          "x": -144.8311,
+          "y": 123.972
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 12 of 74 in scope · show 12 more",
+        "inspecting": "Inspecting CatalogService",
+        "inspectorSubject": "class✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "checks": [
+        {
+          "label": "inspection survives switching to Methods (not cleared by the level control)",
+          "ok": true
+        },
+        {
+          "label": "inspection is still shown after returning to Classes",
+          "ok": true
+        },
+        {
+          "label": "the Classes page is byte-identical after the round trip",
+          "ok": true
+        },
+        {
+          "label": "no card moved",
+          "ok": true
+        },
+        {
+          "label": "camera preserved",
+          "ok": true
+        },
+        {
+          "label": "canvas instance preserved throughout",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "inspect-out-of-scope-resource",
+      "delta": {
+        "countBefore": 12,
+        "countAfter": 12,
+        "idOrderPreserved": true,
+        "survivors": 12,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 6,
+        "edgeCountAfter": 6,
+        "levelBefore": "Classes",
+        "levelAfter": "Classes",
+        "showMoreBefore": "Showing 12 of 14 in scope · show 2 more",
+        "showMoreAfter": "Showing 12 of 14 in scope · show 2 more",
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 12,
+        "edges": 6,
+        "zoom": 0.5699,
+        "pan": {
+          "x": -144.8311,
+          "y": 123.972
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 14 classes in 1 selected package",
+        "showMore": "Showing 12 of 14 in scope · show 2 more",
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 2,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "after": {
+        "count": 12,
+        "edges": 6,
+        "zoom": 0.5699,
+        "pan": {
+          "x": -144.8311,
+          "y": 123.972
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 14 classes in 1 selected package",
+        "showMore": "Showing 12 of 14 in scope · show 2 more",
+        "inspecting": "Inspecting ExternalPaymentGateway",
+        "inspectorSubject": "class✕",
+        "probeId": 2,
+        "canvasBox": {
+          "w": 918,
+          "h": 516
+        }
+      },
+      "checks": [
+        {
+          "label": "inspector opens for the out-of-scope subject",
+          "ok": true
+        },
+        {
+          "label": "the \"Outside current scope\" notice is shown",
+          "ok": true
+        },
+        {
+          "label": "scope checkboxes are unaffected",
+          "ok": true
+        },
+        {
+          "label": "displayed membership is unaffected",
+          "ok": true
+        },
+        {
+          "label": "level unchanged",
+          "ok": true
+        },
+        {
+          "label": "no card moved",
+          "ok": true
+        },
+        {
+          "label": "camera preserved",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "scope-remove-readd-while-away",
+      "delta": {
+        "countBefore": 12,
+        "countAfter": 12,
+        "idOrderPreserved": false,
+        "survivors": 12,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 1,
+        "maxMoveModelUnits": 700.46,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 1,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 33,
+        "edgeCountAfter": 33,
+        "levelBefore": "Classes",
+        "levelAfter": "Classes",
+        "showMoreBefore": "Showing 12 of 74 in scope · show 12 more",
+        "showMoreAfter": "Showing 12 of 74 in scope · show 12 more",
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 12,
+        "edges": 33,
+        "zoom": 0.5699,
+        "pan": {
+          "x": -144.8311,
+          "y": 123.972
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 12 of 74 in scope · show 12 more",
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "after": {
+        "count": 12,
+        "edges": 33,
+        "zoom": 0.5699,
+        "pan": {
+          "x": -144.8311,
+          "y": 123.972
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes in 5 selected packages and 24 selected classes",
+        "showMore": "Showing 12 of 74 in scope · show 12 more",
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 516
+        }
+      },
+      "checks": [
+        {
+          "label": "the page count is restored (11 survivors + the re-added class)",
+          "ok": true
+        },
+        {
+          "label": "the re-added class lands at the end, not back in its old slot",
+          "ok": true
+        },
+        {
+          "label": "every other survivor keeps its exact position",
+          "ok": true
+        },
+        {
+          "label": "the re-added class gets a fresh position, not its old one",
+          "ok": true
+        },
+        {
+          "label": "level is Classes again",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "narrow-inspect-return-preserves-geometry",
+      "delta": {
+        "countBefore": 12,
+        "countAfter": 12,
+        "idOrderPreserved": true,
+        "survivors": 12,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 1,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 33,
+        "edgeCountAfter": 33,
+        "levelBefore": "Classes",
+        "levelAfter": "Classes",
+        "showMoreBefore": "Showing 12 of 74 in scope · show 12 more",
+        "showMoreAfter": "Showing 12 of 74 in scope · show 12 more",
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 12,
+        "edges": 33,
+        "zoom": 0.5699,
+        "pan": {
+          "x": -144.8311,
+          "y": 123.972
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 12 of 74 in scope · show 12 more",
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 430,
+          "h": 430
+        }
+      },
+      "after": {
+        "count": 12,
+        "edges": 33,
+        "zoom": 0.5699,
+        "pan": {
+          "x": -144.8311,
+          "y": 123.972
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 12 of 74 in scope · show 12 more",
+        "inspecting": "Inspecting PricingService",
+        "inspectorSubject": "class✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 430,
+          "h": 399
+        }
+      },
+      "checks": [
+        {
+          "label": "selecting a card auto-switches to the details pane",
+          "ok": true
+        },
+        {
+          "label": "membership unaffected by the narrow inspect/return round trip",
+          "ok": true
+        },
+        {
+          "label": "no card moved",
+          "ok": true
+        },
+        {
+          "label": "camera preserved across the pane switch",
+          "ok": true
+        },
+        {
+          "label": "canvas instance preserved (no zero-size resize corruption)",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "code-map-returns-to-last-view",
+      "delta": {
+        "countBefore": 12,
+        "countAfter": 12,
+        "idOrderPreserved": true,
+        "survivors": 12,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": true,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 33,
+        "edgeCountAfter": 33,
+        "levelBefore": "Classes",
+        "levelAfter": "Classes",
+        "showMoreBefore": "Showing 12 of 74 in scope · show 12 more",
+        "showMoreAfter": "Showing 12 of 74 in scope · show 12 more",
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 12,
+        "edges": 33,
+        "zoom": 0.5699,
+        "pan": {
+          "x": -144.8311,
+          "y": 123.972
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 12 of 74 in scope · show 12 more",
+        "inspecting": "Inspecting ShipmentService",
+        "inspectorSubject": "class✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "after": {
+        "count": 12,
+        "edges": 33,
+        "zoom": 0.5699,
+        "pan": {
+          "x": -144.8311,
+          "y": 123.972
+        },
+        "level": "Classes",
+        "banner": "Showing classes · 74 classes",
+        "showMore": "Showing 12 of 74 in scope · show 12 more",
+        "inspecting": "Inspecting ShipmentService",
+        "inspectorSubject": "class✕",
+        "probeId": 2,
+        "canvasBox": {
+          "w": 918,
+          "h": 564
+        }
+      },
+      "checks": [
+        {
+          "label": "level is still Classes, not reset to Packages",
+          "ok": true
+        },
+        {
+          "label": "inspection survives the round trip",
+          "ok": true
+        },
+        {
+          "label": "the page is byte-identical",
+          "ok": true
+        },
+        {
+          "label": "no card moved",
+          "ok": true
+        },
+        {
+          "label": "camera preserved",
+          "ok": true
+        }
+      ]
+    }
+  ],
+  "screenshots": [
+    "s1-click-class-at-12.png",
+    "s2-reveal-36-then-click.png",
+    "s3-click-package.png",
+    "s4-click-edge.png",
+    "s4b-inspect-unresolved-relationship.png",
+    "s5-filter-change.png",
+    "s5b-edge-survives-filter.png",
+    "s6-add-package.png",
+    "s7-remove-package.png",
+    "s8-close-details.png",
+    "s9-resize.png",
+    "s9b-manual-drag.png",
+    "s10a-double-click-at-12.png",
+    "s10b-double-click-at-36.png",
+    "s11-narrow-map.png",
+    "s12a-traverse-a-b-c.png",
+    "s12b-back-to-a.png",
+    "s13-classes-methods-classes.png",
+    "s14-out-of-scope-inspection.png",
+    "s15-scope-edit-while-away.png",
+    "s16-narrow-inspect-return.png",
+    "s17-code-map-returns-to-last-view.png"
+  ],
+  "failures": []
+}

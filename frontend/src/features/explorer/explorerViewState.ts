@@ -1,16 +1,24 @@
 import { Level } from './graphModel';
+import { placeAdditions, CardBounds, AdditionCard, Point } from './graphPlacement';
 
 /**
- * Owns inspection, active level, and per-level displayed-page membership as one small,
- * pure state machine (Appendix A / F of the stable-map plan). It does not know about
- * AtlasGraph, ScopeSelection, or Cytoscape: callers compute eligibility/ranking (see
- * graphModel.getEligibleIds / rankEligibleIds) and pass plain ID lists in. Positions,
- * camera, and edge routes are deliberately NOT tracked here yet — GraphCanvas still
- * recomputes layout and fit on every selection/topology change, so displayed IDs are
- * stable across inspection but card positions are not. That is Step 3's job.
+ * Owns inspection, active level, per-level displayed-page membership, and (Step 3) per-level
+ * geometry as one small, pure state machine (Appendix A / F of the stable-map plan). It does not
+ * know about AtlasGraph, ScopeSelection, or Cytoscape: callers compute eligibility/ranking (see
+ * graphModel.getEligibleIds / rankEligibleIds) and pass plain ID lists in; callers also compute
+ * actual card dimensions (nodeCard.ts owns them) and pass a small per-ID `placement` record so
+ * this module can place newly admitted cards without importing React/Cytoscape/DOM or duplicating
+ * dimension logic. Positions/camera are committed in the SAME dispatch that admits membership --
+ * there is no separate render -> effect -> reducer -> layout round trip (Appendix F2).
  */
 
 export type InspectedKind = 'NODE' | 'EDGE';
+
+export type { Point };
+export interface Camera { zoom: number; pan: Point }
+/** Actual card dimensions for one eligible ID, supplied by the caller (nodeCard.ts). Discarded
+ * after use -- never stored in state, per Appendix F2 ("nodeCard.ts owns dimensions"). */
+export interface PlacementDims { width: number; height: number; name: string }
 
 export interface LevelViewState {
   /** Stable membership for this level: survivors keep their order, appended batches land after them. */
@@ -22,12 +30,38 @@ export interface LevelViewState {
    */
   priorEligibleIds: string[];
   initialized: boolean;
+  /** Card-center model coordinates for exactly this level's current `displayedIds`. Survivors keep
+   * their exact stored value across every reconciliation; entries for removed IDs are dropped. */
+  positions: Record<string, Point>;
+  /** Saved camera for this level, or null before its first valid capture (Appendix A1). */
+  camera: Camera | null;
+  /** Bumped whenever this level's `positions` actually change (new placement or a manual drag). */
+  geometryRevision: number;
+  /** Bumped whenever this level's `camera` actually changes. */
+  cameraRevision: number;
+  /** Distinct from `initialized` (membership): true once this level has ever had card positions
+   * computed. Lets the canvas tell "never visited, needs an initial one-time fit" apart from
+   * "visited before, restore its saved camera" (Appendix F2). Monotonic: an empty-scope transition
+   * must not reset cached geometry, so this never reverts to false except on RESET. */
+  geometryInitialized: boolean;
+  /** The stored row width (Appendix A3) for this level's append algorithm, decided once from the
+   * first-ever batch and reused for every later batch -- never recomputed from node count. */
+  appendWidth: number | null;
 }
 
 export interface HistoryEntry {
-  subjectId: string;
-  kind: InspectedKind;
+  /** Null for a level-only breadcrumb pushed when an explicit level change leaves a completely
+   * uninspected state (Step 5 review remediation B1) -- there is no subject to restore, only the
+   * level being left. Non-null entries behave exactly as before. */
+  subjectId: string | null;
+  kind: InspectedKind | null;
   level: Level;
+  /** That level's `geometryRevision` at the moment this entry was pushed (Appendix F3). Back never
+   * restores geometry from this number -- positions/camera always come from the level's current
+   * live state, which already IS "the latest geometry revision for that level" (Step 4 point 5).
+   * This is kept only so a transition test can assert that precedence explicitly: a later drag
+   * (revision N+1) must survive a Back to an entry pushed at revision N. */
+  geometryRevision: number;
 }
 
 export interface ExplorerViewState {
@@ -35,32 +69,58 @@ export interface ExplorerViewState {
   levelViews: Record<Level, LevelViewState>;
   inspectedSubjectId: string | null;
   inspectedKind: InspectedKind | null;
+  /** The level `inspectedSubjectId` was actually inspected under (Step 5 review remediation A1).
+   * Non-null exactly when `inspectedSubjectId` is non-null. `activeLevel` keeps changing under an
+   * unchanged inspection (Step 4's cross-level inspection persistence), so `activeLevel` alone
+   * cannot answer "what level was this subject inspected under" once the user has switched levels
+   * without re-inspecting. Only INSPECT_NODE/INSPECT_EDGE/NAVIGATE_BACK write this -- NAVIGATE_LEVEL
+   * must never touch it, or the whole point is lost. */
+  inspectedLevel: Level | null;
   /** Bumped on every membership-changing action; a cheap signal for effects that must not fire on inspection alone. */
   membershipRevision: number;
   /** IDs admitted by the most recent membership-changing action, for "N resources added below" feedback. */
   newlyAddedIds: string[];
   history: HistoryEntry[];
+  /** Bumped only by RESET (a new snapshot/workspace). A late camera/drag event stamped with a
+   * stale generation is ignored, so it cannot land in a fresh snapshot's just-cleared geometry. */
+  generation: number;
 }
 
 export type ExplorerAction =
   | { type: 'INSPECT_NODE'; id: string }
   | { type: 'INSPECT_EDGE'; id: string }
   | { type: 'CLEAR_INSPECTION' }
-  /** Explicit level navigation (segmented control, View methods/classes, Explore). Admits a bounded batch of anything newly eligible since this level was last visited. */
-  | { type: 'NAVIGATE_LEVEL'; level: Level; eligibleIds: string[]; batchSize: number }
-  /** A scope edit (checkbox, reset, remove-from-scope) applied to the active level. `explicitClassAddId` marks a direct single-class checkbox add, which appends exactly that class rather than a ranked batch. */
-  | { type: 'SCOPE_UPDATED'; eligibleIds: string[]; explicitClassAddId?: string; batchSize: number }
+  /** Explicit level navigation (segmented control, View methods/classes, Explore). Admits a bounded batch of anything newly eligible since this level was last visited. `placement` supplies actual dimensions for every ID in `eligibleIds` (survivors included) so newly admitted cards can be placed below the current bounding box; omit it only from tests that do not exercise geometry. */
+  | { type: 'NAVIGATE_LEVEL'; level: Level; eligibleIds: string[]; batchSize: number; placement?: Record<string, PlacementDims> }
+  /** A scope edit (checkbox, reset, remove-from-scope) applied to the active level. `explicitClassAddId` marks a direct single-class checkbox add, which appends exactly that class rather than a ranked batch. `otherLevels` carries the fresh eligible-ID set for the levels NOT currently active (Appendix F3): a scope edit changes eligibility for every level at once, not just the one on screen, so an inactive level's cached membership must drop now-ineligible survivors immediately rather than waiting for its next visit -- otherwise a later reconciliation cannot distinguish "still eligible, never left" from "removed then re-added" (Step 4 point 8). Omitting it (e.g. existing pure tests) simply skips that bookkeeping; membership for the active level is unaffected either way. */
+  | { type: 'SCOPE_UPDATED'; eligibleIds: string[]; explicitClassAddId?: string; batchSize: number; placement?: Record<string, PlacementDims>; otherLevels?: Partial<Record<Level, string[]>> }
   /** Reveal the next batch from everything already eligible-but-undisplayed on the active level. */
-  | { type: 'SHOW_MORE'; eligibleIds: string[]; batchSize: number }
-  /** Pop the last inspection off history and restore it. Purely restorative: drops now-ineligible survivors but never auto-admits new eligibility (that is what NAVIGATE_LEVEL / Show more are for). */
+  | { type: 'SHOW_MORE'; eligibleIds: string[]; batchSize: number; placement?: Record<string, PlacementDims> }
+  /** Pop the last inspection off history and restore it. Purely restorative: drops now-ineligible survivors but never auto-admits new eligibility (that is what NAVIGATE_LEVEL / Show more are for). Never admits, so it needs no placement. */
   | { type: 'NAVIGATE_BACK'; eligibleIds: string[] }
-  /** A new snapshot/workspace: reinitialize every level and populate only the given starting level. */
-  | { type: 'RESET'; level: Level; eligibleIds: string[]; batchSize: number };
+  /** A new snapshot/workspace: reinitialize every level, populate only the given starting level, and bump `generation` so late geometry events from the previous snapshot cannot land. */
+  | { type: 'RESET'; level: Level; eligibleIds: string[]; batchSize: number; placement?: Record<string, PlacementDims> }
+  /** The canvas settled on a new pan/zoom for `level` (debounced real user camera movement, or the
+   * one-time initial fit). Stamped with the `generation` the caller observed when the gesture
+   * settled; ignored if that no longer matches (a late event from before a snapshot reset). */
+  | { type: 'SET_CAMERA'; level: Level; camera: Camera; generation: number }
+  /** A manual drag completed for `id` on `level`. Ignored if `id` is no longer displayed there
+   * (e.g. removed from scope mid-drag) or `generation` is stale. */
+  | { type: 'NODE_MOVED'; level: Level; id: string; position: Point; generation: number }
+  /** Step 5 (Appendix B): apply a freshly computed focused arrangement -- canvas double-click or
+   * the inspector's "Arrange around this resource" action -- to `level`'s positions in one atomic
+   * dispatch. `positions` covers every currently displayed card (the caller computed it from that
+   * exact set); an ID not present here is left untouched. Distinct from NODE_MOVED (one card, a
+   * drag) and from membership admission (SCOPE_UPDATED/SHOW_MORE/NAVIGATE_LEVEL place only newly
+   * admitted cards, never rewrite a survivor's position) -- this is the one action allowed to move
+   * already-displayed survivors in bulk. Ignored if `generation` is stale, matching SET_CAMERA/
+   * NODE_MOVED, so a late result from before a snapshot reset cannot land. */
+  | { type: 'ARRANGE_AROUND_RESOURCE'; level: Level; positions: Record<string, Point>; generation: number };
 
 const HISTORY_LIMIT = 20;
 
 function emptyLevelView(): LevelViewState {
-  return { displayedIds: [], priorEligibleIds: [], initialized: false };
+  return { displayedIds: [], priorEligibleIds: [], initialized: false, positions: {}, camera: null, geometryRevision: 0, cameraRevision: 0, geometryInitialized: false, appendWidth: null };
 }
 
 export function initExplorerViewState(level: Level = 'PACKAGE'): ExplorerViewState {
@@ -69,10 +129,45 @@ export function initExplorerViewState(level: Level = 'PACKAGE'): ExplorerViewSta
     levelViews: { PACKAGE: emptyLevelView(), CLASS: emptyLevelView(), METHOD: emptyLevelView() },
     inspectedSubjectId: null,
     inspectedKind: null,
+    inspectedLevel: null,
     membershipRevision: 0,
     newlyAddedIds: [],
     history: [],
+    generation: 0,
   };
+}
+
+/**
+ * Appendix A3: positions for survivors are echoed back verbatim (dropping any ID no longer
+ * displayed -- Appendix A3.7, "on scope removal, discard removed-node geometry"); positions for a
+ * newly admitted batch are computed by graphPlacement.placeAdditions below the survivors' actual
+ * bounding box. When `placement` is omitted (a caller that does not exercise geometry, e.g. most
+ * of the existing pure reducer tests) new IDs simply get no position yet -- membership is still
+ * exactly correct, only geometry is deferred, matching the pre-Step-3 contract for those callers.
+ */
+function reconcilePositions(
+  view: LevelViewState,
+  survivors: string[],
+  added: string[],
+  placement?: Record<string, PlacementDims>,
+): { positions: Record<string, Point>; appendWidth: number | null } {
+  const survivorPositions: Record<string, Point> = {};
+  for (const id of survivors) {
+    const p = view.positions[id];
+    if (p) survivorPositions[id] = p;
+  }
+  if (!added.length || !placement) return { positions: survivorPositions, appendWidth: view.appendWidth };
+  const survivorBounds: CardBounds[] = survivors
+    .filter(id => survivorPositions[id] && placement[id])
+    .map(id => ({ id, x: survivorPositions[id].x, y: survivorPositions[id].y, width: placement[id].width, height: placement[id].height }));
+  const additionCards: AdditionCard[] = added.map(id => ({
+    id,
+    width: placement[id]?.width ?? 250,
+    height: placement[id]?.height ?? 128,
+    name: placement[id]?.name ?? id,
+  }));
+  const { positions: newPositions, appendWidth } = placeAdditions(survivorBounds, additionCards, view.appendWidth);
+  return { positions: { ...survivorPositions, ...newPositions }, appendWidth };
 }
 
 /**
@@ -95,6 +190,7 @@ function reconcileLevelView(
   eligibleIdsRanked: string[],
   explicitAddId: string | undefined,
   batchSize: number,
+  placement?: Record<string, PlacementDims>,
 ): { next: LevelViewState; added: string[]; changed: boolean } {
   const eligibleSet = new Set(eligibleIdsRanked);
   const priorEligibleSet = new Set(view.priorEligibleIds);
@@ -103,8 +199,20 @@ function reconcileLevelView(
   const added = explicitAddId !== undefined
     ? (eligibleSet.has(explicitAddId) && !survivorSet.has(explicitAddId) ? [explicitAddId] : [])
     : eligibleIdsRanked.filter(id => !priorEligibleSet.has(id) && !survivorSet.has(id)).slice(0, Math.max(0, batchSize));
+  const { positions, appendWidth } = reconcilePositions(view, survivors, added, placement);
+  const geometryInitialized = view.geometryInitialized || Object.keys(positions).length > 0;
   return {
-    next: { displayedIds: [...survivors, ...added], priorEligibleIds: eligibleIdsRanked, initialized: true },
+    next: {
+      displayedIds: [...survivors, ...added],
+      priorEligibleIds: eligibleIdsRanked,
+      initialized: true,
+      positions,
+      appendWidth,
+      camera: view.camera,
+      geometryRevision: added.some(id => positions[id]) ? view.geometryRevision + 1 : view.geometryRevision,
+      cameraRevision: view.cameraRevision,
+      geometryInitialized,
+    },
     added,
     changed: added.length > 0 || survivors.length !== view.displayedIds.length,
   };
@@ -116,14 +224,31 @@ function reconcileLevelView(
  * reconciliation, so this function never depends on every scope edit having already reconciled the
  * active level by the time it runs.
  */
-function appendPendingBatch(view: LevelViewState, eligibleIdsRanked: string[], batchSize: number): { next: LevelViewState; added: string[]; changed: boolean } {
+function appendPendingBatch(
+  view: LevelViewState,
+  eligibleIdsRanked: string[],
+  batchSize: number,
+  placement?: Record<string, PlacementDims>,
+): { next: LevelViewState; added: string[]; changed: boolean } {
   const eligibleSet = new Set(eligibleIdsRanked);
   const survivors = view.displayedIds.filter(id => eligibleSet.has(id));
   const survivorSet = new Set(survivors);
   const pending = eligibleIdsRanked.filter(id => !survivorSet.has(id));
   const added = pending.slice(0, Math.max(0, batchSize));
+  const { positions, appendWidth } = reconcilePositions(view, survivors, added, placement);
+  const geometryInitialized = view.geometryInitialized || Object.keys(positions).length > 0;
   return {
-    next: { displayedIds: [...survivors, ...added], priorEligibleIds: eligibleIdsRanked, initialized: true },
+    next: {
+      displayedIds: [...survivors, ...added],
+      priorEligibleIds: eligibleIdsRanked,
+      initialized: true,
+      positions,
+      appendWidth,
+      camera: view.camera,
+      geometryRevision: added.some(id => positions[id]) ? view.geometryRevision + 1 : view.geometryRevision,
+      cameraRevision: view.cameraRevision,
+      geometryInitialized,
+    },
     added,
     changed: added.length > 0 || survivors.length !== view.displayedIds.length,
   };
@@ -132,16 +257,51 @@ function appendPendingBatch(view: LevelViewState, eligibleIdsRanked: string[], b
 function pushHistory(state: ExplorerViewState, entry: HistoryEntry | null): HistoryEntry[] {
   if (!entry) return state.history;
   const top = state.history[state.history.length - 1];
-  if (top && top.subjectId === entry.subjectId && top.kind === entry.kind) return state.history;
+  // A null subjectId (B1's level-only breadcrumb) has no subject identity to dedup on, so two
+  // distinct level-only entries must be told apart by level instead -- otherwise switching levels
+  // twice with nothing inspected would collapse into a single (wrong) breadcrumb.
+  if (top && top.subjectId === entry.subjectId && top.kind === entry.kind && (entry.subjectId !== null || top.level === entry.level)) return state.history;
   return [...state.history.slice(-(HISTORY_LIMIT - 1)), entry];
+}
+
+function currentEntry(state: ExplorerViewState): HistoryEntry | null {
+  if (!state.inspectedSubjectId) return null;
+  // Read inspectedLevel (the level this subject was actually inspected under), never activeLevel --
+  // activeLevel keeps changing underneath an unchanged inspection (Step 4's cross-level inspection
+  // persistence), so by the time a *later* inspection or CLEAR_INSPECTION calls this, activeLevel
+  // may already be a different level than the one this subject was inspected under (Step 5 review
+  // remediation A1).
+  const level = state.inspectedLevel!;
+  return { subjectId: state.inspectedSubjectId, kind: state.inspectedKind!, level, geometryRevision: state.levelViews[level].geometryRevision };
 }
 
 function inspect(state: ExplorerViewState, id: string, kind: InspectedKind): ExplorerViewState {
   if (state.inspectedSubjectId === id && state.inspectedKind === kind) return state;
-  const previous: HistoryEntry | null = state.inspectedSubjectId
-    ? { subjectId: state.inspectedSubjectId, kind: state.inspectedKind!, level: state.activeLevel }
-    : null;
-  return { ...state, inspectedSubjectId: id, inspectedKind: kind, history: pushHistory(state, previous) };
+  return { ...state, inspectedSubjectId: id, inspectedKind: kind, inspectedLevel: state.activeLevel, history: pushHistory(state, currentEntry(state)) };
+}
+
+/**
+ * Appendix F3: drop now-ineligible IDs from a level the user is NOT currently viewing, and forget
+ * them from `priorEligibleIds` too, so a later re-addition is recognized as genuinely new instead
+ * of an unbroken survivor. Never admits anything -- an inactive level's newly-eligible IDs stay
+ * deferred to its next real visit (NAVIGATE_LEVEL/NAVIGATE_BACK) or Show more, exactly like today.
+ * A true no-op (same reference, `initialized` untouched) when nothing is actually dropped,
+ * including on a level that has never been visited at all. This must never call
+ * `reconcileLevelView`: that path sets `initialized: true` and overwrites `priorEligibleIds` with
+ * the FULL eligible set, which would erase the very distinction this function exists to preserve.
+ */
+function shadowTrimLevel(view: LevelViewState, eligibleIds: string[]): { next: LevelViewState; changed: boolean } {
+  const eligibleSet = new Set(eligibleIds);
+  const survivors = view.displayedIds.filter(id => eligibleSet.has(id));
+  const priorEligibleIds = view.priorEligibleIds.filter(id => eligibleSet.has(id));
+  if (survivors.length === view.displayedIds.length && priorEligibleIds.length === view.priorEligibleIds.length) {
+    return { next: view, changed: false };
+  }
+  // Dropped IDs' geometry goes with them (Appendix A3.7); this never bumps geometryRevision,
+  // matching reconcileLevelView's rule that only a newly PLACED position does (never a removal).
+  const positions: Record<string, Point> = {};
+  for (const id of survivors) if (view.positions[id]) positions[id] = view.positions[id];
+  return { next: { ...view, displayedIds: survivors, priorEligibleIds, positions }, changed: survivors.length !== view.displayedIds.length };
 }
 
 export function explorerViewReducer(state: ExplorerViewState, action: ExplorerAction): ExplorerViewState {
@@ -155,30 +315,51 @@ export function explorerViewReducer(state: ExplorerViewState, action: ExplorerAc
       // Closing the inspector is a pane-visibility toggle, not a navigation: the closed subject
       // still belongs in the Back chain, so a later inspection of something else can still return
       // to it instead of skipping straight past it to whatever was inspected before that.
-      const previous: HistoryEntry = { subjectId: state.inspectedSubjectId, kind: state.inspectedKind!, level: state.activeLevel };
-      return { ...state, inspectedSubjectId: null, inspectedKind: null, history: pushHistory(state, previous) };
+      return { ...state, inspectedSubjectId: null, inspectedKind: null, inspectedLevel: null, history: pushHistory(state, currentEntry(state)) };
     }
     case 'NAVIGATE_LEVEL': {
-      const { next, added, changed } = reconcileLevelView(state.levelViews[action.level], action.eligibleIds, undefined, action.batchSize);
+      // Step 5 review remediation B1: a drill-down (View classes/View methods, or the segmented
+      // control) that starts from a completely uninspected state must still leave a way back --
+      // otherwise history stays empty and Back is stuck disabled. There is no subject to record, so
+      // push a level-only breadcrumb naming the level being left, and only when the level is
+      // actually changing (re-navigating to the already-active level is a no-op elsewhere and must
+      // not spam an entry).
+      const leavingUninspected = !state.inspectedSubjectId && action.level !== state.activeLevel;
+      const history = leavingUninspected
+        ? pushHistory(state, { subjectId: null, kind: null, level: state.activeLevel, geometryRevision: state.levelViews[state.activeLevel].geometryRevision })
+        : state.history;
+      const { next, added, changed } = reconcileLevelView(state.levelViews[action.level], action.eligibleIds, undefined, action.batchSize, action.placement);
       return {
         ...state,
         activeLevel: action.level,
         levelViews: { ...state.levelViews, [action.level]: next },
         newlyAddedIds: added,
         membershipRevision: changed ? state.membershipRevision + 1 : state.membershipRevision,
+        history,
       };
     }
     case 'SCOPE_UPDATED': {
-      const { next, added, changed } = reconcileLevelView(state.levelViews[state.activeLevel], action.eligibleIds, action.explicitClassAddId, action.batchSize);
+      const { next, added, changed } = reconcileLevelView(state.levelViews[state.activeLevel], action.eligibleIds, action.explicitClassAddId, action.batchSize, action.placement);
+      const levelViews: Record<Level, LevelViewState> = { ...state.levelViews, [state.activeLevel]: next };
+      let otherChanged = false;
+      if (action.otherLevels) {
+        for (const key of Object.keys(action.otherLevels)) {
+          const lvl = key as Level;
+          if (lvl === state.activeLevel) continue;
+          const trimmed = shadowTrimLevel(state.levelViews[lvl], action.otherLevels[lvl]!);
+          levelViews[lvl] = trimmed.next;
+          otherChanged = otherChanged || trimmed.changed;
+        }
+      }
       return {
         ...state,
-        levelViews: { ...state.levelViews, [state.activeLevel]: next },
+        levelViews,
         newlyAddedIds: added,
-        membershipRevision: changed ? state.membershipRevision + 1 : state.membershipRevision,
+        membershipRevision: (changed || otherChanged) ? state.membershipRevision + 1 : state.membershipRevision,
       };
     }
     case 'SHOW_MORE': {
-      const { next, added, changed } = appendPendingBatch(state.levelViews[state.activeLevel], action.eligibleIds, action.batchSize);
+      const { next, added, changed } = appendPendingBatch(state.levelViews[state.activeLevel], action.eligibleIds, action.batchSize, action.placement);
       return {
         ...state,
         levelViews: { ...state.levelViews, [state.activeLevel]: next },
@@ -196,6 +377,9 @@ export function explorerViewReducer(state: ExplorerViewState, action: ExplorerAc
         levelViews: { ...state.levelViews, [entry.level]: next },
         inspectedSubjectId: entry.subjectId,
         inspectedKind: entry.kind,
+        // Keep the inspectedLevel-is-non-null-iff-inspectedSubjectId-is-non-null invariant for a
+        // restored level-only (B1) breadcrumb, whose subjectId is null.
+        inspectedLevel: entry.subjectId !== null ? entry.level : null,
         history: state.history.slice(0, -1),
         newlyAddedIds: [],
         membershipRevision: changed ? state.membershipRevision + 1 : state.membershipRevision,
@@ -203,8 +387,33 @@ export function explorerViewReducer(state: ExplorerViewState, action: ExplorerAc
     }
     case 'RESET': {
       const fresh = initExplorerViewState(action.level);
-      const { next } = reconcileLevelView(fresh.levelViews[action.level], action.eligibleIds, undefined, action.batchSize);
-      return { ...fresh, levelViews: { ...fresh.levelViews, [action.level]: next }, membershipRevision: 1, newlyAddedIds: next.displayedIds };
+      const { next } = reconcileLevelView(fresh.levelViews[action.level], action.eligibleIds, undefined, action.batchSize, action.placement);
+      return { ...fresh, levelViews: { ...fresh.levelViews, [action.level]: next }, membershipRevision: 1, newlyAddedIds: next.displayedIds, generation: state.generation + 1 };
+    }
+    case 'SET_CAMERA': {
+      if (action.generation !== state.generation) return state;
+      const view = state.levelViews[action.level];
+      if (view.camera && view.camera.zoom === action.camera.zoom && view.camera.pan.x === action.camera.pan.x && view.camera.pan.y === action.camera.pan.y) return state;
+      return { ...state, levelViews: { ...state.levelViews, [action.level]: { ...view, camera: action.camera, cameraRevision: view.cameraRevision + 1 } } };
+    }
+    case 'NODE_MOVED': {
+      if (action.generation !== state.generation) return state;
+      const view = state.levelViews[action.level];
+      if (!view.displayedIds.includes(action.id)) return state;
+      const existing = view.positions[action.id];
+      if (existing && existing.x === action.position.x && existing.y === action.position.y) return state;
+      return {
+        ...state,
+        levelViews: { ...state.levelViews, [action.level]: { ...view, positions: { ...view.positions, [action.id]: action.position }, geometryRevision: view.geometryRevision + 1 } },
+      };
+    }
+    case 'ARRANGE_AROUND_RESOURCE': {
+      if (action.generation !== state.generation) return state;
+      const view = state.levelViews[action.level];
+      return {
+        ...state,
+        levelViews: { ...state.levelViews, [action.level]: { ...view, positions: { ...view.positions, ...action.positions }, geometryRevision: view.geometryRevision + 1 } },
+      };
     }
     default:
       return state;

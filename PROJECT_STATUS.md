@@ -1,7 +1,272 @@
 # Project status
-Last updated: 2026-09-10
+Last updated: 2026-09-11
 Active milestone: R6 — Developer comprehension redesign (in progress)
-Current revision: R6 stable-map inspection/membership separation (Step 2 of 10)
+Current revision: R6 Step 5 review remediation (fixes to already-completed work; Step 6A unstarted)
+
+## Step 5 review remediation — complete
+
+Executed on 2026-09-11, after Step 5. Ledger: [docs/STABLE_GRAPH_IMPLEMENTATION.md](docs/STABLE_GRAPH_IMPLEMENTATION.md#step-5-review-remediation-2026-09-11).
+This is a fix-up pass to already-completed Steps 3-5 work (from a review at
+`/home/sajjad/prompts/step-3-4-5-review-resolve-plan.md`), not a new numbered plan step — Step 6A's
+plan and prerequisites are unchanged.
+
+Fixed: (A1) `HistoryEntry` was stamped with the level active *at push time* instead of the level a
+subject was actually inspected under, so Back could strand a user on the wrong level after a
+cross-level inspection persisted across a segmented-control switch; (A2) two `localeCompare` sorts
+(`graphPlacement.ts`, `focusedArrangement.ts`) were locale-dependent rather than using a fixed ordinal
+comparator; (A3) `GraphCanvas.tsx`'s camera effect never re-fit a level whose node count went 0 -> >0
+while `camera` itself stayed the same `null` reference (added a `com.example.stable.marker.RegionTag`
+fixture class — field-only, no methods — to reach this state empirically, since every other
+package/class in the existing fixture has at least one method); (B1) an explicit level change
+starting from a completely uninspected state pushed no history entry, leaving Back permanently
+disabled after the first such navigation (fixed with a level-only breadcrumb, pushed from the
+reducer); (B2) an inspected aggregate edge dangled silently across a level switch instead of being
+cleared or recoverable (fixed: cleared via the same path B1 added, so one Back now recovers it).
+Category C findings (`HistoryEntry` omitting a camera/filter snapshot, the missing "Show added" pan
+affordance, the breadcrumb's Map-tab no-op) were reviewed and left untouched — each is backed by
+existing ledger text, a passing test asserting the opposite of the proposed "fix," or a genuine
+product-intent question rather than a code defect.
+
+Verification: `node scripts/test-explorer-view-state.mjs` PASS (51 checks, 8 new);
+`node scripts/test-graph-placement.mjs` PASS (9 checks, 1 new); `node scripts/test-focused-arrangement.mjs`
+PASS (12 checks, 1 new); `node scripts/test-graph-model.mjs` PASS (7 suites, unchanged); `npx tsc -b
+--force` exit 0; `npm run build` PASS; `./gradlew bootJar --no-daemon` BUILD SUCCESSFUL; `python3
+scripts/verify_stable_graph_pipeline.py baseline` PASS (**34/34**, 2 new scenarios); `acceptance`
+**PASS (34/34, 0 unmet)** — up from 32/32 after Step 5, the 2 new scenarios pass outright, not a
+regression; `python3 scripts/verify_hierarchical_pipeline.py` PASS (required: `GraphCanvas.tsx` and
+`App.tsx`'s navigation call sites both changed). `git diff --check` clean. `./gradlew test` skipped —
+no backend source changed. Evidence: `docs/evidence/stable-graph-step5-remediation/` (2 reports + 2
+inspected screenshots).
+
+Known, accepted side effect: `NAVIGATE_LEVEL`'s new history breadcrumb fires for every dispatch site,
+not just the two call sites this fix targeted — a snapshot opened via a direct `?snapshotId=...` link
+that lands on Classes/Methods now starts with one history entry and an enabled Back before the user
+does anything. No existing scenario asserts Back's disabled state on fresh load, so nothing regressed,
+but it is a user-visible first-paint difference worth knowing about.
+
+## Previous acceptance slice: stable graph interactions — Step 5 of 10 complete
+
+Executed on 2026-09-11. Ledger: [docs/STABLE_GRAPH_IMPLEMENTATION.md](docs/STABLE_GRAPH_IMPLEMENTATION.md#step-5--move-focused-arrangement-to-double-click).
+Acceptance criterion: double-click deliberately arranges the current map around a resource; single-click never arranges it.
+
+Delivered:
+
+- `frontend/src/features/explorer/focusedArrangement.ts` (renamed from `graphLayout.ts`, which Step
+  3 reserved for exactly this reuse) — the Appendix B algorithm, rewritten to use actual card
+  rectangles and gaps (incoming-left / focus-middle / outgoing-right / unrelated-below; the
+  unrelated group reuses `graphPlacement.placeAdditions()` rather than a second row-packing
+  implementation) instead of the old uniform point spacing. The old unfocused whole-map grid branch
+  was dropped — out of scope for this step. Pure, independently tested:
+  `scripts/test-focused-arrangement.mjs` (11 checks — chain, bidirectional neighbor, self-loop,
+  isolated resource, reciprocal pair, mixed card heights, package/class/method dimensions,
+  deterministic ties, anchor translation, focus-not-displayed).
+- `explorerViewState.ts`: new `ARRANGE_AROUND_RESOURCE` action — one atomic dispatch that overwrites
+  exactly the given IDs' positions for a level and bumps `geometryRevision` once (not once per
+  card), guarded by the existing `generation` staleness check (matching `SET_CAMERA`/`NODE_MOVED`).
+  2 new pure reducer tests (43 total).
+- `GraphCanvas.tsx`: added a `dbltap` node handler (Cytoscape's own double-tap gesture recognition)
+  wired to a new `onArrangeAroundResource` prop; the reconciliation effect now also repositions an
+  *already-displayed* survivor when its stored position differs from the live Cytoscape position
+  (previously only a brand-new `cy.add()` element ever got a position written). This is the one new
+  case where an admitted card's position is deliberately overwritten in bulk — distinct from a drag
+  (already reflected live, so no diff) or ordinary admission (new cards only, survivors untouched).
+  Emits a custom `'arranged'` Cytoscape event (ordinary use of the library's own pub/sub, the same
+  mechanism `'dbltap'`/`'pan'`/`'zoom'` already use) once per batch that actually repositioned
+  something, letting the browser harness observe "exactly one arrangement" independently of taps.
+- `App.tsx`: new `arrangeAround(id)` computes the arrangement from the current displayed page
+  (`projected.nodes`/`projected.edges`, never the full graph) and current filter, anchored at the
+  resource's existing stored position, and dispatches `ARRANGE_AROUND_RESOURCE`; wired to both
+  `GraphCanvas`'s `onArrangeAroundResource` and `InspectorPanel`'s new action.
+- `InspectorPanel.tsx`: new "Arrange around this resource" button (keyboard/touch-accessible, H3),
+  rendered for any inspected node kind; disabled with a "Resource is not in current map view"
+  tooltip whenever `mapStatus !== 'DISPLAYED'`.
+
+Browser evidence: `python3 scripts/verify_stable_graph_pipeline.py acceptance` — **0 unmet
+assertions**, the first fully green acceptance run since Step 1 (32/32 scenarios; down from 3 unmet
+in the same 3 real-double-click scenarios after Step 4). Those three now assert `arrangeCalls === 1`
+(a dedicated counter fed by the `'arranged'` event; the old `layoutCalls === 1` assertion was
+retired — nothing in the codebase calls `cy.layout()` anymore, so it could never have been
+satisfied). New/changed scenarios: the three real-double-click cases each show exactly one
+arrangement, a screen-anchored focus (rendered position unchanged within 1px), and unchanged
+level/page (before/after screenshots added for both); a new
+`real-double-click-second-different-card` proves a second double-click on a *different* card also
+arranges exactly once (a repeat double-click on the *same*, already-arranged, unmoved focus is
+deliberately not asserted to move anything — the algorithm is deterministic and anchored to that
+focus's own unchanged position, so re-running it correctly recomputes an identical layout);
+`two-spaced-single-clicks` now also asserts `arrangeCalls === 0`; two new scenarios cover the
+inspector action end-to-end on desktop (`inspector-arrange-around-resource`: one arrangement, no
+`dbltap` involved, scope/level/page/zoom/pan all unchanged; `inspector-arrange-disabled-when-not-
+displayed`: the button is disabled with the correct tooltip when the inspected subject is in scope
+but not on the current page). Two more verify Step 5 point 5's narrow-layout requirement
+concretely: on this app's mobile layout a single tap already switches the pane to Details (hiding
+the canvas via `display:none`), so a recorded observation confirms a real double-click's second
+press does not reach the canvas there at all (`dbltaps: 0`) — the actual reason the keyboard/touch
+equivalent exists — while `narrow-inspector-arrange-from-details-pane` proves that equivalent works:
+activating the button from that same Details pane still drives exactly one arrangement, and
+returning to the Map pane shows the already-applied geometry with the camera untouched. `baseline`
+mode (32/32) retired the three "no arrangement exists yet" assertions the same way prior steps
+retired fixed defects. A regression surfaced and fixed during this step's verification: Step 4
+relabeled the inspector's "See method call graph ↗" button to "View methods ↗" but did not re-run
+`verify_hierarchical_pipeline.py` (its own ledger recorded that skip as justified at the time); that
+harness's `scopeUnchanged('inspector exploration...')` scenario still searched for the old label
+text and crashed on `undefined.click()`. Fixed the stale selector in
+`scripts/verify-hierarchical-ui.mjs`; re-ran and confirmed **PASS**. Evidence:
+`docs/evidence/stable-graph-step5/` (2 full reports + 8 screenshots — before/after pairs for both
+real-double-click scenarios and the inspector action, showing incoming-left/focus-middle/outgoing-
+right/unrelated-below with the focus card anchored; plus the narrow Details-pane action and its
+arranged Map-pane result); full runs in `build/stable-graph/{baseline,acceptance}-*/` and
+`build/hierarchy-smoke/` (git-ignored).
+
+Verification: `node scripts/test-graph-model.mjs` PASS (7 suites, unchanged);
+`node scripts/test-explorer-view-state.mjs` PASS (43 checks, 2 new); `node scripts/test-graph-placement.mjs`
+PASS (8 checks, unchanged); `node scripts/test-focused-arrangement.mjs` PASS (11 new checks); `npx tsc
+-b --force` exit 0; `npm run build` PASS; `./gradlew bootJar --no-daemon` BUILD SUCCESSFUL; `python3
+scripts/verify_stable_graph_pipeline.py baseline` PASS (32/32); `acceptance` **PASS (32/32, 0
+unmet)**; `python3 scripts/verify_hierarchical_pipeline.py` PASS (after the stale-selector fix
+above). `git diff --check` clean. `./gradlew test` skipped — no backend source changed.
+
+Remaining known limitations: whole-map optimization (`Reorder map`) does not exist yet — Steps 6–9.
+Focused arrangement is instant (no animation), matching the step's "instant placement is acceptable
+initially" allowance; there is no motion for reduced-motion to disable yet. A repeat double-click on
+the *same*, already-arranged focus is untested for the "exactly one arrangement" count specifically
+because it correctly produces zero movement (deterministic, anchored) — covered instead by a second
+click on a *different* card. `HistoryEntry.geometryRevision` remains inert, as recorded in Step 4.
+
+Remaining work: Steps 6–10. Next is Step 6A — define the pure geometry/scoring contract for
+whole-map layout (Appendix C1/C2/C7, D5), without the router or optimizer yet.
+
+## Previous acceptance slice: stable graph interactions — Step 4 of 10 complete
+
+Executed on 2026-09-11. Ledger: [docs/STABLE_GRAPH_IMPLEMENTATION.md](docs/STABLE_GRAPH_IMPLEMENTATION.md#step-4--make-class-traversal-and-return-navigation-predictable).
+Acceptance criterion: developers can follow classes and return without losing the map they assembled.
+
+Delivered:
+
+- `explorerViewState.ts` extended (not replaced): `HistoryEntry` gained `geometryRevision` (the
+  level's revision at push time, kept only so a transition test can assert Back's precedence
+  explicitly — Back itself always reads a level's *current* live geometry, never a snapshot, so it
+  already retains the latest revision by construction). `SCOPE_UPDATED` gained an optional
+  `otherLevels` map (Appendix F3): a new `shadowTrimLevel()` helper drops now-ineligible IDs from a
+  level the user is **not** currently viewing and forgets them from its `priorEligibleIds`,
+  immediately (not deferred to the next visit) — the only way to tell "removed then re-added" apart
+  from "never left" once that level is finally revisited. It never routes through
+  `reconcileLevelView` (which would overwrite `priorEligibleIds` with the full eligible set and
+  erase that distinction) and never admits anything itself. 7 new pure reducer tests cover both
+  remove/re-add and explicit-add-while-away, in every active/inactive ordering, plus the
+  geometry-revision precedence case and the "Back must not silently consume a pending admission"
+  case. All 34 existing Step 2/3 checks pass unmodified (41 total).
+- `App.tsx`: `explore()` split into two named commands, `viewClasses()`/`viewMethods()` (Story 6/H3);
+  canvas double-click no longer calls either (Step 4 point 1 — arrangement is Step 5's job).
+  `openCodeMap()` no longer forces a reset to Packages or clears inspection — it is now just a tab
+  switch, since persisted view state already **is** "the last map view" (Story 6). The Classes/
+  Methods/Packages segmented control no longer clears inspection on a genuine switch. `handleScopeChange()`
+  now computes and forwards `otherLevels` (via `getEligibleIds`, not the ranked variant — only
+  set-membership is needed). An inspected aggregate edge is now resolved against a second,
+  always-`'ALL'`-kind projection when the active relationship filter excludes it, so a filter change
+  can no longer collapse the inspector to idle; a new `edgeFilteredOut` flag drives a "Not shown with
+  the current relationship filter." notice instead.
+- `GraphCanvas.tsx`: the `dbltap`/`onExplore` wiring is removed entirely — a node double-click is
+  now a genuine no-op pending Step 5's dedicated arrangement command.
+- `NavigationPane.tsx`/`InspectorPanel.tsx`: `onExplore` replaced by `onViewClasses`/`onViewMethods`
+  at every call site (tree ⌖ buttons, and the inspector's "View classes"/"View methods" buttons,
+  relabeled from "Explore classes"/"See method call graph" to match Story 6/H3's named-command
+  wording); `InspectorPanel`
+  gained the `edgeFilteredOut` notice alongside the existing `mapStatus` ones.
+
+Browser evidence: `python3 scripts/verify_stable_graph_pipeline.py acceptance` unmet assertions
+dropped from 7 (3 scenarios, Step 3) to **3** (the same 3 real-double-click scenarios) — every other
+scenario, including 9 new ones added for this step (A→B→C→Back→Back through the real inspector,
+Classes→Methods→Classes preserving subject and geometry, out-of-scope inspection, a scope
+remove/re-add while Classes is inactive, an edge surviving a filter change, narrow-pane
+inspect/return, and Code map returning to the last view), now passes. The 3 remaining failures are
+explicitly "exactly one arrangement" — Step 5's territory; Step 3 already removed every `cy.layout()`
+call, so satisfying this will require Step 5 to *add* a call, not fix a leftover one. `baseline` mode
+(27/27) retired the three "drills down to Methods" assertions this step deliberately removed
+(double-click is now a no-op, not a broken drill-down) and replaced each with its now-true
+statement; every other baseline scenario, including all 9 new ones (which have no separate "broken"
+baseline to describe, so baseline and acceptance share the same checks — matching the existing
+pattern for `manual-drag-persists` and `inspect-unresolved-relationship`), passes outright. Evidence:
+`docs/evidence/stable-graph-step4/` (2 full reports + 9 screenshots); full runs in
+`build/stable-graph/{baseline,acceptance}-*/` (git-ignored).
+
+Verification: `node scripts/test-graph-model.mjs` PASS (7 suites, unchanged);
+`node scripts/test-explorer-view-state.mjs` PASS (41 checks, 7 new); `node scripts/test-graph-placement.mjs`
+PASS (8 checks, unchanged); `npx tsc -b --force` exit 0; `npm run build` PASS; `./gradlew bootJar
+--no-daemon` BUILD SUCCESSFUL; `python3 scripts/verify_stable_graph_pipeline.py baseline` PASS
+(27/27); `acceptance` FAIL as intended (3 unmet, down from 7). `git diff --check` clean. `./gradlew
+test` skipped — no backend source changed. Explanation harnesses not re-run this step — no
+explanation code path touched (only `App.tsx`'s navigation/edge-lookup call sites, which keep the
+same `InspectorPanel` contract Step 3 already re-verified against `verify_hierarchical_pipeline.py`).
+
+Remaining known limitations: canvas double-click and the inspector's "Arrange around this resource"
+equivalent do not exist yet (Step 5). `HistoryEntry.geometryRevision` is recorded and tested but has
+no other production reader — Back's actual precedence comes from always reading live per-level
+state, not from comparing this number. The relationship filter itself remains one global selection
+(not per-level); this was not extended, since Story 6/F3 only requires the *current* filter to
+survive navigation, which it already did structurally (it is untouched by any reducer dispatch).
+
+Remaining work: Steps 5–10. Next is Step 5 — move the existing selected-resource focused-layout
+behavior to a dedicated double-click `ARRANGE_AROUND_RESOURCE` command with a keyboard/touch
+equivalent (Appendix B), which is what will finally satisfy the 3 remaining acceptance failures.
+
+## Previous acceptance slice: stable graph interactions — Step 3 of 10 complete
+
+Executed on 2026-09-10. Ledger: [docs/STABLE_GRAPH_IMPLEMENTATION.md](docs/STABLE_GRAPH_IMPLEMENTATION.md#step-3--preserve-the-canvas-and-append-resources-without-moving-survivors).
+Acceptance criterion: non-arrangement interactions preserve surviving node positions, pan, and zoom.
+
+Delivered:
+
+- `frontend/src/features/explorer/graphPlacement.ts` (new) — pure Appendix A3 placement:
+  `placeAdditions()` packs a newly admitted batch in spaced rows below the survivors' actual
+  bounding box, using a strip width (room for 6 typical cards, a deliberate deviation from the
+  appendix's literal "3" to avoid an implausibly tall page — recorded in the ledger) decided once
+  per level and reused forever after.
+- `explorerViewState.ts` extended (not replaced): `LevelViewState` gained `positions`/`camera`/
+  `geometryRevision`/`cameraRevision`/`geometryInitialized`/`appendWidth`; root state gained
+  `generation`. Membership actions gained an optional `placement` field (actual card dimensions per
+  eligible ID) so a newly admitted batch gets positioned in the *same* dispatch that admits it — no
+  separate `render → effect → reducer` round trip. Two new actions, `SET_CAMERA` and `NODE_MOVED`.
+  All 21 existing Step 2 reducer checks pass unmodified.
+- `GraphCanvas.tsx` rewritten: one Cytoscape core created on mount and never destroyed on a
+  membership/filter/selection/resize change (previously recreated on every topology change).
+  Elements are reconciled by stable ID in one batch; `cy.layout()` is never called anywhere in the
+  file; `cy.fit()` fires only once per level (its first-ever visit) or via the explicit Fit map
+  button. New `.neighbor`/`.incident` classes give selected-resource emphasis without moving or
+  resizing any card. Real user camera movement is captured, debounced, and persisted; a saved
+  camera is restored (not re-fit) when returning to an already-visited level.
+- `App.tsx` wired: a `placementFor()` helper supplies actual card dimensions on every membership
+  dispatch; `positions`/`camera` are read from the active level's view state and handed to the
+  canvas; manual drags and camera settles are dispatched back into the reducer. A genuine
+  "N added below" chip (`viewState.newlyAddedIds`) now appears in the scope banner next to the
+  existing scope-count banner.
+
+Browser evidence: `python3 scripts/verify_stable_graph_pipeline.py acceptance` unmet assertions
+dropped from 26 (10 scenarios, Step 2) to 7 (3 scenarios) — the 3 remaining are exclusively the
+real-double-click scenarios, explicitly owned by Step 5 (the gesture now reaches its target
+reliably, but is still wired to `explore()`'s level change rather than a dedicated arrangement
+command). Every position/camera/canvas-identity assertion across the other 15 scenarios now passes,
+including two new real-pointer manual-drag scenarios (drag persists, and survives a level switch
+away and back). `baseline` mode retired every assertion Step 3 fixed (layout/fit calls, camera
+discard, canvas recreation, survivor movement on non-arrangement interactions) across 9 scenarios,
+replacing each with the corresponding now-true statement, and re-verified PASS (18/18 scenarios).
+Fixing this also surfaced and fixed an off-screen-click-target issue in the test harness itself (not
+an application defect) — see the ledger for detail. A self-review pass additionally caught and fixed
+a stale minimap after a membership change (now updated at the end of every reconciliation batch) and
+confirmed via `verify_hierarchical_pipeline.py` (PASS) that the `GraphCanvas.tsx` rewrite did not
+regress `cxttap` remove-from-scope, READY styling, or explanation-refresh camera stability. Evidence:
+`docs/evidence/stable-graph-step3/` (2 full reports + 7 screenshots); full runs in
+`build/stable-graph/{baseline,acceptance}-*/` and `build/hierarchy-smoke/` (git-ignored).
+
+Verification: `node scripts/test-graph-model.mjs` PASS (7 suites, unchanged);
+`node scripts/test-explorer-view-state.mjs` PASS (34 checks, 13 new); `node scripts/test-graph-placement.mjs`
+PASS (8 new checks); `npx tsc -b --force` exit 0; `npm run build` PASS; `./gradlew bootJar --no-daemon`
+BUILD SUCCESSFUL; `python3 scripts/verify_stable_graph_pipeline.py baseline` PASS (18/18);
+`acceptance` FAIL as intended (7 unmet, down from 26); `python3 scripts/verify_hierarchical_pipeline.py`
+PASS. `git diff --check` clean. `./gradlew test` skipped — no backend source changed.
+
+Remaining work: Steps 4–10. Next is Step 4 — predictable class traversal and restorative Back
+navigation (named View methods/View classes/Back commands; F3 history precedence rules; Code map
+returns to the last map view).
 
 ## Implementation-plan review — documentation only
 
@@ -18,7 +283,7 @@ steps/source files — PASS; `git diff --check` — PASS. Runtime tests, builds,
 screenshots skipped for this documentation-only review. Existing implementation
 results below retain their original evidence and limitations.
 
-## Current acceptance slice: stable graph interactions — Step 2 of 10 complete
+## Previous acceptance slice: stable graph interactions — Step 2 of 10 complete
 
 Executed on 2026-09-10. Ledger: [docs/STABLE_GRAPH_IMPLEMENTATION.md](docs/STABLE_GRAPH_IMPLEMENTATION.md#step-2--separate-inspection-from-displayed-page-membership).
 Acceptance criterion: inspecting a class or edge cannot change scope, abstraction level, or the

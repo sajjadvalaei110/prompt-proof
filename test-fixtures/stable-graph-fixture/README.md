@@ -1,4 +1,4 @@
-# Stable-graph fixture (74 types across 6 packages)
+# Stable-graph fixture (75 types across 7 packages)
 
 Java source fixture for the R6 stable-map browser regressions
 (`scripts/verify_stable_graph_pipeline.py` → `scripts/verify-stable-graph-ui.mjs`).
@@ -20,6 +20,7 @@ and hashes the tree before and after to prove analysis never writes to it.
 | `com.example.stable.repository` | 10 | Fan-in sinks shared by several services |
 | `com.example.stable.util` | 10 | Deliberately disconnected: zero relationships |
 | `com.example.stable.external` | 6 | Unresolved external supertypes and injections |
+| `com.example.stable.marker` | 1 | `RegionTag`: field-only, no methods or explicit constructor -- gives a real, non-empty-scope package that is genuinely empty at METHOD level (Step 5 review remediation A3's browser scenario) |
 
 ## Topology features, as actually produced by the parser
 
@@ -30,14 +31,16 @@ Verified against the imported graph, not assumed from the source text:
 | Visible A→B→C chain | `OrderController` → `OrderService` → `PricingService` → `TaxService` | present at CLASS level |
 | Reciprocal pair | `PaymentService` ⇄ `FraudService` | both directions present |
 | Cycle | `Order` → `Item` → `Customer` → `Order` | present at CLASS level via `CALLS` |
-| Disconnected types | all of `util`, plus `Address`, `Money`, `Product`, `Category`, `Discount`, `Invoice`, `Payment`, … | 21 types with degree 0 |
+| Disconnected types | all of `util`, plus `Address`, `Money`, `Product`, `Category`, `Discount`, `Invoice`, `Payment`, `RegionTag`, … | 22 types with degree 0 |
 | Parallel relationship kinds | e.g. `OrderService` → `OrderRepository` | `INJECTS` + `CALLS` + `DEPENDS_ON` between the same pair |
 | Fan-in sink | `OrderRepository` | `OrderService`, `ReportService`, `SearchService`, `ArchiveService` |
 | `CANDIDATE` resolution | `NotificationService` → `NotificationChannel`, `CarrierRouter` → `ShipmentCarrier` | 4 dashed edges (two unqualified `@Component` implementations each) |
 | `UNRESOLVED` resolution | `external` supertypes/credential injections, plus JDK calls | 23 relationships, **metadata only** — see below |
 
-Counts observed on import: 74 types (72 `CLASS`, 2 `INTERFACE`), 6 packages, 112 edges
-(`INJECTS` 45, `CALLS` 32, `DEPENDS_ON` 31, `IMPLEMENTS` 4), 108 `RESOLVED` + 4 `CANDIDATE`.
+Counts observed on import: 75 types (73 `CLASS`, 2 `INTERFACE`), 7 packages, 112 edges
+(`INJECTS` 45, `CALLS` 32, `DEPENDS_ON` 31, `IMPLEMENTS` 4), 108 `RESOLVED` + 4 `CANDIDATE`. `RegionTag`
+(the 7th package's sole class) contributes no edges and no `METHOD`/`CONSTRUCTOR` node -- verified
+directly against the imported graph, not assumed from the source text.
 
 ## Limits of this fixture
 
