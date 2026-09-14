@@ -1,6 +1,7 @@
 package dev.codeatlas.graph;
 
 import dev.codeatlas.analysis.AnalysisService;
+import dev.codeatlas.config.CodeAtlasProperties;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import java.io.File;
@@ -10,8 +11,10 @@ import java.util.*;
 @Service
 public class SourceService {
     private final JdbcTemplate db;
-    public SourceService(JdbcTemplate db) { this.db = db; }
-    public record Source(String schemaVersion, String path, int startLine, int endLine, String content, boolean exact) {}
+    private final CodeAtlasProperties properties;
+    public SourceService(JdbcTemplate db, CodeAtlasProperties properties) { this.db = db; this.properties = properties; }
+    /** {@code totalSites}: how many evidence sites the subject has; a relationship response carries at most a bounded number of them. */
+    public record Source(String schemaVersion, String path, int startLine, int endLine, String content, boolean exact, int totalSites) {}
 
     private static final String SYMBOL_QUERY =
         "SELECT f.relative_path, e.start_line, e.end_line, f.source_content, f.content_hash, w.canonical_root " +
@@ -29,27 +32,41 @@ public class SourceService {
         "JOIN relationship_occurrences r ON r.id = re.relationship_id " +
         "JOIN snapshots sn ON sn.id = f.snapshot_id " +
         "JOIN workspaces w ON w.id = sn.workspace_id " +
-        "WHERE r.snapshot_id = ? AND f.snapshot_id = ? AND r.id = ? ORDER BY e.start_line";
+        "WHERE r.snapshot_id = ? AND f.snapshot_id = ? AND r.id = ? ORDER BY f.relative_path, e.start_line, e.start_column, e.id LIMIT ?";
+
+    private static final String RELATIONSHIP_SITE_COUNT =
+        "SELECT COUNT(*) FROM relationship_evidence re JOIN relationship_occurrences r ON r.id = re.relationship_id " +
+        "WHERE r.snapshot_id = ? AND r.id = ?";
 
     public Source symbol(String snapshot, String id) {
-        var rows = db.query(SYMBOL_QUERY, this::mapRow, snapshot, snapshot, id);
+        var rows = db.query(SYMBOL_QUERY, (rs, n) -> mapRow(rs, 1, new HashMap<>()), snapshot, snapshot, id);
         if (!rows.isEmpty()) return rows.get(0);
         // Older indexes did not store declaration ranges. Do not pretend a file is a method.
         throw new NoSuchElementException("Exact source range unavailable. Re-analyze the project to index declaration evidence.");
     }
 
+    /**
+     * Evidence sites of one relationship occurrence. Summary relationships (DEPENDS_ON, USES_TYPE) collect every
+     * site, and each row carries the whole file, so the response is bounded by the same evidence-occurrence limit
+     * explanation context uses; {@code totalSites} tells the client how many exist.
+     */
     public List<Source> relationship(String snapshot, String id) {
-        return db.query(RELATIONSHIP_QUERY, this::mapRow, snapshot, snapshot, id);
+        Integer total = db.queryForObject(RELATIONSHIP_SITE_COUNT, Integer.class, snapshot, id);
+        int totalSites = total == null ? 0 : total;
+        Map<String, Boolean> exactByFile = new HashMap<>();
+        return db.query(RELATIONSHIP_QUERY, (rs, n) -> mapRow(rs, totalSites, exactByFile), snapshot, snapshot, id, properties.getExplanations().getEvidenceOccurrences());
     }
 
-    private Source mapRow(java.sql.ResultSet rs, int rowNum) throws java.sql.SQLException {
+    /** {@code exactByFile} re-hashes each live file once per response, not once per site. */
+    private Source mapRow(java.sql.ResultSet rs, int totalSites, Map<String, Boolean> exactByFile) throws java.sql.SQLException {
         String relativePath = rs.getString(1);
         int startLine = rs.getInt(2);
         int endLine = rs.getInt(3);
         String fileContent = rs.getString(4);
         String storedHash = rs.getString(5);
         String canonicalRoot = rs.getString(6);
-        return new Source("1", relativePath, startLine, endLine, fileContent, isStillExact(canonicalRoot, relativePath, storedHash));
+        boolean exact = exactByFile.computeIfAbsent(canonicalRoot + "\u0000" + relativePath + "\u0000" + storedHash, key -> isStillExact(canonicalRoot, relativePath, storedHash));
+        return new Source("1", relativePath, startLine, endLine, fileContent, exact, totalSites);
     }
 
     /**

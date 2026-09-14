@@ -6,6 +6,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.io.File;
 import java.nio.file.Files;
@@ -32,15 +34,23 @@ public class AnalysisService {
     private final SourceDiscoveryService discoveryService;
     private final JavaParserAdapter parserAdapter;
     private final SpringAnnotationAnalyzer springAnalyzer;
+    /**
+     * One transaction per file in the declaration and relationship passes: a file's rows land together or not at
+     * all (a failure mid-file no longer leaves partial symbols that break later files), and SQLite commits once per
+     * file instead of once per inserted row, which dominated extraction time.
+     */
+    private final TransactionTemplate fileTransaction;
 
     public AnalysisService(JdbcTemplate jdbcTemplate,
                            SourceDiscoveryService discoveryService,
                            JavaParserAdapter parserAdapter,
-                           SpringAnnotationAnalyzer springAnalyzer) {
+                           SpringAnnotationAnalyzer springAnalyzer,
+                           PlatformTransactionManager transactionManager) {
         this.jdbcTemplate = jdbcTemplate;
         this.discoveryService = discoveryService;
         this.parserAdapter = parserAdapter;
         this.springAnalyzer = springAnalyzer;
+        this.fileTransaction = new TransactionTemplate(transactionManager);
     }
 
     /**
@@ -80,9 +90,10 @@ public class AnalysisService {
             int parsed = 0;
             for (File file : javaFiles) {
                 try {
-                    parserAdapter.parseDeclarations(file, workspaceId, snapshotId);
+                    fileTransaction.executeWithoutResult(status -> parserAdapter.parseDeclarations(file, workspaceId, snapshotId));
                 } catch (Exception e) {
                     log.warn("Declaration parsing failed for {}: {}", file.getName(), e.getMessage());
+                    // The file's transaction rolled back, so none of its rows remain; the relationship pass skips it.
                     parserAdapter.addDiagnostic(file.getName() + ": declaration parsing failed (" + e.getMessage() + "); file excluded from graph.");
                 }
                 parsed++;
@@ -96,7 +107,7 @@ public class AnalysisService {
             // Phase 3: Parse relationships (Pass 2)
             for (File file : javaFiles) {
                 try {
-                    parserAdapter.parseRelationships(file, workspaceId, snapshotId);
+                    fileTransaction.executeWithoutResult(status -> parserAdapter.parseRelationships(file, workspaceId, snapshotId));
                 } catch (Exception e) {
                     log.warn("Relationship parsing failed for {}: {}", file.getName(), e.getMessage());
                     parserAdapter.addDiagnostic(file.getName() + ": relationship parsing failed (" + e.getMessage() + "); relationships for this file may be incomplete.");
@@ -181,6 +192,8 @@ public class AnalysisService {
             jdbcTemplate.update(
                     "UPDATE jobs SET status = 'FAILED', error_message = ?, updated_at = datetime('now') WHERE id = ?",
                     e.getMessage(), jobId);
+        } finally {
+            parserAdapter.releaseRunCaches();
         }
     }
 

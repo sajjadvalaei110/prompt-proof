@@ -1,0 +1,160 @@
+[
+  {
+    "label": "package panel lists each class with a </> button",
+    "pass": true,
+    "detail": {
+      "typeChildren": [
+        "EmailServiceClient",
+        "EventService"
+      ],
+      "rows": [
+        {
+          "name": "EmailServiceClient",
+          "code": "View code for EmailServiceClient"
+        },
+        {
+          "name": "EventService",
+          "code": "View code for EventService"
+        }
+      ]
+    }
+  },
+  {
+    "label": "package row </> opens that class source",
+    "pass": true,
+    "detail": {
+      "title": "EventService",
+      "firstLine": "@Service"
+    }
+  },
+  {
+    "label": "opening code does not change inspection",
+    "pass": true,
+    "detail": "com.kipper.eventsmicroservice.services"
+  },
+  {
+    "label": "class inspected from package list",
+    "pass": true
+  },
+  {
+    "label": "every method row has a </> button",
+    "pass": true,
+    "detail": {
+      "methodNames": [
+        "createEvent",
+        "getAllEvents",
+        "getUpcomingEvents",
+        "isEventFull",
+        "registerParticipant"
+      ],
+      "methodButtons": [
+        "View code for createEvent",
+        "View code for getAllEvents",
+        "View code for getUpcomingEvents",
+        "View code for isEventFull",
+        "View code for registerParticipant"
+      ]
+    }
+  },
+  {
+    "label": "method </> opens the method source",
+    "pass": true,
+    "detail": {
+      "title": "createEvent",
+      "highlighted": [
+        "    public Event createEvent(EventRequestDTO eventRequest) {",
+        "        Event newEvent = new Event(eventRequest);",
+        "        return eventRepository.save(newEvent);"
+      ]
+    }
+  },
+  {
+    "label": "related (called by / depends on / belongs to) class rows also have </> buttons",
+    "pass": true,
+    "detail": 19
+  },
+  {
+    "label": "one map </> button per class card",
+    "pass": true,
+    "detail": {
+      "cards": 12,
+      "buttons": 12
+    }
+  },
+  {
+    "label": "each map button sits in its card top-right corner",
+    "pass": true,
+    "detail": []
+  },
+  {
+    "label": "buttons follow the camera",
+    "pass": true,
+    "detail": {
+      "beforePan": 1138.25,
+      "afterPan": 1211.25
+    }
+  },
+  {
+    "label": "map class </> opens class source",
+    "pass": true,
+    "detail": {
+      "title": "Event"
+    }
+  },
+  {
+    "label": "map </> leaves inspection unchanged",
+    "pass": true,
+    "detail": {
+      "titleBefore": "EventService",
+      "now": "EventService"
+    }
+  },
+  {
+    "label": "real mouse click on map </> opens code",
+    "pass": true,
+    "detail": "EventController"
+  },
+  {
+    "label": "real click did not inspect the card",
+    "pass": true,
+    "detail": "EventService"
+  },
+  {
+    "label": "one map </> button per method card",
+    "pass": true,
+    "detail": {
+      "methodCards": 12,
+      "methodMapButtons": 12
+    }
+  },
+  {
+    "label": "map method </> opens method source",
+    "pass": true,
+    "detail": {
+      "title": "registerParticipant",
+      "firstMethod": "registerParticipant",
+      "notice": null
+    }
+  },
+  {
+    "label": "buttons hidden when cards are tiny",
+    "pass": true
+  },
+  {
+    "label": "buttons return after Fit",
+    "pass": true
+  },
+  {
+    "label": "source dialog is on top of the full-screen map",
+    "pass": true
+  },
+  {
+    "label": "Escape closes the dialog but keeps full screen",
+    "pass": true
+  },
+  {
+    "label": "no runtime exceptions",
+    "pass": true,
+    "detail": []
+  }
+]

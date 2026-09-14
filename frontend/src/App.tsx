@@ -3,7 +3,7 @@ import './styles/App.css';
 import { apiClient } from './api/client';
 import GraphCanvas from './features/explorer/GraphCanvas';
 import { AtlasGraph, AtlasNode, AtlasEdge, Level, isType, ownerAt, getEligibleIds, rankEligibleIds, projectDisplayed } from './features/explorer/graphModel';
-import { ScopeSelection, wholeSystemScope, scopeToLabel, isNodeInScope, isClassInScope, togglePackage, toggleClass } from './features/explorer/scopeModel';
+import { ScopeSelection, wholeSystemScope, scopeToLabel, isNodeInScope, isClassInScope, togglePackages, toggleClass } from './features/explorer/scopeModel';
 import { explorerViewReducer, initExplorerViewState, PlacementDims, Point, Camera } from './features/explorer/explorerViewState';
 import { arrangeAroundResource, ArrangeCard, ArrangeEdge } from './features/explorer/focusedArrangement';
 import { nodeCard } from './features/explorer/nodeCard';
@@ -181,10 +181,25 @@ export default function App() {
     dispatchView({type:'SCOPE_UPDATED',eligibleIds:ids,explicitClassAddId,batchSize:level==='PACKAGE'?Infinity:BATCH_SIZE,placement:placementFor(ids),otherLevels});
   }
   function resetScope(){handleScopeChange(wholeSystemScope());}
-  function removeFromScope(n:AtlasNode){
-    if(!graph)return;
-    if(!isNodeInScope(n,scope,graph))return;
-    const next=n.kind==='PACKAGE'?togglePackage(scope,n,graph):(()=>{const owner=isType(n)?n:ownerAt(n,'CLASS',new Map(graph.nodes.map(item=>[item.id,item])));return owner&&isClassInScope(owner,scope,graph)?toggleClass(scope,owner,graph):scope;})();
+  // Removes one or many map cards from scope as a single scope edit: folding every removal into one
+  // accumulator (rather than calling handleScopeChange per card, which would each start from the same
+  // stale `scope`) keeps all of them. Packages go first as one batch; a class or method then removes
+  // its owning class only if that class is still in the accumulated scope. Scope holds only packages
+  // and classes, so `removed` names what actually leaves it -- a method card's class -- for the menu label.
+  function planScopeRemoval(targets:AtlasNode[]):{next:ScopeSelection;removed:AtlasNode[]}{
+    if(!graph)return {next:scope,removed:[]};
+    const all=new Map(graph.nodes.map(item=>[item.id,item]));
+    let next=scope;
+    const packages=targets.filter(n=>n.kind==='PACKAGE'&&isNodeInScope(n,scope,graph));
+    if(packages.length)next=togglePackages(next,packages.map(n=>n.id),graph);
+    const owners=new Map<string,AtlasNode>();
+    for(const n of targets){if(n.kind==='PACKAGE')continue;const owner=isType(n)?n:ownerAt(n,'CLASS',all);if(owner)owners.set(owner.id,owner);}
+    const removed=[...packages];
+    for(const owner of owners.values())if(isClassInScope(owner,next,graph)){next=toggleClass(next,owner,graph);removed.push(owner);}
+    return {next,removed};
+  }
+  function removeFromScope(targets:AtlasNode[]){
+    const {next}=planScopeRemoval(targets);
     if(next!==scope)handleScopeChange(next);
   }
   const results=graph&&search.trim()?graph.nodes.filter(n=>(n.qualifiedName||n.simpleName).toLowerCase().includes(search.toLowerCase())).slice(0,35):[];
@@ -224,7 +239,7 @@ export default function App() {
           </div>
           {scopeEmpty
             ? <div className="scope-empty-state"><h2>No packages or classes selected</h2><p>Check packages or classes in the left tree to define what the graph shows.</p><button className="primary" onClick={resetScope}>Select all</button></div>
-            : <GraphCanvas nodes={projected.nodes} edges={projected.edges} positions={levelGeometry.positions} camera={levelGeometry.camera} selectedId={node?.id||edge?.id} onNodeSelect={select} onEdgeSelect={inspectEdge} canRemoveFromScope={n=>isNodeInScope(n,scope,graph)} onRemoveFromScope={removeFromScope} onCameraChange={handleCameraChange} onNodeMoved={handleNodeMoved} onArrangeAroundResource={arrangeAround}/>}
+            : <GraphCanvas nodes={projected.nodes} edges={projected.edges} positions={levelGeometry.positions} camera={levelGeometry.camera} selectedId={node?.id||edge?.id} onNodeSelect={select} onEdgeSelect={inspectEdge} canRemoveFromScope={n=>isNodeInScope(n,scope,graph)} onRemoveFromScope={removeFromScope} scopeRemovalTargets={nodes=>planScopeRemoval(nodes).removed} onCameraChange={handleCameraChange} onNodeMoved={handleNodeMoved} onArrangeAroundResource={arrangeAround} onViewCode={n=>setSource({node:n,type:'symbol'})}/>}
           <div className="graph-legend"><span><i className="line-sample"/>Static dependency</span><span><i className="line-sample uncertain"/>Candidate / unresolved</span><span>{level==='METHOD'?'Method call occurrences':`${level==='PACKAGE'?'Package':'Class'} connections group occurrences by kind and resolution`}</span></div>
         </>}
       </section>

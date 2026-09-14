@@ -1,0 +1,84 @@
+[
+  {
+    "label": "package map draws edges into dtos",
+    "pass": true,
+    "detail": [
+      "services -> dtos [DEPENDS_ON]",
+      "domain -> dtos [INJECTS]",
+      "controllers -> dtos [USES_TYPE]",
+      "domain -> dtos [USES_TYPE]",
+      "services -> dtos [USES_TYPE]",
+      "domain -> dtos [DEPENDS_ON]",
+      "controllers -> dtos [DEPENDS_ON]",
+      "services -> dtos [CONSTRUCTS]"
+    ]
+  },
+  {
+    "label": "controllers -> dtos drawn on the package map",
+    "pass": true
+  },
+  {
+    "label": "services -> dtos drawn on the package map",
+    "pass": true
+  },
+  {
+    "label": "domain -> dtos drawn on the package map",
+    "pass": true
+  },
+  {
+    "label": "no edges out of dtos",
+    "pass": true
+  },
+  {
+    "label": "relationship filter offers the new kinds",
+    "pass": true,
+    "detail": [
+      "ALL",
+      "CALLS",
+      "CONSTRUCTS",
+      "DEPENDS_ON",
+      "INJECTS",
+      "USES_TYPE"
+    ]
+  },
+  {
+    "label": "Classes level with CONSTRUCTS filter shows EventService -> EmailRequestDTO",
+    "pass": true,
+    "detail": [
+      "EventService -> EventNotFoundException",
+      "EventService -> EmailRequestDTO",
+      "EventService -> Event",
+      "EventService -> EventFullException",
+      "EventService -> Subscription",
+      "RestExceptionHandler -> RestErrorMessage"
+    ]
+  },
+  {
+    "label": "graph API returns the Event(EventRequestDTO) constructor",
+    "pass": true
+  },
+  {
+    "label": "a CONSTRUCTS edge targets that constructor",
+    "pass": true
+  },
+  {
+    "label": "Event inspector lists its constructor",
+    "pass": true,
+    "detail": [
+      "ƒ Event(EventRequestDTO)"
+    ]
+  },
+  {
+    "label": "constructor </> opens only the constructor body",
+    "pass": true,
+    "detail": [
+      "    public Event(EventRequestDTO eventRequest){",
+      "        this.date = eventRequest.date();"
+    ]
+  },
+  {
+    "label": "no runtime exceptions",
+    "pass": true,
+    "detail": []
+  }
+]

@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import cytoscape from 'cytoscape';
 import { AtlasNode, AtlasEdge } from './graphModel';
-import { nodeCard } from './nodeCard';
+import { nodeCard, hasCodeButton, CODE_BUTTON } from './nodeCard';
+import CodeButton from '../../components/CodeButton';
+
+/** Below this rendered size the quick-code buttons are hidden and the corner is part of the card. */
+const MIN_CODE_BUTTON_PX = 14;
 import GeminiBadge from '../../components/GeminiBadge';
 
 export interface Point { x: number; y: number }
@@ -18,14 +22,21 @@ interface Props {
    * addition/filter/inspection change never replaces this object, so it never fires spuriously. */
   camera: Camera | null;
   selectedId?: string; onNodeSelect: (node: AtlasNode) => void; onEdgeSelect: (edge: AtlasEdge) => void;
-  canRemoveFromScope: (node: AtlasNode) => boolean; onRemoveFromScope: (node: AtlasNode) => void;
-  /** A manual drag completed for this card. */
+  canRemoveFromScope: (node: AtlasNode) => boolean;
+  /** Removes every given card from scope as one scope edit (a right-click multi-selection or a single card). */
+  onRemoveFromScope: (nodes: AtlasNode[]) => void;
+  /** What removing these cards takes out of scope. Scope holds packages and classes only, so a method card
+   * resolves to its class; the menu names that instead of implying the method alone is removed. */
+  scopeRemovalTargets: (nodes: AtlasNode[]) => AtlasNode[];
+  /** A manual drag completed for this card. A group drag reports one call per moved card. */
   onNodeMoved: (id: string, position: Point) => void;
   /** The canvas settled on a new pan/zoom (debounced real movement, or the one-time initial fit). */
   onCameraChange: (camera: Camera) => void;
   /** Step 5 (Appendix B): the dedicated focused-arrangement command, distinct from inspection and
    * level navigation. Invoked only by a real double-click (`dbltap`, below) -- never by single tap. */
   onArrangeAroundResource: (id: string) => void;
+  /** Quick code: opens the source dialog for a class/method card from its on-card </> button. */
+  onViewCode: (node: AtlasNode) => void;
 }
 
 /**
@@ -39,18 +50,33 @@ interface Props {
  * `cy.fit()` is called only once per level (when `camera` is null) and by the explicit Fit map
  * button -- both are real camera changes the product allows.
  */
-export default function GraphCanvas({ nodes, edges, positions, camera, selectedId, onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, onNodeMoved, onCameraChange, onArrangeAroundResource }: Props) {
+export default function GraphCanvas({ nodes, edges, positions, camera, selectedId, onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, scopeRemovalTargets, onNodeMoved, onCameraChange, onArrangeAroundResource, onViewCode }: Props) {
   const container = useRef<HTMLDivElement>(null), cyRef = useRef<cytoscape.Core | null>(null), menuRef = useRef<HTMLDivElement>(null);
-  const callbacks = useRef({ onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, onNodeMoved, onCameraChange, onArrangeAroundResource });
-  callbacks.current = { onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, onNodeMoved, onCameraChange, onArrangeAroundResource };
-  const [mini, setMini] = useState<{ nodes: { id: string; x: number; y: number }[]; box: { x1: number; y1: number; w: number; h: number }; viewport: { x1: number; y1: number; w: number; h: number }; zoom: number } | null>(null);
+  const callbacks = useRef({ onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, onNodeMoved, onCameraChange, onArrangeAroundResource, onViewCode });
+  callbacks.current = { onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, onNodeMoved, onCameraChange, onArrangeAroundResource, onViewCode };
+  const [mini, setMini] = useState<{ nodes: { id: string; x: number; y: number; w: number; h: number }[]; box: { x1: number; y1: number; w: number; h: number }; viewport: { x1: number; y1: number; w: number; h: number }; zoom: number } | null>(null);
   const [hover,setHover]=useState<{title:string;description:string;x:number;y:number;ready:boolean}|null>(null);
-  const [contextMenu,setContextMenu]=useState<{node:AtlasNode;x:number;y:number}|null>(null);
+  // `node` is the card that was right-clicked; null when the menu opened from a marquee.
+  const [contextMenu,setContextMenu]=useState<{node:AtlasNode|null;x:number;y:number}|null>(null);
+  // The one multi-selection every bulk action works on. Right-click, right-drag marquee,
+  // Ctrl/Cmd/Shift+click and Ctrl/Cmd/Shift+drag box selection all feed it. Cytoscape's native
+  // selection is disabled (`autounselectify`) so there is never a second, action-less selection;
+  // inspection emphasis uses the `.inspected` class instead.
+  const [multiIds,setMultiIds]=useState<string[]>([]);
+  const multiRef=useRef(multiIds); multiRef.current=multiIds;
+  const [fullscreen,setFullscreen]=useState(false);
+  // Right-button marquee in rendered (stage) pixels while a right-drag is in progress.
+  const [marquee,setMarquee]=useState<{x1:number;y1:number;x2:number;y2:number}|null>(null);
+  const cancelMarqueeRef=useRef<()=>void>(()=>{});
+  // Screen boxes (stage pixels) for the on-card quick-code buttons, recomputed with the minimap.
+  const [codeButtons,setCodeButtons]=useState<{id:string;left:number;top:number;size:number}[]>([]);
+  // The card whose quick-code square the pointer is over (the canvas owns the pointer; see codeButtonHit).
+  const [hotCodeId,setHotCodeId]=useState<string|null>(null);
   const [mapOpen, setMapOpen] = useState(true);
   const model = useMemo(() => ({nodes, edges}), [nodes, edges]);
   const currentModel=useRef(model); currentModel.current=model;
   const updateMapRef = useRef<() => void>(() => {});
-  const elementsKey=useMemo(()=>JSON.stringify([nodes.map(n=>n.id),edges.map(e=>e.id)]),[nodes,edges]);
+  const nodesKey=useMemo(()=>JSON.stringify(nodes.map(n=>n.id)),[nodes]);
   const edgeLabel=(e:AtlasEdge)=>(e.explanationStatus==='READY'?'✦ ':'')+e.kind.toLowerCase().replaceAll('_',' ')+(e.occurrenceCount!>1?` · ${e.occurrenceCount} sites`:'');
   const nodeStyleData=(n:AtlasNode)=>{const card=nodeCard(n);return {...n,card:card.image,cardWidth:card.width,cardHeight:card.height,label:n.simpleName+'\n'+(n.roles?.[0]?.toLowerCase().replaceAll('_',' ')||n.kind.toLowerCase()),color:n.kind==='PACKAGE'?'#6c79b6':n.roles?.includes('SERVICE')?'#16888a':n.roles?.includes('REPOSITORY')?'#6287c8':'#8293a8'};};
 
@@ -58,28 +84,40 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
   // through the reconciliation effect below, using positions this component never invents itself.
   useEffect(() => {
     if (!container.current) return;
-    const cy = cytoscape({ container: container.current, minZoom: .12, maxZoom: 2, wheelSensitivity: .2,
+    const cy = cytoscape({ container: container.current, minZoom: .12, maxZoom: 2, wheelSensitivity: .2, autounselectify: true,
       elements: [],
       style: [
-        { selector: 'node', style: { shape: 'round-rectangle', width: 'data(cardWidth)', height: 'data(cardHeight)', 'background-image': 'data(card)', 'background-fit': 'contain', 'background-color': '#ffffff', 'border-width': 1.4, 'border-color': 'data(color)', label: '', color: '#1b304b', 'font-family': 'Segoe UI, sans-serif', 'font-size': 14, 'font-weight': 500, 'text-wrap': 'wrap', 'text-max-width': '198px', 'text-valign': 'center', 'text-halign': 'center', 'line-height': 1.7, 'overlay-opacity': 0 } },
+        // 'box-selection: overlap' makes Cytoscape's Ctrl/Shift+drag box pick any card it touches, the same rule as the right-drag marquee.
+        { selector: 'node', style: { 'box-selection': 'overlap', shape: 'round-rectangle', width: 'data(cardWidth)', height: 'data(cardHeight)', 'background-image': 'data(card)', 'background-fit': 'contain', 'background-color': '#ffffff', 'border-width': 1.4, 'border-color': 'data(color)', label: '', color: '#1b304b', 'font-family': 'Segoe UI, sans-serif', 'font-size': 14, 'font-weight': 500, 'text-wrap': 'wrap', 'text-max-width': '198px', 'text-valign': 'center', 'text-halign': 'center', 'line-height': 1.7, 'overlay-opacity': 0 } },
         { selector: 'node[kind = "PACKAGE"]', style: { 'background-color': '#ffffff', 'font-size': 14 } },
-        { selector: 'node:selected', style: { 'background-color': '#e0f4f3', 'border-color': '#07888c', 'border-width': 2.5 } },
+        { selector: 'node.inspected', style: { 'background-color': '#e0f4f3', 'border-color': '#07888c', 'border-width': 2.5 } },
         { selector: 'node.neighbor', style: { 'border-color': '#07888c', 'border-width': 2.5 } },
         { selector: 'edge', style: { width: 1.4, 'line-color': '#a0aebd', 'target-arrow-color': '#8395a9', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', label: 'data(label)', 'font-size': 11, color: '#5b6d83', 'text-opacity': .85, 'text-background-color': '#f7f9fc', 'text-background-opacity': 1, 'text-background-padding': '4px', 'text-rotation': 'autorotate', 'arrow-scale': .8 } },
         { selector: 'edge[resolution != "RESOLVED"]', style: { 'line-color': '#ba862d', 'target-arrow-color': '#ba862d', 'line-style': 'dashed' } },
         { selector: 'edge[explanationStatus = "READY"]', style: { color: '#7955b7', 'text-background-color': '#f3eeff', 'text-opacity': 1 } },
-        { selector: 'edge:selected', style: { width: 2.5, 'line-color': '#07888c', 'target-arrow-color': '#07888c', color: '#08777b' } },
+        { selector: 'edge.inspected', style: { width: 2.5, 'line-color': '#07888c', 'target-arrow-color': '#07888c', color: '#08777b' } },
         { selector: 'edge.incident', style: { width: 2.5 } },
         { selector: '.muted', style: { opacity: .6 } },
+        { selector: 'node.multi-selected', style: { 'border-color': '#7955b7', 'border-width': 4, 'overlay-color': '#7955b7', 'overlay-opacity': .1, 'overlay-padding': 8 } },
+        { selector: 'node.marquee-candidate', style: { 'border-color': '#7955b7', 'border-width': 3, 'border-style': 'dashed' } },
       ] });
     cyRef.current = cy;
     // A truly empty core has no boundingBox (would feed Infinity into the SVG viewBox), so the
     // minimap stays unset (mini === null, already guarded at render) until the reconciliation
     // effect below adds the first elements and calls this via updateMapRef.
     const updateMap = () => {
+      // Each class/method card gets a DOM </> button drawn over the corner nodeCard reserves for it,
+      // scaled with the zoom. Hidden while cards are too small to hit, and skipped when off screen.
+      // Below that size the previous (already empty) array is kept so pan/zoom frames do not re-render.
+      const zoomNow = cy.zoom(), size = CODE_BUTTON.size * zoomNow, w = cy.width(), h = cy.height();
+      if (size < MIN_CODE_BUTTON_PX) setCodeButtons(prev => prev.length ? [] : prev);
+      else setCodeButtons(cy.nodes().map(n => {
+        const p = n.renderedPosition(), rw = n.renderedWidth(), rh = n.renderedHeight();
+        return { id: n.id(), show: hasCodeButton(n.data()), left: p.x + rw / 2 - (CODE_BUTTON.right * zoomNow + size), top: p.y - rh / 2 + CODE_BUTTON.top * zoomNow, size };
+      }).filter(b => b.show && b.left > -b.size && b.top > -b.size && b.left < w && b.top < h).map(({ show: _show, ...b }) => b));
       if (!cy.nodes().length) return;
       const b = cy.elements().boundingBox(); const v = cy.extent();
-      setMini({nodes: cy.nodes().map(n => ({ id: n.id(), x: n.position('x'), y: n.position('y') })), box: {x1: b.x1 - 30, y1: b.y1 - 30, w: Math.max(280, b.w + 60), h: Math.max(160, b.h + 60)}, viewport: v, zoom: cy.zoom()});
+      setMini({nodes: cy.nodes().map(n => ({ id: n.id(), x: n.position('x'), y: n.position('y'), w: n.width(), h: n.height() })), box: {x1: b.x1 - 30, y1: b.y1 - 30, w: Math.max(280, b.w + 60), h: Math.max(160, b.h + 60)}, viewport: v, zoom: cy.zoom()});
     };
     updateMapRef.current = updateMap;
     // Real user camera movement (pan, zoom, drag) is captured, debounced, and reported once it
@@ -88,7 +126,8 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
     // be mistaken for a fresh user gesture.
     let programmatic = false;
     let debounceHandle: ReturnType<typeof setTimeout> | null = null;
-    cy.on('pan zoom position', updateMap);
+    let mapFrame = 0;
+    cy.on('pan zoom position', () => { if (!mapFrame) mapFrame = requestAnimationFrame(() => { mapFrame = 0; updateMap(); }); });
     cy.on('pan zoom', () => {
       if (programmatic) return;
       if (debounceHandle) clearTimeout(debounceHandle);
@@ -98,22 +137,113 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
       }, 180);
     });
     (cy as any).__setProgrammaticCamera = (fn: () => void) => { programmatic = true; try { fn(); } finally { setTimeout(() => { programmatic = false; }, 0); } };
-    cy.on('tap', 'node', e => callbacks.current.onNodeSelect(currentModel.current.nodes.find(n => n.id === e.target.id())!));
+    // The quick-code buttons are drawn over the cards but take no pointer events (CSS), so a drag,
+    // right-click, double-click or marquee that starts on that corner behaves exactly like the rest of
+    // the card. A plain click is hit-tested here instead: inside the square it opens the code.
+    // A programmatic tap (`node.emit('tap')`) carries no position and is never on the square.
+    const codeButtonHit = (n: cytoscape.NodeSingular, p: Point | undefined) => {
+      if (!p || !hasCodeButton(n.data()) || CODE_BUTTON.size * cy.zoom() < MIN_CODE_BUTTON_PX) return false;
+      const c = n.position(), right = c.x + n.width() / 2 - CODE_BUTTON.right, top = c.y - n.height() / 2 + CODE_BUTTON.top;
+      return p.x >= right - CODE_BUTTON.size && p.x <= right && p.y >= top && p.y <= top + CODE_BUTTON.size;
+    };
+    cy.on('mousemove', 'node', e => { const id = codeButtonHit(e.target, e.position) ? e.target.id() : null; setHotCodeId(prev => prev === id ? prev : id); });
+    cy.on('mouseout', 'node', () => setHotCodeId(null));
+    // Ctrl/Cmd/Shift+click toggles a card in the multi-selection without inspecting it; a plain click inspects.
+    const multiKey = (e: cytoscape.EventObject) => { const o = e.originalEvent as MouseEvent | undefined; return !!o && (o.ctrlKey || o.metaKey || o.shiftKey); };
+    cy.on('tap', 'node', e => {
+      if (multiKey(e)) { const id = e.target.id(); setHover(null); setMultiIds(ids => ids.includes(id) ? ids.filter(other => other !== id) : [...ids, id]); return; }
+      // The model can briefly lag Cytoscape during reconciliation; a card that is gone has nothing to open.
+      const node = currentModel.current.nodes.find(n => n.id === e.target.id());
+      if (!node) return;
+      if (codeButtonHit(e.target, e.position)) { setContextMenu(null); callbacks.current.onViewCode(node); return; }
+      callbacks.current.onNodeSelect(node);
+    });
     // Step 4 disconnected double-click from level navigation (that was explore(), a leftover from
     // before View methods/View classes existed as named commands). Step 5 (Appendix B) gives it its
     // own dedicated ARRANGE_AROUND_RESOURCE command via Cytoscape's own `dbltap` gesture recognition
     // (H4): the first tap still reaches `onNodeSelect` above (inspection is idempotent, so a repeat
     // inspect of the same subject is a no-op) and cannot itself move or unmount anything; `dbltap`
     // fires in addition, once, on the second tap.
-    cy.on('dbltap', 'node', e => callbacks.current.onArrangeAroundResource(e.target.id()));
-    cy.on('dragfree', 'node', e => { const p = e.target.position(); callbacks.current.onNodeMoved(e.target.id(), { x: p.x, y: p.y }); });
+    cy.on('dbltap', 'node', e => { if (!multiKey(e)) callbacks.current.onArrangeAroundResource(e.target.id()); });
+    // Group drag: grabbing a card that belongs to a multi-selection of two or more carries the other
+    // selected cards by the same delta. Their start positions are captured at grab time so the
+    // group keeps its exact shape, and every moved card is reported once on release.
+    let groupDrag: { id: string; start: Point; others: { node: cytoscape.NodeSingular; start: Point }[] } | null = null;
+    cy.on('grab', 'node', e => {
+      const id = e.target.id(), ids = multiRef.current;
+      if (ids.length < 2 || !ids.includes(id)) { groupDrag = null; return; }
+      const others = ids.filter(other => other !== id).map(other => cy.getElementById(other)).filter(n => n.length > 0).map(n => n as unknown as cytoscape.NodeSingular);
+      groupDrag = { id, start: { ...e.target.position() }, others: others.map(node => ({ node, start: { ...node.position() } })) };
+    });
+    cy.on('drag', 'node', e => {
+      if (!groupDrag || e.target.id() !== groupDrag.id) return;
+      const p = e.target.position(), dx = p.x - groupDrag.start.x, dy = p.y - groupDrag.start.y;
+      cy.batch(() => { for (const o of groupDrag!.others) if (o.node.inside()) o.node.position({ x: o.start.x + dx, y: o.start.y + dy }); });
+    });
+    cy.on('dragfree', 'node', e => {
+      const p = e.target.position(); callbacks.current.onNodeMoved(e.target.id(), { x: p.x, y: p.y });
+      if (groupDrag && groupDrag.id === e.target.id()) {
+        for (const o of groupDrag.others) if (o.node.inside()) { const q = o.node.position(); callbacks.current.onNodeMoved(o.node.id(), { x: q.x, y: q.y }); }
+      }
+      groupDrag = null;
+    });
+    // Right-click adds the card to the multi-selection (never removes it -- use the menu's Deselect)
+    // and opens the actions menu for the whole selection.
     cy.on('cxttap', 'node', e => {
       (e.originalEvent as Event | undefined)?.preventDefault();
       const node=currentModel.current.nodes.find(n=>n.id===e.target.id());
-      if(!node||!callbacks.current.canRemoveFromScope(node)){setContextMenu(null);return;}
+      if(!node){setContextMenu(null);return;}
+      setMultiIds(ids=>ids.includes(node.id)?ids:[...ids,node.id]);
       const position=e.renderedPosition || e.target.renderedPosition();
       setHover(null);
-      setContextMenu({node,x:Math.max(8,Math.min(position.x,cy.width()-178)),y:Math.max(8,Math.min(position.y,cy.height()-54))});
+      setContextMenu({node,x:Math.max(8,Math.min(position.x,cy.width()-238)),y:Math.max(8,Math.min(position.y,cy.height()-150))});
+    });
+    // A plain click on empty canvas clears the multi-selection, like most canvas editors.
+    cy.on('tap', e => { if (e.target === cy && !multiKey(e)) setMultiIds(ids => ids.length ? [] : ids); });
+
+    // Ctrl/Cmd/Shift + left-drag on empty canvas: Cytoscape's own box gesture. With native selection
+    // disabled it still reports every node in the box ('box', emitted synchronously right after
+    // 'boxend'), so those ids are collected and added to the multi-selection once the gesture ends.
+    const boxed = new Set<string>();
+    cy.on('boxstart', () => boxed.clear());
+    cy.on('box', 'node', e => { boxed.add(e.target.id()); });
+    cy.on('boxend', () => queueMicrotask(() => {
+      if (!boxed.size) return;
+      const add = [...boxed]; boxed.clear();
+      setMultiIds(ids => { const merged = [...ids]; for (const id of add) if (!merged.includes(id)) merged.push(id); return merged; });
+    }));
+
+    // Right-button marquee. Cytoscape never pans on a right-drag: it emits cxttapstart, then cxtdrag
+    // once the pointer passes its drag threshold, then cxttapend -- and it emits cxttap only when the
+    // pointer did NOT drag, so a plain right-click keeps its own handler above. The anchor is kept in
+    // model coordinates; every card whose box intersects the band joins the multi-selection (never
+    // removes, like right-click) and the actions menu opens at the release point.
+    let anchor: Point | null = null, dragging = false, candidates: string[] = [];
+    const bandFor = (a: Point, b: Point) => ({ x1: Math.min(a.x, b.x), y1: Math.min(a.y, b.y), x2: Math.max(a.x, b.x), y2: Math.max(a.y, b.y) });
+    const toRendered = (p: Point) => ({ x: p.x * cy.zoom() + cy.pan().x, y: p.y * cy.zoom() + cy.pan().y });
+    const hits = (band: { x1: number; y1: number; x2: number; y2: number }) => cy.nodes().filter(n => {
+      const bb = n.boundingBox({ includeLabels: false, includeOverlays: false });
+      return bb.x1 <= band.x2 && bb.x2 >= band.x1 && bb.y1 <= band.y2 && bb.y2 >= band.y1;
+    }).map(n => n.id());
+    const markCandidates = (ids: string[]) => cy.batch(() => { cy.nodes('.marquee-candidate').removeClass('marquee-candidate'); for (const id of ids) cy.getElementById(id).addClass('marquee-candidate'); });
+    const endMarquee = () => { anchor = null; dragging = false; candidates = []; markCandidates([]); setMarquee(null); };
+    cancelMarqueeRef.current = endMarquee;
+    cy.on('cxttapstart', e => { anchor = { ...e.position }; dragging = false; candidates = []; });
+    cy.on('cxtdrag', e => {
+      if (!anchor) return;
+      if (!dragging) { dragging = true; setHover(null); setContextMenu(null); }
+      const band = bandFor(anchor, e.position), a = toRendered({ x: band.x1, y: band.y1 }), b = toRendered({ x: band.x2, y: band.y2 });
+      candidates = hits(band);
+      markCandidates(candidates);
+      setMarquee({ x1: a.x, y1: a.y, x2: b.x, y2: b.y });
+    });
+    cy.on('cxttapend', e => {
+      if (!anchor || !dragging) { anchor = null; return; }
+      const add = candidates, release = e.renderedPosition || toRendered(e.position);
+      endMarquee();
+      if (!add.length) return;
+      setMultiIds(ids => { const merged = [...ids]; for (const id of add) if (!merged.includes(id)) merged.push(id); return merged; });
+      setContextMenu({ node: null, x: Math.max(8, Math.min(release.x, cy.width() - 238)), y: Math.max(8, Math.min(release.y, cy.height() - 150)) });
     });
     cy.on('mouseover', 'edge', e => {
       const edge = currentModel.current.edges.find(n=>n.id===e.target.id()); if(!edge)return;
@@ -123,7 +253,7 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
     });
     cy.on('mouseout pan zoom tap',()=>setHover(null));
     cy.on('pan zoom tap',()=>setContextMenu(null));
-    cy.on('tap', 'edge', e => callbacks.current.onEdgeSelect(currentModel.current.edges.find(n => n.id === e.target.id())!));
+    cy.on('tap', 'edge', e => { const edge = currentModel.current.edges.find(n => n.id === e.target.id()); if (edge) callbacks.current.onEdgeSelect(edge); });
     const canvas=container.current;
     const preventContextMenu=(event:MouseEvent)=>event.preventDefault();
     canvas.addEventListener('contextmenu',preventContextMenu);
@@ -131,18 +261,65 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
     // screen swap, sidebar toggle) must not move the camera the user set. Skip on a transient
     // zero-size container so cy.resize() cannot corrupt pan/zoom.
     const observer = new ResizeObserver(() => { if (!container.current?.clientWidth || !container.current?.clientHeight) return; cy.resize(); updateMap(); }); observer.observe(canvas);
-    return () => { canvas.removeEventListener('contextmenu',preventContextMenu); observer.disconnect(); if (debounceHandle) clearTimeout(debounceHandle); cy.destroy(); cyRef.current = null; };
+    return () => { canvas.removeEventListener('contextmenu',preventContextMenu); observer.disconnect(); if (debounceHandle) clearTimeout(debounceHandle); if (mapFrame) cancelAnimationFrame(mapFrame); cy.destroy(); cyRef.current = null; };
   }, []);
 
-  useEffect(()=>{setContextMenu(null);},[elementsKey]);
+  // A card membership change closes the menu and drops selected cards that are no longer displayed.
+  // Keyed on card IDs only: an edge or relationship-filter change leaves the menu's cards untouched.
+  useEffect(()=>{
+    setContextMenu(null);
+    const displayed=new Set(nodes.map(n=>n.id));
+    setMultiIds(ids=>ids.every(id=>displayed.has(id))?ids:ids.filter(id=>displayed.has(id)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[nodesKey]);
   useEffect(()=>{
     if(!contextMenu)return;
     const dismiss=(event:PointerEvent)=>{if(!menuRef.current?.contains(event.target as Node))setContextMenu(null);};
-    const escape=(event:KeyboardEvent)=>{if(event.key==='Escape')setContextMenu(null);};
-    window.addEventListener('pointerdown',dismiss,true);window.addEventListener('keydown',escape);
-    menuRef.current?.querySelector<HTMLButtonElement>('button')?.focus();
-    return()=>{window.removeEventListener('pointerdown',dismiss,true);window.removeEventListener('keydown',escape);};
+    const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'){event.stopImmediatePropagation();setContextMenu(null);}};
+    window.addEventListener('pointerdown',dismiss,true);window.addEventListener('keydown',escape,true);
+    menuRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+    return()=>{window.removeEventListener('pointerdown',dismiss,true);window.removeEventListener('keydown',escape,true);};
   },[contextMenu]);
+  useEffect(()=>{
+    if(!marquee)return;
+    const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'){event.stopImmediatePropagation();cancelMarqueeRef.current();}};
+    window.addEventListener('keydown',escape,true);
+    return()=>window.removeEventListener('keydown',escape,true);
+  },[marquee!==null]);
+  // Escape (with no menu open) clears the multi-selection, or else leaves the full-screen overlay. While
+  // the browser itself is in full screen it handles Escape first and exits (the fullscreenchange listener
+  // below then leaves the overlay too); pages cannot intercept that, so the selection is kept then.
+  useEffect(()=>{
+    if(!multiIds.length&&!fullscreen)return;
+    const escape=(event:KeyboardEvent)=>{
+      if(event.key!=='Escape'||document.querySelector('dialog[open]'))return;
+      if(multiRef.current.length)setMultiIds([]);else setFullscreen(false);
+    };
+    window.addEventListener('keydown',escape);
+    return()=>window.removeEventListener('keydown',escape);
+  },[multiIds.length>0,fullscreen]);
+  // Full screen: the stage becomes a fixed overlay (CSS) and the browser is asked for real full
+  // screen on the document root, so modal dialogs such as the source viewer still appear above it.
+  // Leaving browser full screen (browser Esc, F11) also leaves the overlay. The existing
+  // ResizeObserver resizes the renderer without re-fitting, so the camera is preserved.
+  useEffect(()=>{
+    if(!fullscreen)return;
+    const root=document.documentElement;
+    if(!document.fullscreenElement&&root.requestFullscreen)root.requestFullscreen().catch(()=>{});
+    const change=()=>{if(!document.fullscreenElement)setFullscreen(false);};
+    document.addEventListener('fullscreenchange',change);
+    return()=>{document.removeEventListener('fullscreenchange',change);if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});};
+  },[fullscreen]);
+  const selectedNodes=multiIds.map(id=>nodes.find(n=>n.id===id)).filter((n):n is AtlasNode=>Boolean(n));
+  const removableNodes=selectedNodes.filter(n=>canRemoveFromScope(n));
+  // Name what leaves scope when that differs from the selected cards (a method card removes its class).
+  const removalTargets=removableNodes.length?scopeRemovalTargets(removableNodes):[];
+  const removalIsSelection=removalTargets.length===removableNodes.length&&removableNodes.every(n=>removalTargets.some(t=>t.id===n.id));
+  const removalNoun=removalTargets.every(t=>t.kind==='PACKAGE')?'packages':removalTargets.some(t=>t.kind==='PACKAGE')?'packages and classes':'classes';
+  const removalLabel=removalIsSelection?(selectedNodes.length>1?`Remove ${removableNodes.length} from scope`:'Remove from scope')
+    :removalTargets.length===1?`Remove ${removalTargets[0].kind==='PACKAGE'?'package':'class'} ${removalTargets[0].simpleName} from scope`:`Remove ${removalTargets.length} ${removalNoun} from scope`;
+  const removalTitle=removalIsSelection?undefined:'Scope holds packages and classes, so a method leaves the map with its class.';
+  function removeSelectedFromScope(){if(removableNodes.length)callbacks.current.onRemoveFromScope(removableNodes);setMultiIds([]);setContextMenu(null);}
 
   // Incremental reconciliation: remove absent edges, remove absent nodes, add new nodes at their
   // given position, add new edges, refresh every current element's display data. A survivor's
@@ -192,19 +369,26 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
     updateMapRef.current();
   }, [nodes, edges, positions]);
 
+  // Multi-selection outline. Declared after reconciliation so a card added in the same commit already exists.
+  useEffect(()=>{
+    const cy=cyRef.current; if(!cy)return;
+    cy.batch(()=>{cy.nodes('.multi-selected').removeClass('multi-selected');for(const id of multiIds)cy.getElementById(id).addClass('multi-selected');});
+  },[multiIds,nodes]);
+
   // Selection/inspection emphasis only: never a layout or fit call. Selected card gets a stronger
-  // outline (node:selected style); its visible incident edges get thicker strokes (.incident) and
+  // outline (node.inspected style); its visible incident edges get thicker strokes (.incident) and
   // direct neighbors get stronger outlines (.neighbor); everything else outside the closed
   // neighborhood is gently dimmed (.muted). Hidden edges contribute no neighbors because they were
   // never added to cy in the first place (filtered out by the caller before this component sees them).
   useEffect(() => {
     const cy = cyRef.current; if (!cy) return;
-    cy.elements().unselect().removeClass('muted neighbor incident');
+    cy.elements().removeClass('inspected muted neighbor incident');
     if (selectedId) {
       const selected = cy.getElementById(selectedId);
       if (selected.length) {
-        selected.select();
-        const neighborhood = selected.closedNeighborhood();
+        selected.addClass('inspected');
+        // An edge's closedNeighborhood() is only the edge itself, so an inspected edge keeps its endpoints explicitly.
+        const neighborhood = selected.closedNeighborhood().union(selected.connectedNodes());
         cy.elements().difference(neighborhood).addClass('muted');
         neighborhood.nodes().difference(selected).addClass('neighbor');
         neighborhood.edges().addClass('incident');
@@ -240,13 +424,25 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
 
   function zoom(factor: number) { const cy = cyRef.current; if (cy) cy.zoom({level: cy.zoom() * factor, renderedPosition: {x: cy.width()/2, y: cy.height()/2}}); }
   function fit() { const cy = cyRef.current; if (cy && nodes.length) { cy.fit(undefined, 55); if (cy.zoom() > 1) { cy.zoom(1); cy.center(); } } }
-  return <div className="graph-stage">
+  const menuNode=contextMenu?.node||null;
+  const menuSelected=menuNode?selectedNodes.some(n=>n.id===menuNode.id):false;
+  const menuTitle=selectedNodes.length>1?`${selectedNodes.length} resources selected`:(menuNode||selectedNodes[0])?.simpleName||'Selection';
+  return <div className={`graph-stage${fullscreen?' fullscreen':''}`}>
     <div ref={container} className="graph-canvas" aria-label="Dependency graph" />
+    {codeButtons.map(b=>{const n=nodes.find(item=>item.id===b.id);return n?<CodeButton key={b.id} name={n.simpleName} kind={n.kind} className={`map-code-button${hotCodeId===b.id?' hot':''}`} style={{left:b.left,top:b.top,width:b.size,height:b.size,fontSize:Math.max(10,b.size*.5)}} onClick={()=>{setContextMenu(null);onViewCode(n);}}/>:null;})}
     {!nodes.length && <div className="canvas-empty">No symbols in this view. Choose another level or clear the filter.</div>}
     {hover&&<div className="edge-hover" style={{left:hover.x,top:hover.y}}><strong>{hover.ready&&<GeminiBadge/>} {hover.title}</strong><p>{hover.description}</p></div>}
-    {contextMenu&&<div ref={menuRef} className="graph-context-menu" role="menu" aria-label={`Scope actions for ${contextMenu.node.simpleName}`} style={{left:contextMenu.x,top:contextMenu.y}}><button role="menuitem" onClick={()=>{callbacks.current.onRemoveFromScope(contextMenu.node);setContextMenu(null);}}><span aria-hidden="true">−</span> Remove from scope</button></div>}
-    <div className="canvas-hint">Arrows point from caller to dependency</div>
-    <div className="zoom-controls"><button onClick={() => zoom(1.2)} aria-label="Zoom in">+</button><span>{Math.round((mini?.zoom || 1)*100)}%</span><button onClick={() => zoom(1/1.2)} aria-label="Zoom out">−</button><button onClick={fit}>Fit map</button></div>
+    {contextMenu&&<div ref={menuRef} className="graph-context-menu" role="menu" aria-label={selectedNodes.length>1?`Actions for ${selectedNodes.length} selected resources`:`Actions for ${menuTitle}`} style={{left:contextMenu.x,top:contextMenu.y}}>
+      <div className="graph-context-menu-heading">{menuTitle}</div>
+      <button role="menuitem" className="danger" disabled={!removableNodes.length} title={removalTitle} onClick={removeSelectedFromScope}><span aria-hidden="true">−</span> {removalLabel}</button>
+      {menuNode&&menuSelected&&selectedNodes.length>1&&<button role="menuitem" onClick={()=>{setMultiIds(ids=>ids.filter(id=>id!==menuNode.id));setContextMenu(null);}}><span aria-hidden="true">○</span> Deselect {menuNode.simpleName}</button>}
+      <button role="menuitem" onClick={()=>{setMultiIds([]);setContextMenu(null);}}><span aria-hidden="true">✕</span> {selectedNodes.length>1?'Clear selection':'Deselect'}</button>
+      <p className="graph-context-menu-hint">Right-click or right-drag over more cards to add them. Drag any selected card to move the group.</p>
+    </div>}
+    {selectedNodes.length>0&&<div className="selection-bar" role="toolbar" aria-label="Selected resources"><strong>{selectedNodes.length} selected</strong><button className="danger" disabled={!removableNodes.length} title={removalTitle} onClick={removeSelectedFromScope}>{removalLabel}</button><button onClick={()=>setMultiIds([])}>Clear</button></div>}
+    {marquee&&<div className="graph-marquee" aria-hidden="true" style={{left:marquee.x1,top:marquee.y1,width:marquee.x2-marquee.x1,height:marquee.y2-marquee.y1}}/>}
+    <div className="canvas-hint">Arrows point from caller to dependency · right-drag or Ctrl+click to select several</div>
+    <div className="zoom-controls"><button onClick={() => zoom(1.2)} aria-label="Zoom in">+</button><span>{Math.round((mini?.zoom || 1)*100)}%</span><button onClick={() => zoom(1/1.2)} aria-label="Zoom out">−</button><button onClick={fit} aria-label="Fit map" title="Fit map"><span aria-hidden="true" className="control-icon">⤧</span><span className="control-text">Fit map</span></button><button onClick={() => setFullscreen(f => !f)} aria-pressed={fullscreen} aria-label={fullscreen ? 'Exit full screen' : 'Full screen'} title={fullscreen ? 'Exit full screen (Esc)' : 'Show the map full screen'}><span aria-hidden="true">{fullscreen ? '⤡' : '⤢'}</span><span className="control-text">{fullscreen ? ' Exit full screen' : ' Full screen'}</span></button></div>
     <div className={`minimap ${mapOpen ? '' : 'collapsed'}`}>
       <button className="minimap-title" onClick={() => setMapOpen(!mapOpen)} aria-expanded={mapOpen}>Map overview <span>{mapOpen ? '−' : '+'}</span></button>
       {mapOpen && mini && <svg role="img" aria-label="Map overview with current viewport" viewBox={`${mini.box.x1} ${mini.box.y1} ${mini.box.w} ${mini.box.h}`} preserveAspectRatio="xMidYMid meet" onClick={e => {
@@ -255,7 +451,7 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
         if (transform && cy) { const p = point.matrixTransform(transform.inverse()); cy.pan({x: cy.width()/2 - p.x*cy.zoom(), y: cy.height()/2 - p.y*cy.zoom()}); }
       }}>
         {edges.map(e => { const a=mini.nodes.find(n=>n.id===e.sourceId),b=mini.nodes.find(n=>n.id===e.targetId); return a&&b?<line key={e.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#c5d0dd" strokeWidth="4"/>:null; })}
-        {mini.nodes.map(n => <rect key={n.id} x={n.x-65} y={n.y-25} width="130" height="50" rx="10" fill={n.id===selectedId?'#0b9193':'#a4b8cd'}/>)}
+        {mini.nodes.map(n => <rect key={n.id} x={n.x-n.w/2} y={n.y-n.h/2} width={n.w} height={n.h} rx="10" fill={n.id===selectedId?'#0b9193':'#a4b8cd'}/>)}
         <rect x={mini.viewport.x1} y={mini.viewport.y1} width={mini.viewport.w} height={mini.viewport.h} fill="#07888c0c" stroke="#07888c" strokeWidth="2" vectorEffect="non-scaling-stroke"/>
       </svg>}
     </div>

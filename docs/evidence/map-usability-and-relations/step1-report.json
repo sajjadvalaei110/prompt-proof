@@ -1,0 +1,181 @@
+[
+  {
+    "label": "package card name font-size is 30",
+    "pass": true
+  },
+  {
+    "label": "no legacy 15px name",
+    "pass": true
+  },
+  {
+    "label": "class card name font-size is 30",
+    "pass": true
+  },
+  {
+    "label": "minimap rect uses real card dims",
+    "pass": true,
+    "detail": {
+      "mini": {
+        "w": 250,
+        "h": 206
+      },
+      "firstDims": {
+        "w": 250,
+        "h": 206
+      }
+    }
+  },
+  {
+    "label": "menu opens on right click",
+    "pass": true
+  },
+  {
+    "label": "first right-click selects one",
+    "pass": true
+  },
+  {
+    "label": "Escape closes menu but keeps selection",
+    "pass": true
+  },
+  {
+    "label": "second right-click adds to selection",
+    "pass": true,
+    "detail": [
+      "2f367f2c-5fe4-4a10-9511-cd16b977131d",
+      "9c65055b-60e5-43e2-bd6e-f352349d24c3"
+    ]
+  },
+  {
+    "label": "menu heading shows count",
+    "pass": true
+  },
+  {
+    "label": "selection bar shows count",
+    "pass": true
+  },
+  {
+    "label": "left click inspects without clearing multi-selection",
+    "pass": true
+  },
+  {
+    "label": "dragged card moved",
+    "pass": true,
+    "detail": {
+      "a": {
+        "dx": 243.27,
+        "dy": 162.18
+      },
+      "zoom": 0.4932889755649879
+    }
+  },
+  {
+    "label": "other selected card moved by same delta",
+    "pass": true,
+    "detail": {
+      "a": {
+        "dx": 243.27,
+        "dy": 162.18
+      },
+      "b": {
+        "dx": 243.27,
+        "dy": 162.18
+      }
+    }
+  },
+  {
+    "label": "unselected cards did not move",
+    "pass": true
+  },
+  {
+    "label": "group-drag positions persisted in view state",
+    "pass": true,
+    "detail": {
+      "restoredA": {
+        "x": 1858.2651162790696,
+        "y": 519.1767441860466
+      },
+      "afterA": {
+        "x": 1858.2651162790696,
+        "y": 519.1767441860466
+      },
+      "restoredB": {
+        "x": 666.2651162790696,
+        "y": 265.17674418604656
+      },
+      "afterB": {
+        "x": 666.2651162790696,
+        "y": 265.17674418604656
+      }
+    }
+  },
+  {
+    "label": "remove action names the count",
+    "pass": true,
+    "detail": "− Remove 2 from scope"
+  },
+  {
+    "label": "exactly the selected cards were removed",
+    "pass": true,
+    "detail": {
+      "selected": [
+        "EventFullException",
+        "EventNotFoundException"
+      ]
+    }
+  },
+  {
+    "label": "every unselected displayed card is still displayed",
+    "pass": true
+  },
+  {
+    "label": "scope became custom",
+    "pass": true
+  },
+  {
+    "label": "selection cleared after removal",
+    "pass": true
+  },
+  {
+    "label": "stage fills the viewport in full screen",
+    "pass": true,
+    "detail": {
+      "w": 1600,
+      "h": 1000,
+      "iw": 1600,
+      "ih": 1000
+    }
+  },
+  {
+    "label": "camera preserved entering full screen (no re-fit)",
+    "pass": true,
+    "detail": {
+      "cam0": {
+        "z": 0.4326466909781817,
+        "p": {
+          "x": 55.97345505470088,
+          "y": 157.40864521216415
+        }
+      },
+      "cam1": {
+        "z": 0.4326466909781817,
+        "p": {
+          "x": 55.97345505470088,
+          "y": 157.40864521216415
+        }
+      }
+    }
+  },
+  {
+    "label": "Escape leaves full screen",
+    "pass": true
+  },
+  {
+    "label": "Exit button leaves full screen",
+    "pass": true
+  },
+  {
+    "label": "no runtime exceptions",
+    "pass": true,
+    "detail": []
+  }
+]

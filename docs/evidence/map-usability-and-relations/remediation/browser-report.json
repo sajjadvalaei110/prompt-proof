@@ -1,0 +1,183 @@
+[
+  {
+    "label": "#12 inspected edge: both endpoints are neighbors and not muted",
+    "pass": true,
+    "detail": {
+      "inspected": true,
+      "source": [
+        "neighbor"
+      ],
+      "target": [
+        "neighbor"
+      ],
+      "mutedOthers": 10,
+      "nodes": 12
+    }
+  },
+  {
+    "label": "#13 element under the </> square is the canvas, not the DOM button",
+    "pass": true,
+    "detail": {
+      "tag": "CANVAS",
+      "cls": "",
+      "inCanvas": true
+    }
+  },
+  {
+    "label": "#13 hovering the square highlights the button",
+    "pass": true
+  },
+  {
+    "label": "#13 left click on the square opens that card's code without inspecting it",
+    "pass": true,
+    "detail": {
+      "dialog": {
+        "title": "EventService"
+      },
+      "inspectedBefore": null
+    }
+  },
+  {
+    "label": "#13 right click on the square opens the card actions menu (native menu suppressed)",
+    "pass": true,
+    "detail": {
+      "open": true,
+      "heading": "EventService",
+      "nativePrevented": true
+    }
+  },
+  {
+    "label": "#20 filter change that keeps the same cards keeps the menu open",
+    "pass": true,
+    "detail": {
+      "sameCards": true,
+      "menuOpen": true,
+      "edges": 18
+    }
+  },
+  {
+    "label": "#13 dragging from the square moves the card and opens no dialog",
+    "pass": true,
+    "detail": {
+      "beforeDrag": {
+        "x": 1615,
+        "y": 357
+      },
+      "afterDrag": {
+        "x": 1711,
+        "y": 405,
+        "zoom": 1,
+        "dialog": false
+      }
+    }
+  },
+  {
+    "label": "#13 keyboard: focused map </> button still opens code with Enter",
+    "pass": true,
+    "detail": {
+      "focused": "View code for EventService"
+    }
+  },
+  {
+    "label": "#25 method card menu names the class that leaves scope",
+    "pass": true,
+    "detail": {
+      "menu": "− Remove class EventService from scope",
+      "title": "Scope holds packages and classes, so a method leaves the map with its class.",
+      "bar": "Remove class EventService from scope"
+    }
+  },
+  {
+    "label": "#25 class card keeps the plain label",
+    "pass": true
+  },
+  {
+    "label": "#24 long names: no overlap with row </> buttons and no horizontal overflow (previous CSS/markup overflowed)",
+    "pass": true,
+    "detail": {
+      "fixed": {
+        "rows": 19,
+        "overlaps": [],
+        "scroll": 328,
+        "client": 328,
+        "buttonsInside": true
+      },
+      "previousCss": {
+        "rows": 19,
+        "overlaps": [],
+        "scroll": 408,
+        "client": 328,
+        "buttonsInside": true
+      }
+    }
+  },
+  {
+    "label": "#23 360px: minimap and zoom controls do not overlap",
+    "pass": true,
+    "detail": {
+      "minimapRight": 140,
+      "zoomLeft": 198.515625,
+      "zoomRight": 350,
+      "stageRight": 360,
+      "labels": [
+        "Zoom in",
+        "Zoom out",
+        "Fit map",
+        "Full screen"
+      ]
+    }
+  },
+  {
+    "label": "#23 375px: minimap and zoom controls do not overlap",
+    "pass": true,
+    "detail": {
+      "minimapRight": 140,
+      "zoomLeft": 213.515625,
+      "zoomRight": 365,
+      "stageRight": 375,
+      "labels": [
+        "Zoom in",
+        "Zoom out",
+        "Fit map",
+        "Full screen"
+      ]
+    }
+  },
+  {
+    "label": "#23 390px: minimap and zoom controls do not overlap",
+    "pass": true,
+    "detail": {
+      "minimapRight": 140,
+      "zoomLeft": 228.515625,
+      "zoomRight": 380,
+      "stageRight": 390,
+      "labels": [
+        "Zoom in",
+        "Zoom out",
+        "Fit map",
+        "Full screen"
+      ]
+    }
+  },
+  {
+    "label": "#23 420px: minimap and zoom controls do not overlap",
+    "pass": true,
+    "detail": {
+      "minimapRight": 140,
+      "zoomLeft": 258.515625,
+      "zoomRight": 410,
+      "stageRight": 420,
+      "labels": [
+        "Zoom in",
+        "Zoom out",
+        "Fit map",
+        "Full screen"
+      ]
+    }
+  },
+  {
+    "label": "no page exceptions",
+    "pass": true,
+    "detail": []
+  }
+]

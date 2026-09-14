@@ -9,7 +9,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -31,6 +34,15 @@ import static org.junit.jupiter.api.Assertions.*;
 public class LargeProjectBenchmarkTest {
 
     private static final Logger log = LoggerFactory.getLogger(LargeProjectBenchmarkTest.class);
+    private static final Path DATA;
+    static { try { DATA = Files.createTempDirectory("atlas-benchmark-db-"); } catch (Exception e) { throw new RuntimeException(e); } }
+
+    /** A private database per test class: never the developer's ./data/codeatlas.db. */
+    @DynamicPropertySource
+    static void database(DynamicPropertyRegistry registry) {
+        registry.add("codeatlas.data-dir", DATA::toString);
+        registry.add("spring.datasource.url", () -> "jdbc:sqlite:" + DATA.resolve("test.db"));
+    }
 
     @Autowired
     private AnalysisService analysisService;
@@ -88,7 +100,10 @@ public class LargeProjectBenchmarkTest {
 
         // 100 classes + 200 methods + 10 packages = 310 symbols
         assertEquals(310, symbolCount, "Must index 310 symbols (10 packages, 100 classes, 200 methods)");
-        assertEquals(770, relationshipCount, "Must extract 770 total relationships");
+        // 770 call-derived relationships plus one CONSTRUCTS per `new ClassN()` expression (235 in the fixture; no
+        // class declares a constructor, so each targets its type). Those pairs already have a DEPENDS_ON from the
+        // chained process() call, and type names appear only in imports and `new`, so no DEPENDS_ON/USES_TYPE is added.
+        assertEquals(1005, relationshipCount, "Must extract 1005 total relationships");
 
         // Verify exactly 100 classes were parsed
         int classCount = jdbcTemplate.queryForObject(
@@ -118,8 +133,8 @@ public class LargeProjectBenchmarkTest {
         int resolvedEdgeCount = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM relationship_occurrences WHERE snapshot_id = ? AND target_symbol_id IS NOT NULL",
                 Integer.class, snapshotId);
-        assertEquals(resolvedEdgeCount, graphResponse.edges().size(), "Graph edges must match internal resolved relationship count (470)");
-        assertEquals(470, graphResponse.edges().size());
+        assertEquals(resolvedEdgeCount, graphResponse.edges().size(), "Graph edges must match internal resolved relationship count (705)");
+        assertEquals(705, graphResponse.edges().size());
         assertTrue(graphQueryDurationMs < 500, "Graph query latency must be < 500ms (was: " + graphQueryDurationMs + "ms)");
 
         // 5. Verify SQLite WAL mode and Database Integrity

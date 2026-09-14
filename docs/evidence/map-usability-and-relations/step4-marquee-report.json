@@ -1,0 +1,204 @@
+[
+  {
+    "label": "fixture has a first row of at least 4 cards",
+    "pass": true,
+    "detail": 6
+  },
+  {
+    "label": "band is drawn while right-dragging",
+    "pass": true,
+    "detail": {
+      "band": true,
+      "w": 326,
+      "h": 42,
+      "candidates": [
+        "3601e3cd-6f8b-4f82-bb92-35fd55c69a8f",
+        "3e0d25f5-4046-47a3-8637-6d4c8728e1ea",
+        "a941a6ee-9b05-4628-843f-ba521ea76433"
+      ],
+      "pointer": "none"
+    }
+  },
+  {
+    "label": "band does not capture pointer events",
+    "pass": true
+  },
+  {
+    "label": "cards under the band are previewed",
+    "pass": true,
+    "detail": {
+      "candidates": 3,
+      "expected": 3
+    }
+  },
+  {
+    "label": "band and preview are removed on release",
+    "pass": true
+  },
+  {
+    "label": "release selects exactly the intersected cards",
+    "pass": true,
+    "detail": {
+      "sel": 3,
+      "expected": 3
+    }
+  },
+  {
+    "label": "actions menu opens at release for the marquee selection",
+    "pass": true
+  },
+  {
+    "label": "menu heading counts the selection",
+    "pass": true
+  },
+  {
+    "label": "no per-card Deselect item for a marquee menu",
+    "pass": true
+  },
+  {
+    "label": "menu offers bulk remove",
+    "pass": true
+  },
+  {
+    "label": "second marquee starts on the canvas, not on the open menu",
+    "pass": true
+  },
+  {
+    "label": "second marquee (started with menu open, released on a card) unions without duplicates",
+    "pass": true,
+    "detail": {
+      "sel": 4,
+      "union": 4
+    }
+  },
+  {
+    "label": "menu reopened for the combined selection",
+    "pass": true
+  },
+  {
+    "label": "plain right-click still adds a single card",
+    "pass": true
+  },
+  {
+    "label": "plain right-click menu keeps the per-card Deselect",
+    "pass": true
+  },
+  {
+    "label": "Escape during right-drag cancels: no band, no menu, selection unchanged",
+    "pass": true
+  },
+  {
+    "label": "empty-marquee start point is bare canvas",
+    "pass": true
+  },
+  {
+    "label": "empty marquee changes nothing",
+    "pass": true,
+    "detail": {
+      "expected5": []
+    }
+  },
+  {
+    "label": "group drag moves all selected cards together",
+    "pass": true,
+    "detail": [
+      {
+        "dx": 0,
+        "dy": 324.35
+      },
+      {
+        "dx": 0,
+        "dy": 324.35
+      },
+      {
+        "dx": 0,
+        "dy": 324.35
+      },
+      {
+        "dx": 0,
+        "dy": 324.35
+      },
+      {
+        "dx": 0,
+        "dy": 324.35
+      }
+    ]
+  },
+  {
+    "label": "group drag leaves unselected cards in place",
+    "pass": true
+  },
+  {
+    "label": "Ctrl+click adds to the selection",
+    "pass": true
+  },
+  {
+    "label": "Ctrl+click does not inspect",
+    "pass": true,
+    "detail": {
+      "titleBefore": null,
+      "now": null
+    }
+  },
+  {
+    "label": "selection bar offers actions for Ctrl+click selections",
+    "pass": true
+  },
+  {
+    "label": "Ctrl+click again removes it",
+    "pass": true
+  },
+  {
+    "label": "no native Cytoscape selection exists",
+    "pass": true
+  },
+  {
+    "label": "Shift+drag starts on bare canvas",
+    "pass": true
+  },
+  {
+    "label": "Shift+drag box selection feeds the multi-selection",
+    "pass": true,
+    "detail": {
+      "sel": [
+        "009c68a3-2b5e-4e4b-8632-250541fd398f",
+        "cc17b23b-9c20-43eb-b068-39ffbca0a094"
+      ],
+      "expected8": [
+        "009c68a3-2b5e-4e4b-8632-250541fd398f",
+        "cc17b23b-9c20-43eb-b068-39ffbca0a094"
+      ]
+    }
+  },
+  {
+    "label": "Shift+drag did not pan the camera or select natively",
+    "pass": true
+  },
+  {
+    "label": "plain click inspects and highlights via .inspected",
+    "pass": true,
+    "detail": {
+      "title": "EmailRequestDTO"
+    }
+  },
+  {
+    "label": "inspection still dims non-neighbours",
+    "pass": true
+  },
+  {
+    "label": "Remove from scope after a marquee removes exactly the selected cards",
+    "pass": true,
+    "detail": {
+      "removed": 2
+    }
+  },
+  {
+    "label": "level switch drops selected cards that are no longer displayed",
+    "pass": true
+  },
+  {
+    "label": "no runtime exceptions",
+    "pass": true,
+    "detail": []
+  }
+]

@@ -1,9 +1,172 @@
 # Project status
-Last updated: 2026-09-11
+Last updated: 2026-09-14
 Active milestone: R6 — Developer comprehension redesign (in progress)
-Current revision: R6 Step 5 review remediation (fixes to already-completed work; Step 6A unstarted)
+Current revision: Map usability, quick code, and relationship coverage + review remediation (user-requested; Step 6A unstarted)
 
-## Step 5 review remediation — complete
+## Review remediation — map usability and relationship coverage — complete
+
+Executed on 2026-09-14 against the review `map-usability-and-relations-review.md` (32 findings). Every
+finding was re-verified before acting; the per-finding ledger (verdict, how need was verified, change,
+check) is `docs/evidence/map-usability-and-relations/remediation-plan.md`. 29 fixed, 2 fixed differently
+(#5 `T::new` documented as type-targeted, #22 browser full screen owns Escape — comment corrected),
+1 not a defect (#17: JLS 6.4.1 makes a name from two on-demand imports a compile error).
+
+- **Analyzer** (`JavaParserAdapter`, `AnalysisService`): constructor/method key collision (`Type.<init>(..)`
+  only on a clash); local classes no longer indexed; record compact constructors indexed and targeted
+  (the symbol solver cannot resolve record constructors, so `new R(..)` uses the declared canonical
+  constructor when its arity is unique); EXTENDS/IMPLEMENTS also yield DEPENDS_ON; no self CONSTRUCTS;
+  static member-type imports; values vs type names (catch/pattern variables, earlier locals only,
+  qualified chains, and a symbol-solver fallback that reported a same-named type for a variable of
+  unresolvable type); one AST walk per file; lines split once; caches released after each run.
+  **One transaction per file** in the declaration and relationship passes: a failed file leaves no
+  partial rows, and `clients` analysis went 34 s -> 17 s on the same (heavily loaded) machine —
+  thread sampling had shown 8/10 relationship-pass samples in SQLite autocommit inserts.
+- **Source API** (`SourceService`, `SourceDialog`): relationship evidence is bounded by
+  `codeatlas.explanations.evidence-occurrences` (12) with an additive `totalSites`; the dialog says
+  "Showing the first N of M source sites". Live files are re-hashed once per response.
+- **Map** (`GraphCanvas`, `App`, `nodeCard`, `App.css`, `InspectorPanel`): inspected edges keep both
+  endpoints emphasized; map `</>` buttons take no pointer events — the canvas hit-tests the square, so
+  drag/right-click/double-click/marquee on that corner act on the card while click and keyboard still
+  open code; the menu names the class a method-card removal takes out of scope; filter changes no
+  longer close the card menu; icon-only Fit/Full screen below 760 px; long inspector names wrap;
+  Unicode/CJK-aware card text measurement and wrapping; small guards (#21, #28–#30).
+- **Tests**: `RelationshipExtractionTest` and `LargeProjectBenchmarkTest` use a private temp database
+  (analysis once per class); new `RelationshipEdgeCasesTest` (11 tests; the first 9 failed before the
+  fixes, rollback/catch checks confirmed by mutation); new `scripts/test-node-card.mjs`.
+
+Verification (exact commands, outcomes):
+- `./gradlew test --offline` — BUILD SUCCESSFUL, 101 tests in 15 suites, 0 failures.
+- `node scripts/test-explorer-view-state.mjs`, `test-focused-arrangement.mjs`, `test-graph-model.mjs`,
+  `test-graph-placement.mjs`, `test-node-card.mjs` — all PASS. `npx tsc -b --force` exit 0.
+- `./gradlew bootJar --offline` then `node docs/evidence/map-usability-and-relations/remediation/browser-check.mjs`
+  — 16/16, before and after the tap guard below (report and 6 inspected screenshots in `remediation/`).
+- `python3 scripts/verify_hierarchical_pipeline.py` — PASS (its first run failed: a synthetic
+  `node.emit('tap')` has no position and crashed the new hit test; guarded, rebuilt, re-run PASS).
+- `python3 scripts/verify_stable_graph_pipeline.py acceptance` — 4 runs: PASS 34/34 (before the tap guard),
+  then on the final jar FAIL 33/34 once (`click-edge: camera preserved` — pan moved (-346,-135) with no
+  zoom, tap or layout call while the scenario tried candidate edge midpoints; consistent with a synthesized
+  click landing on the minimap, which pans on click, since candidates are only checked to be inside the
+  canvas; not proven), then PASS 34/34 twice.
+- `clients` via the built jar (isolated data dir, 2 runs): 6,996 symbols, 33,670 relationships,
+  20,721 / 20,720 resolved edges, no parsing diagnostics.
+
+Remaining limits:
+- Fields inherited from a supertype are not visible to the value-vs-type check (fields are not indexed).
+- Five pre-existing `@SpringBootTest` classes outside this review (`ModelProfileApiIntegrationTest`,
+  `WorkspaceApiIntegrationTest`, `ExplanationApiIntegrationTest`, `ContextBuilderTest`,
+  `AnalysisServiceSpringIntegrationTest`) still use `./data/codeatlas.db`; a full `./gradlew test` still
+  writes there.
+- Real browser full screen cannot be entered headless, so #22 is verified by code review only.
+- The second `clients` run on the same backend resolved one fewer CALLS edge than the first (20,721 vs
+  20,720; every other kind identical). Not determined whether this predates this session.
+- Timings are from a machine under heavy unrelated CPU load and vary run to run; the 2x is a same-session
+  comparison, not a benchmark.
+
+## Map usability, quick code, and relationship coverage — complete (reviewed; see remediation above)
+
+Executed on 2026-09-14 as three user-requested steps, each planned, implemented and verified in turn.
+Evidence: `docs/evidence/map-usability-and-relations/` (3 browser reports, 8 inspected screenshots,
+before/after relationship summary for `test-fixtures/microservice-java`).
+
+1. **Map readability and bulk actions** (`nodeCard.ts`, `GraphCanvas.tsx`, `App.tsx`, `App.css`).
+   Card names are drawn at 30px (was 15px) with secondary text ~1.4x. Card widths stay 250/280px on
+   purpose: placement packs six cards per row, so the fit zoom scales inversely with width — measured
+   on-screen name size after the initial fit is exactly **2.0x** the previous commit on Packages,
+   Classes and Methods of `microservice-java` (8-12 cards, where the fit is width-constrained). Cards
+   are taller (class 128->206, method 104->184, package 148->250px), so pages with many rows become
+   height-constrained and the on-screen gain there is smaller (estimated ~1.4x at 36 cards). Long names wrap to two lines at camelCase boundaries. The minimap now uses real
+   card dimensions. New **Full screen** control (fixed overlay plus browser full screen on the document
+   root, so modal dialogs stay on top; camera preserved; Esc or the button exits). **Right-click
+   multi-selection**: right-click adds a card and opens a menu for the whole selection (remove N from
+   scope, deselect, clear); a selection bar mirrors it; dragging any selected card moves the group and
+   every moved position is persisted through `NODE_MOVED`; empty-canvas click or Esc clears. Bulk
+   removal folds all cards into one scope edit (`removeFromScope(nodes[])`); the single-card path is the
+   same function with one node. Multi-selection is a separate class, never Cytoscape's native `:selected`
+   (which inspection emphasis owns), so left-click inspection keeps the selection.
+2. **Quick code** (`components/CodeButton.tsx`, `InspectorPanel.tsx`, `GraphCanvas.tsx`). A `</>`
+   button opens the existing source dialog, without changing inspection, from: every class listed under
+   an inspected package, every method/constructor row of a class, related (called by / depends on)
+   rows, the parent row, and every class/method card on the map. Map buttons are DOM buttons drawn
+   over a corner the card SVG reserves, scaled with zoom, hidden when cards are too small, and updated
+   once per animation frame (after remediation they take no pointer events; the canvas hit-tests them).
+3. **Relationship coverage** (`JavaParserAdapter.java`). Previously only method-body calls (plus
+   EXTENDS/IMPLEMENTS on classes) were extracted, so a package reached only through `new Dto(..)`,
+   constructor bodies or signatures (the `dtos` package in `microservice-java`) had no connections. Now:
+   explicit constructors are indexed as `CONSTRUCTOR` symbols; constructor bodies, field initializers
+   and initializer blocks are scanned; `new T(..)`/`T::new` produce `CONSTRUCTS`; declared/used types
+   produce `USES_TYPE`; method references produce `CALLS`; records/enums get `IMPLEMENTS`; one class-level
+   `DEPENDS_ON` per pair summarizes all kinds. Type names resolve via the symbol solver, then
+   deterministic Java lookup (enclosing types, single-type import, same package, unique on-demand
+   import). Only indexed targets become edges; method targets are still never guessed (a Lombok getter
+   call stays UNRESOLVED, its receiver's declared type still yields `DEPENDS_ON`). `microservice-java`
+   package links: 3 -> 10 (controllers/services/domain -> dtos, services -> domain/exceptions,
+   repositories -> domain, infra -> exceptions); resolved edges 13 -> 69.
+
+4. **Marquee selection and one selection model** (`GraphCanvas.tsx`, `App.css`; follow-up request).
+   Holding the right button and dragging draws a dashed band (built on Cytoscape's
+   `cxttapstart`/`cxtdrag`/`cxttapend`; a right-drag never pans and never emits `cxttap`, so a plain
+   right-click keeps its own handler). Cards the band touches are previewed while dragging, join the
+   multi-selection on release (union, never removal), and the actions menu opens at the release point
+   with the selection count. Esc cancels a drag in progress; an empty band does nothing.
+   Ctrl/Cmd/Shift+click (toggle, without inspecting) and Ctrl/Cmd/Shift+left-drag box now feed the
+   **same** selection, so remove-from-scope, clear and group move work on them too. Previously those
+   gestures used Cytoscape's native selection, which had no actions and was reset by inspection.
+   Native selection is now disabled (`autounselectify`); inspection emphasis moved from `:selected`
+   to an `.inspected` class; native box selection uses `box-selection: overlap` so both box gestures
+   select by intersection. Pressing on a DOM overlay (open menu, minimap) does not start a marquee; after
+   remediation the `</>` corner is part of the card for every gesture except a plain click.
+
+Verification (exact commands, outcomes):
+- `node scripts/test-explorer-view-state.mjs`, `test-focused-arrangement.mjs`, `test-graph-model.mjs`,
+  `test-graph-placement.mjs` — all PASS. `npx tsc -b --force` exit 0. `git diff --check` clean.
+- `./gradlew test --offline` — BUILD SUCCESSFUL, 90 tests in 14 suites, 0 failures. New
+  `RelationshipExtractionTest` (6 tests) run against the previous commit's code in a scratch worktree:
+  **5 fail** there (the sixth is an invariant that is vacuous without the new kinds), all 6 pass now.
+  `LargeProjectBenchmarkTest` expectations updated 770 -> 1005 relationships and 470 -> 705 graph
+  edges: derived from the fixture (235 `new ClassN()` expressions, no declared constructors, each pair
+  already had a `DEPENDS_ON`, no other type references), not copied from output.
+- Browser checks via Chromium CDP against an isolated backend (scratch data dir) + Vite: step 1
+  25/25, step 2 21/21, step 3 12/12, step 4 (marquee) 33/33 checks PASS; steps 1-2 re-run after step 4, with real mouse events for right-click, drag and
+  map-button clicks.
+- `./gradlew bootJar --offline` OK; `python3 scripts/verify_stable_graph_pipeline.py acceptance` PASS
+  34/34; `baseline` PASS 34/34 on two runs; both modes and the hierarchical pipeline re-run PASS
+  after step 4 (fresh `bootJar`) (a first baseline attempt exited after scenario 5 without
+  writing a report — no application error besides the usual favicon 404; not reproduced on two
+  reruns); `python3 scripts/verify_hierarchical_pipeline.py` PASS (includes graph right-click
+  removal). The map-button stacking CSS fix landed after the jar build; steps 1-2 browser checks were
+  re-run afterwards and PASS.
+- Other fixtures analyzed with no relationship-parsing diagnostics: sample-project, spring-project,
+  online-book-store, stable-graph-fixture, clients (6,996 symbols, 20,557 resolved edges).
+
+Known limits and costs:
+- Behaviour change (step 4): Ctrl/Cmd/Shift+click no longer inspects the card; it only toggles selection.
+- Taller cards mean fewer cards per screen at the same zoom (see step 1).
+- `./gradlew constrainedMemoryTest --offline` (256 MiB heap) PASS, `BoundedExplanationScaleTest` 1/1. It
+  seeds synthetic CALLS rows rather than running the analyzer, so it proves the bounded explanation
+  paths are unchanged, not that they stay within budget on the ~2x relationship rows real repositories
+  now produce. With more USES_TYPE/CONSTRUCTS rows, relationship-ranked context and `relation_count`
+  queue priority can shift toward type usage; not measured.
+- Not run: `scripts/verify_explanation_pipeline.py` (calls a live external model and needs an API
+  key); `scripts/verify_filtering_zoom_settings.py` (stale: asserts `graph-zoom-toolbar` and
+  "Model & LLM Settings" in the bundle, neither of which exists in HEAD either; it also launches on the
+  default port/data dir and overwrites the model profile). Both hardcode port 8085, which was occupied
+  by a separately running user instance.
+- Analysis was slower before remediation: `clients` 21.4s -> 27.0s (2 runs each, isolated backends),
+  `large-project` benchmark ~0.56s -> ~1.07s on this machine (noisy); per-file transactions (remediation) halve it. Resolved edges roughly double on large repos,
+  and unresolved CALLS grow (clients 11,470 -> 12,949) because constructor/initializer bodies are now
+  scanned.
+- The Classes/Packages maps can now draw several parallel kinds between one pair (e.g. calls, constructs,
+  uses type, depends on); the relationship filter narrows this. No default-filter change was made.
+- Constructors are not included in Explain all (`kind IN ('CLASS','METHOD')`), matching how
+  interfaces/records/enums are already treated; single explanations still work for them.
+- Not extracted: field reads/writes (no FIELD symbols), inherited member types, local-class and
+  `var`-inferred type references, and `obj::method` receivers parsed as type expressions.
+- Existing, unchanged: the Spring analyzer's single-constructor rule still labels plain entities'
+  constructor parameters as `INJECTS` (e.g. `Event -> EventRequestDTO`).
+- Projects analyzed before this change must be re-analyzed to get the new relationships.
+
+
+## Previous revision: Step 5 review remediation — complete
 
 Executed on 2026-09-11, after Step 5. Ledger: [docs/STABLE_GRAPH_IMPLEMENTATION.md](docs/STABLE_GRAPH_IMPLEMENTATION.md#step-5-review-remediation-2026-09-11).
 This is a fix-up pass to already-completed Steps 3-5 work (from a review at
