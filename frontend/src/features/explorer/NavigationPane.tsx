@@ -17,6 +17,21 @@ interface Props {
   onViewMethods: (node: AtlasNode) => void;
 }
 
+/** Folder-shaped icon distinguishing packages/namespaces from classes in the scope tree. */
+function PackageIcon() {
+  return <svg className="tree-icon-svg" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <path d="M1.8 4.3c0-.72.58-1.3 1.3-1.3h2.85l1.2 1.4h5.75c.72 0 1.3.58 1.3 1.3v5.7c0 .72-.58 1.3-1.3 1.3H3.1c-.72 0-1.3-.58-1.3-1.3V4.3z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+  </svg>;
+}
+
+/** UML-style class box icon (a name compartment above a divider) for classes in the scope tree. */
+function ClassIcon() {
+  return <svg className="tree-icon-svg" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <rect x="2" y="2" width="12" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
+    <line x1="2" y1="6.4" x2="14" y2="6.4" stroke="currentColor" strokeWidth="1.3" />
+  </svg>;
+}
+
 /** Tri-state checkbox: HTML has no `indeterminate` attribute, only the DOM property. */
 function TriStateCheckbox({ state, onChange, label }: { state: 'checked'|'indeterminate'|'unchecked'; onChange: () => void; label: string }) {
   return <input type="checkbox" className={`scope-checkbox ${state}`} checked={state === 'checked'} aria-checked={state === 'indeterminate' ? 'mixed' : state === 'checked'}
@@ -29,7 +44,7 @@ function ClassRow({ node, graph, scope, selected, onScopeChange, onSelect, onVie
   const inScope = isClassInScope(node, scope, graph);
   return <div className={`scope-row scope-row-class ${selected ? 'selected' : ''}`}>
     <TriStateCheckbox state={inScope ? 'checked' : 'unchecked'} onChange={() => onScopeChange(toggleClass(scope, node, graph), inScope ? undefined : node.id)} label={`${inScope ? 'Remove' : 'Add'} ${node.simpleName} from scope`} />
-    <button className="scope-label" title={node.qualifiedName} onClick={() => onSelect(node)}><span className="tree-icon">◇</span>{node.simpleName}</button>
+    <button className="scope-label" title={node.qualifiedName} onClick={() => onSelect(node)}><span className="tree-icon class-icon"><ClassIcon /></span>{node.simpleName}</button>
     <button className="scope-explore" onClick={() => onViewMethods(node)} aria-label={`View methods of ${node.simpleName}`} title="View methods">⌖</button>
   </div>;
 }
@@ -48,7 +63,7 @@ function PackageRow({ branch, graph, scope, selectedNode, forceOpen, defaultOpen
   return <details className={`tree-branch scope-row-package ${node ? '' : 'scope-row-namespace'}`} open={open} onToggle={event => setOpen(event.currentTarget.open)}>
     <summary>
       <TriStateCheckbox state={state} onChange={() => onScopeChange(togglePackages(scope, branch.packageIds, graph))} label={`${state === 'unchecked' ? 'Add' : 'Remove'} ${node && !branch.children.length ? 'package' : 'namespace'} ${branch.qualifiedName} ${state === 'unchecked' ? 'to' : 'from'} scope`} />
-      <span className="tree-icon">▱</span>
+      <span className="tree-icon package-icon"><PackageIcon /></span>
       {node
         ? <button className={`scope-label ${selectedNode?.id === node.id ? 'selected' : ''}`} title={node.qualifiedName} onClick={() => onSelect(node)}>{branch.name}</button>
         : <span className="scope-label scope-namespace-label" title={branch.qualifiedName}>{branch.name}</span>}
