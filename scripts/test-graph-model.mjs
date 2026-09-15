@@ -11,7 +11,7 @@ const stripLocalImport=(src,name)=>src.replace(new RegExp(`import \\{[^}]*\\} fr
 const scopeCompiled=stripLocalImport(compile('../frontend/src/features/explorer/scopeModel.ts'),'graphModel');
 const graphCompiled=stripLocalImport(compile('../frontend/src/features/explorer/graphModel.ts'),'scopeModel');
 const combined=scopeCompiled+'\n'+graphCompiled;
-const {projectGraph,wholeSystemScope,emptyScope,isClassInScope,getPackageCheckState,getPackageGroupCheckState,buildPackageHierarchy,togglePackages,togglePackage,toggleClass,scopeToLabel}=await import('data:text/javascript;base64,'+Buffer.from(combined).toString('base64'));
+const {projectGraph,projectDisplayed,childrenOf,wholeSystemScope,emptyScope,isClassInScope,getPackageCheckState,getPackageGroupCheckState,buildPackageHierarchy,togglePackages,togglePackage,toggleClass,scopeToLabel}=await import('data:text/javascript;base64,'+Buffer.from(combined).toString('base64'));
 
 const nodes=[{id:'p1',kind:'PACKAGE',simpleName:'api'},{id:'p2',kind:'PACKAGE',simpleName:'service'}, {id:'a',kind:'CLASS',simpleName:'Controller',parentId:'p1'}, {id:'b',kind:'INTERFACE',simpleName:'Worker',parentId:'p2'}, {id:'a1',kind:'METHOD',simpleName:'handle',parentId:'a'}, {id:'b1',kind:'METHOD',simpleName:'work',parentId:'b'}, {id:'b2',kind:'METHOD',simpleName:'audit',parentId:'b'}];
 const edges=[{id:'e1',sourceId:'a1',targetId:'b1',kind:'CALLS',resolution:'RESOLVED'},{id:'e2',sourceId:'a1',targetId:'b1',kind:'CALLS',resolution:'RESOLVED'},{id:'e3',sourceId:'a',targetId:'b',kind:'INJECTS',resolution:'CANDIDATE'},{id:'e4',sourceId:'b1',targetId:'b2',kind:'CALLS',resolution:'RESOLVED'},{id:'e5',sourceId:'a1',targetId:null,kind:'CALLS',resolution:'UNRESOLVED'}];
@@ -58,6 +58,50 @@ assert.equal(projectGraph(graph,'METHOD',empty,'ALL').edges.length,0);
 assert.equal(projectGraph(graph,'PACKAGE',ALL,'ALL').nodes.length,2);
 assert.equal(getPackageCheckState({id:'p1'},ALL,graph),'checked');
 console.log('PASS: package, class, method, mixed-package, empty, and all-selected scope projections');
+
+// Expansion (details): a package expanded in place shows its types, whose routes resolve to the
+// deepest visible card on each endpoint's own chain; unexpanded cards still collect their routes.
+{
+  const noExp=projectDisplayed(graph,'PACKAGE',['p1','p2'],'ALL');
+  const emptyExp=projectDisplayed(graph,'PACKAGE',['p1','p2'],'ALL',{expansions:[],scope:ALL});
+  assert.deepEqual(emptyExp,noExp,'no expansions is exactly the plain projection, edge IDs included');
+  const p1=projectDisplayed(graph,'PACKAGE',['p1','p2'],'ALL',{expansions:[{id:'p1',ownerId:null}],scope:ALL});
+  assert.deepEqual(p1.nodes.map(n=>[n.id,n.containerId||null,!!n.expanded]),[['p1',null,true],['a','p1',false],['p2',null,false]]);
+  const calls=p1.edges.find(e=>e.kind==='CALLS');assert.equal(calls.sourceId,'a');assert.equal(calls.targetId,'p2');assert.deepEqual(calls.occurrenceIds,['e1','e2']);
+  assert.equal(p1.edges.find(e=>e.kind==='INJECTS').sourceId,'a');
+  // Nested: the class inside the expanded package expands too, and the other package expands into its interface.
+  const nested=projectDisplayed(graph,'PACKAGE',['p1','p2'],'ALL',{expansions:[{id:'p1',ownerId:null},{id:'a',ownerId:'p1'},{id:'p2',ownerId:null}],scope:ALL});
+  assert.deepEqual(nested.nodes.map(n=>n.id),['p1','a','a1','p2','b']);
+  assert.equal(nested.nodes.find(n=>n.id==='a1').containerId,'a');
+  const nestedCalls=nested.edges.find(e=>e.kind==='CALLS'&&e.sourceId==='a1');assert.equal(nestedCalls.targetId,'b');
+  // b1 -> b2 is inside the collapsed interface b: a class using itself is not drawn.
+  assert.ok(!nested.edges.some(e=>e.sourceId===e.targetId),'no self routes at package/class resolution');
+  // An expansion is honored only where it really sits: a nested one whose owner is not expanded is ignored.
+  const orphan=projectDisplayed(graph,'PACKAGE',['p1','p2'],'ALL',{expansions:[{id:'a',ownerId:'p1'}],scope:ALL});
+  assert.deepEqual(orphan.nodes.map(n=>n.id),['p1','p2']);
+  // A route between a card and its own container is not drawn (INJECTS a -> b with b expanded: a is outside, so it stays; b1 -> b2 are siblings inside b and do draw).
+  const cls=projectDisplayed(graph,'CLASS',['a','b'],'ALL',{expansions:[{id:'b',ownerId:null}],scope:ALL});
+  assert.deepEqual(cls.nodes.map(n=>n.id),['a','b','b2','b1'],'methods inside a type are name-ordered');
+  assert.ok(cls.edges.some(e=>e.sourceId==='b1'&&e.targetId==='b2'),'sibling methods inside an expanded type connect');
+  assert.ok(cls.edges.some(e=>e.sourceId==='a'&&e.targetId==='b1'),'a collapsed class routes to the method inside the expanded one');
+  assert.ok(cls.edges.some(e=>e.sourceId==='a'&&e.targetId==='b'&&e.kind==='INJECTS'),'a type-level route still ends at the container');
+  // The details count matches what expanding shows: a type holding only a nested type has none.
+  const nestedOnly={nodes:[...nodes,{id:'k',kind:'CLASS',simpleName:'Constants',parentId:'p1'},{id:'k1',kind:'ENUM',simpleName:'Kind',parentId:'k'}],edges:[]};
+  const nk=projectDisplayed(nestedOnly,'CLASS',['k','a'],'ALL');
+  assert.deepEqual(nk.nodes.map(n=>[n.id,n.memberCount,n.detailCount]),[['k',1,0],['a',1,1]]);
+  assert.deepEqual(childrenOf(nestedOnly,nestedOnly.nodes.find(n=>n.id==='k'),ALL),[]);
+  // A package's detail count matches childrenOf exactly, nested types included (F-08): p1 owns
+  // Controller, Constants, and Constants' nested Kind, all three shown side by side on expand.
+  assert.equal(projectDisplayed(nestedOnly,'PACKAGE',['p1'],'ALL').nodes[0].detailCount,3);
+  assert.deepEqual(childrenOf(nestedOnly,nestedOnly.nodes.find(n=>n.id==='p1'),ALL).map(n=>n.id),['k','a','k1'],'name-ordered: Constants, Controller, Kind');
+  // Un-scoped detail count is a silent no-op waiting to happen (F-09): scoping p1 down to just its
+  // class Controller (not Constants/Kind) must drop the count to 1, matching what actually expands.
+  assert.equal(projectDisplayed(nestedOnly,'PACKAGE',['p1'],'ALL',{expansions:[],scope:custom([],['a'])}).nodes[0].detailCount,1);
+  // Scope applies to a package's children; METHOD pages never expand.
+  assert.deepEqual(childrenOf(graph,nodes[0],custom([],['b'])).map(n=>n.id),[]);
+  assert.deepEqual(projectDisplayed(graph,'METHOD',['a1'],'ALL',{expansions:[{id:'a1',ownerId:null}],scope:ALL}).nodes.map(n=>!!n.expanded),[false]);
+}
+console.log('PASS: in-place expansion projection (children, nested expansions, deepest-visible route resolution, container/self routes, scope)');
 
 // Never expand a focused seed into out-of-scope neighbors: scoping to just p1's class must not pull in p2/b.
 const focused=projectGraph(graph,'CLASS',custom([],['a']),'ALL');

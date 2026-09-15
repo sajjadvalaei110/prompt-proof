@@ -2,11 +2,12 @@ import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import './styles/App.css';
 import { apiClient } from './api/client';
 import GraphCanvas from './features/explorer/GraphCanvas';
-import { AtlasGraph, AtlasNode, AtlasEdge, Level, isType, ownerAt, getEligibleIds, rankEligibleIds, projectDisplayed } from './features/explorer/graphModel';
+import { AtlasGraph, AtlasNode, AtlasEdge, Level, isType, ownerAt, getEligibleIds, rankEligibleIds, projectDisplayed, childrenOf } from './features/explorer/graphModel';
 import { ScopeSelection, wholeSystemScope, scopeToLabel, isNodeInScope, isClassInScope, togglePackages, toggleClass } from './features/explorer/scopeModel';
-import { explorerViewReducer, initExplorerViewState, PlacementDims, Point, Camera } from './features/explorer/explorerViewState';
+import { explorerViewReducer, initExplorerViewState, PlacementDims, Point, Camera, CardMoves } from './features/explorer/explorerViewState';
 import { arrangeAroundResource, ArrangeCard, ArrangeEdge } from './features/explorer/focusedArrangement';
-import { nodeCard } from './features/explorer/nodeCard';
+import { nodeCard, defaultCardSize, CardSize } from './features/explorer/nodeCard';
+import { Box, boxOfCard, containerBox, layoutChildren, placeMissingChildren, roomShifts } from './features/explorer/expansionLayout';
 import NavigationPane from './features/explorer/NavigationPane';
 import InspectorPanel from './features/inspector/InspectorPanel';
 import SettingsScreen from './features/settings/SettingsScreen';
@@ -54,19 +55,55 @@ export default function App() {
   // place a newly admitted batch below the current bounding box (Step 3, Appendix A3) without
   // itself importing nodeCard or duplicating its dimension logic. Always covers survivors too
   // (dimensions are needed to compute their exact bottom/left edge, not just their center).
+  // An expanded survivor reports its real box (and center), so additions land below what is on screen.
   const placementFor=(ids:string[]):Record<string,PlacementDims>|undefined=>{
     if(!graph)return undefined;
     const all=new Map(graph.nodes.map(n=>[n.id,n]));
     const out:Record<string,PlacementDims>={};
-    for(const id of ids){const n=all.get(id);if(n){const c=nodeCard(n);out[id]={width:c.width,height:c.height,name:n.qualifiedName||n.simpleName};}}
+    for(const id of ids){
+      const n=all.get(id);if(!n)continue;
+      const box=geometry.boxes[id];
+      out[id]=box?{width:box.x2-box.x1,height:box.y2-box.y1,name:n.qualifiedName||n.simpleName,center:{x:(box.x1+box.x2)/2,y:(box.y1+box.y2)/2}}:{...cardSizeOf(n),name:n.qualifiedName||n.simpleName};
+    }
     return out;
   };
   const node=graph&&viewState.inspectedKind==='NODE'&&viewState.inspectedSubjectId?graph.nodes.find(n=>n.id===viewState.inspectedSubjectId)||null:null;
   const displayedIds=viewState.levelViews[level].displayedIds;
   const levelGeometry=viewState.levelViews[level];
+  const expansions=levelGeometry.expansions,sizes=levelGeometry.sizes;
+  // The one source of card dimensions for placement, arrangement, expansion and rendering alike.
+  const cardSizeOf=(n:AtlasNode):CardSize=>sizes[n.id]||defaultCardSize(n);
+  const containerSizes=useMemo(()=>{const out:Record<string,CardSize>={};for(const [id,e] of Object.entries(expansions))if(e.minSize)out[id]=e.minSize;return out;},[expansions]);
   function handleCameraChange(camera:Camera){dispatchView({type:'SET_CAMERA',level,camera,generation:viewState.generation});}
-  function handleNodeMoved(id:string,position:Point){dispatchView({type:'NODE_MOVED',level,id,position,generation:viewState.generation});}
-  const projected=useMemo(()=>graph?projectDisplayed(graph,level,displayedIds,kind):{nodes:[] as AtlasNode[],edges:[] as AtlasEdge[]},[graph,level,displayedIds,kind]);
+  function handleNodeMoved(id:string,position:Point,containerId:string|null){dispatchView({type:'NODE_MOVED',level,id,position,containerId,generation:viewState.generation});}
+  function handleNodesMoved(moves:{id:string;position:Point;containerId:string|null}[]){dispatchView({type:'NODES_MOVED',level,moves,generation:viewState.generation});}
+  const expansionInput=useMemo(()=>({expansions:Object.entries(expansions).map(([id,e])=>({id,ownerId:e.ownerId})),scope}),[expansions,scope]);
+  const projected=useMemo(()=>graph?projectDisplayed(graph,level,displayedIds,kind,expansionInput):{nodes:[] as AtlasNode[],edges:[] as AtlasEdge[]},[graph,level,displayedIds,kind,expansionInput]);
+  // Model positions for every visible card (children of expanded cards included) and the derived box
+  // of every expanded card. A child with no stored position yet (it entered scope while its container
+  // was open) is placed below its placed siblings, deterministically, until it is first moved.
+  const geometry=useMemo(()=>{
+    const positions:Record<string,Point>={...levelGeometry.positions};
+    const boxes:Record<string,Box>={};
+    const kids=new Map<string,AtlasNode[]>();
+    for(const n of projected.nodes)if(n.containerId){const list=kids.get(n.containerId);if(list)list.push(n);else kids.set(n.containerId,[n]);}
+    for(const n of projected.nodes){
+      if(!n.expanded)continue;
+      const stored=expansions[n.id]?.childPositions||{},children=kids.get(n.id)||[];
+      const size=cardSizeOf(n),center=positions[n.id]||{x:0,y:0};
+      const placed=children.filter(c=>stored[c.id]).map(c=>({id:c.id,...cardSizeOf(c),...stored[c.id]}));
+      Object.assign(positions,stored,placeMissingChildren({x:center.x-size.width/2,y:center.y-size.height/2},placed,children.filter(c=>!stored[c.id]).map(c=>({id:c.id,...cardSizeOf(c)}))));
+    }
+    // Innermost containers first, so an outer box wraps an inner expanded card's box, not its old card.
+    for(const n of [...projected.nodes].reverse()){
+      if(!n.expanded)continue;
+      const childBoxes=(kids.get(n.id)||[]).map(c=>boxes[c.id]||boxOfCard({id:c.id,...cardSizeOf(c),...positions[c.id]}));
+      const box=containerBox(childBoxes,expansions[n.id]?.minSize||null);
+      if(box)boxes[n.id]=box;
+    }
+    return {positions,boxes};
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[projected.nodes,levelGeometry.positions,expansions,sizes]);
   // An inspected aggregate edge must survive a relationship-filter change that excludes its kind
   // (Step 4, Appendix F3): its identity is resolved independently of the currently filtered
   // `projected.edges` by also checking an unfiltered ('ALL') projection of the same displayed page.
@@ -80,8 +117,8 @@ export default function App() {
   const allKindsEdges=useMemo(()=>{
     if(!graph||viewState.inspectedKind!=='EDGE'||!viewState.inspectedSubjectId)return [] as AtlasEdge[];
     if(projected.edges.some(e=>e.id===viewState.inspectedSubjectId))return [] as AtlasEdge[];
-    return projectDisplayed(graph,level,displayedIds,'ALL').edges;
-  },[graph,level,displayedIds,viewState.inspectedKind,viewState.inspectedSubjectId,projected.edges]);
+    return projectDisplayed(graph,level,displayedIds,'ALL',expansionInput).edges;
+  },[graph,level,displayedIds,expansionInput,viewState.inspectedKind,viewState.inspectedSubjectId,projected.edges]);
   // Unresolved relationships (target_symbol_id IS NULL) never reach projectDisplayed's edge
   // aggregation, since they have no target to aggregate onto — but the inspector's own "Inspect
   // relationship" button on an unresolved row dispatches INSPECT_EDGE with that record's raw ID, so
@@ -103,7 +140,8 @@ export default function App() {
   // IS the currently active graph level: a cached page from a level the user isn't looking at
   // right now is not "displayed" on the map they're looking at, even if that other level's page
   // happens to still contain this ID from an earlier visit.
-  const mapStatus=node&&graph?(!isNodeInScope(node,scope,graph)?'OUT_OF_SCOPE':level===levelOf(node)&&displayedIds.includes(node.id)?'DISPLAYED':'IN_SCOPE_NOT_DISPLAYED'):null;
+  // A card inside an expanded card is displayed too, whatever its own natural level.
+  const mapStatus=node&&graph?(!isNodeInScope(node,scope,graph)?'OUT_OF_SCOPE':(level===levelOf(node)&&displayedIds.includes(node.id))||projected.nodes.some(n=>n.id===node.id)?'DISPLAYED':'IN_SCOPE_NOT_DISPLAYED'):null;
   async function loadSnapshot(id:string, ws?:any) {
     const [data,entryPoints]=await Promise.all([apiClient.getGraph(id),apiClient.getSpringRoutes(id)]);
     if(!ws&&!data?.metadata?.workspaceId)throw new Error('Snapshot response is missing workspace metadata; try re-opening the project.');
@@ -174,12 +212,103 @@ export default function App() {
   // graph -- matching the inspector button's own disabled condition (H3).
   function arrangeAround(id:string){
     if(!graph)return;
-    const cards:ArrangeCard[]=projected.nodes.map(n=>{const c=nodeCard(n);return {id:n.id,width:c.width,height:c.height,qualifiedName:n.qualifiedName||n.simpleName};});
-    const arrangeEdges:ArrangeEdge[]=projected.edges.filter(e=>e.targetId).map(e=>({sourceId:e.sourceId,targetId:e.targetId!}));
-    const anchor=levelGeometry.positions[id]||{x:0,y:0};
-    const positions=arrangeAroundResource(cards,arrangeEdges,id,anchor);
+    // Arrangement moves top-level cards only. An expanded card takes part as its whole box and carries
+    // everything inside it (nested expansions included) by the same offset; a card inside a container
+    // arranges the map around its outermost container, and routes count between those top-level cards.
+    const byId=new Map(projected.nodes.map(n=>[n.id,n]));
+    const topOf=(nodeId:string)=>{let n=byId.get(nodeId);while(n?.containerId)n=byId.get(n.containerId);return n?.id;};
+    const focusId=topOf(id);
+    if(!focusId)return;
+    const top=projected.nodes.filter(n=>!n.containerId);
+    const centerOf=(n:AtlasNode)=>{const b=geometry.boxes[n.id];return b?{x:(b.x1+b.x2)/2,y:(b.y1+b.y2)/2}:geometry.positions[n.id]||{x:0,y:0};};
+    const cards:ArrangeCard[]=top.map(n=>{const b=geometry.boxes[n.id],size=b?{width:b.x2-b.x1,height:b.y2-b.y1}:cardSizeOf(n);return {id:n.id,...size,qualifiedName:n.qualifiedName||n.simpleName};});
+    const arrangeEdges:ArrangeEdge[]=[];
+    for(const e of projected.edges){const a=e.targetId&&topOf(e.sourceId),b=e.targetId&&topOf(e.targetId);if(a&&b&&a!==b)arrangeEdges.push({sourceId:a,targetId:b});}
+    const positions=arrangeAroundResource(cards,arrangeEdges,focusId,centerOf(byId.get(focusId)!));
     if(!positions)return;
-    dispatchView({type:'ARRANGE_AROUND_RESOURCE',level,positions,generation:viewState.generation});
+    const childPositions:Record<string,Record<string,Point>>={};
+    for(const n of top){
+      if(!n.expanded||!positions[n.id])continue;
+      const from=centerOf(n),dx=positions[n.id].x-from.x,dy=positions[n.id].y-from.y;
+      for(const inner of projected.nodes)if(inner.containerId&&topOf(inner.id)===n.id&&geometry.positions[inner.id])(childPositions[inner.containerId]??={})[inner.id]={x:geometry.positions[inner.id].x+dx,y:geometry.positions[inner.id].y+dy};
+    }
+    dispatchView({type:'ARRANGE_AROUND_RESOURCE',level,positions,childPositions,generation:viewState.generation});
+  }
+  const boxOf=(k:AtlasNode):Box=>geometry.boxes[k.id]||boxOfCard({id:k.id,...cardSizeOf(k),...(geometry.positions[k.id]||{x:0,y:0})});
+  // When card `n`'s box changes from `before` to `after` (expand, collapse, resize), cards to its right
+  // or below make room (expansionLayout.roomShift). When it sits inside a container, that container's
+  // resulting change makes room around it in turn, up to the map itself. Returns the moves to dispatch
+  // together with the change, so one action updates everything at once.
+  function makeRoom(n:AtlasNode,before:Box,after:Box):CardMoves{
+    // One container->children index and one id lookup for the whole cascade (F-10), instead of
+    // scanning projected.nodes again for every sibling call and every level walked upward.
+    const byId=new Map<string,AtlasNode>(),byContainer=new Map<string|null,AtlasNode[]>();
+    for(const k of projected.nodes){
+      byId.set(k.id,k);
+      const key=k.containerId??null,list=byContainer.get(key);
+      if(list)list.push(k);else byContainer.set(key,[k]);
+    }
+    const kidsOf=(id:string|null)=>byContainer.get(id)||[];
+    const moves:CardMoves={positions:{},childPositions:{}};
+    const translate=(k:AtlasNode,d:Point)=>{
+      const p=geometry.positions[k.id];
+      if(p){const q={x:p.x+d.x,y:p.y+d.y};if(k.containerId)(moves.childPositions[k.containerId]??={})[k.id]=q;else moves.positions[k.id]=q;}
+      if(k.expanded)for(const inner of kidsOf(k.id))translate(inner,d);
+    };
+    for(let current=n,parent=n.containerId??null;;){
+      // Siblings shift together (expansionLayout.roomShifts), not independently: a sibling that
+      // qualifies for a shift is clamped against any row/column-mate that does not, so a large
+      // collapse can never pull it back across one that stayed put (F-01).
+      const siblings=kidsOf(parent).filter(k=>k.id!==current.id);
+      const boxes=siblings.map(boxOf);
+      const shifts=roomShifts(boxes,before,after);
+      const shifted=new Map<string,Box>();
+      siblings.forEach((sibling,i)=>{
+        const d=shifts[i];
+        if(d){translate(sibling,d);const b=boxes[i];shifted.set(sibling.id,{x1:b.x1+d.x,y1:b.y1+d.y,x2:b.x2+d.x,y2:b.y2+d.y});}
+      });
+      const container=parent===null?undefined:byId.get(parent);
+      if(!container)return moves;
+      const containerBefore=boxOf(container);
+      const nextAfter=containerBox(kidsOf(container.id).map(k=>k.id===current.id?after:shifted.get(k.id)||boxOf(k)),expansions[container.id]?.minSize||null);
+      if(!nextAfter)return moves;
+      // The container's own box did not change, so nothing further up the hierarchy can have
+      // changed either: stop the cascade here instead of walking every remaining ancestor (F-11).
+      const unchanged=Math.abs(nextAfter.x1-containerBefore.x1)<0.5&&Math.abs(nextAfter.y1-containerBefore.y1)<0.5&&Math.abs(nextAfter.x2-containerBefore.x2)<0.5&&Math.abs(nextAfter.y2-containerBefore.y2)<0.5;
+      if(unchanged)return moves;
+      before=containerBefore;after=nextAfter;current=container;parent=container.containerId??null;
+    }
+  }
+  // Details: expand a package/type card in place into a box of its children laid out from the card's
+  // top-left corner, or collapse an expanded one back to a card at the box's top-left corner. Several
+  // cards (and cards inside expanded cards) can be expanded at once; neighbors make room either way.
+  function toggleExpand(n:AtlasNode){
+    if(!graph)return;
+    const size=cardSizeOf(n);
+    if(expansions[n.id]){
+      const before=boxOf(n),after={x1:before.x1,y1:before.y1,x2:before.x1+size.width,y2:before.y1+size.height};
+      dispatchView({type:'COLLAPSE_RESOURCE',level,id:n.id,position:{x:before.x1+size.width/2,y:before.y1+size.height/2},moves:makeRoom(n,before,after),generation:viewState.generation});
+      return;
+    }
+    const before=boxOf(n),children=childrenOf(graph,n,scope).map(c=>({id:c.id,...cardSizeOf(c)}));
+    // Nothing in scope to show: an empty box would only hide the card.
+    if(!children.length)return;
+    const childPositions=layoutChildren({x:before.x1,y:before.y1},children);
+    const after=containerBox(children.map(c=>boxOfCard({...c,...childPositions[c.id]})),null)||before;
+    dispatchView({type:'EXPAND_RESOURCE',level,id:n.id,ownerId:n.containerId??null,childPositions,moves:makeRoom(n,before,after),generation:viewState.generation});
+  }
+  // A finished resize keeps the card's top-left corner and, like expanding, makes room around it.
+  function resizeNode(id:string,size:CardSize,position:Point,containerId:string|null){
+    const n=projected.nodes.find(k=>k.id===id);
+    if(!n)return;
+    const after={x1:position.x-size.width/2,y1:position.y-size.height/2,x2:position.x+size.width/2,y2:position.y+size.height/2};
+    dispatchView({type:'RESIZE_RESOURCE',level,id,size,position,containerId,moves:makeRoom(n,boxOf(n),after),generation:viewState.generation});
+  }
+  function resizeContainer(id:string,minSize:CardSize){
+    const n=projected.nodes.find(k=>k.id===id);
+    if(!n)return;
+    const after=containerBox(projected.nodes.filter(k=>k.containerId===id).map(boxOf),minSize);
+    dispatchView({type:'RESIZE_CONTAINER',level,id,minSize,moves:after?makeRoom(n,boxOf(n),after):undefined,generation:viewState.generation});
   }
   // Story 6: "Code map" returns to the last map view -- whatever level, scope, and inspection the
   // user had -- rather than resetting to Packages or clearing selection. viewState already
@@ -196,7 +325,11 @@ export default function App() {
     // eligible-ID set rather than paying for a rank nobody reads.
     const otherLevels:Partial<Record<Level,string[]>>={};
     for(const lvl of (['PACKAGE','CLASS','METHOD'] as Level[])) if(lvl!==level) otherLevels[lvl]=getEligibleIds(graph,lvl,next);
-    dispatchView({type:'SCOPE_UPDATED',eligibleIds:ids,explicitClassAddId,batchSize:level==='PACKAGE'?Infinity:BATCH_SIZE,placement:placementFor(ids),otherLevels});
+    // Every expanded card, on any level, learns which of its children are still in scope.
+    const all=new Map(graph.nodes.map(n=>[n.id,n]));
+    const expansionChildren:Record<string,string[]>={};
+    for(const lvl of (['PACKAGE','CLASS','METHOD'] as Level[]))for(const id of Object.keys(viewState.levelViews[lvl].expansions)){const n=all.get(id);if(n&&!expansionChildren[id])expansionChildren[id]=childrenOf(graph,n,next,all).map(c=>c.id);}
+    dispatchView({type:'SCOPE_UPDATED',eligibleIds:ids,explicitClassAddId,batchSize:level==='PACKAGE'?Infinity:BATCH_SIZE,placement:placementFor(ids),otherLevels,expansionChildren});
   }
   function resetScope(){handleScopeChange(wholeSystemScope());}
   // Removes one or many map cards from scope as a single scope edit: folding every removal into one
@@ -258,7 +391,7 @@ export default function App() {
           </div>
           {scopeEmpty
             ? <div className="scope-empty-state"><h2>No packages or classes selected</h2><p>Check packages or classes in the left tree to define what the graph shows.</p><button className="primary" onClick={resetScope}>Select all</button></div>
-            : <GraphCanvas nodes={projected.nodes} edges={projected.edges} positions={levelGeometry.positions} camera={levelGeometry.camera} selectedId={node?.id||edge?.id} onNodeSelect={select} onEdgeSelect={inspectEdge} canRemoveFromScope={n=>isNodeInScope(n,scope,graph)} onRemoveFromScope={removeFromScope} scopeRemovalTargets={nodes=>planScopeRemoval(nodes).removed} onCameraChange={handleCameraChange} onNodeMoved={handleNodeMoved} onArrangeAroundResource={arrangeAround} onViewCode={n=>setSource({node:n,type:'symbol'})}/>}
+            : <GraphCanvas nodes={projected.nodes} edges={projected.edges} positions={geometry.positions} sizes={sizes} containerSizes={containerSizes} onToggleExpand={toggleExpand} onResizeNode={resizeNode} onResizeContainer={resizeContainer} camera={levelGeometry.camera} selectedId={node?.id||edge?.id} onNodeSelect={select} onEdgeSelect={inspectEdge} canRemoveFromScope={n=>isNodeInScope(n,scope,graph)} onRemoveFromScope={removeFromScope} scopeRemovalTargets={nodes=>planScopeRemoval(nodes).removed} onCameraChange={handleCameraChange} onNodeMoved={handleNodeMoved} onNodesMoved={handleNodesMoved} onArrangeAroundResource={arrangeAround} onViewCode={n=>setSource({node:n,type:'symbol'})}/>}
           <div className="graph-legend"><span><i className="line-sample"/>Static dependency</span><span><i className="line-sample uncertain"/>Candidate / unresolved</span><span>{level==='METHOD'?'Method call occurrences':`${level==='PACKAGE'?'Package':'Class'} connections group occurrences by kind and resolution`}</span></div>
         </>}
       </section>

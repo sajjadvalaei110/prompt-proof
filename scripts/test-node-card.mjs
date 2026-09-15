@@ -31,3 +31,20 @@ for(const line of wrapText('事件通知服务控制器管理类实现工厂',SI
 // The card still renders for such names.
 assert.match(nodeCard({id:'x',kind:'CLASS',simpleName:'事件通知服务控制器'}).image,/^data:image\/svg\+xml/);
 console.log('nodeCard tests: PASS');
+
+// Resizing: the default size is unchanged output; a taller package shows more member rows; a short one drops lower lines.
+{
+  const {defaultCardSize,cornerButtons,hasDetailsButton}=await import('data:text/javascript;base64,'+Buffer.from(compiled).toString('base64'));
+  const pkg={id:'p',kind:'PACKAGE',simpleName:'com.acme.orders',qualifiedName:'com.acme.orders',memberCount:5,memberNames:['A','B','C','D','E']};
+  assert.equal(nodeCard(pkg).image,nodeCard(pkg,defaultCardSize(pkg)).image);
+  const rows=img=>(decodeURIComponent(img).match(/<rect x="16" y="\d+" width/g)||[]).length;
+  assert.equal(rows(nodeCard(pkg).image),2);
+  assert.equal(rows(nodeCard(pkg,{width:280,height:400}).image),5);
+  assert.ok(!decodeURIComponent(nodeCard(pkg,{width:280,height:140}).image).includes('com.acme.orders</text>'),'qualified name line dropped when it no longer fits');
+  // Corner buttons: a class gets code then details; a method only code; a package only details; an empty type none.
+  assert.deepEqual(cornerButtons({kind:'CLASS',detailCount:2}).map(b=>[b.action,b.right]),[['code',12],['details',60]]);
+  assert.deepEqual(cornerButtons({kind:'METHOD'}).map(b=>b.action),['code']);
+  assert.deepEqual(cornerButtons({kind:'PACKAGE',detailCount:1}).map(b=>[b.action,b.right]),[['details',12]]);
+  assert.equal(hasDetailsButton({kind:'CLASS',memberCount:1,detailCount:0}),false,'a class holding only a nested type has nothing to expand into');
+  console.log('nodeCard resize/corner tests: PASS');
+}

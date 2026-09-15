@@ -1,11 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import cytoscape from 'cytoscape';
 import { AtlasNode, AtlasEdge } from './graphModel';
-import { nodeCard, hasCodeButton, CODE_BUTTON } from './nodeCard';
+import { nodeCard, cornerButtons, CODE_BUTTON, MIN_CARD_SIZE, CornerAction, CardSize } from './nodeCard';
+import { CONTAINER_BUTTON, CONTAINER_PADDING } from './expansionLayout';
 import CodeButton from '../../components/CodeButton';
 
-/** Below this rendered size the quick-code buttons are hidden and the corner is part of the card. */
+/** Below this rendered size the corner buttons are hidden and the corner is part of the card. */
 const MIN_CODE_BUTTON_PX = 14;
+/** Below this rendered card width the resize grip is hidden. */
+const MIN_RESIZE_CARD_PX = 60;
+/** The expand/collapse control a card or container shows in its corner. */
+type CornerHit = CornerAction | 'collapse';
+interface MinimapState { nodes: { id: string; x: number; y: number; w: number; h: number; parent: boolean }[]; box: { x1: number; y1: number; w: number; h: number }; viewport: { x1: number; y1: number; w: number; h: number }; zoom: number }
+/** Cheap field-by-field comparison so a pan/zoom frame that changed nothing real skips its
+ * setState (review remediation F-04); an actual camera move still differs on `viewport`/`zoom`. */
+function sameMinimap(a: MinimapState, b: MinimapState): boolean {
+  if (a.zoom !== b.zoom || a.nodes.length !== b.nodes.length) return false;
+  const v = a.viewport, w = b.viewport;
+  if (v.x1 !== w.x1 || v.y1 !== w.y1 || v.w !== w.w || v.h !== w.h) return false;
+  const bx = a.box, by = b.box;
+  if (bx.x1 !== by.x1 || bx.y1 !== by.y1 || bx.w !== by.w || bx.h !== by.h) return false;
+  for (let i = 0; i < a.nodes.length; i++) {
+    const p = a.nodes[i], q = b.nodes[i];
+    if (p.id !== q.id || p.x !== q.x || p.y !== q.y || p.w !== q.w || p.h !== q.h || p.parent !== q.parent) return false;
+  }
+  return true;
+}
 import GeminiBadge from '../../components/GeminiBadge';
 
 export interface Point { x: number; y: number }
@@ -28,8 +48,23 @@ interface Props {
   /** What removing these cards takes out of scope. Scope holds packages and classes only, so a method card
    * resolves to its class; the menu names that instead of implying the method alone is removed. */
   scopeRemovalTargets: (nodes: AtlasNode[]) => AtlasNode[];
-  /** A manual drag completed for this card. A group drag reports one call per moved card. */
-  onNodeMoved: (id: string, position: Point) => void;
+  /** A manual drag completed for exactly one card (no group selection, and not an expanded card
+   * carrying others). `containerId` is the expanded card it is in. */
+  onNodeMoved: (id: string, position: Point, containerId: string | null) => void;
+  /** A manual drag completed for several cards at once: a dragged expanded card reports every card
+   * inside it (leaf and nested-expanded alike), and a group drag reports every selected card --
+   * combined into one call so state updates once instead of once per card (review remediation F-05). */
+  onNodesMoved: (moves: { id: string; position: Point; containerId: string | null }[]) => void;
+  /** User-resized card sizes by ID; absent means nodeCard's default size. */
+  sizes: Record<string, CardSize>;
+  /** User-resized minimum boxes of expanded cards by ID. */
+  containerSizes: Record<string, CardSize>;
+  /** The details button on a package/type card (expand), or the collapse button on an expanded one. */
+  onToggleExpand: (node: AtlasNode) => void;
+  /** A resize-grip drag completed on a card; `position` keeps its top-left corner in place. */
+  onResizeNode: (id: string, size: CardSize, position: Point, containerId: string | null) => void;
+  /** A resize-grip drag completed on an expanded card's box; the size excludes the box's padding. */
+  onResizeContainer: (id: string, size: CardSize) => void;
   /** The canvas settled on a new pan/zoom (debounced real movement, or the one-time initial fit). */
   onCameraChange: (camera: Camera) => void;
   /** Step 5 (Appendix B): the dedicated focused-arrangement command, distinct from inspection and
@@ -50,11 +85,11 @@ interface Props {
  * `cy.fit()` is called only once per level (when `camera` is null) and by the explicit Fit map
  * button -- both are real camera changes the product allows.
  */
-export default function GraphCanvas({ nodes, edges, positions, camera, selectedId, onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, scopeRemovalTargets, onNodeMoved, onCameraChange, onArrangeAroundResource, onViewCode }: Props) {
+export default function GraphCanvas({ nodes, edges, positions, camera, selectedId, onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, scopeRemovalTargets, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, sizes, containerSizes, onToggleExpand, onResizeNode, onResizeContainer }: Props) {
   const container = useRef<HTMLDivElement>(null), cyRef = useRef<cytoscape.Core | null>(null), menuRef = useRef<HTMLDivElement>(null);
-  const callbacks = useRef({ onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, onNodeMoved, onCameraChange, onArrangeAroundResource, onViewCode });
-  callbacks.current = { onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, onNodeMoved, onCameraChange, onArrangeAroundResource, onViewCode };
-  const [mini, setMini] = useState<{ nodes: { id: string; x: number; y: number; w: number; h: number }[]; box: { x1: number; y1: number; w: number; h: number }; viewport: { x1: number; y1: number; w: number; h: number }; zoom: number } | null>(null);
+  const callbacks = useRef({ onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, onToggleExpand, onResizeNode, onResizeContainer });
+  callbacks.current = { onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, onToggleExpand, onResizeNode, onResizeContainer };
+  const [mini, setMini] = useState<MinimapState | null>(null);
   const [hover,setHover]=useState<{title:string;description:string;x:number;y:number;ready:boolean}|null>(null);
   // `node` is the card that was right-clicked; null when the menu opened from a marquee.
   const [contextMenu,setContextMenu]=useState<{node:AtlasNode|null;x:number;y:number}|null>(null);
@@ -68,17 +103,27 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
   // Right-button marquee in rendered (stage) pixels while a right-drag is in progress.
   const [marquee,setMarquee]=useState<{x1:number;y1:number;x2:number;y2:number}|null>(null);
   const cancelMarqueeRef=useRef<()=>void>(()=>{});
-  // Screen boxes (stage pixels) for the on-card quick-code buttons, recomputed with the minimap.
-  const [codeButtons,setCodeButtons]=useState<{id:string;left:number;top:number;size:number}[]>([]);
-  // The card whose quick-code square the pointer is over (the canvas owns the pointer; see codeButtonHit).
-  const [hotCodeId,setHotCodeId]=useState<string|null>(null);
+  // Screen boxes (stage pixels) for the on-card corner buttons and resize grips, recomputed with the minimap.
+  const [cornerOverlays,setCornerOverlays]=useState<{id:string;action:CornerHit;left:number;top:number;size:number}[]>([]);
+  const [resizeGrips,setResizeGrips]=useState<{id:string;left:number;top:number;size:number}[]>([]);
+  // The card corner square the pointer is over (the canvas owns the pointer; see cornerHit).
+  const [hotCorner,setHotCorner]=useState<string|null>(null);
   const [mapOpen, setMapOpen] = useState(true);
   const model = useMemo(() => ({nodes, edges}), [nodes, edges]);
   const currentModel=useRef(model); currentModel.current=model;
   const updateMapRef = useRef<() => void>(() => {});
   const nodesKey=useMemo(()=>JSON.stringify(nodes.map(n=>n.id)),[nodes]);
   const edgeLabel=(e:AtlasEdge)=>(e.explanationStatus==='READY'?'✦ ':'')+e.kind.toLowerCase().replaceAll('_',' ')+(e.occurrenceCount!>1?` · ${e.occurrenceCount} sites`:'');
-  const nodeStyleData=(n:AtlasNode)=>{const card=nodeCard(n);return {...n,card:card.image,cardWidth:card.width,cardHeight:card.height,label:n.simpleName+'\n'+(n.roles?.[0]?.toLowerCase().replaceAll('_',' ')||n.kind.toLowerCase()),color:n.kind==='PACKAGE'?'#6c79b6':n.roles?.includes('SERVICE')?'#16888a':n.roles?.includes('REPOSITORY')?'#6287c8':'#8293a8'};};
+  const childCounts=useMemo(()=>{const m=new Map<string,number>();for(const n of nodes)if(n.containerId)m.set(n.containerId,(m.get(n.containerId)||0)+1);return m;},[nodes]);
+  // `parent` is left out on purpose: Cytoscape sets a node's parent only on add or move(), never through data().
+  const nodeStyleData=(n:AtlasNode)=>{
+    const {containerId:_containerId,...rest}=n;
+    const card=nodeCard(n,sizes[n.id]),min=containerSizes[n.id];
+    const childWord=n.kind==='PACKAGE'?'types':'methods';
+    return {...rest,expanded:!!n.expanded,card:card.image,cardWidth:card.width,cardHeight:card.height,minW:min?.width||0,minH:min?.height||0,
+      containerLabel:`${n.kind==='PACKAGE'?n.qualifiedName||n.simpleName:n.simpleName}  ·  ${childCounts.get(n.id)||0} ${childWord}`,
+      label:n.simpleName+'\n'+(n.roles?.[0]?.toLowerCase().replaceAll('_',' ')||n.kind.toLowerCase()),color:n.kind==='PACKAGE'?'#6c79b6':n.roles?.includes('SERVICE')?'#16888a':n.roles?.includes('REPOSITORY')?'#6287c8':'#8293a8'};
+  };
 
   // Create the Cytoscape core exactly once. No elements, no layout: elements and geometry arrive
   // through the reconciliation effect below, using positions this component never invents itself.
@@ -90,6 +135,9 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
         // 'box-selection: overlap' makes Cytoscape's Ctrl/Shift+drag box pick any card it touches, the same rule as the right-drag marquee.
         { selector: 'node', style: { 'box-selection': 'overlap', shape: 'round-rectangle', width: 'data(cardWidth)', height: 'data(cardHeight)', 'background-image': 'data(card)', 'background-fit': 'contain', 'background-color': '#ffffff', 'border-width': 1.4, 'border-color': 'data(color)', label: '', color: '#1b304b', 'font-family': 'Segoe UI, sans-serif', 'font-size': 14, 'font-weight': 500, 'text-wrap': 'wrap', 'text-max-width': '198px', 'text-valign': 'center', 'text-halign': 'center', 'line-height': 1.7, 'overlay-opacity': 0 } },
         { selector: 'node[kind = "PACKAGE"]', style: { 'background-color': '#ffffff', 'font-size': 14 } },
+        // An expanded card is a container around its children: no card image, a header label, and a
+        // user-resizable minimum box that grows to the right and down from its top-left corner.
+        { selector: 'node[?expanded]', style: { 'background-image': 'none', 'background-color': '#f5f8fc', 'border-width': 2, 'border-style': 'dashed', label: 'data(containerLabel)', 'text-valign': 'top', 'text-halign': 'center', 'text-margin-y': CONTAINER_PADDING - 10, 'font-size': 18, 'font-weight': 600, color: '#19334f', 'text-max-width': '2000px', 'text-wrap': 'none', padding: `${CONTAINER_PADDING}px`, 'compound-sizing-wrt-labels': 'exclude', 'min-width': 'data(minW)', 'min-height': 'data(minH)', 'min-width-bias-left': '0%', 'min-width-bias-right': '100%', 'min-height-bias-top': '0%', 'min-height-bias-bottom': '100%' } as any },
         { selector: 'node.inspected', style: { 'background-color': '#e0f4f3', 'border-color': '#07888c', 'border-width': 2.5 } },
         { selector: 'node.neighbor', style: { 'border-color': '#07888c', 'border-width': 2.5 } },
         { selector: 'edge', style: { width: 1.4, 'line-color': '#a0aebd', 'target-arrow-color': '#8395a9', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', label: 'data(label)', 'font-size': 11, color: '#5b6d83', 'text-opacity': .85, 'text-background-color': '#f7f9fc', 'text-background-opacity': 1, 'text-background-padding': '4px', 'text-rotation': 'autorotate', 'arrow-scale': .8 } },
@@ -109,15 +157,33 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
       // Each class/method card gets a DOM </> button drawn over the corner nodeCard reserves for it,
       // scaled with the zoom. Hidden while cards are too small to hit, and skipped when off screen.
       // Below that size the previous (already empty) array is kept so pan/zoom frames do not re-render.
-      const zoomNow = cy.zoom(), size = CODE_BUTTON.size * zoomNow, w = cy.width(), h = cy.height();
-      if (size < MIN_CODE_BUTTON_PX) setCodeButtons(prev => prev.length ? [] : prev);
-      else setCodeButtons(cy.nodes().map(n => {
-        const p = n.renderedPosition(), rw = n.renderedWidth(), rh = n.renderedHeight();
-        return { id: n.id(), show: hasCodeButton(n.data()), left: p.x + rw / 2 - (CODE_BUTTON.right * zoomNow + size), top: p.y - rh / 2 + CODE_BUTTON.top * zoomNow, size };
-      }).filter(b => b.show && b.left > -b.size && b.top > -b.size && b.left < w && b.top < h).map(({ show: _show, ...b }) => b));
+      // An expanded card gets a collapse square in its own top-right corner instead, and every card or
+      // container gets a resize grip in its bottom-right corner.
+      const zoomNow = cy.zoom(), w = cy.width(), h = cy.height();
+      const onScreen = (b: { left: number; top: number; size: number }) => b.left > -b.size && b.top > -b.size && b.left < w && b.top < h;
+      const corners: { id: string; action: CornerHit; left: number; top: number; size: number }[] = [], grips: { id: string; left: number; top: number; size: number }[] = [];
+      const gripSize = Math.max(12, Math.min(22, 18 * zoomNow));
+      cy.nodes().forEach(n => {
+        const bb = n.renderedBoundingBox({ includeLabels: false, includeOverlays: false });
+        if (n.data('expanded')) {
+          const size = CONTAINER_BUTTON.size * zoomNow;
+          if (size >= MIN_CODE_BUTTON_PX) corners.push({ id: n.id(), action: 'collapse', left: bb.x2 - (CONTAINER_BUTTON.inset * zoomNow + size), top: bb.y1 + CONTAINER_BUTTON.inset * zoomNow, size });
+        } else if (CODE_BUTTON.size * zoomNow >= MIN_CODE_BUTTON_PX) {
+          const p = n.renderedPosition(), rw = n.renderedWidth(), rh = n.renderedHeight();
+          for (const c of cornerButtons(n.data())) corners.push({ id: n.id(), action: c.action, left: p.x + rw / 2 - (c.right + c.size) * zoomNow, top: p.y - rh / 2 + c.top * zoomNow, size: c.size * zoomNow });
+        }
+        if (bb.w >= MIN_RESIZE_CARD_PX) grips.push({ id: n.id(), left: bb.x2 - gripSize - 2, top: bb.y2 - gripSize - 2, size: gripSize });
+      });
+      const visibleCorners = corners.filter(onScreen), visibleGrips = grips.filter(onScreen);
+      setCornerOverlays(prev => prev.length || visibleCorners.length ? visibleCorners : prev);
+      setResizeGrips(prev => prev.length || visibleGrips.length ? visibleGrips : prev);
       if (!cy.nodes().length) return;
       const b = cy.elements().boundingBox(); const v = cy.extent();
-      setMini({nodes: cy.nodes().map(n => ({ id: n.id(), x: n.position('x'), y: n.position('y'), w: n.width(), h: n.height() })), box: {x1: b.x1 - 30, y1: b.y1 - 30, w: Math.max(280, b.w + 60), h: Math.max(160, b.h + 60)}, viewport: v, zoom: cy.zoom()});
+      const next = {nodes: cy.nodes().map(n => { const nb = n.boundingBox({ includeLabels: false, includeOverlays: false }); return { id: n.id(), x: (nb.x1 + nb.x2) / 2, y: (nb.y1 + nb.y2) / 2, w: nb.w, h: nb.h, parent: !!n.data('expanded') }; }), box: {x1: b.x1 - 30, y1: b.y1 - 30, w: Math.max(280, b.w + 60), h: Math.max(160, b.h + 60)}, viewport: v, zoom: cy.zoom()};
+      // Same rule as the overlay arrays above: skip the state update (and its re-render) when nothing
+      // actually moved, rather than setting a fresh object on every rAF regardless (review remediation
+      // F-04). During real panning/zooming the viewport genuinely differs every frame and still updates.
+      setMini(prev => prev && sameMinimap(prev, next) ? prev : next);
     };
     updateMapRef.current = updateMap;
     // Real user camera movement (pan, zoom, drag) is captured, debounced, and reported once it
@@ -141,13 +207,20 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
     // right-click, double-click or marquee that starts on that corner behaves exactly like the rest of
     // the card. A plain click is hit-tested here instead: inside the square it opens the code.
     // A programmatic tap (`node.emit('tap')`) carries no position and is never on the square.
-    const codeButtonHit = (n: cytoscape.NodeSingular, p: Point | undefined) => {
-      if (!p || !hasCodeButton(n.data()) || CODE_BUTTON.size * cy.zoom() < MIN_CODE_BUTTON_PX) return false;
-      const c = n.position(), right = c.x + n.width() / 2 - CODE_BUTTON.right, top = c.y - n.height() / 2 + CODE_BUTTON.top;
-      return p.x >= right - CODE_BUTTON.size && p.x <= right && p.y >= top && p.y <= top + CODE_BUTTON.size;
+    const cornerHit = (n: cytoscape.NodeSingular, p: Point | undefined): CornerHit | null => {
+      if (!p) return null;
+      const inSquare = (right: number, top: number, size: number) => p.x >= right - size && p.x <= right && p.y >= top && p.y <= top + size;
+      if (n.data('expanded')) {
+        if (CONTAINER_BUTTON.size * cy.zoom() < MIN_CODE_BUTTON_PX) return null;
+        const bb = n.boundingBox({ includeLabels: false, includeOverlays: false });
+        return inSquare(bb.x2 - CONTAINER_BUTTON.inset, bb.y1 + CONTAINER_BUTTON.inset, CONTAINER_BUTTON.size) ? 'collapse' : null;
+      }
+      if (CODE_BUTTON.size * cy.zoom() < MIN_CODE_BUTTON_PX) return null;
+      const c = n.position();
+      return cornerButtons(n.data()).find(b => inSquare(c.x + n.width() / 2 - b.right, c.y - n.height() / 2 + b.top, b.size))?.action ?? null;
     };
-    cy.on('mousemove', 'node', e => { const id = codeButtonHit(e.target, e.position) ? e.target.id() : null; setHotCodeId(prev => prev === id ? prev : id); });
-    cy.on('mouseout', 'node', () => setHotCodeId(null));
+    cy.on('mousemove', 'node', e => { const action = cornerHit(e.target, e.position); const key = action ? `${e.target.id()}:${action}` : null; setHotCorner(prev => prev === key ? prev : key); });
+    cy.on('mouseout', 'node', () => setHotCorner(null));
     // Ctrl/Cmd/Shift+click toggles a card in the multi-selection without inspecting it; a plain click inspects.
     const multiKey = (e: cytoscape.EventObject) => { const o = e.originalEvent as MouseEvent | undefined; return !!o && (o.ctrlKey || o.metaKey || o.shiftKey); };
     cy.on('tap', 'node', e => {
@@ -155,7 +228,9 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
       // The model can briefly lag Cytoscape during reconciliation; a card that is gone has nothing to open.
       const node = currentModel.current.nodes.find(n => n.id === e.target.id());
       if (!node) return;
-      if (codeButtonHit(e.target, e.position)) { setContextMenu(null); callbacks.current.onViewCode(node); return; }
+      const corner = cornerHit(e.target, e.position);
+      if (corner === 'code') { setContextMenu(null); callbacks.current.onViewCode(node); return; }
+      if (corner) { setContextMenu(null); callbacks.current.onToggleExpand(node); return; }
       callbacks.current.onNodeSelect(node);
     });
     // Step 4 disconnected double-click from level navigation (that was explore(), a leftover from
@@ -180,12 +255,36 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
       const p = e.target.position(), dx = p.x - groupDrag.start.x, dy = p.y - groupDrag.start.y;
       cy.batch(() => { for (const o of groupDrag!.others) if (o.node.inside()) o.node.position({ x: o.start.x + dx, y: o.start.y + dy }); });
     });
+    // An expanded card's own drawn box is derived from its children, so its "position" for storage
+    // purposes is not d.position() (Cytoscape's box centroid) but the same anchor collapse expects:
+    // the box's top-left corner plus half its own (collapsed) card size (nodeCard.ts owns that size,
+    // already carried on the element as cardWidth/cardHeight regardless of expansion). Using the
+    // centroid here would silently disagree with where a later collapse puts the card.
+    const cardMove = (d: cytoscape.NodeSingular) => {
+      const containerId = d.parent().length ? d.parent().first().id() : null;
+      if (d.data('expanded')) {
+        const bb = d.boundingBox({ includeLabels: false, includeOverlays: false });
+        const w = d.data('cardWidth') as number, h = d.data('cardHeight') as number;
+        return { id: d.id(), position: { x: bb.x1 + w / 2, y: bb.y1 + h / 2 }, containerId };
+      }
+      const q = d.position();
+      return { id: d.id(), position: { x: q.x, y: q.y }, containerId };
+    };
+    // Dragging an expanded card moves its whole subtree in Cytoscape: report every card inside it,
+    // leaf and nested-expanded alike (review remediation F-02 -- a nested expanded card used to be
+    // dropped here, leaving its stored anchor stale after the container that held it moved), plus the
+    // dragged card's own new anchor (also previously dropped, stale for any top-level expanded card).
+    const movesFor = (n: cytoscape.NodeSingular) => (n.data('expanded') ? [n, ...(n.descendants().toArray() as cytoscape.NodeSingular[])] : [n]).map(cardMove);
     cy.on('dragfree', 'node', e => {
-      const p = e.target.position(); callbacks.current.onNodeMoved(e.target.id(), { x: p.x, y: p.y });
+      const moves = movesFor(e.target);
       if (groupDrag && groupDrag.id === e.target.id()) {
-        for (const o of groupDrag.others) if (o.node.inside()) { const q = o.node.position(); callbacks.current.onNodeMoved(o.node.id(), { x: q.x, y: q.y }); }
+        for (const o of groupDrag.others) if (o.node.inside()) moves.push(...movesFor(o.node));
       }
       groupDrag = null;
+      if (!moves.length) return;
+      // One dispatch for the whole gesture instead of one per card (review remediation F-05).
+      if (moves.length === 1) callbacks.current.onNodeMoved(moves[0].id, moves[0].position, moves[0].containerId);
+      else callbacks.current.onNodesMoved(moves);
     });
     // Right-click adds the card to the multi-selection (never removes it -- use the menu's Deselect)
     // and opens the actions menu for the whole selection.
@@ -253,7 +352,16 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
     });
     cy.on('mouseout pan zoom tap',()=>setHover(null));
     cy.on('pan zoom tap',()=>setContextMenu(null));
-    cy.on('tap', 'edge', e => { const edge = currentModel.current.edges.find(n => n.id === e.target.id()); if (edge) callbacks.current.onEdgeSelect(edge); });
+    // An expanded box's interior is not hit-tested like a card image, so a route drawn across its
+    // collapse square wins the tap over the box. A tap there collapses instead. Ordinary card corners
+    // already win over routes through the node tap above, so a route crossing them still inspects.
+    cy.on('tap', 'edge', e => {
+      const p = e.position;
+      const box = p && cy.nodes('[?expanded]').filter(n => cornerHit(n, p) === 'collapse').first();
+      const node = box && box.length ? currentModel.current.nodes.find(m => m.id === box.id()) : undefined;
+      if (node) { setContextMenu(null); callbacks.current.onToggleExpand(node); return; }
+      const edge = currentModel.current.edges.find(n => n.id === e.target.id()); if (edge) callbacks.current.onEdgeSelect(edge);
+    });
     const canvas=container.current;
     const preventContextMenu=(event:MouseEvent)=>event.preventDefault();
     canvas.addEventListener('contextmenu',preventContextMenu);
@@ -337,20 +445,36 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
     // only sets a position via `cy.add()` for a brand-new element, exactly as before Step 5.
     let arranged = false;
     cy.batch(() => {
-      const nodeIds = new Set(nodes.map(n => n.id));
       const edgeIds = new Set(edges.map(e => e.id));
       cy.edges().forEach(e => { if (!edgeIds.has(e.id())) e.remove(); });
-      cy.nodes().forEach(n => { if (!nodeIds.has(n.id())) n.remove(); });
-      for (const n of nodes) {
+      // Expanded cards contain their children (compound nodes). A card that is absent, or whose
+      // container changed (a class is a package's child on Packages but a top-level card on Classes),
+      // is removed first -- Cytoscape sets a parent only on add, and its move() inside a batch does not
+      // take a new position -- so it is added again below with its new parent, position and edges.
+      // Removal stays ahead of every add: Cytoscape removes by swapping with the last element, so
+      // removing after adding would reorder the survivors. Removing a parent also removes its children;
+      // any of them still shown are simply added again. Containers are added before their children.
+      const byId = new Map(nodes.map(n => [n.id, n]));
+      cy.nodes().forEach(n => {
+        if (!n.inside()) return;
+        const want = byId.get(n.id());
+        if (!want || (n.parent().first()?.id() ?? null) !== (want.containerId ?? null)) n.remove();
+      });
+      const depth = (n: AtlasNode) => { let d = 0; for (let c = n.containerId; c && d < nodes.length; c = byId.get(c)?.containerId) d++; return d; };
+      const ordered = nodes.some(n => n.containerId) ? nodes.map((n, i) => ({ n, i, d: depth(n) })).sort((a, b) => a.d - b.d || a.i - b.i).map(x => x.n) : nodes;
+      for (const n of ordered) {
         const data = nodeStyleData(n);
         const pos = positions[n.id] || { x: 0, y: 0 };
         const existing = cy.getElementById(n.id);
         if (existing.length) {
           existing.data(data);
-          const cur = existing.position();
-          if (cur.x !== pos.x || cur.y !== pos.y) { existing.position(pos); arranged = true; }
+          // A container's position is its children's bounds; writing it would drag every child along.
+          if (!n.expanded || !existing.isParent()) {
+            const cur = existing.position();
+            if (cur.x !== pos.x || cur.y !== pos.y) { existing.position(pos); arranged = true; }
+          }
         } else {
-          cy.add({ data, position: pos });
+          cy.add({ data: { ...data, ...(n.containerId ? { parent: n.containerId } : {}) }, position: pos });
         }
       }
       for (const e of edges) {
@@ -367,7 +491,7 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
     // cy.add() does not emit 'position', so a membership change (Show more, a package add/remove)
     // would otherwise leave the minimap showing a stale bounding box until the user's next pan/zoom.
     updateMapRef.current();
-  }, [nodes, edges, positions]);
+  }, [nodes, edges, positions, sizes, containerSizes]);
 
   // Multi-selection outline. Declared after reconciliation so a card added in the same commit already exists.
   useEffect(()=>{
@@ -388,9 +512,11 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
       if (selected.length) {
         selected.addClass('inspected');
         // An edge's closedNeighborhood() is only the edge itself, so an inspected edge keeps its endpoints explicitly.
-        const neighborhood = selected.closedNeighborhood().union(selected.connectedNodes());
+        // Containers of anything emphasized stay unmuted too: a dimmed parent would dim the cards drawn inside it.
+        const direct = selected.closedNeighborhood().union(selected.connectedNodes());
+        const neighborhood = direct.union(direct.nodes().ancestors());
         cy.elements().difference(neighborhood).addClass('muted');
-        neighborhood.nodes().difference(selected).addClass('neighbor');
+        direct.nodes().difference(selected).addClass('neighbor');
         neighborhood.edges().addClass('incident');
       }
     }
@@ -422,6 +548,81 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [camera, hasNodes]);
 
+  // Resize grip drag: the card (or container box) follows the pointer live in Cytoscape, and the final
+  // size is reported once on release. A card keeps its top-left corner; a container grows right and down.
+  // Interrupted or cancelled (Escape, pointercancel) reverts the live visual and dispatches nothing --
+  // a resize that never happened, not whatever partial size the pointer last reached (review
+  // remediation F-07). Zoom is read live on every move rather than captured once at pointerdown, so a
+  // wheel zoom mid-drag cannot desync the dragged edge from the cursor.
+  function startResize(event: React.PointerEvent<HTMLElement>, id: string) {
+    const cy = cyRef.current, node = nodes.find(n => n.id === id);
+    if (!cy || !node || event.button !== 0) return;
+    const el = cy.getElementById(id);
+    if (!el.length) return;
+    event.preventDefault(); event.stopPropagation();
+    setContextMenu(null); setHover(null);
+    const handle = event.currentTarget, pointerId = event.pointerId, startX = event.clientX, startY = event.clientY;
+    handle.setPointerCapture(pointerId);
+    const expanded = !!node.expanded;
+    const bb = el.boundingBox({ includeLabels: false, includeOverlays: false });
+    const start = expanded ? { width: bb.w, height: bb.h } : { width: el.width(), height: el.height() };
+    const topLeft = { x: el.position('x') - start.width / 2, y: el.position('y') - start.height / 2 };
+    const startData = expanded ? { minW: el.data('minW'), minH: el.data('minH') } : { card: el.data('card'), cardWidth: el.data('cardWidth'), cardHeight: el.data('cardHeight') };
+    const startPosition = { x: el.position('x'), y: el.position('y') };
+    // A container box's min-width/min-height exclude its padding (Cytoscape adds it outside).
+    const inner = (v: number) => Math.max(0, Math.round(v - 2 * CONTAINER_PADDING));
+    let size = start;
+    const onMove = (ev: PointerEvent) => {
+      const zoomNow = cy.zoom();
+      size = { width: Math.round(Math.max(MIN_CARD_SIZE.width, start.width + (ev.clientX - startX) / zoomNow)), height: Math.round(Math.max(MIN_CARD_SIZE.height, start.height + (ev.clientY - startY) / zoomNow)) };
+      if (expanded) el.data({ minW: inner(size.width), minH: inner(size.height) });
+      else { const card = nodeCard(node, size); el.data({ card: card.image, cardWidth: size.width, cardHeight: size.height }); el.position({ x: topLeft.x + size.width / 2, y: topLeft.y + size.height / 2 }); }
+      updateMapRef.current();
+    };
+    const detach = () => {
+      handle.removeEventListener('pointermove', onMove); handle.removeEventListener('pointerup', onUp); handle.removeEventListener('pointercancel', onCancel);
+      window.removeEventListener('keydown', onEscape, true);
+      if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId);
+    };
+    const onCancel = () => { detach(); el.data(startData); if (!expanded) el.position(startPosition); updateMapRef.current(); };
+    const onEscape = (ev: KeyboardEvent) => { if (ev.key === 'Escape') { ev.stopPropagation(); onCancel(); } };
+    const onUp = () => {
+      detach();
+      if (size === start) return;
+      if (expanded) callbacks.current.onResizeContainer(id, { width: inner(size.width), height: inner(size.height) });
+      else callbacks.current.onResizeNode(id, size, { x: topLeft.x + size.width / 2, y: topLeft.y + size.height / 2 }, node.containerId ?? null);
+    };
+    handle.addEventListener('pointermove', onMove); handle.addEventListener('pointerup', onUp); handle.addEventListener('pointercancel', onCancel);
+    window.addEventListener('keydown', onEscape, true);
+  }
+
+  // Keyboard resize (review remediation F-06): the grip is a real <button>, so it is already
+  // reachable and operable by Tab/Enter/Space; arrow keys step the size by the same rules a pointer
+  // drag commits on release -- one step, one dispatch, top-left corner kept for a card, min-width/
+  // min-height kept padding-free for a container -- so there is no separate "confirm" step to forget.
+  function resizeByKeys(id: string, dx: number, dy: number) {
+    const cy = cyRef.current, node = nodes.find(n => n.id === id);
+    if (!cy || !node) return;
+    const el = cy.getElementById(id);
+    if (!el.length) return;
+    const expanded = !!node.expanded;
+    const bb = el.boundingBox({ includeLabels: false, includeOverlays: false });
+    const start = expanded ? { width: bb.w, height: bb.h } : { width: el.width(), height: el.height() };
+    const size = { width: Math.max(MIN_CARD_SIZE.width, Math.round(start.width + dx)), height: Math.max(MIN_CARD_SIZE.height, Math.round(start.height + dy)) };
+    if (expanded) { const inner = (v: number) => Math.max(0, Math.round(v - 2 * CONTAINER_PADDING)); callbacks.current.onResizeContainer(id, { width: inner(size.width), height: inner(size.height) }); return; }
+    const topLeft = { x: el.position('x') - start.width / 2, y: el.position('y') - start.height / 2 };
+    callbacks.current.onResizeNode(id, size, { x: topLeft.x + size.width / 2, y: topLeft.y + size.height / 2 }, node.containerId ?? null);
+  }
+  const gripKeyStep = 10, gripKeyStepFast = 40;
+  function gripKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, id: string) {
+    const step = event.shiftKey ? gripKeyStepFast : gripKeyStep;
+    const delta: Record<string, [number, number]> = { ArrowRight: [step, 0], ArrowLeft: [-step, 0], ArrowDown: [0, step], ArrowUp: [0, -step] };
+    const d = delta[event.key];
+    if (!d) return;
+    event.preventDefault(); event.stopPropagation();
+    resizeByKeys(id, d[0], d[1]);
+  }
+
   function zoom(factor: number) { const cy = cyRef.current; if (cy) cy.zoom({level: cy.zoom() * factor, renderedPosition: {x: cy.width()/2, y: cy.height()/2}}); }
   function fit() { const cy = cyRef.current; if (cy && nodes.length) { cy.fit(undefined, 55); if (cy.zoom() > 1) { cy.zoom(1); cy.center(); } } }
   const menuNode=contextMenu?.node||null;
@@ -429,7 +630,14 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
   const menuTitle=selectedNodes.length>1?`${selectedNodes.length} resources selected`:(menuNode||selectedNodes[0])?.simpleName||'Selection';
   return <div className={`graph-stage${fullscreen?' fullscreen':''}`}>
     <div ref={container} className="graph-canvas" aria-label="Dependency graph" />
-    {codeButtons.map(b=>{const n=nodes.find(item=>item.id===b.id);return n?<CodeButton key={b.id} name={n.simpleName} kind={n.kind} className={`map-code-button${hotCodeId===b.id?' hot':''}`} style={{left:b.left,top:b.top,width:b.size,height:b.size,fontSize:Math.max(10,b.size*.5)}} onClick={()=>{setContextMenu(null);onViewCode(n);}}/>:null;})}
+    {cornerOverlays.map(b=>{
+      const n=nodes.find(item=>item.id===b.id);if(!n)return null;
+      const hot=hotCorner===`${b.id}:${b.action}`?' hot':'',style={left:b.left,top:b.top,width:b.size,height:b.size,fontSize:Math.max(10,b.size*.5)};
+      if(b.action==='code')return <CodeButton key={`${b.id}:code`} name={n.simpleName} kind={n.kind} className={`map-code-button${hot}`} style={style} onClick={()=>{setContextMenu(null);onViewCode(n);}}/>;
+      const collapse=b.action==='collapse',what=n.kind==='PACKAGE'?'types':'methods';
+      return <button key={`${b.id}:${b.action}`} type="button" className={`code-button map-code-button map-details-button${hot}`} style={style} aria-expanded={collapse} aria-label={collapse?`Collapse ${n.simpleName}`:`Show ${what} inside ${n.simpleName}`} title={collapse?'Collapse':`Show ${what} and their relationships`} onClick={event=>{event.stopPropagation();setContextMenu(null);onToggleExpand(n);}}><DetailsIcon expanded={collapse}/></button>;
+    })}
+    {resizeGrips.map(g=>{const n=nodes.find(item=>item.id===g.id);return n?<button key={g.id} type="button" className="map-resize-grip" title={`Resize ${n.simpleName}`} aria-label={`Resize ${n.simpleName}. Use arrow keys, hold Shift for larger steps.`} style={{left:g.left,top:g.top,width:g.size,height:g.size}} onPointerDown={e=>startResize(e,g.id)} onKeyDown={e=>gripKeyDown(e,g.id)}/>:null;})}
     {!nodes.length && <div className="canvas-empty">No symbols in this view. Choose another level or clear the filter.</div>}
     {hover&&<div className="edge-hover" style={{left:hover.x,top:hover.y}}><strong>{hover.ready&&<GeminiBadge/>} {hover.title}</strong><p>{hover.description}</p></div>}
     {contextMenu&&<div ref={menuRef} className="graph-context-menu" role="menu" aria-label={selectedNodes.length>1?`Actions for ${selectedNodes.length} selected resources`:`Actions for ${menuTitle}`} style={{left:contextMenu.x,top:contextMenu.y}}>
@@ -451,9 +659,17 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
         if (transform && cy) { const p = point.matrixTransform(transform.inverse()); cy.pan({x: cy.width()/2 - p.x*cy.zoom(), y: cy.height()/2 - p.y*cy.zoom()}); }
       }}>
         {edges.map(e => { const a=mini.nodes.find(n=>n.id===e.sourceId),b=mini.nodes.find(n=>n.id===e.targetId); return a&&b?<line key={e.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#c5d0dd" strokeWidth="4"/>:null; })}
-        {mini.nodes.map(n => <rect key={n.id} x={n.x-n.w/2} y={n.y-n.h/2} width={n.w} height={n.h} rx="10" fill={n.id===selectedId?'#0b9193':'#a4b8cd'}/>)}
+        {mini.nodes.map(n => <rect key={n.id} x={n.x-n.w/2} y={n.y-n.h/2} width={n.w} height={n.h} rx="10" fill={n.id===selectedId?'#0b9193':n.parent?'#dde6ef':'#a4b8cd'}/>)}
         <rect x={mini.viewport.x1} y={mini.viewport.y1} width={mini.viewport.w} height={mini.viewport.h} fill="#07888c0c" stroke="#07888c" strokeWidth="2" vectorEffect="non-scaling-stroke"/>
       </svg>}
     </div>
   </div>;
+}
+
+/** Expand (a grid inside a box) or collapse (a box with a minus) glyph for the details button. */
+function DetailsIcon({ expanded }: { expanded: boolean }) {
+  return <svg viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="3" width="18" height="18" rx="3"/>
+    {expanded ? <path d="M8 12h8"/> : <path d="M7.5 7.5h3v3h-3zM13.5 7.5h3v3h-3zM7.5 13.5h3v3h-3zM13.5 13.5h3v3h-3z"/>}
+  </svg>;
 }

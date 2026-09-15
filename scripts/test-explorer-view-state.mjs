@@ -389,6 +389,30 @@ check('NODE_MOVED updates exactly the dragged card and bumps geometryRevision; i
   assert.strictEqual(ignored, s, 'a drag for an ID no longer displayed is ignored');
 });
 
+check('NODES_MOVED (review remediation F-05): several cards move in one dispatch with exactly one geometryRevision bump', () => {
+  let s = initExplorerViewState('PACKAGE');
+  const eligible = ['c0', 'c1', 'c2'];
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: eligible, batchSize: 12, placement: placementFor(eligible) });
+  s = explorerViewReducer(s, { type: 'EXPAND_RESOURCE', level: 'CLASS', id: 'c2', ownerId: null, childPositions: { m0: { x: 1, y: 1 } }, generation: s.generation });
+  const revisionBefore = s.levelViews.CLASS.geometryRevision;
+  s = explorerViewReducer(s, { type: 'NODES_MOVED', level: 'CLASS', generation: 0, moves: [
+    { id: 'c0', position: { x: 111, y: 222 }, containerId: null },
+    { id: 'c1', position: { x: 333, y: 444 }, containerId: null },
+    { id: 'm0', position: { x: 5, y: 6 }, containerId: 'c2' },
+  ] });
+  assert.deepEqual(s.levelViews.CLASS.positions.c0, { x: 111, y: 222 });
+  assert.deepEqual(s.levelViews.CLASS.positions.c1, { x: 333, y: 444 });
+  assert.deepEqual(s.levelViews.CLASS.expansions.c2.childPositions.m0, { x: 5, y: 6 }, 'an entry with a containerId lands in that container\'s child positions, like NODE_MOVED');
+  assert.equal(s.levelViews.CLASS.geometryRevision, revisionBefore + 1, 'one bump for the whole batch, not one per card');
+  const stale = explorerViewReducer(s, { type: 'NODES_MOVED', level: 'CLASS', generation: -1, moves: [{ id: 'c0', position: { x: 0, y: 0 }, containerId: null }] });
+  assert.strictEqual(stale, s, 'a stale generation drops the whole batch, matching NODE_MOVED/SET_CAMERA');
+  const noop = explorerViewReducer(s, { type: 'NODES_MOVED', level: 'CLASS', generation: 0, moves: [
+    { id: 'c0', position: { x: 111, y: 222 }, containerId: null },
+    { id: 'not-displayed', position: { x: 1, y: 1 }, containerId: null },
+  ] });
+  assert.strictEqual(noop, s, 'every entry either unchanged or for an ID no longer displayed: no-op, exactly like NODE_MOVED');
+});
+
 check('RESET reinitializes geometry (fresh positions/camera/appendWidth) and bumps generation', () => {
   let s = initExplorerViewState('PACKAGE');
   s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: ['c0'], batchSize: 12, placement: placementFor(['c0']) });
@@ -624,6 +648,60 @@ check('B1 mechanism: an inspected EDGE survives a level switch that clears it, r
   assert.equal(back.inspectedSubjectId, 'e1');
   assert.equal(back.inspectedKind, 'EDGE');
   assert.equal(back.activeLevel, 'PACKAGE', 'one Back both undoes the level switch and restores the edge inspection');
+});
+
+check('EXPAND/COLLAPSE: expansions nest, apply make-room moves atomically, and collapse drops nested ones', () => {
+  let s = initExplorerViewState('PACKAGE');
+  s = explorerViewReducer(s, { type: 'RESET', level: 'PACKAGE', eligibleIds: ['p0', 'p1'], batchSize: Infinity, placement: { p0: { width: 280, height: 250, name: 'p0' }, p1: { width: 280, height: 250, name: 'p1' } } });
+  const g = s.generation, p1Before = s.levelViews.PACKAGE.positions.p1;
+  s = explorerViewReducer(s, { type: 'EXPAND_RESOURCE', level: 'PACKAGE', id: 'p0', ownerId: null, childPositions: { c0: { x: 1, y: 2 } }, generation: g, moves: { positions: { p1: { x: 999, y: p1Before.y } }, childPositions: {} } });
+  assert.deepEqual(s.levelViews.PACKAGE.expansions.p0, { ownerId: null, childPositions: { c0: { x: 1, y: 2 } }, minSize: null });
+  assert.equal(s.levelViews.PACKAGE.positions.p1.x, 999, 'the neighbor made room in the same dispatch');
+  s = explorerViewReducer(s, { type: 'EXPAND_RESOURCE', level: 'PACKAGE', id: 'c0', ownerId: 'p0', childPositions: { m0: { x: 3, y: 4 } }, generation: g });
+  assert.ok(s.levelViews.PACKAGE.expansions.c0, 'a card inside an expanded card expands too');
+  assert.equal(explorerViewReducer(s, { type: 'EXPAND_RESOURCE', level: 'PACKAGE', id: 'zz', ownerId: 'nope', childPositions: {}, generation: g }), s, 'ignored when its owner is not expanded');
+  assert.equal(explorerViewReducer(s, { type: 'EXPAND_RESOURCE', level: 'PACKAGE', id: 'p9', ownerId: null, childPositions: {}, generation: g }), s, 'ignored for a card not on the page');
+  s = explorerViewReducer(s, { type: 'NODE_MOVED', level: 'PACKAGE', id: 'm0', containerId: 'c0', position: { x: 7, y: 8 }, generation: g });
+  assert.deepEqual(s.levelViews.PACKAGE.expansions.c0.childPositions.m0, { x: 7, y: 8 }, 'a drag inside a container lands in its child positions');
+  s = explorerViewReducer(s, { type: 'RESIZE_RESOURCE', level: 'PACKAGE', id: 'm0', containerId: 'c0', size: { width: 300, height: 200 }, position: { x: 30, y: 20 }, generation: g });
+  assert.deepEqual(s.levelViews.PACKAGE.sizes.m0, { width: 300, height: 200 });
+  s = explorerViewReducer(s, { type: 'COLLAPSE_RESOURCE', level: 'PACKAGE', id: 'p0', position: { x: 50, y: 60 }, generation: g });
+  assert.deepEqual(Object.keys(s.levelViews.PACKAGE.expansions), [], 'collapsing the outer card drops the nested expansion too');
+  assert.deepEqual(s.levelViews.PACKAGE.positions.p0, { x: 50, y: 60 });
+  assert.deepEqual(s.levelViews.PACKAGE.sizes, {}, 'sizes of cards that are no longer shown go with them');
+});
+
+check('Expansions and sizes survive inspection and level switches, and leave with their card on a scope removal', () => {
+  let s = initExplorerViewState('PACKAGE');
+  s = explorerViewReducer(s, { type: 'RESET', level: 'PACKAGE', eligibleIds: ['p0', 'p1'], batchSize: Infinity, placement: { p0: { width: 280, height: 250, name: 'p0' }, p1: { width: 280, height: 250, name: 'p1' } } });
+  const g = s.generation;
+  s = explorerViewReducer(s, { type: 'EXPAND_RESOURCE', level: 'PACKAGE', id: 'p0', ownerId: null, childPositions: { c0: { x: 1, y: 2 } }, generation: g });
+  s = explorerViewReducer(s, { type: 'RESIZE_RESOURCE', level: 'PACKAGE', id: 'p1', containerId: null, size: { width: 400, height: 300 }, position: { x: 5, y: 5 }, generation: g });
+  s = explorerViewReducer(s, { type: 'RESIZE_CONTAINER', level: 'PACKAGE', id: 'p0', minSize: { width: 900, height: 500 }, generation: g });
+  assert.deepEqual(s.levelViews.PACKAGE.expansions.p0.minSize, { width: 900, height: 500 });
+  const kept = s.levelViews.PACKAGE;
+  s = explorerViewReducer(s, { type: 'INSPECT_NODE', id: 'p1' });
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: ['c0'], batchSize: 12 });
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'PACKAGE', eligibleIds: ['p0', 'p1'], batchSize: Infinity });
+  assert.deepEqual(s.levelViews.PACKAGE.expansions, kept.expansions);
+  assert.deepEqual(s.levelViews.PACKAGE.sizes, kept.sizes);
+  s = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: ['p1'], batchSize: Infinity });
+  assert.deepEqual(s.levelViews.PACKAGE.expansions, {}, 'removing p0 from scope drops its expansion');
+  assert.deepEqual(Object.keys(s.levelViews.PACKAGE.sizes), ['p1']);
+});
+
+check('A child that leaves scope while its container stays takes its slot, nested expansion and size with it', () => {
+  let s = initExplorerViewState('PACKAGE');
+  s = explorerViewReducer(s, { type: 'RESET', level: 'PACKAGE', eligibleIds: ['p'], batchSize: Infinity });
+  const g = s.generation;
+  s = explorerViewReducer(s, { type: 'EXPAND_RESOURCE', level: 'PACKAGE', id: 'p', ownerId: null, childPositions: { c: { x: 1, y: 2 }, d: { x: 3, y: 4 } }, generation: g });
+  s = explorerViewReducer(s, { type: 'EXPAND_RESOURCE', level: 'PACKAGE', id: 'c', ownerId: 'p', childPositions: { m: { x: 5, y: 6 } }, generation: g });
+  s = explorerViewReducer(s, { type: 'RESIZE_RESOURCE', level: 'PACKAGE', id: 'c', containerId: 'p', position: { x: 7, y: 8 }, size: { width: 400, height: 300 }, generation: g });
+  const unchanged = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: ['p'], batchSize: Infinity, expansionChildren: { p: ['c', 'd'], c: ['m'] } });
+  assert.equal(unchanged.levelViews.PACKAGE.expansions, s.levelViews.PACKAGE.expansions, 'nothing left scope: same object');
+  s = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: ['p'], batchSize: Infinity, expansionChildren: { p: ['d'], c: [] } });
+  assert.deepEqual(s.levelViews.PACKAGE.expansions, { p: { ownerId: null, childPositions: { d: { x: 3, y: 4 } }, minSize: null } });
+  assert.deepEqual(s.levelViews.PACKAGE.sizes, {});
 });
 
 console.log(`PASS: ${passCount} explorerViewState reducer checks (inspection/membership separation, append-only scope growth, show more, back navigation, reset, Step 3 geometry/camera, Step 4 inactive-level scope reconciliation and Back precedence, Step 5 focused arrangement, Step 5 review remediation A1/B1)`);

@@ -41,11 +41,38 @@ export function wrapText(s: string, fontSize: number, maxWidth: number, maxLines
 /** True for card kinds that own a source range and therefore get a quick-code button on the map. */
 export const hasCodeButton = (node: AtlasNode) => node.kind !== 'PACKAGE';
 /**
+ * True for cards that can expand in place into a container of their children: a package into its
+ * types, a type into its methods, when it has any (graphModel's `detailCount`, so a class whose only
+ * members are nested types shows no button). Mirrors graphModel.isExpandable, kept inline so this module stays
+ * free of runtime imports (scripts/test-node-card.mjs loads it on its own).
+ */
+export const hasDetailsButton = (node: AtlasNode) => !['METHOD', 'FIELD', 'CONSTRUCTOR'].includes(node.kind) && (node.detailCount || 0) > 0;
+/**
  * The quick-code button's square in card-local pixels, measured from the card's top-right corner.
  * The SVG keeps this corner free and GraphCanvas positions a real DOM button over it, scaled by the
  * current zoom, so the two stay aligned at every camera.
  */
 export const CODE_BUTTON = { right: 12, top: 12, size: 40 };
+export type CornerAction = 'code' | 'details';
+/**
+ * Every on-card corner button, right to left, in the same card-local terms as CODE_BUTTON: the
+ * quick-code square keeps its corner, and the details (expand) square sits just to its left.
+ */
+export function cornerButtons(node: AtlasNode): { action: CornerAction; right: number; top: number; size: number }[] {
+  const out: { action: CornerAction; right: number; top: number; size: number }[] = [];
+  let right = CODE_BUTTON.right;
+  if (hasCodeButton(node)) { out.push({ action: 'code', right, top: CODE_BUTTON.top, size: CODE_BUTTON.size }); right += CODE_BUTTON.size + 8; }
+  if (hasDetailsButton(node)) out.push({ action: 'details', right, top: CODE_BUTTON.top, size: CODE_BUTTON.size });
+  return out;
+}
+export interface CardSize { width: number; height: number }
+/** The card's size when the user has not resized it. */
+export function defaultCardSize(node: AtlasNode): CardSize {
+  const pkg=node.kind==='PACKAGE', method=node.kind==='METHOD'||node.kind==='CONSTRUCTOR';
+  return { width: pkg?280:250, height: pkg?250:method?184:206 };
+}
+/** The smallest a user may resize a card to: room for the corner buttons and the name. */
+export const MIN_CARD_SIZE: CardSize = { width: 180, height: 130 };
 const NAME_SIZE = 30;
 /**
  * Escaped local SVG display data. Repository strings never become DOM or executable markup.
@@ -54,13 +81,18 @@ const NAME_SIZE = 30;
  * row (graphPlacement.ts), so the initial fit zoom scales inversely with card width and the name's
  * on-screen size scales with fontSize/width. Doubling the name font (15 -> 30) at the same width
  * doubles what the user actually sees; long names wrap onto a second line instead of widening the card.
+ *
+ * `size` is a user resize. Content keeps its top-anchored layout: a wider card fits more of each
+ * line, a taller one shows more member rows, and a shorter one drops lower lines that no longer
+ * fit. At the default size the output is unchanged.
  */
-export function nodeCard(node: AtlasNode) {
+export function nodeCard(node: AtlasNode, size?: CardSize) {
   const pkg=node.kind==='PACKAGE', method=node.kind==='METHOD'||node.kind==='CONSTRUCTOR';
-  const width=pkg?280:250,height=pkg?250:method?184:206;
+  const {width,height}=size||defaultCardSize(node);
   const ready=['CLASS','METHOD'].includes(node.kind) && node.explanationStatus==='READY';
-  // Top row: kind icon, subtitle, then (right-aligned) the sparkle and the quick-code button area.
-  const codeLeft=hasCodeButton(node)?width-CODE_BUTTON.right-CODE_BUTTON.size:width-12;
+  // Top row: kind icon, subtitle, then (right-aligned) the sparkle and the corner button area.
+  const corners=cornerButtons(node);
+  const codeLeft=corners.length?width-Math.max(...corners.map(c=>c.right+c.size)):width-12;
   const sparkleX=codeLeft-36;
   const sparkle=ready?`<defs><linearGradient id="sparkle" x1="0" y1="1" x2="1" y2="0"><stop stop-color="#9461ef"/><stop offset=".6" stop-color="#4b8af2"/><stop offset="1" stop-color="#80ddff"/></linearGradient></defs><g transform="translate(${sparkleX} 16) scale(1.2)"><circle cx="12" cy="12" r="14" fill="#9461ef" opacity=".07"/><circle cx="12" cy="12" r="11" fill="#4b8af2" opacity=".08"/><path fill="url(#sparkle)" d="M12 1C13.4 8.1 15.9 10.6 23 12C15.9 13.4 13.4 15.9 12 23C10.6 15.9 8.1 13.4 1 12C8.1 10.6 10.6 8.1 12 1Z"/></g>`:'';
   const name=pkg?node.simpleName.split('.').pop()!:node.simpleName;
@@ -71,9 +103,12 @@ export function nodeCard(node: AtlasNode) {
   const nameLines=wrapText(name,NAME_SIZE,inner,2);
   const nameY=nameLines.length===1?109:92;
   const nameSvg=`<text font-size="${NAME_SIZE}" font-weight="600" fill="#19334f">${nameLines.map((line,i)=>`<tspan x="16" y="${nameY+i*34}">${xml(line)}</tspan>`).join('')}</text>`;
-  const members=(node.memberNames||[]).slice(0,2);
-  const lower=pkg?`<text x="16" y="156" font-size="13" fill="#7c8ea3">${xml(fitText(node.qualifiedName||node.simpleName,13,inner))}</text>`+members.map((n,i)=>`<rect x="16" y="${170+i*36}" width="${inner}" height="28" rx="5" fill="#edf3f8"/><text x="26" y="${189+i*36}" font-size="14" fill="#4c647f">${xml(fitText(n,14,inner-20))}</text>`).join(''):
-    `<line x1="16" y1="142" x2="${width-16}" y2="142" stroke="#e5edf3"/><text x="16" y="166" font-size="14" fill="#74859a">${xml(fitText(node.packageName?.split('.').slice(-2).join('.')||node.qualifiedName||'',14,inner))}</text>${!method?`<text x="16" y="190" font-size="15" fill="#48637c">${node.memberCount||0} methods</text>`:''}`;
+  // A text line fits while its baseline leaves room for descenders above the bottom border.
+  const fits=(baseline:number)=>baseline+8<=height;
+  const rows=[] as string[];
+  for(const n of node.memberNames||[]){const y=170+rows.length*36;if(y+28+8>height)break;rows.push(n);}
+  const lower=pkg?(fits(156)?`<text x="16" y="156" font-size="13" fill="#7c8ea3">${xml(fitText(node.qualifiedName||node.simpleName,13,inner))}</text>`:'')+rows.map((n,i)=>`<rect x="16" y="${170+i*36}" width="${inner}" height="28" rx="5" fill="#edf3f8"/><text x="26" y="${189+i*36}" font-size="14" fill="#4c647f">${xml(fitText(n,14,inner-20))}</text>`).join(''):
+    (fits(142)?`<line x1="16" y1="142" x2="${width-16}" y2="142" stroke="#e5edf3"/>`:'')+(fits(166)?`<text x="16" y="166" font-size="14" fill="#74859a">${xml(fitText(node.packageName?.split('.').slice(-2).join('.')||node.qualifiedName||'',14,inner))}</text>`:'')+(!method&&fits(190)?`<text x="16" y="190" font-size="15" fill="#48637c">${node.memberCount||0} methods</text>`:'');
   const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><g font-family="Segoe UI, Arial, sans-serif"><g transform="translate(16 16) scale(1.2)"><rect width="30" height="30" rx="7" fill="${color}14"/><g stroke="${color}" stroke-width="1.5" fill="none"><path d="M8 7l7-4 7 4v9l-7 4-7-4zM8 7l7 4 7-4M15 11v9"/></g></g><text x="62" y="40" font-size="15" fill="#6c8097">${xml(fitText(subtitle,15,(ready?sparkleX:codeLeft)-62-8))}</text>${nameSvg}${lower}${sparkle}</g></svg>`;
   return { image: 'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg), width,height };
 }

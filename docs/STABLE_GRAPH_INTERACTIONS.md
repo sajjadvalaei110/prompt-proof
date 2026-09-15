@@ -50,13 +50,17 @@ Selection dimming does not make a relationship filtered out.
 | Change a relationship filter | Update displayed edges | Preserved | Preserved |
 | Fit map, zoom, pan, minimap navigation | Navigate the existing arrangement | Preserved | Changes intentionally |
 | Expand tree, inspect source, close inspector, receive explanation updates, resize panes | Update the relevant UI | Preserved | Preserved |
+| Details (⊞) on a package or class card | Expand the card in place into a box of its in-scope types or its methods; routes resolve to the deepest visible card | Cards right of / below the card shift by the box's growth (cascading through enclosing boxes), clamped against any sibling that did not itself shift on that axis so it is never crossed; others preserved | Preserved |
+| Collapse (⊟) an expanded card | Return to a card at the box's top-left corner, closing nested expansions | Cards right of / below the box shift back by the shrink, with the same clamp as expand (review remediation F-01: an earlier per-card rule could pull a shifted sibling across one that stayed put) | Preserved |
+| Resize a card or expanded box (corner grip) | Change its size; a card keeps its top-left corner. Escape or a cancelled gesture reverts to the pre-drag size, dispatching nothing | On release, cards right of / below it shift by the size change, clamped the same way as expand/collapse | Preserved |
 
 Initial placement in a new snapshot or a never-visited abstraction level creates
 coordinates where none exist; it is not permission to rearrange existing resources.
 Preserve each visited level's page, coordinates, and viewport within the active
 snapshot, including when leaving and returning to the map tab. A different snapshot
 initializes its own view. Cross-restart persistence remains outside this slice.
-Manual dragging remains a direct move of the dragged resource only; it must not
+Expansions and card sizes are kept per level like positions, and leave with their card on a scope
+removal. Manual dragging remains a direct move of the dragged resource only; it must not
 start an automatic layout.
 
 ## Story 1 — Inspect without losing my place

@@ -1,7 +1,115 @@
 # Project status
 Last updated: 2026-09-14
 Active milestone: R6 — Developer comprehension redesign (in progress)
-Current revision: Map usability, quick code, and relationship coverage + review remediation (user-requested; Step 6A unstarted)
+Current revision: In-place card details (expand packages/classes) and resizable cards (user-requested; Step 6A unstarted)
+
+## In-place card details and resizable cards — complete (uncommitted)
+
+User request (2026-09-14): a details button on package cards that shows their classes with every
+relationship those classes have to other packages, the same on class cards for methods, and resizing for
+every card. The user chose "expand inside the card" over a replacement or a separate view, with several
+cards expandable at once.
+
+- **Details** (`nodeCard.ts` `cornerButtons`, `GraphCanvas`): package and type cards with expandable children get a
+  ⊞ corner button (left of `</>` on classes; hit-tested like quick code). It expands the card in place into
+  a Cytoscape compound box of its children — a package's in-scope types, a type's methods/constructors —
+  laid out from the card's top-left corner; ⊟ in the box's corner collapses it. Expansions nest (a class
+  inside an expanded package expands into methods) and any number can be open. A route drawn across a box's collapse square does not take that tap.
+- **Relationships** (`graphModel.projectDisplayed`): an endpoint resolves to its owner at the page's level,
+  then down to the deepest visible card on its own ancestor chain inside expanded boxes. So a method inside
+  an expanded class routes to the collapsed class or package it uses; routes between a card and its own
+  container, and non-method self routes, are dropped. With no expansions the output (edge IDs included)
+  is identical to before.
+- **Resizing** (`GraphCanvas` grip, `nodeCard(node, size)`): every card and expanded box has a bottom-right
+  grip. Cards reflow (wider lines, more member rows, lower lines dropped when short) and keep their
+  top-left corner; boxes get a padding-free Cytoscape min-width/min-height growing right and down.
+- **Make room** (`expansionLayout.roomShifts`, `App.makeRoom`): expand, collapse and a finished resize
+  shift cards right of the old right edge by the width change and below the old bottom edge by the height
+  change, cascading through enclosing boxes. A shifted card is also clamped against any sibling that did
+  not shift on that axis but overlaps it on the other, so a collapse can never pull a moving card back
+  across one that stayed put (review remediation F-01: the original per-card rule computed each card's
+  shift independently and could not see that clash). This is a new geometry writer alongside drag and
+  arrange; ordinary inspection/scope/filter/level actions still never move cards.
+- **State** (`explorerViewState.ts`): per-level `expansions` (owner, child positions, box minimum) and
+  `sizes`, kept across inspection and level switches, dropped with their card on scope removal; new
+  `EXPAND_RESOURCE`, `COLLAPSE_RESOURCE`, `RESIZE_RESOURCE`, `RESIZE_CONTAINER` carry make-room moves
+  atomically; `NODE_MOVED` takes a `containerId`; arrangement moves an expanded card as one box; new
+  `NODES_MOVED` applies several cards' drag positions in one dispatch (review remediation F-05).
+- **Reconciliation** (`GraphCanvas`): a card whose container changed is removed and re-added (Cytoscape's
+  `move()` in a batch ignored the new position); all removals stay ahead of adds because Cytoscape removes
+  by swap-with-last — adding first reordered survivors and failed 2 stable-graph acceptance checks.
+
+Verification (exact commands, outcomes):
+- `npx tsc -b --force` (frontend) — exit 0.
+- `node scripts/test-explorer-view-state.mjs` (53, +2), `test-graph-model.mjs` (+expansion projection),
+  `test-expansion-layout.mjs` (new), `test-node-card.mjs` (+resize/corner), `test-focused-arrangement.mjs`,
+  `test-graph-placement.mjs` — all PASS.
+- `node docs/evidence/card-expansion/browser-check.mjs <copy of microservice-java>` against an isolated
+  backend, vite and headless Chromium — 29/29 (expand, two at once, nested, method routes, no overlaps
+  after expand/nested/resize/collapse, grip resize of card and box, level round trip, container drag,
+  collapse, class level, inspection inside a box, arrange around a box, no console errors). Screenshots
+  inspected; four kept in `docs/evidence/card-expansion/`. After review: the route-tap rule was narrowed to
+  an expanded box's collapse square (a route over an ordinary card corner inspects the route, as at HEAD —
+  on the 75-class fixture Cytoscape never picks an edge inside a card corner, so that case could not be
+  clicked), and the ⊞ button now follows a `detailCount` of expandable children (a class holding only
+  nested types has none); re-run 29/29, pure suites PASS.
+- Stable-graph acceptance (`verify_stable_graph_pipeline.py acceptance` pointed at a copy of the jar with
+  this frontend, so the running jar was not overwritten): HEAD baseline PASS; first build FAIL 3 (survivor
+  order, fixed above); final build FAIL 1 once (`inspect-edge-survives-filter-change` — the click
+  inspected an adjacent DEPENDS_ON edge rather than the CALLS candidate, the known candidate-click
+  flakiness), then PASS 34/34 twice; after the review fixes, PASS 34/34 again on the final frontend.
+- Scope removal of a child inside an expanded card (found while a Codex review was probing; that review
+  never completed — two runs killed for memory, the third hit the Codex usage limit): the child kept its
+  stored slot, nested expansion and size, so on re-entry it could overlap a class added meanwhile.
+  `SCOPE_UPDATED` now carries each expanded card's in-scope children and `pruneExpansions` drops the rest
+  on every level. `test-explorer-view-state.mjs` 54 PASS, `tsc` exit 0.
+- **Multi-agent review remediation (2026-09-15)**, executed against the review at
+  `/home/sajjad/prompts/in-place-card-details-review.md` (12 findings: 3 P1, 6 P2, 3 P3). Every finding was
+  re-verified against the real code before acting; the per-finding ledger (verdict, evidence, change,
+  check) is `docs/evidence/card-expansion/remediation-plan.md`. 10 fixed (one, F-01, needed a second fix
+  after the first cut broke the ordinary expand flow — see the ledger), 1 fixed narrower than claimed (F-02:
+  the reported "box stretches" mechanism was wrong; the real defect was a stale stored anchor read only by
+  late-child placement and make-room's own cascade), 1 not a defect (F-03: the review's own scenario
+  requires a pre-existing overlap that the product does not allow to arise).
+  - `roomShift` (single-card, independent per-axis threshold) replaced by `roomShifts` (batch, pairwise-
+    clamped): a shifted sibling can no longer be pulled across a row/column-mate that did not shift on that
+    axis (F-01), with a directional guard so an unrelated stationary sibling on the *far* side of a moving
+    one is never mistaken for a wall in its path (found while wiring the first cut into `App.tsx`, which
+    otherwise collapsed several genuinely-moving packages onto the same spot on an ordinary expand).
+  - `GraphCanvas`'s drag reporting now includes an expanded card's own new anchor and every expanded
+    descendant, not just its leaf ones, so a dragged container's nested expanded cards no longer go stale
+    (F-02); a container drag or multi-card group drag now reports every moved card in one batched
+    `NODES_MOVED` dispatch instead of one `NODE_MOVED` per card (F-05, fixed together with F-02 since both
+    touch the same reporting path).
+  - `detailCount` for a package now matches `childrenOf` exactly (nested types included, F-08) and respects
+    scope when the caller has one to give (F-09), via one owner-package index built per projection instead
+    of a per-card scan; `makeRoom` builds one container→children index per cascade instead of re-scanning
+    per sibling per level (F-10) and stops the cascade once a container's own box stops changing (F-11).
+  - The resize grip is a real, keyboard-focusable `<button>` (Arrow keys resize in 10px/40px steps, F-06);
+    a resize cancels cleanly on `pointercancel` or `Escape` (reverting to the pre-drag state, no partial
+    commit) and reads zoom live instead of once at pointerdown (F-07); the minimap's `setMini` now skips
+    the state update when nothing actually changed, matching the overlay arrays' existing guard (F-04).
+  - `node scripts/test-expansion-layout.mjs` (+2 assertion blocks), `test-graph-model.mjs` (+2),
+    `test-explorer-view-state.mjs` (55, +1) — all PASS; `npx tsc -b --force` exit 0. Browser check (new F-01/F-02/F-07
+    scenarios added, one check reordered) — first run, with the new scenarios already in place but before
+    the fix: every pre-existing "no cards overlap ..." check FAILED (expand, two-at-once, nested,
+    resize-card, resize-container, collapse, class-level — 9 distinct FAILs before the run crashed on an
+    unrelated bug in the new F-01 setup, itself fixed separately), on the ordinary product flow with none
+    of my new scenarios involved yet — confirming the bug reproduces outside the numeric repro; **35/35
+    PASS** after the fix, repeated on three separate fixture copies. Stable-graph acceptance re-run once
+    more on the final frontend (fresh jar copy, `build/libs/code-atlas-0.1.0-SNAPSHOT.jar` untouched):
+    **PASS 34/34**.
+- Not run: `./gradlew test` (no backend change), `verify_hierarchical_pipeline.py`.
+
+Remaining limits:
+- A box cannot be resized smaller than its children; live resize overlaps neighbors until release.
+- Make room can leave gaps (e.g. cards in rows above a grown card also shift right); Arrange tidies.
+- Expanding a large package shows all its in-scope types unbounded (no Show more inside a box).
+- Box geometry is modeled without card border widths, so a collapse can land 2–4 model px off the box corner.
+- `placeMissingChildren`'s "already placed" reference for an expanded sibling uses that sibling's collapsed
+  card size, not its real (larger) box, so a genuinely late child of a container that also holds an
+  expanded sibling can still land closer to that sibling's real box than intended (found while verifying
+  F-02; pre-existing, not part of that review; see `docs/evidence/card-expansion/remediation-plan.md`).
 
 ## Review remediation — map usability and relationship coverage — complete
 
