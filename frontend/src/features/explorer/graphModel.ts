@@ -133,12 +133,42 @@ const worseResolution = (a: string, b: string) => ((RESOLUTION_RANK[b] ?? 2) > (
 /**
  * Aggregate explanation rank for a merged line: the highest-ranked status among its occurrences
  * wins. READY outranks everything (see aggregateEdges). Below it the *least settled* status wins,
- * so a FAILED or STALE occurrence stays visible on the line instead of being masked by an
+ * so a FAILED, RUNNING or STALE occurrence stays visible on the line instead of being masked by an
  * unrequested sibling -- per AGENTS.md, failed and partial analysis must stay visible.
+ *
+ * Canonical order: READY > FAILED > RUNNING > STALE > QUEUED = PENDING > NOT_REQUESTED.
+ *
+ * RUNNING sits above STALE because a run in flight is live, time-bounded work whose whole point is
+ * to replace the stale text -- reporting "stale" over an active generation tells the user to act on
+ * something the system is already doing.
+ *
+ * PENDING is unreachable on graph edges (GraphQueryService.java maps the queue's 'PENDING' to
+ * 'QUEUED' and 'IN_PROGRESS' to 'RUNNING' before it reaches the wire), but it IS a member of the
+ * canonical `ExplanationStatus` union in types/index.ts and does reach the inspector from the
+ * per-subject explanation endpoint. It is ranked with QUEUED -- the status it is mapped to -- rather
+ * than left to fall through to 0, which is exactly the silent-rank-0 bug this table had for RUNNING.
+ *
+ * Every member of `ExplanationStatus` must have an entry here; scripts/test-graph-model.mjs asserts
+ * that, so a status added to the union later cannot silently rank 0 and be masked.
  */
-const EXPLANATION_RANK: Record<string, number> = { READY: 4, FAILED: 3, STALE: 2, QUEUED: 1, NOT_REQUESTED: 0 };
+export const EXPLANATION_RANK: Record<string, number> = { READY: 5, FAILED: 4, RUNNING: 3, STALE: 2, QUEUED: 1, PENDING: 1, NOT_REQUESTED: 0 };
+/** Rank of a status, with the same unknown-status fallback the aggregation uses. */
+export const explanationRank = (status?: string) => EXPLANATION_RANK[status ?? ''] ?? 0;
 const dominantExplanationStatus = (a?: string, b?: string) =>
-  (EXPLANATION_RANK[b ?? ''] ?? 0) > (EXPLANATION_RANK[a ?? ''] ?? 0) ? b : a;
+  explanationRank(b) > explanationRank(a) ? b : a;
+
+/**
+ * Index of the occurrence whose explanation status should be shown first for a merged line: the
+ * highest-ranked one by EXPLANATION_RANK, ties resolving to the earliest occurrence. Shared with the
+ * inspector so the panel opens on the same status the line's badge already promises -- opening on
+ * index 0 regardless would hide a FAILED occurrence behind an unrequested sibling.
+ */
+export function dominantOccurrenceIndex(edge: AtlasEdge | null | undefined, graph: AtlasGraph): number {
+  const ids = edge?.occurrenceIds;
+  if (!ids?.length) return 0;
+  const rankOf = (id: string) => explanationRank(graph.edges.find(e => e.id === id)?.explanationStatus);
+  return ids.reduce((best, id, index) => (rankOf(id) > rankOf(ids[best]) ? index : best), 0);
+}
 
 /** Line width for an aggregate carrying `count` occurrences: log-scaled so one call site stays readable and hundreds stay bounded. */
 export const strengthWidth = (count: number) => Math.min(10, 1.2 + 1.5 * Math.log2(Math.max(1, count)));
@@ -163,8 +193,8 @@ export function kindSummary(edge: AtlasEdge, limit = Infinity) {
  * least certain one present, and `explanationStatus` is READY when any occurrence has a ready
  * explanation (explanations are requested per occurrence, and a CALLS line almost always also carries
  * the derived DEPENDS_ON, so "every occurrence READY" would make the badge unreachable); when no
- * occurrence is READY the least settled status present wins (FAILED > STALE > QUEUED >
- * NOT_REQUESTED, see dominantExplanationStatus) so a failure is never masked by an unrequested
+ * occurrence is READY the least settled status present wins (FAILED > RUNNING > STALE > QUEUED =
+ * PENDING > NOT_REQUESTED, see dominantExplanationStatus) so a failure is never masked by an unrequested
  * sibling. The ID keys on endpoints only, so a filter change that removes some kinds keeps the same
  * ID (thinner line) and one that removes all kinds removes the route.
  *

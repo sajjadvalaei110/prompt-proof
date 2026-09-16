@@ -1,6 +1,9 @@
 # Stable graph interactions — R6 product proposal
 
-Date: 2026-09-10. Status: design and acceptance stories; not implemented.
+Date: 2026-09-10. Status: **implemented** (Steps 1-5 plus the change-edges slice). The
+interaction contract below is the specification the shipped behaviour is verified against by
+`scripts/verify_stable_graph_pipeline.py acceptance`; a row the code contradicts is a defect in
+the code, not stale prose.
 
 The map is a working surface. Developers should be able to trace a dependency,
 inspect evidence, and grow their scope without losing the locations they have

@@ -80,6 +80,11 @@ export interface HistoryEntry {
    * level being left. Non-null entries behave exactly as before. */
   subjectId: string | null;
   kind: InspectedKind | null;
+  /** Which occurrence of an aggregate route was chosen when this entry was pushed, so Back restores
+   * the exact occurrence the user was reading rather than silently resetting to the first one. Held
+   * by occurrence ID, never an index: a filter change keeps a route's ID while shrinking its
+   * occurrenceIds, so an index would point at a different occurrence (or past the end). */
+  occurrenceId: string | null;
   level: Level;
   /** That level's `geometryRevision` at the moment this entry was pushed (Appendix F3). Back never
    * restores geometry from this number -- positions/camera always come from the level's current
@@ -93,6 +98,10 @@ export interface ExplorerViewState {
   activeLevel: Level;
   levelViews: Record<Level, LevelViewState>;
   inspectedSubjectId: string | null;
+  /** The occurrence explicitly chosen inside an inspected aggregate route, or null for "no explicit
+   * choice" -- in which case the inspector opens on the highest-ranked status itself. Lifted out of
+   * InspectorPanel's local state so Back can restore it (it is navigation state, not view state). */
+  inspectedOccurrenceId: string | null;
   inspectedKind: InspectedKind | null;
   /** The level `inspectedSubjectId` was actually inspected under (Step 5 review remediation A1).
    * Non-null exactly when `inspectedSubjectId` is non-null. `activeLevel` keeps changing under an
@@ -115,6 +124,7 @@ export type ExplorerAction =
   | { type: 'INSPECT_NODE'; id: string }
   | { type: 'INSPECT_EDGE'; id: string }
   | { type: 'CLEAR_INSPECTION' }
+  | { type: 'SELECT_OCCURRENCE'; occurrenceId: string | null }
   /** Explicit level navigation (segmented control, View methods/classes, Explore). Admits a bounded batch of anything newly eligible since this level was last visited. `placement` supplies actual dimensions for every ID in `eligibleIds` (survivors included) so newly admitted cards can be placed below the current bounding box; omit it only from tests that do not exercise geometry. */
   | { type: 'NAVIGATE_LEVEL'; level: Level; eligibleIds: string[]; batchSize: number; placement?: Record<string, PlacementDims> }
   /** A scope edit (checkbox, reset, remove-from-scope) applied to the active level. `explicitClassAddId` marks a direct single-class checkbox add, which appends exactly that class rather than a ranked batch. `otherLevels` carries the fresh eligible-ID set for the levels NOT currently active (Appendix F3): a scope edit changes eligibility for every level at once, not just the one on screen, so an inactive level's cached membership must drop now-ineligible survivors immediately rather than waiting for its next visit -- otherwise a later reconciliation cannot distinguish "still eligible, never left" from "removed then re-added" (Step 4 point 8). Omitting it (e.g. existing pure tests) simply skips that bookkeeping; membership for the active level is unaffected either way. */
@@ -168,6 +178,7 @@ export function initExplorerViewState(level: Level = 'PACKAGE'): ExplorerViewSta
     activeLevel: level,
     levelViews: { PACKAGE: emptyLevelView(), CLASS: emptyLevelView(), METHOD: emptyLevelView() },
     inspectedSubjectId: null,
+    inspectedOccurrenceId: null,
     inspectedKind: null,
     inspectedLevel: null,
     membershipRevision: 0,
@@ -389,12 +400,14 @@ function currentEntry(state: ExplorerViewState): HistoryEntry | null {
   // may already be a different level than the one this subject was inspected under (Step 5 review
   // remediation A1).
   const level = state.inspectedLevel!;
-  return { subjectId: state.inspectedSubjectId, kind: state.inspectedKind!, level, geometryRevision: state.levelViews[level].geometryRevision };
+  return { subjectId: state.inspectedSubjectId, kind: state.inspectedKind!, occurrenceId: state.inspectedOccurrenceId, level, geometryRevision: state.levelViews[level].geometryRevision };
 }
 
 function inspect(state: ExplorerViewState, id: string, kind: InspectedKind): ExplorerViewState {
   if (state.inspectedSubjectId === id && state.inspectedKind === kind) return state;
-  return { ...state, inspectedSubjectId: id, inspectedKind: kind, inspectedLevel: state.activeLevel, history: pushHistory(state, currentEntry(state)) };
+  // A new subject carries no occurrence choice; the inspector picks its own default. Cleared here
+  // rather than in the panel so the value pushed onto the history above is the outgoing subject's.
+  return { ...state, inspectedSubjectId: id, inspectedKind: kind, inspectedOccurrenceId: null, inspectedLevel: state.activeLevel, history: pushHistory(state, currentEntry(state)) };
 }
 
 /**
@@ -427,12 +440,17 @@ export function explorerViewReducer(state: ExplorerViewState, action: ExplorerAc
       return inspect(state, action.id, 'NODE');
     case 'INSPECT_EDGE':
       return inspect(state, action.id, 'EDGE');
+    case 'SELECT_OCCURRENCE':
+      // Choosing an occurrence is not navigation: it pushes no history entry and touches nothing
+      // else, so it can never reset level, scope or the displayed page.
+      if (state.inspectedOccurrenceId === action.occurrenceId) return state;
+      return { ...state, inspectedOccurrenceId: action.occurrenceId };
     case 'CLEAR_INSPECTION': {
       if (!state.inspectedSubjectId) return state;
       // Closing the inspector is a pane-visibility toggle, not a navigation: the closed subject
       // still belongs in the Back chain, so a later inspection of something else can still return
       // to it instead of skipping straight past it to whatever was inspected before that.
-      return { ...state, inspectedSubjectId: null, inspectedKind: null, inspectedLevel: null, history: pushHistory(state, currentEntry(state)) };
+      return { ...state, inspectedSubjectId: null, inspectedKind: null, inspectedOccurrenceId: null, inspectedLevel: null, history: pushHistory(state, currentEntry(state)) };
     }
     case 'NAVIGATE_LEVEL': {
       // Step 5 review remediation B1: a drill-down (View classes/View methods, or the segmented
@@ -443,7 +461,8 @@ export function explorerViewReducer(state: ExplorerViewState, action: ExplorerAc
       // not spam an entry).
       const leavingUninspected = !state.inspectedSubjectId && action.level !== state.activeLevel;
       const history = leavingUninspected
-        ? pushHistory(state, { subjectId: null, kind: null, level: state.activeLevel, geometryRevision: state.levelViews[state.activeLevel].geometryRevision })
+        // A level-only breadcrumb has no subject, so it has no occurrence to restore either.
+        ? pushHistory(state, { subjectId: null, kind: null, occurrenceId: null, level: state.activeLevel, geometryRevision: state.levelViews[state.activeLevel].geometryRevision })
         : state.history;
       const { next, added, changed } = reconcileLevelView(state.levelViews[action.level], action.eligibleIds, undefined, action.batchSize, action.placement);
       return {
@@ -500,6 +519,7 @@ export function explorerViewReducer(state: ExplorerViewState, action: ExplorerAc
         levelViews: { ...state.levelViews, [entry.level]: next },
         inspectedSubjectId: entry.subjectId,
         inspectedKind: entry.kind,
+        inspectedOccurrenceId: entry.occurrenceId,
         // Keep the inspectedLevel-is-non-null-iff-inspectedSubjectId-is-non-null invariant for a
         // restored level-only (B1) breadcrumb, whose subjectId is null.
         inspectedLevel: entry.subjectId !== null ? entry.level : null,

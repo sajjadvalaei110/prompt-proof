@@ -704,4 +704,57 @@ check('A child that leaves scope while its container stays takes its slot, neste
   assert.deepEqual(s.levelViews.PACKAGE.sizes, {});
 });
 
+// --- Selected occurrence survives Back (review finding: "Back drops selected occurrence") ---
+// The chosen occurrence is navigation state: it belongs in HistoryEntry, not in the panel's local
+// useState, or navigating away and back silently resets the user to the first occurrence.
+check('SELECT_OCCURRENCE records a choice without touching level, membership or history', () => {
+  let s = initExplorerViewState();
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: ['a', 'b'], batchSize: 12 });
+  s = explorerViewReducer(s, { type: 'INSPECT_EDGE', id: 'aggregate:["a","b"]' });
+  const before = { level: s.activeLevel, ids: s.levelViews.CLASS.displayedIds, history: s.history.length };
+  s = explorerViewReducer(s, { type: 'SELECT_OCCURRENCE', occurrenceId: 'occ3' });
+  assert.equal(s.inspectedOccurrenceId, 'occ3');
+  assert.equal(s.activeLevel, before.level, 'choosing an occurrence does not change level');
+  assert.deepEqual(s.levelViews.CLASS.displayedIds, before.ids, 'choosing an occurrence does not change membership');
+  assert.equal(s.history.length, before.history, 'choosing an occurrence pushes no history entry');
+  assert.equal(explorerViewReducer(s, { type: 'SELECT_OCCURRENCE', occurrenceId: 'occ3' }), s, 're-choosing the same occurrence is a no-op');
+});
+
+check('NAVIGATE_BACK restores the occurrence chosen on the edge being returned to', () => {
+  let s = initExplorerViewState();
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: ['a', 'b'], batchSize: 12 });
+  s = explorerViewReducer(s, { type: 'INSPECT_EDGE', id: 'aggregate:["a","b"]' });
+  s = explorerViewReducer(s, { type: 'SELECT_OCCURRENCE', occurrenceId: 'occ3' });
+  // Inspect something else, then come back.
+  s = explorerViewReducer(s, { type: 'INSPECT_NODE', id: 'b' });
+  assert.equal(s.inspectedOccurrenceId, null, 'a new subject starts with no occurrence choice');
+  s = explorerViewReducer(s, { type: 'NAVIGATE_BACK', eligibleIds: ['a', 'b'] });
+  assert.equal(s.inspectedSubjectId, 'aggregate:["a","b"]');
+  assert.equal(s.inspectedOccurrenceId, 'occ3', 'Back restores the occurrence the user was reading, not index 0');
+});
+
+check('a fresh inspection of a different edge clears the previous occurrence choice', () => {
+  let s = initExplorerViewState();
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: ['a', 'b'], batchSize: 12 });
+  s = explorerViewReducer(s, { type: 'INSPECT_EDGE', id: 'e1' });
+  s = explorerViewReducer(s, { type: 'SELECT_OCCURRENCE', occurrenceId: 'occ9' });
+  s = explorerViewReducer(s, { type: 'INSPECT_EDGE', id: 'e2' });
+  assert.equal(s.inspectedOccurrenceId, null, 'the choice does not leak onto a different route');
+  s = explorerViewReducer(s, { type: 'NAVIGATE_BACK', eligibleIds: ['a', 'b'] });
+  assert.equal(s.inspectedSubjectId, 'e1');
+  assert.equal(s.inspectedOccurrenceId, 'occ9', 'and the earlier route keeps its own choice on the way back');
+});
+
+check('CLEAR_INSPECTION drops the occurrence choice but Back still restores it with its subject', () => {
+  let s = initExplorerViewState();
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: ['a', 'b'], batchSize: 12 });
+  s = explorerViewReducer(s, { type: 'INSPECT_EDGE', id: 'e1' });
+  s = explorerViewReducer(s, { type: 'SELECT_OCCURRENCE', occurrenceId: 'occ2' });
+  s = explorerViewReducer(s, { type: 'CLEAR_INSPECTION' });
+  assert.equal(s.inspectedOccurrenceId, null, 'closing the inspector leaves no dangling choice');
+  s = explorerViewReducer(s, { type: 'NAVIGATE_BACK', eligibleIds: ['a', 'b'] });
+  assert.equal(s.inspectedSubjectId, 'e1');
+  assert.equal(s.inspectedOccurrenceId, 'occ2', 'the closed subject returns with the occurrence it had');
+});
+
 console.log(`PASS: ${passCount} explorerViewState reducer checks (inspection/membership separation, append-only scope growth, show more, back navigation, reset, Step 3 geometry/camera, Step 4 inactive-level scope reconciliation and Back precedence, Step 5 focused arrangement, Step 5 review remediation A1/B1)`);

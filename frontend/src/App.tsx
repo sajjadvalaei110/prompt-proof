@@ -34,19 +34,43 @@ export default function App() {
   // the resize handle we pin an explicit --nav-width and remember it across sessions.
   const navRef=useRef<HTMLElement>(null);
   const [navWidth,setNavWidth]=useState<number|null>(()=>{try{const v=localStorage.getItem('navWidth');return v?Number(v):null;}catch{return null;}});
+  // The single clamp both the pointer and the keyboard path resize through, so the two can never
+  // disagree about the panel's bounds (and both stay in step with .navigation's CSS min/max-width).
+  const NAV_MIN=180,navMax=()=>window.innerWidth*0.7;
+  const clampNavWidth=(w:number)=>Math.round(Math.min(navMax(),Math.max(NAV_MIN,w)));
+  // Where a resize starts from. `navWidth` is null until the user first resizes (the CSS default is
+  // responsive), so the rendered width is the only truthful starting point -- both paths must use it,
+  // or the first arrow key press would jump the panel to a hardcoded 238.
+  const currentNavWidth=()=>navRef.current?.getBoundingClientRect().width||navWidth||238;
+  const persistNavWidth=()=>setNavWidth(w=>{try{if(w!=null)localStorage.setItem('navWidth',String(w));}catch{}return w;});
+  const resetNavWidth=()=>{setNavWidth(null);try{localStorage.removeItem('navWidth');}catch{}};
   function startNavResize(e:React.PointerEvent<HTMLDivElement>){
     e.preventDefault();
-    const handle=e.currentTarget,startX=e.clientX,startWidth=navRef.current?.getBoundingClientRect().width||navWidth||238;
+    const handle=e.currentTarget,startX=e.clientX,startWidth=currentNavWidth();
     handle.setPointerCapture(e.pointerId);
-    const onMove=(ev:PointerEvent)=>setNavWidth(Math.round(Math.min(window.innerWidth*0.7,Math.max(180,startWidth+(ev.clientX-startX)))));
+    const onMove=(ev:PointerEvent)=>setNavWidth(clampNavWidth(startWidth+(ev.clientX-startX)));
     const onUp=()=>{
       handle.releasePointerCapture(e.pointerId);
       handle.removeEventListener('pointermove',onMove);
       handle.removeEventListener('pointerup',onUp);
-      setNavWidth(w=>{try{if(w!=null)localStorage.setItem('navWidth',String(w));}catch{}return w;});
+      persistNavWidth();
     };
     handle.addEventListener('pointermove',onMove);
     handle.addEventListener('pointerup',onUp);
+  }
+  // Keyboard operation of the separator (WCAG 2.1 SC 2.1.1): Arrow keys step, Shift+Arrow steps
+  // further, Home/Enter reset to the responsive default -- the same reset double-click performs.
+  // Every branch resizes through clampNavWidth and persists like the pointer path's pointerup does.
+  function navResizeKeyDown(e:React.KeyboardEvent<HTMLDivElement>){
+    const step=e.shiftKey?40:10;
+    if(e.key==='ArrowLeft'||e.key==='ArrowRight'){
+      e.preventDefault();
+      setNavWidth(clampNavWidth(currentNavWidth()+(e.key==='ArrowRight'?step:-step)));
+      persistNavWidth();
+    } else if(e.key==='Home'||e.key==='Enter'){
+      e.preventDefault();
+      resetNavWidth();
+    }
   }
   const name=workspace?.path?.split('/').filter(Boolean).pop()||'Your workspace';
   const levelOf=(n:AtlasNode):Level=>n.kind==='PACKAGE'?'PACKAGE':isType(n)?'CLASS':'METHOD';
@@ -115,11 +139,23 @@ export default function App() {
   // every filter/inspection change rather than unconditionally on every graph/level/displayedIds
   // change (which the explanation poller retriggers on each `graph` replacement, doubling
   // `decorate()` over every displayed node for no reason most of the time).
-  const allKindsEdges=useMemo(()=>{
-    if(!graph||viewState.inspectedKind!=='EDGE'||!viewState.inspectedSubjectId)return [] as AtlasEdge[];
-    if(projected.edges.some(e=>e.id===viewState.inspectedSubjectId))return [] as AtlasEdge[];
-    return projectDisplayed(graph,level,displayedIds,'ALL',expansionInput).edges;
-  },[graph,level,displayedIds,expansionInput,viewState.inspectedKind,viewState.inspectedSubjectId,projected.edges]);
+  const allKinds=useMemo(()=>{
+    const none={edges:[] as AtlasEdge[],viaUnexpanded:false};
+    if(!graph||viewState.inspectedKind!=='EDGE'||!viewState.inspectedSubjectId)return none;
+    if(projected.edges.some(e=>e.id===viewState.inspectedSubjectId))return none;
+    const unfiltered=projectDisplayed(graph,level,displayedIds,'ALL',expansionInput).edges;
+    if(unfiltered.some(e=>e.id===viewState.inspectedSubjectId))return {edges:unfiltered,viaUnexpanded:false};
+    // Expanding an endpoint container re-resolves its relationships onto the deeper cards, so the
+    // aggregate route between the two containers stops existing in every current-expansion
+    // projection. Without this last fallback `edge` became null and the inspector dropped to its
+    // idle screen mid-read, while inspectedSubjectId still pointed at the route -- collapsing the
+    // container made it silently reappear. The un-expanded projection still knows the relationship,
+    // so the panel keeps its content and says the line is not currently drawn (see
+    // edgeHiddenByExpansion). Only reached when an edge is inspected and neither projection above
+    // contains it, so the ordinary case still pays for at most one extra aggregation.
+    return {edges:projectDisplayed(graph,level,displayedIds,'ALL',{expansions:[],scope}).edges,viaUnexpanded:true};
+  },[graph,level,displayedIds,expansionInput,scope,viewState.inspectedKind,viewState.inspectedSubjectId,projected.edges]);
+  const allKindsEdges=allKinds.edges;
   // Unresolved relationships (target_symbol_id IS NULL) never reach projectDisplayed's edge
   // aggregation, since they have no target to aggregate onto — but the inspector's own "Inspect
   // relationship" button on an unresolved row dispatches INSPECT_EDGE with that record's raw ID, so
@@ -132,9 +168,14 @@ export default function App() {
       || allKindsEdges.find(e=>e.id===viewState.inspectedSubjectId)
       || (unresolvedEdge?{...unresolvedEdge,targetId:null,descriptiveLabel:unresolvedEdge.unresolvedTarget}:null)
     : null;
+  // The inspected route is real but not currently drawn because an endpoint container is expanded,
+  // so its relationships resolve onto the deeper cards instead. Checked against an all-kinds
+  // projection at the *current* expansions, so it cannot be confused with the filter case below.
+  const edgeHiddenByExpansion=!!edge&&!unresolvedEdge&&allKinds.viaUnexpanded;
   // True only when the inspected edge is real but the current relationship filter hides its
-  // drawing -- distinct from "unresolved" (never drawn regardless of filter, no notice needed).
-  const edgeFilteredOut=!!edge&&!unresolvedEdge&&!projected.edges.some(e=>e.id===edge.id);
+  // drawing -- distinct from "unresolved" (never drawn regardless of filter, no notice needed) and
+  // from the expansion case above, which has its own reason and must not be blamed on the filter.
+  const edgeFilteredOut=!!edge&&!unresolvedEdge&&!edgeHiddenByExpansion&&!projected.edges.some(e=>e.id===edge.id);
   const eligibleIds=useMemo(()=>graph?getEligibleIds(graph,level,scope):[],[graph,level,scope]);
   const scopedCount=eligibleIds.length,visibleCount=projected.nodes.length,omittedCount=Math.max(0,scopedCount-visibleCount);
   // A node can only actually be a rendered card when its own natural level (Package/Class/Method)
@@ -383,7 +424,7 @@ export default function App() {
         {recentHistory.length>0&&<div className="recent-symbols"><h3>Recently viewed</h3>{recentHistory.map(h=>{const n=graph.nodes.find(x=>x.id===h.subjectId);return n?<button key={h.subjectId} onClick={()=>select(n)}>◷ {n.simpleName}</button>:null;})}</div>}
         <div className="workspace-summary"><strong>{name}</strong><span>{typeCount} types across {packages.length} packages</span><button className="text-button" disabled={busy} onClick={()=>analyze()}>↻ Re-analyze source</button></div>
       </aside>
-      <div className="nav-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize navigation panel" onPointerDown={startNavResize} onDoubleClick={()=>{setNavWidth(null);try{localStorage.removeItem('navWidth');}catch{}}} />
+      <div className="nav-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize navigation panel. Use arrow keys, hold Shift for larger steps, Home to reset." tabIndex={0} aria-valuenow={Math.round(navWidth??currentNavWidth())} aria-valuemin={NAV_MIN} aria-valuemax={Math.round(navMax())} onPointerDown={startNavResize} onKeyDown={navResizeKeyDown} onDoubleClick={resetNavWidth} />
       <section className="workspace-content">
         {tab==='context'&&workspace?<ProjectDocuments key={workspace.id} workspaceId={workspace.id} onChanged={()=>setRevision(r=>r+1)}/>:tab==='routes'?<section className="entry-view"><div className="page-heading"><div><h1>Start with a request</h1><p>Follow an HTTP entry point into its handler and dependencies.</p></div></div>{routes.length?routes.map(r=>{const handler=graph.nodes.find(n=>n.id===r.symbol_version_id);return <button className="route-card" key={r.id} onClick={()=>{if(handler)(handler.kind==='PACKAGE'?viewClasses:viewMethods)(handler);}}><span className="tag">{r.http_method}</span><strong>{r.path}</strong><span>{handler?.simpleName||r.handler_qualified}</span><span>Explore ↗</span></button>;}):<div className="empty-state"><h2>No HTTP routes found</h2><p>Explore packages and classes to find this application's entry points.</p><button onClick={openCodeMap}>Open code map</button></div>}</section>:<>
           <div className="map-heading"><div className="breadcrumbs"><button onClick={openCodeMap}>{scopeCrumb}</button><span>/</span><span className="breadcrumb-level">{levelWord}</span>{node&&<><span>/</span><button onClick={()=>select(node)}>{node.simpleName}</button></>}</div><div className="page-heading"><div><h1>{node?node.simpleName:'Understand the whole system'}</h1><p>{node?'Follow the relationships around this part of the codebase.':`${typeCount} types across ${packages.length} packages. Choose a starting point.`}</p></div><button onClick={()=>{const entry=viewState.history[viewState.history.length-1];if(entry)dispatchView({type:'NAVIGATE_BACK',eligibleIds:eligibleFor(entry.level)});}} disabled={!viewState.history.length}>← Back</button></div>
@@ -396,7 +437,7 @@ export default function App() {
           <div className="graph-legend"><span><i className="line-sample"/>Static dependency</span><span><i className="line-sample uncertain"/>Candidate / unresolved</span>{(node||edge)&&<><span><i className="line-sample flow-in"/>Incoming</span><span><i className="line-sample flow-out"/>Outgoing</span><span><i className="line-sample flow-both"/>Both ways</span></>}<span className="legend-thickness">One line per direction · thicker means more occurrences</span></div>
         </>}
       </section>
-      {tab!=='context'&&<InspectorPanel selectedNode={node} selectedEdge={edge} mapStatus={mapStatus} edgeFilteredOut={edgeFilteredOut} workspaceId={workspace?.id||null} snapshotId={snapshot} graph={graph} routes={routes} revision={revision} onExplanationReady={()=>setRevision(r=>r+1)} onInspectEdge={inspectEdge} onSelect={select} onViewClasses={viewClasses} onViewMethods={viewMethods} onArrangeAroundResource={n=>arrangeAround(n.id)} onSource={(n,type='symbol')=>setSource({node:n,type})} onClose={()=>{dispatchView({type:'CLEAR_INSPECTION'});setMobilePane('map');}}/>}
+      {tab!=='context'&&<InspectorPanel selectedNode={node} selectedEdge={edge} mapStatus={mapStatus} edgeFilteredOut={edgeFilteredOut} edgeHiddenByExpansion={edgeHiddenByExpansion} selectedOccurrenceId={viewState.inspectedOccurrenceId} onSelectOccurrence={id=>dispatchView({type:'SELECT_OCCURRENCE',occurrenceId:id})} workspaceId={workspace?.id||null} snapshotId={snapshot} graph={graph} routes={routes} revision={revision} onExplanationReady={()=>setRevision(r=>r+1)} onInspectEdge={inspectEdge} onSelect={select} onViewClasses={viewClasses} onViewMethods={viewMethods} onArrangeAroundResource={n=>arrangeAround(n.id)} onSource={(n,type='symbol')=>setSource({node:n,type})} onClose={()=>{dispatchView({type:'CLEAR_INSPECTION'});setMobilePane('map');}}/>}
     </main></>}
     <footer className="app-footer">{graph?.metadata?.diagnostics?.warnings?.length>0&&<details className="analysis-warnings"><summary>{graph?.metadata?.diagnostics?.warnings.length} analysis warning(s)</summary><div>{graph?.metadata?.diagnostics?.warnings.map((w:string,i:number)=><p key={i}>{w}</p>)}</div></details>}<span><i className={`status-dot ${graph?'configured':''}`}/>{status}</span>{graph&&<span>{graph.metadata?.unresolvedCount||0} unresolved external targets</span>}<div className="queue-summary">{queue?.activeJobId&&queue.synthesisStatus!=='READY'&&<span className="synthesis-progress"><i aria-hidden="true"/>{queue.synthesisStage || 'Preparing architecture'} · {synthesisElapsed}s · {queue.synthesisCompleted || 0} validated</span>}{!queue?.activeJobId&&queue?.jobStatus==='CANCELLED'&&<span>Explain all cancelled</span>}{queue&&<span>{queue.completed} explained · {queue.pending+queue.inProgress} queued · {queue.failed} failed</span>}{snapshot&&<button className={queue?.activeJobId?'':'primary'} onClick={explainAll}>{queue?.activeJobId?'Stop explain all':'✧ Explain all'}</button>}</div></footer>
     <SettingsScreen isOpen={settings} onClose={()=>setSettings(false)}/>

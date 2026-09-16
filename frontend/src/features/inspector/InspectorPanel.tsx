@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import GeminiBadge from '../../components/GeminiBadge';
 import CodeButton, { CodeIcon } from '../../components/CodeButton';
 import { apiClient } from '../../api/client';
-import { AtlasNode, AtlasEdge, AtlasGraph, isType, sortedKindCounts, kindSummary } from '../explorer/graphModel';
+import { AtlasNode, AtlasEdge, AtlasGraph, isType, sortedKindCounts, kindSummary, dominantOccurrenceIndex } from '../explorer/graphModel';
 import type { SourceSubject } from '../source/SourceDialog';
 import { startSerialPolling } from '../../utils/serialPolling';
 /** `mapStatus` distinguishes an inspected subject that is outside the current scope from one that
@@ -11,29 +11,40 @@ import { startSerialPolling } from '../../utils/serialPolling';
 /** `edgeFilteredOut` is true when the inspected relationship is real but the current relationship
  * filter hides its drawing on the map (Step 4, Appendix F3) -- distinct from unresolved, which is
  * never drawn regardless of filter. */
-interface Props { selectedNode: AtlasNode | null; selectedEdge: AtlasEdge | null; mapStatus?: 'OUT_OF_SCOPE' | 'IN_SCOPE_NOT_DISPLAYED' | 'DISPLAYED' | null; edgeFilteredOut?: boolean; workspaceId: string | null; snapshotId: string | null; graph: AtlasGraph; routes: any[]; revision: number; onSelect: (node: AtlasNode) => void; onViewClasses: (node: AtlasNode) => void; onViewMethods: (node: AtlasNode) => void; onArrangeAroundResource: (node: AtlasNode) => void; onSource: (node: SourceSubject, type?:string) => void; onClose: () => void; onInspectEdge: (edge:AtlasEdge) => void; onExplanationReady: () => void }
+interface Props { selectedNode: AtlasNode | null; selectedEdge: AtlasEdge | null; mapStatus?: 'OUT_OF_SCOPE' | 'IN_SCOPE_NOT_DISPLAYED' | 'DISPLAYED' | null; edgeFilteredOut?: boolean; edgeHiddenByExpansion?: boolean; selectedOccurrenceId?: string | null; onSelectOccurrence?: (id: string | null) => void; workspaceId: string | null; snapshotId: string | null; graph: AtlasGraph; routes: any[]; revision: number; onSelect: (node: AtlasNode) => void; onViewClasses: (node: AtlasNode) => void; onViewMethods: (node: AtlasNode) => void; onArrangeAroundResource: (node: AtlasNode) => void; onSource: (node: SourceSubject, type?:string) => void; onClose: () => void; onInspectEdge: (edge:AtlasEdge) => void; onExplanationReady: () => void }
 /** "calls 1 of 3", "injects 1 of 1" -- occurrence options numbered within their own kind, aligned with occurrenceIds. */
 function occurrenceLabels(edge: AtlasEdge): string[] {
   const kinds = edge.occurrenceKinds || edge.occurrenceIds!.map(() => edge.kind), totals = new Map<string, number>(), seen = new Map<string, number>();
   kinds.forEach(k => totals.set(k, (totals.get(k) || 0) + 1));
   return kinds.map(k => { const n = (seen.get(k) || 0) + 1; seen.set(k, n); return `${k.toLowerCase().replaceAll('_', ' ')} ${n} of ${totals.get(k)}`; });
 }
-export default function InspectorPanel({selectedNode: node, selectedEdge: edge, mapStatus, edgeFilteredOut, workspaceId, snapshotId, graph, routes, revision, onSelect, onViewClasses, onViewMethods, onArrangeAroundResource, onSource, onClose, onInspectEdge, onExplanationReady}: Props) {
-  const [rawExplanation,setExplanation]=useState<any>(null), [loadedSubject,setLoadedSubject]=useState<string|null>(null), [evidence,setEvidence]=useState<any[]>([]), [error,setError]=useState(''), [requesting,setRequesting]=useState(false), [siteId,setSiteId]=useState<string|null>(null), [requestRevision,setRequestRevision]=useState(0);
+export default function InspectorPanel({selectedNode: node, selectedEdge: edge, mapStatus, edgeFilteredOut, edgeHiddenByExpansion, selectedOccurrenceId, onSelectOccurrence, workspaceId, snapshotId, graph, routes, revision, onSelect, onViewClasses, onViewMethods, onArrangeAroundResource, onSource, onClose, onInspectEdge, onExplanationReady}: Props) {
+  const [rawExplanation,setExplanation]=useState<any>(null), [loadedSubject,setLoadedSubject]=useState<string|null>(null), [evidence,setEvidence]=useState<any[]>([]), [error,setError]=useState(''), [requesting,setRequesting]=useState(false), [requestRevision,setRequestRevision]=useState(0);
   const requestedSubject=useRef<string|null>(null);
   const type=edge?'relationship':'symbol';
+  // The chosen occurrence lives in explorerViewState, not here: it is navigation state, so Back must
+  // restore it (a purely local useState reset to null on every edge change, losing the user's place).
+  const siteId=selectedOccurrenceId??null;
+  const setSiteId=(id:string|null)=>onSelectOccurrence?.(id);
   // The chosen occurrence is held by ID, not index: a relationship-filter change keeps a merged line's
   // ID while shrinking its occurrenceIds, so an index would silently point at a different occurrence
-  // (or past the end). Without a (surviving) choice, open on the first occurrence that already has a
-  // ready explanation -- the one the line's ✦ badge promises -- else the first occurrence.
-  const readyIndex=edge?.occurrenceIds?Math.max(0,edge.occurrenceIds.findIndex(id=>graph.edges.find(e=>e.id===id)?.explanationStatus==='READY')):0;
+  // (or past the end). Without a (surviving) choice, open on the occurrence whose explanation status
+  // the line's own badge already reports -- the highest-ranked one by the shared EXPLANATION_RANK
+  // (graphModel.dominantOccurrenceIndex, the same rank the aggregate line is drawn from), ties
+  // resolving to the first occurrence. Defaulting to index 0 instead would open a FAILED or RUNNING
+  // line on an unrequested sibling, hiding the failure notice -- AGENTS.md requires failed and
+  // partial analysis to stay visible.
+  const defaultIndex=dominantOccurrenceIndex(edge,graph);
   const chosenIndex=edge?.occurrenceIds&&siteId?edge.occurrenceIds.indexOf(siteId):-1;
-  const site=chosenIndex>=0?chosenIndex:readyIndex;
+  const site=chosenIndex>=0?chosenIndex:defaultIndex;
   const subject=edge?(edge.occurrenceIds?.[site] || edge.id):node?.id;
   const explanation=loadedSubject===subject?rawExplanation:null;
   const graphStatus=edge?graph.edges.find(e=>e.id===subject)?.explanationStatus:graph.nodes.find(n=>n.id===subject)?.explanationStatus;
   useEffect(()=>{setExplanation(null);setEvidence([]);setError('');},[snapshotId,subject]);
-  useEffect(()=>{setSiteId(null);setExplanation(null);setError('');setEvidence([]);},[node?.id,edge?.id]);
+  // Deliberately does NOT clear the chosen occurrence: the reducer already clears it when a genuinely
+  // new subject is inspected, and clearing it here would also fire on the edge.id change that
+  // NAVIGATE_BACK itself causes -- wiping the very occurrence Back had just restored.
+  useEffect(()=>{setExplanation(null);setError('');setEvidence([]);},[node?.id,edge?.id]);
   useEffect(()=>{
     if (!snapshotId || !subject || node?.kind==='PACKAGE') return;
     return startSerialPolling({
@@ -69,6 +80,7 @@ export default function InspectorPanel({selectedNode: node, selectedEdge: edge, 
     {node&&mapStatus==='OUT_OF_SCOPE'&&<p className="notice">Outside current scope.</p>}
     {node&&mapStatus==='IN_SCOPE_NOT_DISPLAYED'&&<p className="notice">In scope, not currently displayed.</p>}
     {edge&&edgeFilteredOut&&<p className="notice">Not shown with the current relationship filter.</p>}
+    {edge&&edgeHiddenByExpansion&&<p className="notice">Not drawn right now: an endpoint is expanded, so these relationships are shown on the cards inside it. Collapse it to see this line again.</p>}
     {node&&<button className="full-width arrange-action" disabled={mapStatus!=='DISPLAYED'} title={mapStatus!=='DISPLAYED'?'Resource is not in current map view':undefined} onClick={()=>onArrangeAroundResource(node)}><span aria-hidden="true">☵</span> Arrange around this resource</button>}
     {node?.roles?.length ? <div className="role-list">{node.roles.map(r=><span className="tag" key={r}>{r.toLowerCase().replaceAll('_',' ')}</span>)}</div>:null}
     {node?.kind==='PACKAGE'?<><section><h3>Inside this package <span className="count">{children.length}</span></h3><p>Explore the declarations that make up {node.simpleName}.</p><button className="primary full-width" onClick={()=>onViewClasses(node)}>View classes ↗</button>{children.map(n=><div className="symbol-row" key={n.id}><button className="related-row" onClick={()=>onSelect(n)}><span>◇ {n.simpleName}</span><span>{n.kind.toLowerCase()} ↗</span></button>{isType(n)&&codeButtonFor(n)}</div>)}</section></>:<>

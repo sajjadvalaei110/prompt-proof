@@ -127,7 +127,11 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
   const nodesKey=useMemo(()=>JSON.stringify(nodes.map(n=>n.id)),[nodes]);
   // One merged route carries several kinds, so the label is the kind breakdown (top 2, "+n" tail)
   // rather than a single kind plus a site count; the ✦ still marks a ready explanation.
-  const edgeLabel=(e:AtlasEdge)=>(e.explanationStatus==='READY'?'✦ ':'')+kindSummary(e,2);
+  // One kind plus a "+n" tail, not two: a two-kind label ("calls ×4 · depends on", ~124px) is
+  // wider than the gap between adjacent cards (~96px), and cards are opaque and drawn above
+  // edges, so the label was overdrawn at both ends -- the text read "alls ×4 · depends o".
+  // The full breakdown is one hover away and listed in full in the inspector.
+  const edgeLabel=(e:AtlasEdge)=>(e.explanationStatus==='READY'?'✦ ':'')+kindSummary(e,1);
   const childCounts=useMemo(()=>{const m=new Map<string,number>();for(const n of nodes)if(n.containerId)m.set(n.containerId,(m.get(n.containerId)||0)+1);return m;},[nodes]);
   // `parent` is left out on purpose: Cytoscape sets a node's parent only on add or move(), never through data().
   const nodeStyleData=(n:AtlasNode)=>{
@@ -154,7 +158,7 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
         { selector: 'node[?expanded]', style: { 'background-image': 'none', 'background-color': '#f5f8fc', 'border-width': 2, 'border-style': 'dashed', label: 'data(containerLabel)', 'text-valign': 'top', 'text-halign': 'center', 'text-margin-y': CONTAINER_PADDING - 10, 'font-size': 18, 'font-weight': 600, color: '#19334f', 'text-max-width': '2000px', 'text-wrap': 'none', padding: `${CONTAINER_PADDING}px`, 'compound-sizing-wrt-labels': 'exclude', 'min-width': 'data(minW)', 'min-height': 'data(minH)', 'min-width-bias-left': '0%', 'min-width-bias-right': '100%', 'min-height-bias-top': '0%', 'min-height-bias-bottom': '100%' } as any },
         { selector: 'node.inspected', style: { 'background-color': '#e0f4f3', 'border-color': '#07888c', 'border-width': 2.5 } },
         { selector: 'node.neighbor', style: { 'border-color': '#07888c', 'border-width': 2.5 } },
-        { selector: 'edge', style: { width: 'data(strengthWidth)', 'line-color': '#a0aebd', 'target-arrow-color': '#8395a9', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', label: 'data(label)', 'font-size': 11, color: '#5b6d83', 'text-opacity': .85, 'text-background-color': '#f7f9fc', 'text-background-opacity': 1, 'text-background-padding': '3px', 'text-rotation': 'autorotate', 'text-margin-y': -11, 'arrow-scale': .8 } },
+        { selector: 'edge', style: { width: 'data(strengthWidth)', 'line-color': '#a0aebd', 'target-arrow-color': '#8395a9', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', label: 'data(label)', 'font-size': 11, color: '#5b6d83', 'text-opacity': .85, 'text-background-color': '#f7f9fc', 'text-background-opacity': 1, 'text-background-padding': '3px', 'text-rotation': 'autorotate', 'text-margin-y': -11, 'arrow-scale': .8, 'text-max-width': '88px', 'text-wrap': 'ellipsis' } },
         { selector: 'edge[resolution != "RESOLVED"]', style: { 'line-color': '#ba862d', 'target-arrow-color': '#ba862d', 'line-style': 'dashed' } },
         { selector: 'edge[explanationStatus = "READY"]', style: { color: '#7955b7', 'text-background-color': '#f3eeff', 'text-opacity': 1 } },
         // Strength lives in data(strengthWidth); emphasis below changes color/glow only, never a fixed
@@ -711,7 +715,11 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
       const hot=hotCorner===`${b.id}:${b.action}`?' hot':'',style={left:b.left,top:b.top,width:b.size,height:b.size,fontSize:Math.max(10,b.size*.5)};
       if(b.action==='code')return <CodeButton key={`${b.id}:code`} name={n.simpleName} kind={n.kind} className={`map-code-button${hot}`} style={style} onClick={()=>{setContextMenu(null);onViewCode(n);}}/>;
       const collapse=b.action==='collapse',what=n.kind==='PACKAGE'?'types':'methods';
-      return <button key={`${b.id}:${b.action}`} type="button" className={`code-button map-code-button map-details-button${hot}`} style={style} aria-expanded={collapse} aria-label={collapse?`Collapse ${n.simpleName}`:`Show ${what} inside ${n.simpleName}`} title={collapse?'Collapse':`Show ${what} and their relationships`} onClick={event=>{event.stopPropagation();setContextMenu(null);onToggleExpand(n);}}><DetailsIcon expanded={collapse}/></button>;
+      // Stable key across the details<->collapse flip (WCAG 2.1 SC 2.4.3): `b.action` changes when the
+      // card expands, so keying on it unmounted the very button the user just pressed and focus fell
+      // back to document.body, losing their place. It is the same control either way -- only its label
+      // and icon change -- so React must reconcile it in place and keep focus on it.
+      return <button key={`${b.id}:details-toggle`} type="button" className={`code-button map-code-button map-details-button${hot}`} style={style} aria-expanded={collapse} aria-label={collapse?`Collapse ${n.simpleName}`:`Show ${what} inside ${n.simpleName}`} title={collapse?'Collapse':`Show ${what} and their relationships`} onClick={event=>{event.stopPropagation();setContextMenu(null);onToggleExpand(n);}}><DetailsIcon expanded={collapse}/></button>;
     })}
     {resizeGrips.map(g=>{const n=nodes.find(item=>item.id===g.id);return n?<button key={g.id} type="button" className="map-resize-grip" title={`Resize ${n.simpleName}`} aria-label={`Resize ${n.simpleName}. Use arrow keys, hold Shift for larger steps.`} style={{left:g.left,top:g.top,width:g.size,height:g.size}} onPointerDown={e=>startResize(e,g.id)} onKeyDown={e=>gripKeyDown(e,g.id)}/>:null;})}
     {!nodes.length && <div className="canvas-empty">No symbols in this view. Choose another level or clear the filter.</div>}

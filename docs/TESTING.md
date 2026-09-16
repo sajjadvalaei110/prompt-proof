@@ -42,7 +42,7 @@ Code Atlas separates deterministic code facts from AI explanations. The testing 
 | Category | Target Subsystem | Key Verifications |
 |---|---|---|
 | **Analysis** | `dev.codeatlas.analysis` | AST symbol extraction, method signature differentiation, record/enum/interface parsing, byte and line/column coordinate calculations. |
-| **Spring Model** | `dev.codeatlas.springmodel` | Stereotype detection, candidate implementation matching, qualifier resolution, HTTP route extraction, ambiguous candidate marking. |
+| **Spring Model** | `dev.codeatlas.analysis` (`SpringAnnotationAnalyzer`) | Stereotype detection, candidate implementation matching, qualifier resolution, HTTP route extraction, ambiguous candidate marking. |
 | **Graph** | `dev.codeatlas.graph` | Focus traversal, neighborhood depth limits, package aggregation, incoming/outgoing edge filtering, cycle detection. |
 | **Explanations** | `dev.codeatlas.explanations` | Context window construction, prompt templating, response schema validation against `explanation-schema.json`, claim basis validation, cache fingerprinting. |
 | **Model Client** | `dev.codeatlas.modelclient` | OpenAI-compatible HTTP request formatting, connection timeout, error classification, retry handling, synthetic ping verification. |
@@ -518,3 +518,18 @@ output-only, dashed for input-only, double for mutual — so the three halos rem
 under a colour-vision deficiency (WCAG 2.1 SC 1.4.1). The suite asserts all three styles differ.
 
 `docs/evidence/change-edges/` holds the report and the inspected screenshots from a full run.
+
+## 9. On linting
+
+There is deliberately no lint step. `frontend/package.json` previously declared
+`"lint": "eslint src/"`, but ESLint was never in `devDependencies` and no `eslint.config.*`
+ever existed, so the script could not run — `npx` silently fetched a transient ESLint 10,
+which then failed with exit code 2 for want of a flat config. A script that has never
+executed is worse than no script: it implies a gate that was not there.
+
+The script has been removed rather than made to work. Adding ESLint plus a TypeScript
+plugin and a config is new infrastructure, and AGENTS.md requires a concrete need and an
+ADR for that. The concrete need is not yet established: `tsc -b --noEmit` runs on every
+build (`npm run build` and `./gradlew bootJar` both invoke it) and already rejects the
+type errors that matter here. If a lint gate is wanted later, it should arrive with an
+ADR naming the rules it enforces and wired into `bootJar` so it can actually fail CI.

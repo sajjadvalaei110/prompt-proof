@@ -11,7 +11,7 @@ const stripLocalImport=(src,name)=>src.replace(new RegExp(`import \\{[^}]*\\} fr
 const scopeCompiled=stripLocalImport(compile('../frontend/src/features/explorer/scopeModel.ts'),'graphModel');
 const graphCompiled=stripLocalImport(compile('../frontend/src/features/explorer/graphModel.ts'),'scopeModel');
 const combined=scopeCompiled+'\n'+graphCompiled;
-const {projectGraph,projectDisplayed,childrenOf,wholeSystemScope,emptyScope,isClassInScope,getPackageCheckState,getPackageGroupCheckState,buildPackageHierarchy,togglePackages,togglePackage,toggleClass,scopeToLabel}=await import('data:text/javascript;base64,'+Buffer.from(combined).toString('base64'));
+const {projectGraph,projectDisplayed,childrenOf,wholeSystemScope,emptyScope,isClassInScope,getPackageCheckState,getPackageGroupCheckState,buildPackageHierarchy,togglePackages,togglePackage,toggleClass,scopeToLabel,EXPLANATION_RANK,explanationRank,dominantOccurrenceIndex,kindSummary,sortedKindCounts}=await import('data:text/javascript;base64,'+Buffer.from(combined).toString('base64'));
 
 const nodes=[{id:'p1',kind:'PACKAGE',simpleName:'api'},{id:'p2',kind:'PACKAGE',simpleName:'service'}, {id:'a',kind:'CLASS',simpleName:'Controller',parentId:'p1'}, {id:'b',kind:'INTERFACE',simpleName:'Worker',parentId:'p2'}, {id:'a1',kind:'METHOD',simpleName:'handle',parentId:'a'}, {id:'b1',kind:'METHOD',simpleName:'work',parentId:'b'}, {id:'b2',kind:'METHOD',simpleName:'audit',parentId:'b'}];
 const edges=[{id:'e1',sourceId:'a1',targetId:'b1',kind:'CALLS',resolution:'RESOLVED'},{id:'e2',sourceId:'a1',targetId:'b1',kind:'CALLS',resolution:'RESOLVED'},{id:'e3',sourceId:'a',targetId:'b',kind:'INJECTS',resolution:'CANDIDATE'},{id:'e4',sourceId:'b1',targetId:'b2',kind:'CALLS',resolution:'RESOLVED'},{id:'e5',sourceId:'a1',targetId:null,kind:'CALLS',resolution:'UNRESOLVED'}];
@@ -31,6 +31,56 @@ for (const level of ['PACKAGE','CLASS']) {
  assert.ok(callsOnly[0].strengthWidth<route.strengthWidth,'fewer occurrences draw a thinner line');
  assert.equal(projectGraph(graph,level,ALL,'EXTENDS').edges.length,0);
 }
+// USES_TYPE is a first-class extracted kind (JavaParserAdapter emits it, and a DEPENDS_ON is derived
+// from type usage as well as from calls), so it must aggregate, count, label and filter exactly like
+// any other kind. Scoped to a local fixture so no expectation above moves.
+{
+ const typed={nodes,edges:[...edges,
+  {id:'u1',sourceId:'a1',targetId:'b1',kind:'USES_TYPE',resolution:'RESOLVED'},
+  {id:'u2',sourceId:'a1',targetId:'b1',kind:'USES_TYPE',resolution:'RESOLVED'},
+  {id:'u3',sourceId:'a',targetId:'b',kind:'USES_TYPE',resolution:'RESOLVED'},
+  {id:'d1',sourceId:'a',targetId:'b',kind:'DEPENDS_ON',resolution:'RESOLVED'}]};
+ for(const level of ['PACKAGE','CLASS']){
+  // All of it still merges into the single route for the ordered pair, USES_TYPE occurrences included.
+  const route=projectGraph(typed,level,ALL,'ALL').edges[0];
+  assert.deepEqual(route.occurrenceIds,['e1','e2','e3','u1','u2','u3','d1'],'USES_TYPE occurrences join the route for their ordered pair');
+  assert.deepEqual(route.occurrenceKinds,['CALLS','CALLS','INJECTS','USES_TYPE','USES_TYPE','USES_TYPE','DEPENDS_ON']);
+  assert.equal(route.occurrenceCount,7);
+  assert.deepEqual(route.kindCounts,{CALLS:2,INJECTS:1,USES_TYPE:3,DEPENDS_ON:1},'USES_TYPE is counted in the kind breakdown');
+  assert.equal(route.kind,'USES_TYPE','the dominant kind is the most frequent one, USES_TYPE included');
+  // Descending count, ties by name: uses type ×3, then calls ×2, then depends on, injects.
+  assert.deepEqual(sortedKindCounts(route),[['USES_TYPE',3],['CALLS',2],['DEPENDS_ON',1],['INJECTS',1]]);
+  assert.equal(kindSummary(route),'uses type ×3 · calls ×2 · depends on · injects','USES_TYPE formats as "uses type", underscore split and count suffix included');
+  assert.equal(kindSummary(route,2),'uses type ×3 · calls ×2 · +2','the capped label keeps USES_TYPE first and tails the rest');
+ }
+ // Filtering to USES_TYPE keeps the same route identity (endpoint-only key) and thins it to its
+ // USES_TYPE occurrences only; the pair still has a line because it carries that kind.
+ const full=projectGraph(typed,'CLASS',ALL,'ALL').edges[0];
+ const usesOnly=projectGraph(typed,'CLASS',ALL,'USES_TYPE').edges;
+ assert.equal(usesOnly.length,1);
+ assert.equal(usesOnly[0].id,full.id,'a filter change keeps the route ID');
+ assert.equal(usesOnly[0].occurrenceCount,3);
+ assert.deepEqual(usesOnly[0].occurrenceIds,['u1','u2','u3']);
+ assert.deepEqual(usesOnly[0].kindCounts,{USES_TYPE:3});
+ assert.equal(kindSummary(usesOnly[0]),'uses type ×3');
+ assert.ok(usesOnly[0].strengthWidth<full.strengthWidth,'filtering to one kind draws a thinner line');
+ // Filtering USES_TYPE away leaves the other kinds untouched, and a pair whose only kind is
+ // USES_TYPE disappears entirely rather than being drawn empty.
+ assert.deepEqual(projectGraph(typed,'CLASS',ALL,'CALLS').edges[0].kindCounts,{CALLS:2});
+ const onlyUses={nodes,edges:[{id:'x1',sourceId:'a',targetId:'b',kind:'USES_TYPE',resolution:'RESOLVED'}]};
+ assert.equal(projectGraph(onlyUses,'CLASS',ALL,'USES_TYPE').edges.length,1);
+ assert.equal(projectGraph(onlyUses,'CLASS',ALL,'CALLS').edges.length,0,'filtering away the only kind removes the route');
+ // Expansion resolves a USES_TYPE occurrence to the deepest visible card, same as any other kind.
+ const exp=projectDisplayed(typed,'PACKAGE',['p1','p2'],'USES_TYPE',{expansions:[{id:'p1',ownerId:null}],scope:ALL});
+ assert.equal(exp.edges.length,1);
+ assert.equal(exp.edges[0].sourceId,'a');assert.equal(exp.edges[0].targetId,'p2');
+ assert.deepEqual(exp.edges[0].kindCounts,{USES_TYPE:3},'the method-level and class-level USES_TYPE both resolve onto the expanded card');
+ // A USES_TYPE occurrence carries explanation status like any other: a running one is not masked.
+ const typedStatus={nodes,edges:typed.edges.map(e=>({...e,explanationStatus:e.id==='u1'?'RUNNING':'NOT_REQUESTED'}))};
+ assert.equal(projectGraph(typedStatus,'CLASS',ALL,'ALL').edges[0].explanationStatus,'RUNNING');
+}
+console.log('PASS: USES_TYPE aggregation, kind counts, label formatting, filtering, and expansion resolution');
+
 // Reverse direction is its own route: A->B and B->A are exactly two lines, never more.
 {
  const both={nodes,edges:[...edges,{id:'r1',sourceId:'b1',targetId:'a1',kind:'CALLS',resolution:'RESOLVED'},{id:'r2',sourceId:'b',targetId:'a',kind:'EXTENDS',resolution:'RESOLVED'}]};
@@ -190,6 +240,57 @@ failed.edges[1].explanationStatus='STALE';
 assert.equal(projectGraph(failed,'CLASS',ALL,'ALL').edges[0].explanationStatus,'FAILED','failed outranks stale');
 failed.edges[2].explanationStatus='READY';
 assert.equal(projectGraph(failed,'CLASS',ALL,'ALL').edges[0].explanationStatus,'READY','a ready occurrence still badges the line');
+// An in-flight run must not be clobbered by an unrequested or queued sibling. The backend emits
+// RUNNING for an actively generating explanation (GraphQueryService maps the queue's 'IN_PROGRESS'
+// to 'RUNNING'); when RUNNING was missing from EXPLANATION_RANK it ranked 0 and tied with
+// NOT_REQUESTED, so the aggregate reported the line as never requested.
+const running={nodes,edges:edges.map(e=>({...e,explanationStatus:e.id==='e1'?'RUNNING':'NOT_REQUESTED'}))};
+assert.equal(projectGraph(running,'CLASS',ALL,'ALL').edges[0].explanationStatus,'RUNNING','one running occurrence keeps the line marked running, never clobbered by an unrequested sibling');
+running.edges[1].explanationStatus='QUEUED';
+assert.equal(projectGraph(running,'CLASS',ALL,'ALL').edges[0].explanationStatus,'RUNNING','running outranks queued: an in-flight job is never demoted back to queued');
+running.edges[1].explanationStatus='STALE';
+assert.equal(projectGraph(running,'CLASS',ALL,'ALL').edges[0].explanationStatus,'RUNNING','running outranks stale: the run in flight is what replaces the stale text');
+running.edges[1].explanationStatus='FAILED';
+assert.equal(projectGraph(running,'CLASS',ALL,'ALL').edges[0].explanationStatus,'FAILED','failed still outranks running, so a failure is never masked');
+running.edges[1].explanationStatus='READY';
+assert.equal(projectGraph(running,'CLASS',ALL,'ALL').edges[0].explanationStatus,'READY','ready still outranks everything');
+
+// Guard for the *bug class*, not just the RUNNING instance: every status in the canonical
+// `ExplanationStatus` union must have an explicit EXPLANATION_RANK entry, so a status added to the
+// union later cannot silently rank 0 and be masked by an unrequested sibling. The union is a pure
+// type declaration (it compiles to nothing), so it is sourced as text from the canonical file:
+//   frontend/src/types/index.ts   -- the union itself
+//   src/main/java/dev/codeatlas/graph/GraphQueryService.java -- what the backend actually emits
+const typesSource=fs.readFileSync(new URL('../frontend/src/types/index.ts',import.meta.url),'utf8');
+const unionMatch=/export type ExplanationStatus\s*=\s*([^;]+);/.exec(typesSource);
+assert.ok(unionMatch,'ExplanationStatus union found in frontend/src/types/index.ts (if this fails the guard below would pass vacuously)');
+const canonicalStatuses=[...unionMatch[1].matchAll(/'([A-Z_]+)'/g)].map(m=>m[1]);
+assert.ok(canonicalStatuses.length>=7,`extracted at least the 7 known statuses, saw ${canonicalStatuses.length}: ${canonicalStatuses}`);
+assert.ok(canonicalStatuses.includes('RUNNING')&&canonicalStatuses.includes('NOT_REQUESTED'),'the extracted list is ExplanationStatus, not some neighbouring union');
+for(const status of canonicalStatuses){
+  assert.ok(Object.prototype.hasOwnProperty.call(EXPLANATION_RANK,status),`EXPLANATION_RANK has an explicit entry for '${status}' -- without one it falls through to 0 and is masked by NOT_REQUESTED`);
+  if(status!=='NOT_REQUESTED') assert.ok(explanationRank(status)>0,`'${status}' ranks above NOT_REQUESTED`);
+}
+// The invariants the rest of the table is built on, asserted directly rather than implied.
+assert.ok(canonicalStatuses.every(s=>s==='READY'||explanationRank('READY')>explanationRank(s)),'READY stays the highest rank');
+assert.ok(canonicalStatuses.every(s=>['READY','FAILED'].includes(s)||explanationRank('FAILED')>explanationRank(s)),'FAILED stays above every non-ready status');
+assert.equal(explanationRank('PENDING'),explanationRank('QUEUED'),'PENDING ranks with QUEUED, the status the backend maps it to');
+assert.equal(explanationRank('NO_SUCH_STATUS'),0,'a status not in the union still falls back to 0');
+
+// Inspector occurrence choice shares this rank (dominantOccurrenceIndex), so opening a line never
+// hides a FAILED occurrence behind an unrequested sibling at index 0.
+const occ=id=>({id,sourceId:'a1',targetId:'b1',kind:'CALLS',resolution:'RESOLVED'});
+const occGraph=statuses=>({nodes,edges:statuses.map((s,i)=>({...occ('o'+i),explanationStatus:s}))});
+const occEdge=statuses=>({id:'agg',sourceId:'a1',targetId:'b1',kind:'CALLS',resolution:'RESOLVED',occurrenceIds:statuses.map((_,i)=>'o'+i)});
+const pick=statuses=>dominantOccurrenceIndex(occEdge(statuses),occGraph(statuses));
+assert.equal(pick(['NOT_REQUESTED','FAILED']),1,'a FAILED occurrence is opened, not the unrequested sibling at index 0');
+assert.equal(pick(['NOT_REQUESTED','RUNNING']),1,'a RUNNING occurrence is opened, not the unrequested sibling at index 0');
+assert.equal(pick(['NOT_REQUESTED','FAILED','READY']),2,'READY still wins, matching the line badge');
+assert.equal(pick(['QUEUED','STALE','FAILED']),2,'the highest-ranked occurrence wins across several non-ready statuses');
+assert.equal(pick(['NOT_REQUESTED','NOT_REQUESTED']),0,'an all-equal line opens on the first occurrence, as before');
+assert.equal(pick(['READY','READY']),0,'ties resolve to the earliest occurrence, so a stable line keeps its first-occurrence default');
+assert.equal(dominantOccurrenceIndex(null,graph),0,'no edge falls back to index 0');
+assert.equal(dominantOccurrenceIndex({id:'x',occurrenceIds:[]},graph),0,'an empty occurrence list falls back to index 0');
 const cardCompiled=ts.transpileModule(fs.readFileSync(new URL('../frontend/src/features/explorer/nodeCard.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.ES2022,target:ts.ScriptTarget.ES2022}}).outputText;
 const {nodeCard}=await import('data:text/javascript;base64,'+Buffer.from(cardCompiled).toString('base64'));
 for(const kind of ['CLASS','METHOD']){

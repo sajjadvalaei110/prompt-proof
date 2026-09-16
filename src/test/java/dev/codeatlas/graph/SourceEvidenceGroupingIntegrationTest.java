@@ -49,7 +49,13 @@ public class SourceEvidenceGroupingIntegrationTest {
             "AND EXISTS (SELECT 1 FROM relationship_evidence re2 JOIN relationship_occurrences r2 ON r2.id = re2.relationship_id " +
             "            WHERE re2.evidence_id = re.evidence_id AND r2.kind = 'CALLS') " +
             "GROUP BY re.relationship_id HAVING COUNT(DISTINCT e.start_line) > 1 " +
-            "ORDER BY MIN(e.start_line), re.relationship_id LIMIT 1", String.class, snapshot);
+            // Deterministic tiebreak on the relationship's own endpoints, never on re.relationship_id:
+            // that is a random UUID, so it silently reordered candidates between runs and the test
+            // could pick a different subject each time.
+            "ORDER BY MIN(e.start_line), " +
+            "  (SELECT sv.qualified_name FROM symbol_versions sv WHERE sv.id = r.source_symbol_id), " +
+            "  (SELECT sv.qualified_name FROM symbol_versions sv WHERE sv.id = r.target_symbol_id) " +
+            "LIMIT 1", String.class, snapshot);
         List<SourceService.Source> flat = sourceService.relationship(snapshot, dependsOn);
         assertTrue(flat.size() > 1, "fixture precondition: one DEPENDS_ON occurrence has several call-site rows");
         assertEquals(1, flat.stream().map(SourceService.Source::path).distinct().count(), "fixture precondition: those rows are in one file");
@@ -65,8 +71,15 @@ public class SourceEvidenceGroupingIntegrationTest {
         assertEquals(1, grouped.size(), "the file is returned exactly once");
         SourceService.FileEvidence file = grouped.get(0);
         assertEquals(flat.get(0).path(), file.path());
-        long distinctRanges = flat.stream().map(s -> s.startLine() + ":" + s.endLine()).distinct().count();
-        assertEquals(distinctRanges, file.ranges().size(), "one highlighted range per distinct call site");
+        // Count the expected ranges from the database, not from `flat`: relationship() applies the
+        // evidence-occurrence LIMIT, so a subject with more sites than that limit would compare a
+        // truncated count against the untruncated batch result and fail for the wrong reason.
+        Long distinctRanges = db.queryForObject(
+            "SELECT COUNT(*) FROM (SELECT DISTINCT e.start_line, e.end_line FROM relationship_evidence re " +
+            "JOIN evidence e ON e.id = re.evidence_id WHERE re.relationship_id IN (" +
+            String.join(",", Collections.nCopies(new LinkedHashSet<>(ids).size(), "?")) + "))",
+            Long.class, new LinkedHashSet<>(ids).toArray());
+        assertEquals(distinctRanges.longValue(), file.ranges().size(), "one highlighted range per distinct evidence site across the requested occurrences");
         for (int i = 1; i < file.ranges().size(); i++) assertTrue(file.ranges().get(i - 1).startLine() <= file.ranges().get(i).startLine(), "ranges are in line order");
         // Every range must list exactly the kinds the requested occurrences contribute at that evidence.
         // A DEPENDS_ON is no longer derived from calls alone: since the extractor gained USES_TYPE

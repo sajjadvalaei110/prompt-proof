@@ -84,7 +84,9 @@ export type JobStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
 export type ExplanationStatus = 'NOT_REQUESTED' | 'QUEUED' | 'RUNNING' | 'READY' | 'STALE' | 'FAILED' | 'PENDING';
 export type ResolutionStatus = 'RESOLVED' | 'CANDIDATE' | 'UNRESOLVED';
 export type SymbolKind = 'PACKAGE' | 'CLASS' | 'METHOD';
-export type RelationshipKind = 'CALLS' | 'IMPLEMENTS' | 'DEPENDS_ON';
+/** Every kind the backend can emit. Mirrors `src/main/java/dev/codeatlas/api/dto/enums/RelationshipKind.java`
+ * exactly -- a kind added there without being added here makes this union silently lie about the wire shape. */
+export type RelationshipKind = 'EXTENDS' | 'IMPLEMENTS' | 'CALLS' | 'CONSTRUCTS' | 'USES_TYPE' | 'READS_FIELD' | 'WRITES_FIELD' | 'INJECTS' | 'DECLARES_BEAN' | 'HANDLES_ROUTE' | 'DEPENDS_ON';
 export type ClaimBasis = 'SOURCE_FACT' | 'INFERRED_PURPOSE' | 'UNKNOWN' | 'SOURCE' | 'INFERRED' | 'USER';
 export type GraphLevel = 'PACKAGE' | 'CLASS' | 'METHOD';
 export type Direction = 'INCOMING' | 'OUTGOING' | 'BOTH';

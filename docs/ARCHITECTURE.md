@@ -20,7 +20,7 @@ graph TD
     GR --> ST
     JB --> ST
     
-    AN["analysis (JavaParser)"] --> SM["springmodel"]
+    AN["analysis (JavaParser + Spring stereotypes)"] --> GR
     AN --> ST
     
     EX --> MC["modelclient"]
@@ -40,7 +40,7 @@ The backend enforces strict modular separation across domain boundaries:
 |---|---|
 | `workspace` | Project root registration, path traversal validation, file filtering (includes/excludes), trust boundaries. |
 | `analysis` | JavaParser integration, symbol extraction, type solving, relationship extraction, exact evidence coordinate calculation. |
-| `springmodel` | Heuristic recognition of Spring stereotypes (`@Service`, `@Repository`, `@RestController`), constructor injection, `@Qualifier`, `@Bean`, and HTTP routes. |
+| `analysis` (Spring heuristics) | Heuristic recognition of Spring stereotypes (`@Service`, `@Repository`, `@RestController`), constructor injection, `@Qualifier`, `@Bean`, and HTTP routes. Implemented by `analysis/SpringAnnotationAnalyzer.java`; this is not a separate top-level package. |
 | `graph` | Graph querying, neighborhood traversal, package/class aggregation, search, cycle detection, and filtering. |
 | `explanations` | Context construction, prompt generation, JSON response schema validation, claim basis attribution, and explanation caching. |
 | `modelclient` | OpenAI-compatible HTTP client adapter, connectivity verification, latency tracking, timeouts, and error handling. |
@@ -101,7 +101,6 @@ The frontend is structured by functional domain under `frontend/src/features/`:
 - **`explorer/`**: Interactive Cytoscape graph canvas, package/class navigation pane, search, minimap, and zoom controls.
 - **`inspector/`**: Contextual sidebar displaying selected symbol/relationship details, parser evidence, and AI explanations.
 - **`source/`**: Embedded source code viewer with line/column highlighting mapped to evidence coordinates.
-- **`flows/`**: Static request flow explorer tracking paths from HTTP endpoints through services to repositories.
 - **`settings/`**: Configuration interface for local model endpoints (LM Studio, Ollama), token budgets, and indexing rules.
 
 ### Explorer scope boundary
