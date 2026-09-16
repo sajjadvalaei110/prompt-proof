@@ -89,8 +89,10 @@ Run:
 ```bash
 ./gradlew test
 ./gradlew bootJar
+node scripts/test-source-evidence.mjs   # evidence grouped one entry per file (change-edges)
 node scripts/test-graph-model.mjs
 python3 scripts/verify_hierarchical_pipeline.py
+python3 scripts/verify_change_edges_pipeline.py   # change-edges browser suite (see below)
 ```
 
 The new backend tests cover exact degree/LOC/ID ordering, excluded subject kinds,
@@ -484,3 +486,35 @@ that guard with no write queued).
 (before/after pairs for the two real-double-click cases and the inspector action, plus the narrow
 Details-pane action and its arranged Map-pane result);
 `build/stable-graph/{baseline,acceptance}-*/` (git-ignored) holds the complete 30-scenario run.
+
+## 8. Change-edges acceptance (one line per direction, flow emphasis, grouped evidence)
+
+```bash
+./gradlew bootJar
+CHROMIUM=/snap/bin/chromium python3 scripts/verify_change_edges_pipeline.py
+node --check scripts/verify-change-edges-ui.mjs
+python3 -m py_compile scripts/verify_change_edges_pipeline.py
+```
+
+**Runner.** `scripts/verify-change-edges-ui.mjs` previously had no launcher: it took four positional
+arguments (`<appBase> <chromiumDebugBase> <snapshotId> <outputDir>`) and required the operator to
+start the jar, start Chromium, analyze a fixture and read a snapshot ID out by hand. That made it
+the one browser suite nothing could run unattended, so change-edges regressions could not fail CI.
+`scripts/verify_change_edges_pipeline.py` closes that gap with the same shape as
+`verify_stable_graph_pipeline.py`: free ports, an isolated SQLite data directory and browser profile
+under `build/change-edges/run-*/`, a temporary **copy** of `test-fixtures/change-edges-fixture/`
+SHA-256 hashed before and after to prove analysis stayed source read-only, and a model base URL
+pointed at a closed loopback port so this can never be mistaken for a live-model verification.
+
+**What the suite asserts.** One line per ordered pair (a mutual relation draws exactly two), width
+following occurrence count, `.flow-out`/`.flow-in` direction classes and `.rel-out`/`.rel-in`/
+`.rel-both` halos on the right cards, the inspected line's own endpoints emphasized rather than
+dimmed, animated dashes that travel **source → target** (a decreasing `line-dash-offset`, not merely
+a changing one), no animation style left behind after deselection, evidence grouped one section per
+file with several highlighted lines, and a chosen occurrence surviving a relationship-filter change.
+
+**Non-colour differentiation.** Direction is carried by `border-style` as well as hue — solid for
+output-only, dashed for input-only, double for mutual — so the three halos remain distinguishable
+under a colour-vision deficiency (WCAG 2.1 SC 1.4.1). The suite asserts all three styles differ.
+
+`docs/evidence/change-edges/` holds the report and the inspected screenshots from a full run.

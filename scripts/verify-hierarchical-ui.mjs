@@ -122,6 +122,11 @@ await until(()=>evaluate(`document.querySelector('.inspector-top')?.textContent.
 assert.equal(await evaluate(`document.querySelectorAll('.inspector-top .gemini-badge').length`),0);
 await evaluate(`document.querySelector('.explanation-section button.primary').click()`);
 await until(()=>evaluate(`document.querySelectorAll('.inspector-top .gemini-badge').length===1`),'on-demand edge READY');
+// Assert the canvas badge HERE, with only the FIRST occurrence explained. A merged line is READY
+// when ANY occurrence is ready; explaining every occurrence first (as the loop below does) would
+// make this pass even if the rule regressed to requiring all of them, which is unreachable in
+// practice because a CALLS line almost always also carries a derived DEPENDS_ON.
+await until(()=>evaluate(`${cy}.edges().some(e=>e.data('explanationStatus')==='READY'&&e.data('label').startsWith('✦'))`),'edge canvas sparkle from a single ready occurrence');
 // Explain remaining occurrences explicitly if this projection grouped more than one call site.
 const count=await evaluate(`document.querySelector('.inspector section select')?.options.length||1`);
 for(let i=1;i<count;i++){

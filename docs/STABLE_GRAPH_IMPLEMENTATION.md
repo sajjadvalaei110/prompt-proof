@@ -83,8 +83,11 @@ only on `kind !== 'PACKAGE'`, so `CONSTRUCTOR` takes the METHOD-ish branch and r
 - `:38` — `kind !== 'ALL' && kind !== e.kind` drops filtered edges, which changes `topology`.
 - `:43` — `source.id === target.id` is dropped at PACKAGE and CLASS level, so an intra-package cycle
   is invisible above METHOD level.
-- `:47` — aggregate edge IDs are `aggregate:["<source>","<target>","<kind>","<resolution>"]`. This is
-  **never** a node ID, which is why passing `selectedId` into `graphLayout` as a focus fails for edges.
+- `:47` — aggregate edge IDs are `aggregate:["<source>","<target>"]`: the key is the ordered endpoint
+  pair only, with neither kind nor resolution in it, so every relationship between the same ordered
+  pair merges into one line and a relationship-filter change thins that line instead of renaming it.
+  This is **never** a node ID, which is why passing `selectedId` into `graphLayout` as a focus fails
+  for edges.
 
 ### Layout function (`frontend/src/features/explorer/graphLayout.ts`)
 
@@ -478,14 +481,20 @@ step's actual diff.
      is **never** rewritten here — only `cy.add()` for a genuinely new element sets one, and
      `dragfree` is the only other writer (via `onNodeMoved`). The endpoint-move path Appendix A2
      mentions is unreachable for this app's edges: an aggregate ID is
-     `aggregate:[source,target,kind,resolution]` (`graphModel.ts`), so a different endpoint is
+     `aggregate:[source,target]` (`graphModel.ts`), so a different endpoint is
      necessarily a different ID, handled by ordinary remove+add.
-  2. **Selection/emphasis** (`[selectedId, nodes, edges]`): toggles `.selected`/`.neighbor`/
-     `.incident`/`.muted` classes only — no `cy.layout()`/`cy.fit()` call anywhere in the file
-     anymore (`graphLayout.ts` import removed; the module itself is untouched on disk for Step 5's
-     Appendix B reuse). New `.neighbor` (node border) and `.incident` (edge width) style rules give
-     positive emphasis to direct neighbors/incident edges per Story 1, layered so resolution dashes
-     and READY coloring (which only set `line-color`) survive underneath.
+  2. **Selection/emphasis** (`[selectedId, nodes, edges]`): toggles `.inspected`/`.neighbor`/
+     `.muted` and the `.flow-*`/`.rel-*` classes only — no `cy.layout()`/`cy.fit()` call anywhere in
+     the file anymore (`graphLayout.ts` import removed; the module itself is untouched on disk for
+     Step 5's Appendix B reuse). Emphasis is class-based rather than Cytoscape selection: the core
+     sets `autounselectify: true`, so `:selected` matches nothing and `.inspected` carries it.
+     `.neighbor` (node border) gives positive emphasis to direct neighbors per Story 1, layered so
+     resolution dashes and READY coloring (which only set `line-color`) survive underneath. The
+     former `.incident` rule is gone: it emphasized an edge by fixing its *width*, which would
+     overwrite the occurrence strength a route's width now carries (`data(strengthWidth)`), so
+     emphasis may only change colour and glow. An inspected *edge* unions `connectedNodes()` into
+     its neighborhood — `closedNeighborhood()` iterates a collection's nodes and so yields only the
+     edge itself, which would leave its own endpoints in the muted difference.
   3. **Camera** (`[camera]`, reference-identity trigger only): restores a saved camera via
      `cy.viewport({zoom,pan})`, or — only when `camera === null`, i.e. a level's first-ever visit —
      performs the one allowed non-user-initiated `cy.fit()` and immediately reports the result via
@@ -867,7 +876,7 @@ Files changed and important interfaces:
     calling updateMap() at the end of the batch so the minimap reflects membership changes, not only
     camera changes); zero cy.layout() calls; cy.fit() only on a level's first-ever visit
     (camera === null) or the explicit Fit map button; debounced real-camera capture with a
-    programmatic-write guard; new .neighbor/.incident emphasis classes; dragfree reports manual
+    programmatic-write guard; new .neighbor/.inspected emphasis classes; dragfree reports manual
     moves via onNodeMoved.
   - frontend/src/App.tsx — placementFor(ids) helper; handleCameraChange/handleNodeMoved; positions/
     camera read from viewState.levelViews[level] and passed to GraphCanvas; placement supplied on
@@ -1005,8 +1014,9 @@ Next step / precise remaining task: Step 4 — separate class inspection, View m
   'ALL')` projection of the same displayed page) lets the inspected `edge` fall back past the
   currently-filtered `projected.edges` when the active relationship filter excludes its kind —
   verified safe against `graphModel.ts`'s actual `aggregateEdges()`: the aggregate ID key is
-  `[source, target, e.kind, e.resolution]`, keyed on the *underlying* edge's own kind, not on the
-  filter parameter, so the same relationship has the identical ID in both projections. A new
+  `[source, target]` — endpoints only, with neither kind nor resolution in it — so the filter can
+  only thin or remove a line, never rename it, and the same relationship has the identical ID in
+  both projections. A new
   `edgeFilteredOut` boolean (true only when the edge resolves via `allKindsEdges` but not
   `projected.edges`, and is not an unresolved relationship) drives a "Not shown with the current
   relationship filter." notice instead of the inspector silently going idle.
@@ -1548,7 +1558,7 @@ Back.
 ### B2 [UI-06] -- an inspected aggregate edge silently dangled across a level switch
 
 **Confirmed real**, and simpler than the task's writeup implied: an aggregate edge ID is
-`aggregate:[source,target,kind,resolution]` with level-scoped endpoints (`graphModel.ts`), so it can
+`aggregate:[source,target]` with level-scoped endpoints (`graphModel.ts`), so it can
 **never** resolve again at a different level -- no need to re-derive occurrence aggregation or probe
 whether it "would" resolve (Appendix A1's "do not create two subtly different occurrence aggregation
 implementations" warning is avoided entirely, per the task's own recommended option 1).

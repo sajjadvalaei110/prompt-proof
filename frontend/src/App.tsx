@@ -12,7 +12,7 @@ import NavigationPane from './features/explorer/NavigationPane';
 import InspectorPanel from './features/inspector/InspectorPanel';
 import SettingsScreen from './features/settings/SettingsScreen';
 import ProjectDocuments from './features/context/ProjectDocuments';
-import SourceDialog from './features/source/SourceDialog';
+import SourceDialog, { SourceSubject } from './features/source/SourceDialog';
 import { startSerialPolling } from './utils/serialPolling';
 
 export default function App() {
@@ -28,7 +28,7 @@ export default function App() {
   const level=viewState.activeLevel;
   const [scope,setScope]=useState<ScopeSelection>(wholeSystemScope()),[kind,setKind]=useState('ALL');
   const [tab,setTab]=useState('map'),[search,setSearch]=useState(''),[settings,setSettings]=useState(params.get('settings')==='true');
-  const [queue,setQueue]=useState<any>(null),[revision,setRevision]=useState(0),[profile,setProfile]=useState<any>(null),[source,setSource]=useState<{node:{id:string;simpleName?:string};type:string}|null>(null);
+  const [queue,setQueue]=useState<any>(null),[revision,setRevision]=useState(0),[profile,setProfile]=useState<any>(null),[source,setSource]=useState<{node:SourceSubject;type:string}|null>(null);
   const [mobilePane,setMobilePane]=useState('map'),[showOpen,setShowOpen]=useState(false);
   // Left navigation panel width: null means "use the responsive CSS default"; once the user drags
   // the resize handle we pin an explicit --nav-width and remember it across sessions.
@@ -107,8 +107,9 @@ export default function App() {
   // An inspected aggregate edge must survive a relationship-filter change that excludes its kind
   // (Step 4, Appendix F3): its identity is resolved independently of the currently filtered
   // `projected.edges` by also checking an unfiltered ('ALL') projection of the same displayed page.
-  // aggregateEdges() keys its aggregate ID on the underlying edge's own kind, not on this filter
-  // parameter, so the same relationship keeps the same ID in both projections.
+  // aggregateEdges() keys its aggregate ID solely on the ordered (source, target) endpoints --
+  // `aggregate:[source,target]`, with neither kind nor resolution in the key -- so a filter change
+  // only thins or removes a line, and the same relationship keeps the same ID in both projections.
   // Only pay for the second aggregation when it can actually matter: an edge is currently
   // inspected AND the plain filtered projection above did not already contain it. This runs on
   // every filter/inspection change rather than unconditionally on every graph/level/displayedIds
@@ -392,7 +393,7 @@ export default function App() {
           {scopeEmpty
             ? <div className="scope-empty-state"><h2>No packages or classes selected</h2><p>Check packages or classes in the left tree to define what the graph shows.</p><button className="primary" onClick={resetScope}>Select all</button></div>
             : <GraphCanvas nodes={projected.nodes} edges={projected.edges} positions={geometry.positions} sizes={sizes} containerSizes={containerSizes} onToggleExpand={toggleExpand} onResizeNode={resizeNode} onResizeContainer={resizeContainer} camera={levelGeometry.camera} selectedId={node?.id||edge?.id} onNodeSelect={select} onEdgeSelect={inspectEdge} canRemoveFromScope={n=>isNodeInScope(n,scope,graph)} onRemoveFromScope={removeFromScope} scopeRemovalTargets={nodes=>planScopeRemoval(nodes).removed} onCameraChange={handleCameraChange} onNodeMoved={handleNodeMoved} onNodesMoved={handleNodesMoved} onArrangeAroundResource={arrangeAround} onViewCode={n=>setSource({node:n,type:'symbol'})}/>}
-          <div className="graph-legend"><span><i className="line-sample"/>Static dependency</span><span><i className="line-sample uncertain"/>Candidate / unresolved</span><span>{level==='METHOD'?'Method call occurrences':`${level==='PACKAGE'?'Package':'Class'} connections group occurrences by kind and resolution`}</span></div>
+          <div className="graph-legend"><span><i className="line-sample"/>Static dependency</span><span><i className="line-sample uncertain"/>Candidate / unresolved</span>{(node||edge)&&<><span><i className="line-sample flow-in"/>Incoming</span><span><i className="line-sample flow-out"/>Outgoing</span><span><i className="line-sample flow-both"/>Both ways</span></>}<span className="legend-thickness">One line per direction · thicker means more occurrences</span></div>
         </>}
       </section>
       {tab!=='context'&&<InspectorPanel selectedNode={node} selectedEdge={edge} mapStatus={mapStatus} edgeFilteredOut={edgeFilteredOut} workspaceId={workspace?.id||null} snapshotId={snapshot} graph={graph} routes={routes} revision={revision} onExplanationReady={()=>setRevision(r=>r+1)} onInspectEdge={inspectEdge} onSelect={select} onViewClasses={viewClasses} onViewMethods={viewMethods} onArrangeAroundResource={n=>arrangeAround(n.id)} onSource={(n,type='symbol')=>setSource({node:n,type})} onClose={()=>{dispatchView({type:'CLEAR_INSPECTION'});setMobilePane('map');}}/>}

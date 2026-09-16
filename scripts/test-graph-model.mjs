@@ -20,14 +20,32 @@ const ALL=wholeSystemScope();
 const custom=(pkgs=[],cls=[])=>({mode:'CUSTOM',selectedPackageIds:new Set(pkgs),selectedClassIds:new Set(cls)});
 
 for (const level of ['PACKAGE','CLASS']) {
- const view=projectGraph(graph,level,ALL,'ALL');assert.equal(view.nodes.length,2);assert.equal(view.edges.length,2);
- const calls=view.edges.find(e=>e.kind==='CALLS');assert.deepEqual(calls.occurrenceIds,['e1','e2']);assert.equal(calls.occurrenceCount,2);assert.equal(calls.sourceId,level==='PACKAGE'?'p1':'a');assert.equal(calls.targetId,level==='PACKAGE'?'p2':'b');assert.equal(view.edges.find(e=>e.kind==='INJECTS').resolution,'CANDIDATE');
+ // One line per ordered pair: two CALLS plus one INJECTS between the same endpoints merge into one route.
+ const view=projectGraph(graph,level,ALL,'ALL');assert.equal(view.nodes.length,2);assert.equal(view.edges.length,1);
+ const route=view.edges[0];assert.deepEqual(route.occurrenceIds,['e1','e2','e3']);assert.deepEqual(route.occurrenceKinds,['CALLS','CALLS','INJECTS']);assert.equal(route.occurrenceCount,3);
+ assert.equal(route.sourceId,level==='PACKAGE'?'p1':'a');assert.equal(route.targetId,level==='PACKAGE'?'p2':'b');
+ assert.deepEqual(route.kindCounts,{CALLS:2,INJECTS:1});assert.equal(route.kind,'CALLS','dominant kind is representative');
+ assert.equal(route.resolution,'CANDIDATE','least certain resolution present stays visible');assert.deepEqual(route.resolutions.sort(),['CANDIDATE','RESOLVED']);
+ // Filtering keeps the same route identity and changes its strength; filtering every kind away removes it.
+ const callsOnly=projectGraph(graph,level,ALL,'CALLS').edges;assert.equal(callsOnly.length,1);assert.equal(callsOnly[0].id,route.id);assert.equal(callsOnly[0].occurrenceCount,2);assert.equal(callsOnly[0].resolution,'RESOLVED');
+ assert.ok(callsOnly[0].strengthWidth<route.strengthWidth,'fewer occurrences draw a thinner line');
+ assert.equal(projectGraph(graph,level,ALL,'EXTENDS').edges.length,0);
+}
+// Reverse direction is its own route: A->B and B->A are exactly two lines, never more.
+{
+ const both={nodes,edges:[...edges,{id:'r1',sourceId:'b1',targetId:'a1',kind:'CALLS',resolution:'RESOLVED'},{id:'r2',sourceId:'b',targetId:'a',kind:'EXTENDS',resolution:'RESOLVED'}]};
+ const view=projectGraph(both,'CLASS',ALL,'ALL');assert.equal(view.edges.length,2);
+ const back=view.edges.find(e=>e.sourceId==='b');assert.equal(back.targetId,'a');assert.deepEqual(back.kindCounts,{CALLS:1,EXTENDS:1});
+ assert.notEqual(back.id,view.edges.find(e=>e.sourceId==='a').id);
+ // Method level keeps the same rule: b1 -> a1 and a1 -> b1 are separate, and the two a1 -> b1 calls merge.
+ const methods=projectGraph(both,'METHOD',ALL,'ALL').edges.filter(e=>[e.sourceId,e.targetId].sort().join()==='a1,b1');assert.equal(methods.length,2);
+ assert.equal(methods.find(e=>e.sourceId==='a1').occurrenceCount,2);
 }
 // Method scope: only methods owned by classes in the (package-level) scope, and only calls whose endpoints are both inside it.
 const methodsInPkg=projectGraph(graph,'METHOD',custom(['p1']),'ALL');assert.deepEqual(new Set(methodsInPkg.nodes.map(n=>n.id)),new Set(['a1']));assert.equal(methodsInPkg.edges.length,0);
 assert.equal(projectGraph(graph,'CLASS',ALL,'INJECTS').edges.length,1);
 const limited=projectGraph(graph,'METHOD',ALL,'ALL',1);assert.equal(limited.nodes.length,1);assert.equal(limited.omittedCount,2);assert.equal(limited.scopedCount,3);assert.equal(limited.visibleCount,1);assert.ok(limited.edges.every(e=>limited.nodes.some(n=>n.id===e.sourceId)&&limited.nodes.some(n=>n.id===e.targetId)));
-console.log('PASS: package/class aggregation, direction, occurrence counts, uncertainty, method neighbors, filters, and bounded views');
+console.log('PASS: one route per ordered pair, kind breakdown, strength width, direction, occurrence counts, uncertainty, method neighbors, filters, and bounded views');
 
 // Package scope: PACKAGE level shows only the selected package; its class and methods are the only ones in scope at any level.
 const pkgScope=custom(['p1']);
@@ -46,7 +64,7 @@ assert.equal(projectGraph(graph,'METHOD',classScope,'ALL').edges[0].sourceId,'b1
 // Mixed scope: one whole package plus one explicit class from a different package.
 const mixedScope=custom(['p1'],['b']);
 assert.deepEqual(new Set(projectGraph(graph,'CLASS',mixedScope,'ALL').nodes.map(n=>n.id)),new Set(['a','b']));
-assert.equal(projectGraph(graph,'CLASS',mixedScope,'ALL').edges.length,2); // both a and b are the graph's only two classes, so this matches the ALL-scope case: CALLS (aggregated) + INJECTS
+assert.equal(projectGraph(graph,'CLASS',mixedScope,'ALL').edges.length,1); // both a and b are the graph's only two classes, so this matches the ALL-scope case: CALLS + INJECTS merged into one a -> b route
 
 // Empty scope: nothing selected renders nothing at any level, never falls back to the whole graph.
 const empty=emptyScope();
@@ -67,8 +85,13 @@ console.log('PASS: package, class, method, mixed-package, empty, and all-selecte
   assert.deepEqual(emptyExp,noExp,'no expansions is exactly the plain projection, edge IDs included');
   const p1=projectDisplayed(graph,'PACKAGE',['p1','p2'],'ALL',{expansions:[{id:'p1',ownerId:null}],scope:ALL});
   assert.deepEqual(p1.nodes.map(n=>[n.id,n.containerId||null,!!n.expanded]),[['p1',null,true],['a','p1',false],['p2',null,false]]);
-  const calls=p1.edges.find(e=>e.kind==='CALLS');assert.equal(calls.sourceId,'a');assert.equal(calls.targetId,'p2');assert.deepEqual(calls.occurrenceIds,['e1','e2']);
-  assert.equal(p1.edges.find(e=>e.kind==='INJECTS').sourceId,'a');
+  // The class inside the expanded package is the deepest visible source card; p2 stays collapsed as
+  // the target. Both the method calls (e1,e2) and the class-level INJECTS (e3) resolve to that same
+  // ordered pair, so one-route-per-pair merges them: one line, CALLS dominant, INJECTS in the breakdown.
+  assert.equal(p1.edges.length,1);
+  const calls=p1.edges[0];assert.equal(calls.sourceId,'a');assert.equal(calls.targetId,'p2');
+  assert.deepEqual(calls.occurrenceIds,['e1','e2','e3']);assert.equal(calls.kind,'CALLS');
+  assert.deepEqual(calls.kindCounts,{CALLS:2,INJECTS:1},'the class-level INJECTS resolves to the same expanded card and joins the route');
   // Nested: the class inside the expanded package expands too, and the other package expands into its interface.
   const nested=projectDisplayed(graph,'PACKAGE',['p1','p2'],'ALL',{expansions:[{id:'p1',ownerId:null},{id:'a',ownerId:'p1'},{id:'p2',ownerId:null}],scope:ALL});
   assert.deepEqual(nested.nodes.map(n=>n.id),['p1','a','a1','p2','b']);
@@ -150,13 +173,23 @@ const clearedPartialNamespace=togglePackages(webOnly,orders.packageIds,hierarchy
 assert.equal(getPackageGroupCheckState(orders.packageIds,clearedPartialNamespace,hierarchyGraph),'unchecked');
 console.log('PASS: dotted package trie, synthetic namespace aggregate state, and batch package toggles');
 
-// A grouped edge is READY only when every underlying occurrence is READY.
-const mixed={nodes,edges:edges.map(e=>({...e,explanationStatus:e.id==='e1'?'READY':'NOT_REQUESTED'}))};
-assert.notEqual(projectGraph(mixed,'CLASS',ALL,'CALLS').edges[0].explanationStatus,'READY');
-const ready={nodes,edges:edges.map(e=>({...e,explanationStatus:'READY'}))};
-assert.equal(projectGraph(ready,'CLASS',ALL,'CALLS').edges[0].explanationStatus,'READY');
-ready.edges[1].explanationStatus='STALE';
-assert.notEqual(projectGraph(ready,'CLASS',ALL,'CALLS').edges[0].explanationStatus,'READY');
+// A merged line is READY when any underlying occurrence has a ready explanation (explanations are
+// per occurrence; requiring all of them would leave a CALLS + derived DEPENDS_ON line never badged).
+const mixed={nodes,edges:edges.map(e=>({...e,explanationStatus:e.id==='e3'?'READY':'NOT_REQUESTED'}))};
+assert.equal(projectGraph(mixed,'CLASS',ALL,'ALL').edges[0].explanationStatus,'READY','one ready occurrence of any kind badges the line');
+assert.notEqual(projectGraph(mixed,'CLASS',ALL,'CALLS').edges[0].explanationStatus,'READY','filtering the ready occurrence away removes the badge');
+const stale={nodes,edges:edges.map(e=>({...e,explanationStatus:'STALE'}))};
+assert.equal(projectGraph(stale,'CLASS',ALL,'ALL').edges[0].explanationStatus,'STALE','a uniform non-ready status is kept');
+stale.edges[1].explanationStatus='QUEUED';
+assert.equal(projectGraph(stale,'CLASS',ALL,'ALL').edges[0].explanationStatus,'STALE','among non-ready statuses the least settled one wins, never a fallback that hides it');
+// A failure must never be masked by an unrequested sibling occurrence (AGENTS.md: keep failed
+// explanations visible). FAILED outranks STALE, QUEUED and NOT_REQUESTED; READY still outranks all.
+const failed={nodes,edges:edges.map(e=>({...e,explanationStatus:e.id==='e1'?'FAILED':'NOT_REQUESTED'}))};
+assert.equal(projectGraph(failed,'CLASS',ALL,'ALL').edges[0].explanationStatus,'FAILED','one failed occurrence keeps the line marked failed');
+failed.edges[1].explanationStatus='STALE';
+assert.equal(projectGraph(failed,'CLASS',ALL,'ALL').edges[0].explanationStatus,'FAILED','failed outranks stale');
+failed.edges[2].explanationStatus='READY';
+assert.equal(projectGraph(failed,'CLASS',ALL,'ALL').edges[0].explanationStatus,'READY','a ready occurrence still badges the line');
 const cardCompiled=ts.transpileModule(fs.readFileSync(new URL('../frontend/src/features/explorer/nodeCard.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.ES2022,target:ts.ScriptTarget.ES2022}}).outputText;
 const {nodeCard}=await import('data:text/javascript;base64,'+Buffer.from(cardCompiled).toString('base64'));
 for(const kind of ['CLASS','METHOD']){

@@ -6,7 +6,9 @@ export interface AtlasNode { id: string; simpleName: string; qualifiedName?: str
   containerId?: string;
   /** Set on a projected card that is currently expanded into a container of its children. */
   expanded?: boolean }
-export interface AtlasEdge { id: string; sourceId: string; targetId: string | null; kind: string; resolution: string; descriptiveLabel?: string; occurrenceCount?: number; occurrenceIds?: string[]; hoverSummary?: string; explanationStatus?: string }
+export interface AtlasEdge { id: string; sourceId: string; targetId: string | null; kind: string; resolution: string; descriptiveLabel?: string; occurrenceCount?: number; occurrenceIds?: string[]; hoverSummary?: string; explanationStatus?: string;
+  /** Aggregate-only (see aggregateEdges): per-occurrence kinds aligned with occurrenceIds, per-kind counts, distinct resolutions present, and the computed line width. */
+  occurrenceKinds?: string[]; kindCounts?: Record<string, number>; resolutions?: string[]; strengthWidth?: number }
 export interface AtlasGraph { nodes: AtlasNode[]; edges: AtlasEdge[]; metadata?: Record<string, any> }
 export type Level = 'PACKAGE' | 'CLASS' | 'METHOD';
 export const isType = (n: AtlasNode) => !['PACKAGE', 'METHOD', 'FIELD', 'CONSTRUCTOR'].includes(n.kind);
@@ -38,11 +40,26 @@ export function getEligibleIds(graph: AtlasGraph, level: Level, scope: ScopeSele
  * fresh batch (initial page, Show more, a scope addition) — it must never be used to reselect or
  * reorder an already-displayed page, which is why callers keep survivors in their existing order
  * and only rank the newly admitted slice.
+ *
+ * Degree counts only the relationships this level actually draws. An edge whose two endpoints
+ * resolve to the same owner is internal to that owner and is discarded by aggregateEdges (except at
+ * METHOD level, where a self-call is a real drawn route), so counting it here would rank a class
+ * full of private calls above a genuinely connected one and admit it as an isolated card with no
+ * lines. The condition below mirrors aggregateEdges' own skip for the un-expanded projection that
+ * ranking always sees: `ownerAt` at METHOD level only ever returns a METHOD or CONSTRUCTOR, so
+ * `level !== 'METHOD'` here and aggregateEdges' kind test there accept and reject the same edges.
+ * In-place expansion resolves endpoints further down, but it never changes which IDs are eligible,
+ * so it has no bearing on this ordering.
  */
 export function rankEligibleIds(graph: AtlasGraph, level: Level, ids: string[]): string[] {
   const all = new Map(graph.nodes.map(n => [n.id, n]));
   const degree = new Map<string, number>();
-  graph.edges.forEach(e => { for (const id of [e.sourceId, e.targetId]) { const n = id && all.get(id); const owner = n && ownerAt(n, level, all); if (owner) degree.set(owner.id, (degree.get(owner.id) || 0) + 1); } });
+  graph.edges.forEach(e => {
+    const from = e.sourceId ? all.get(e.sourceId) : undefined, to = e.targetId ? all.get(e.targetId) : undefined;
+    const source = from && ownerAt(from, level, all), target = to && ownerAt(to, level, all);
+    if (source && target && source.id === target.id && level !== 'METHOD') return;
+    for (const owner of [source, target]) if (owner) degree.set(owner.id, (degree.get(owner.id) || 0) + 1);
+  });
   return ids.slice().sort((a, b) => {
     const na = all.get(a), nb = all.get(b);
     return (degree.get(b) || 0) - (degree.get(a) || 0) || (na && nb ? na.simpleName.localeCompare(nb.simpleName) : 0) || a.localeCompare(b);
@@ -109,15 +126,53 @@ export function childrenOf(graph: AtlasGraph, container: AtlasNode, scope: Scope
   return [];
 }
 
+/** Uncertainty rank: the aggregate's representative resolution is the least certain one present, so a single candidate/unresolved occurrence keeps the whole line visibly uncertain. */
+const RESOLUTION_RANK: Record<string, number> = { RESOLVED: 0, CANDIDATE: 1, UNRESOLVED: 2 };
+const worseResolution = (a: string, b: string) => ((RESOLUTION_RANK[b] ?? 2) > (RESOLUTION_RANK[a] ?? 2) ? b : a);
+
 /**
- * The single occurrence-aggregation implementation: groups same (source, target, kind, resolution)
- * edges among the visible cards into one route, respecting the relationship filter.
+ * Aggregate explanation rank for a merged line: the highest-ranked status among its occurrences
+ * wins. READY outranks everything (see aggregateEdges). Below it the *least settled* status wins,
+ * so a FAILED or STALE occurrence stays visible on the line instead of being masked by an
+ * unrequested sibling -- per AGENTS.md, failed and partial analysis must stay visible.
+ */
+const EXPLANATION_RANK: Record<string, number> = { READY: 4, FAILED: 3, STALE: 2, QUEUED: 1, NOT_REQUESTED: 0 };
+const dominantExplanationStatus = (a?: string, b?: string) =>
+  (EXPLANATION_RANK[b ?? ''] ?? 0) > (EXPLANATION_RANK[a ?? ''] ?? 0) ? b : a;
+
+/** Line width for an aggregate carrying `count` occurrences: log-scaled so one call site stays readable and hundreds stay bounded. */
+export const strengthWidth = (count: number) => Math.min(10, 1.2 + 1.5 * Math.log2(Math.max(1, count)));
+
+/** Kinds in descending occurrence count (ties by name), for labels and the inspector breakdown. */
+export const sortedKindCounts = (edge: AtlasEdge): [string, number][] =>
+  Object.entries(edge.kindCounts || { [edge.kind]: edge.occurrenceCount || 1 }).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+
+/** "calls ×3 · injects" -- kinds by descending count, capped to `limit` kinds with a "+n" tail. */
+export function kindSummary(edge: AtlasEdge, limit = Infinity) {
+  const kinds = sortedKindCounts(edge);
+  const shown = kinds.slice(0, limit).map(([kind, count]) => kind.toLowerCase().replaceAll('_', ' ') + (count > 1 ? ` ×${count}` : ''));
+  return shown.join(' · ') + (kinds.length > limit ? ` · +${kinds.length - limit}` : '');
+}
+
+/**
+ * The single occurrence-aggregation implementation: every relationship between the same ordered
+ * (source, target) pair among the visible cards becomes one directed route, whatever its kind or
+ * resolution, respecting the relationship filter. A→B and B→A stay two routes. The drawing is
+ * merged, the data is not: `occurrenceIds`/`occurrenceKinds` keep every underlying record,
+ * `kindCounts`/`resolutions` keep the breakdown, `kind` is the dominant kind and `resolution` the
+ * least certain one present, and `explanationStatus` is READY when any occurrence has a ready
+ * explanation (explanations are requested per occurrence, and a CALLS line almost always also carries
+ * the derived DEPENDS_ON, so "every occurrence READY" would make the badge unreachable); when no
+ * occurrence is READY the least settled status present wins (FAILED > STALE > QUEUED >
+ * NOT_REQUESTED, see dominantExplanationStatus) so a failure is never masked by an unrequested
+ * sibling. The ID keys on endpoints only, so a filter change that removes some kinds keeps the same
+ * ID (thinner line) and one that removes all kinds removes the route.
  *
  * An endpoint first resolves to its owner at the page's level, which must be displayed. When that
  * owner is expanded, it resolves further down to the deepest visible card on the endpoint's own
  * ancestor chain inside it (repeating through nested expansions), so a method call inside an
  * expanded class starts at that method's card while an unexpanded class still collects it. With no
- * expansions this is exactly the previous per-level aggregation, including its edge IDs.
+ * expansions this is exactly the plain per-level aggregation, including its edge IDs.
  */
 function aggregateEdges(graph: AtlasGraph, level: Level, all: Map<string, AtlasNode>, displayed: Set<string>, kind: string, containerOf: Map<string, string>, expanded: Set<string>): AtlasEdge[] {
   const resolve = (n: AtlasNode): string | undefined => {
@@ -147,12 +202,20 @@ function aggregateEdges(graph: AtlasGraph, level: Level, all: Map<string, AtlasN
     if (source === target && !['METHOD', 'CONSTRUCTOR'].includes(all.get(source)!.kind)) continue;
     // A card and the container it sits in are drawn nested, so a route between them has nowhere to go.
     if (source !== target && (inside(source, target) || inside(target, source))) continue;
-    const key = JSON.stringify([source, target, e.kind, e.resolution]);
+    const key = JSON.stringify([source, target]);
     const group = grouped.get(key);
-    if (group) { group.occurrenceIds!.push(e.id); group.occurrenceCount!++; if (e.explanationStatus !== 'READY') group.explanationStatus = 'NOT_REQUESTED'; }
-    else grouped.set(key, { ...e, id: `aggregate:${key}`, sourceId: source, targetId: target, occurrenceIds: [e.id], occurrenceCount: 1 });
+    if (group) {
+      group.occurrenceIds!.push(e.id); group.occurrenceKinds!.push(e.kind); group.occurrenceCount!++;
+      group.kindCounts![e.kind] = (group.kindCounts![e.kind] || 0) + 1;
+      if (!group.resolutions!.includes(e.resolution)) group.resolutions!.push(e.resolution);
+      group.resolution = worseResolution(group.resolution, e.resolution);
+      group.explanationStatus = dominantExplanationStatus(group.explanationStatus, e.explanationStatus);
+    }
+    else grouped.set(key, { ...e, id: `aggregate:${key}`, sourceId: source, targetId: target, occurrenceIds: [e.id], occurrenceKinds: [e.kind], occurrenceCount: 1, kindCounts: { [e.kind]: 1 }, resolutions: [e.resolution] });
   }
-  return [...grouped.values()];
+  const edges = [...grouped.values()];
+  for (const edge of edges) { edge.kind = sortedKindCounts(edge)[0][0]; edge.strengthWidth = strengthWidth(edge.occurrenceCount || 1); }
+  return edges;
 }
 
 /**

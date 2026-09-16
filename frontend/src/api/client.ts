@@ -65,7 +65,8 @@ export const apiClient = {
   saveDocument: (workspaceId: string, doc: {id?: string; title: string; content: string}): Promise<any> => requestJson(`${API_BASE}/workspaces/${workspaceId}/documents${doc.id ? '/' + doc.id : ''}`, { method: doc.id ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(doc) }),
   deleteDocument: (workspaceId: string, id: string): Promise<any> => requestJson(`${API_BASE}/workspaces/${workspaceId}/documents/${id}`, {method: 'DELETE'}),
   getSource: (snapshot: string, id: string, type = 'symbol'): Promise<any> => requestJson(`${API_BASE}/snapshots/${snapshot}/${type === 'symbol' ? 'symbols' : 'relationships'}/${id}/source`),
-  getSubjectExplanation: (snapshot: string, id: string, type: string): Promise<any> => requestJson(`${API_BASE}/snapshots/${snapshot}/${type === 'symbol' ? 'symbols' : 'relationships'}/${id}/explanation`),
+  getRelationshipsSource: (snapshot: string, ids: string[]): Promise<any[]> => requestJson(`${API_BASE}/snapshots/${snapshot}/relationships/source`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ ids }) }),
+  getSubjectExplanation:(snapshot: string, id: string, type: string): Promise<any> => requestJson(`${API_BASE}/snapshots/${snapshot}/${type === 'symbol' ? 'symbols' : 'relationships'}/${id}/explanation`),
   getExplanationEvidence: (snapshot: string, id: string, type: string): Promise<any[]> => requestJson(`${API_BASE}/snapshots/${snapshot}/explanation-evidence/${id}?subjectType=${type}`),
 
   createWorkspace: (path: string): Promise<any> =>

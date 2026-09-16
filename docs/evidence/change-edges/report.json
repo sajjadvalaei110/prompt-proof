@@ -1,0 +1,208 @@
+{
+ "edges": [
+  {
+   "s": "Hub",
+   "t": "Dep",
+   "w": 4.682892142331044,
+   "rendered": 4.682892142331044,
+   "n": 5,
+   "kinds": {
+    "CALLS": 4,
+    "DEPENDS_ON": 1
+   },
+   "label": "calls ×4 · depends on"
+  },
+  {
+   "s": "Caller",
+   "t": "Hub",
+   "w": 2.7,
+   "rendered": 2.7,
+   "n": 2,
+   "kinds": {
+    "CALLS": 1,
+    "DEPENDS_ON": 1
+   },
+   "label": "calls · depends on"
+  },
+  {
+   "s": "Hub",
+   "t": "Peer",
+   "w": 2.7,
+   "rendered": 2.7,
+   "n": 2,
+   "kinds": {
+    "CALLS": 1,
+    "DEPENDS_ON": 1
+   },
+   "label": "calls · depends on"
+  },
+  {
+   "s": "Peer",
+   "t": "Hub",
+   "w": 2.7,
+   "rendered": 2.7,
+   "n": 2,
+   "kinds": {
+    "DEPENDS_ON": 1,
+    "CALLS": 1
+   },
+   "label": "calls · depends on"
+  }
+ ],
+ "selection": {
+  "nodes": [
+   {
+    "n": "Hub",
+    "c": [],
+    "outline": "rgb(153,153,153)",
+    "border": "rgb(7,136,140)",
+    "borderStyle": "solid"
+   },
+   {
+    "n": "Dep",
+    "c": [
+     "rel-out"
+    ],
+    "outline": "rgb(169,220,247)",
+    "border": "rgb(29,144,204)",
+    "borderStyle": "solid"
+   },
+   {
+    "n": "Peer",
+    "c": [
+     "rel-both"
+    ],
+    "outline": "rgb(207,178,242)",
+    "border": "rgb(143,91,214)",
+    "borderStyle": "double"
+   },
+   {
+    "n": "Caller",
+    "c": [
+     "rel-in"
+    ],
+    "outline": "rgb(246,179,179)",
+    "border": "rgb(224,71,76)",
+    "borderStyle": "dashed"
+   },
+   {
+    "n": "Loner",
+    "c": [
+     "muted"
+    ],
+    "outline": "rgb(153,153,153)",
+    "border": "rgb(130,147,168)",
+    "borderStyle": "solid"
+   }
+  ],
+  "edges": [
+   {
+    "e": "Hub->Dep",
+    "c": [
+     "flow-out"
+    ],
+    "color": "rgb(29,144,204)"
+   },
+   {
+    "e": "Caller->Hub",
+    "c": [
+     "flow-in"
+    ],
+    "color": "rgb(224,71,76)"
+   },
+   {
+    "e": "Hub->Peer",
+    "c": [
+     "flow-out"
+    ],
+    "color": "rgb(29,144,204)"
+   },
+   {
+    "e": "Peer->Hub",
+    "c": [
+     "flow-in"
+    ],
+    "color": "rgb(224,71,76)"
+   }
+  ]
+ },
+ "animation": {
+  "a1": {
+   "dash": -101.97899999999998,
+   "outline": 8.719875836484835,
+   "glow": 0.3617919293715143
+  },
+  "a2": {
+   "dash": -107.98199999999999,
+   "outline": 8.952651258612892,
+   "glow": 0.37692233180983803
+  },
+  "a3": {
+   "dash": -115.47899999999998,
+   "outline": 8.96817344528839,
+   "glow": 0.37793127394374526
+  }
+ },
+ "afterClose": {
+  "classes": 0,
+  "leaked": 0,
+  "offenders": []
+ },
+ "edgeEndpoints": {
+  "names": [
+   "Dep",
+   "Hub"
+  ],
+  "neighbor": true,
+  "muted": false
+ },
+ "edgeInspector": {
+  "heading": "↗\nHub → Dep\n\ncalls ×4 · depends on",
+  "kinds": [
+   "calls 4",
+   "depends on 1"
+  ],
+  "options": [
+   "calls 1 of 4",
+   "calls 2 of 4",
+   "depends on 1 of 1",
+   "calls 3 of 4",
+   "calls 4 of 4"
+  ],
+  "button": [
+   "View source evidence (all 5)",
+   "View selected occurrence only"
+  ]
+ },
+ "evidenceAll": {
+  "sub": "Read-only source from the analyzed snapshot · 4 highlighted ranges in 1 file",
+  "files": [
+   {
+    "path": "src/main/java/demo/Hub.java 4 ranges · lines 8, 10, 11, 16",
+    "highlighted": [
+     "8:calls, depends on",
+     "10:calls, depends on",
+     "11:calls, depends on",
+     "16:calls, depends on"
+    ]
+   }
+  ]
+ },
+ "evidenceSingleDependsOn": [
+  {
+   "path": "src/main/java/demo/Hub.java 4 ranges · lines 8, 10, 11, 16",
+   "highlighted": 4
+  }
+ ],
+ "occurrenceAfterFilter": {
+  "selected": "calls 4 of 4",
+  "options": [
+   "calls 1 of 4",
+   "calls 2 of 4",
+   "calls 3 of 4",
+   "calls 4 of 4"
+  ],
+  "notice": ""
+ },
+ "pageErrors": []
+}

@@ -72,11 +72,16 @@ Acceptance:
 
 - Single-click immediately opens the appropriate inspector without changing scope,
   abstraction level, displayed node IDs, display limit, node coordinates, or pan/zoom.
-- Selected cards get a stronger outline. Their visible incident edges get thicker
-  strokes, and direct neighbors get stronger outlines. Unrelated resources may be
-  gently dimmed but remain readable and selectable. Do not resize cards to highlight.
-- Preserve arrow direction, candidate/unresolved dashes, resolution meaning, and
-  explanation indicators while highlighting. Hidden edges never contribute neighbors.
+- Selected cards get a stronger outline. Revised 2026-09-16 (change-edges): outgoing
+  visible routes turn sky blue and incoming routes red, with dashes animated from source
+  to target and a pulsing glow; related resources get a halo by direction — light blue
+  (selection points at them), light red (they point at the selection), purple (both).
+  Emphasis never overrides a route's strength width. Unrelated resources may be gently
+  dimmed but remain readable and selectable. Do not resize cards to highlight. Motion
+  is skipped under `prefers-reduced-motion`; colors remain.
+- Preserve arrow direction, candidate/unresolved distinction (a shorter dash pattern
+  while highlighted), resolution meaning, and explanation indicators while highlighting.
+  Hidden edges never contribute neighbors.
 - Edge selection highlights only that relationship and its endpoints. Clicking
   another element or clearing selection updates emphasis without layout or fitting.
 - Tree labels and checkboxes have separate hit targets. Labels inspect; checkboxes
@@ -124,9 +129,13 @@ Acceptance:
 - Prevent overlapping resource cards first. Then minimize edges running through
   unrelated cards, edge crossings, and overlapping edge labels; prefer shorter
   routes and less movement when candidates have equivalent readability.
-- Do not remove evidence, merge distinct relationship kinds/resolution states, or
-  hide awkward edges to improve the result. Count an aggregate as one displayed
-  route, not as one line per underlying call site.
+- Do not remove evidence or hide awkward edges to improve the result. Count an
+  aggregate as one displayed route, not as one line per underlying call site.
+  Revised 2026-09-16 (change-edges): a displayed route is one line per ordered
+  (source, target) pair at the active level, carrying every kind and resolution
+  state between them; width follows occurrence count (log-scaled), the line is
+  dashed if any occurrence is uncertain, and the kind breakdown stays in the label
+  and inspector. A→B and B→A remain two routes.
 - With the same displayed graph and starting positions, results are deterministic.
   Repeated activation after settling must not make the map drift or oscillate.
 - Keep the previous arrangement if computation fails. Show "Couldn't reorder the

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import cytoscape from 'cytoscape';
-import { AtlasNode, AtlasEdge } from './graphModel';
+import { AtlasNode, AtlasEdge, kindSummary } from './graphModel';
 import { nodeCard, cornerButtons, CODE_BUTTON, MIN_CARD_SIZE, CornerAction, CardSize } from './nodeCard';
 import { CONTAINER_BUTTON, CONTAINER_PADDING } from './expansionLayout';
 import CodeButton from '../../components/CodeButton';
@@ -29,6 +29,18 @@ function sameMinimap(a: MinimapState, b: MinimapState): boolean {
 import GeminiBadge from '../../components/GeminiBadge';
 
 export interface Point { x: number; y: number }
+
+/**
+ * Inspection flow palette: route colors plus the lighter halo drawn around related resources.
+ * The three route colors each clear WCAG 2.1 SC 1.4.11 (3:1) against the #f8fafc canvas -- out
+ * 3.39:1, in 3.88:1, both 4.33:1. The halo tints are deliberately far lighter and do not: they are
+ * a glow *around* a border already painted in the conforming route color, never the sole carrier of
+ * the relationship, which is also encoded by border-style (see the .rel-* rules below).
+ */
+const FLOW = { out: '#1d90cc', outHalo: '#a9dcf7', in: '#e0474c', inHalo: '#f6b3b3', both: '#8f5bd6', bothHalo: '#cfb2f2' };
+/** Style properties the animation loop writes as bypasses; always cleared together. */
+const ANIMATED_STYLES = 'line-dash-offset underlay-opacity outline-opacity outline-width';
+
 export interface Camera { zoom: number; pan: Point }
 
 interface Props {
@@ -113,7 +125,9 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
   const currentModel=useRef(model); currentModel.current=model;
   const updateMapRef = useRef<() => void>(() => {});
   const nodesKey=useMemo(()=>JSON.stringify(nodes.map(n=>n.id)),[nodes]);
-  const edgeLabel=(e:AtlasEdge)=>(e.explanationStatus==='READY'?'✦ ':'')+e.kind.toLowerCase().replaceAll('_',' ')+(e.occurrenceCount!>1?` · ${e.occurrenceCount} sites`:'');
+  // One merged route carries several kinds, so the label is the kind breakdown (top 2, "+n" tail)
+  // rather than a single kind plus a site count; the ✦ still marks a ready explanation.
+  const edgeLabel=(e:AtlasEdge)=>(e.explanationStatus==='READY'?'✦ ':'')+kindSummary(e,2);
   const childCounts=useMemo(()=>{const m=new Map<string,number>();for(const n of nodes)if(n.containerId)m.set(n.containerId,(m.get(n.containerId)||0)+1);return m;},[nodes]);
   // `parent` is left out on purpose: Cytoscape sets a node's parent only on add or move(), never through data().
   const nodeStyleData=(n:AtlasNode)=>{
@@ -140,12 +154,28 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
         { selector: 'node[?expanded]', style: { 'background-image': 'none', 'background-color': '#f5f8fc', 'border-width': 2, 'border-style': 'dashed', label: 'data(containerLabel)', 'text-valign': 'top', 'text-halign': 'center', 'text-margin-y': CONTAINER_PADDING - 10, 'font-size': 18, 'font-weight': 600, color: '#19334f', 'text-max-width': '2000px', 'text-wrap': 'none', padding: `${CONTAINER_PADDING}px`, 'compound-sizing-wrt-labels': 'exclude', 'min-width': 'data(minW)', 'min-height': 'data(minH)', 'min-width-bias-left': '0%', 'min-width-bias-right': '100%', 'min-height-bias-top': '0%', 'min-height-bias-bottom': '100%' } as any },
         { selector: 'node.inspected', style: { 'background-color': '#e0f4f3', 'border-color': '#07888c', 'border-width': 2.5 } },
         { selector: 'node.neighbor', style: { 'border-color': '#07888c', 'border-width': 2.5 } },
-        { selector: 'edge', style: { width: 1.4, 'line-color': '#a0aebd', 'target-arrow-color': '#8395a9', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', label: 'data(label)', 'font-size': 11, color: '#5b6d83', 'text-opacity': .85, 'text-background-color': '#f7f9fc', 'text-background-opacity': 1, 'text-background-padding': '4px', 'text-rotation': 'autorotate', 'arrow-scale': .8 } },
+        { selector: 'edge', style: { width: 'data(strengthWidth)', 'line-color': '#a0aebd', 'target-arrow-color': '#8395a9', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', label: 'data(label)', 'font-size': 11, color: '#5b6d83', 'text-opacity': .85, 'text-background-color': '#f7f9fc', 'text-background-opacity': 1, 'text-background-padding': '3px', 'text-rotation': 'autorotate', 'text-margin-y': -11, 'arrow-scale': .8 } },
         { selector: 'edge[resolution != "RESOLVED"]', style: { 'line-color': '#ba862d', 'target-arrow-color': '#ba862d', 'line-style': 'dashed' } },
         { selector: 'edge[explanationStatus = "READY"]', style: { color: '#7955b7', 'text-background-color': '#f3eeff', 'text-opacity': 1 } },
-        { selector: 'edge.inspected', style: { width: 2.5, 'line-color': '#07888c', 'target-arrow-color': '#07888c', color: '#08777b' } },
-        { selector: 'edge.incident', style: { width: 2.5 } },
+        // Strength lives in data(strengthWidth); emphasis below changes color/glow only, never a fixed
+        // width that would thin a strong route. These rules sit after the resolution rule on purpose:
+        // Cytoscape resolves conflicts by array order, not selector specificity.
+        { selector: 'edge.inspected', style: { 'line-color': '#07888c', 'target-arrow-color': '#07888c', color: '#08777b', 'underlay-color': '#07888c', 'underlay-opacity': .16, 'underlay-padding': 4 } },
         { selector: '.muted', style: { opacity: .6 } },
+        // Inspection of a resource (Change-edges requirement 2): outgoing routes sky blue, incoming red,
+        // animated dashes flowing source -> target with a pulsing glow (see the animation effect).
+        { selector: 'edge.flow-out, edge.flow-in', style: { 'line-style': 'dashed', 'line-dash-pattern': [14, 7], 'underlay-padding': 5, 'underlay-opacity': .22, 'z-index': 20, 'text-opacity': 1 } },
+        { selector: 'edge.flow-out', style: { 'line-color': FLOW.out, 'target-arrow-color': FLOW.out, 'underlay-color': FLOW.out, color: '#1778a8' } },
+        { selector: 'edge.flow-in', style: { 'line-color': FLOW.in, 'target-arrow-color': FLOW.in, 'underlay-color': FLOW.in, color: '#b4262b' } },
+        { selector: 'edge.flow-uncertain', style: { 'line-dash-pattern': [5, 6] } },
+        // Direction is carried by border-style as well as hue (WCAG 2.1 SC 1.4.1): output-only keeps
+        // a plain solid border, input-only is dashed, and mutual is a double border -- so a viewer
+        // with a colour-vision deficiency can still tell a caller from a bidirectional collaborator.
+        { selector: 'node.rel-out, node.rel-in, node.rel-both', style: { 'outline-width': 6, 'outline-offset': 2, 'outline-opacity': .85, 'border-width': 2.5 } },
+        { selector: 'node.rel-out', style: { 'outline-color': FLOW.outHalo, 'border-color': FLOW.out, 'border-style': 'solid' } },
+        { selector: 'node.rel-in', style: { 'outline-color': FLOW.inHalo, 'border-color': FLOW.in, 'border-style': 'dashed' } },
+        { selector: 'node.rel-both', style: { 'outline-color': FLOW.bothHalo, 'border-color': FLOW.both, 'border-style': 'double', 'border-width': 5 } },
+        // Multi-select and marquee sit last so their purple outline wins over flow emphasis.
         { selector: 'node.multi-selected', style: { 'border-color': '#7955b7', 'border-width': 4, 'overlay-color': '#7955b7', 'overlay-opacity': .1, 'overlay-padding': 8 } },
         { selector: 'node.marquee-candidate', style: { 'border-color': '#7955b7', 'border-width': 3, 'border-style': 'dashed' } },
       ] });
@@ -348,7 +378,8 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
       const edge = currentModel.current.edges.find(n=>n.id===e.target.id()); if(!edge)return;
       const a=currentModel.current.nodes.find(n=>n.id===edge.sourceId),b=currentModel.current.nodes.find(n=>n.id===edge.targetId);
       const position=e.renderedPosition || e.target.renderedMidpoint();
-      setHover({ready:edge.explanationStatus==='READY',title:`${a?.simpleName} → ${b?.simpleName}`,description:`${edge.kind.toLowerCase().replaceAll('_',' ')} · ${edge.occurrenceCount||1} source occurrence(s) · ${edge.resolution.toLowerCase()}. Click to inspect evidence.`,x:Math.max(12,Math.min(position.x,cy.width()-280)),y:Math.max(12,position.y-100)});
+      const resolutions=(edge.resolutions||[edge.resolution]).map(r=>r.toLowerCase()).join(' + ');
+      setHover({ready:edge.explanationStatus==='READY',title:`${a?.simpleName} → ${b?.simpleName}`,description:`${kindSummary(edge)} · ${edge.occurrenceCount||1} source occurrence(s) · ${resolutions}. Click to inspect evidence.`,x:Math.max(12,Math.min(position.x,cy.width()-280)),y:Math.max(12,position.y-100)});
     });
     cy.on('mouseout pan zoom tap',()=>setHover(null));
     cy.on('pan zoom tap',()=>setContextMenu(null));
@@ -432,8 +463,8 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
   // Incremental reconciliation: remove absent edges, remove absent nodes, add new nodes at their
   // given position, add new edges, refresh every current element's display data. A survivor's
   // position is never touched here -- only cy.add() for a brand-new element sets one. Endpoint
-  // changes are unreachable for an aggregate edge: its ID is `aggregate:[source,target,kind,
-  // resolution]` (graphModel.ts), so a different endpoint is necessarily a different ID -- handled
+  // changes are unreachable for an aggregate edge: its ID is `aggregate:[source,target]`
+  // (graphModel.ts), so a different endpoint is necessarily a different ID -- handled
   // by ordinary remove+add, never a "move" path.
   useEffect(() => {
     const cy = cyRef.current; if (!cy) return;
@@ -499,27 +530,72 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
     cy.batch(()=>{cy.nodes('.multi-selected').removeClass('multi-selected');for(const id of multiIds)cy.getElementById(id).addClass('multi-selected');});
   },[multiIds,nodes]);
 
-  // Selection/inspection emphasis only: never a layout or fit call. Selected card gets a stronger
-  // outline (node.inspected style); its visible incident edges get thicker strokes (.incident) and
-  // direct neighbors get stronger outlines (.neighbor); everything else outside the closed
-  // neighborhood is gently dimmed (.muted). Hidden edges contribute no neighbors because they were
-  // never added to cy in the first place (filtered out by the caller before this component sees them).
+  // Selection/inspection emphasis only: never a layout or fit call. Everything outside the selected
+  // element's closed neighborhood is gently dimmed (.muted). Hidden edges contribute no neighbors
+  // because they were never added to cy in the first place (filtered out by the caller).
+  // - An inspected resource: outgoing routes .flow-out (sky blue), incoming .flow-in (red); related
+  //   resources get a halo by direction -- .rel-out light blue, .rel-in light red, .rel-both purple.
+  //   A METHOD-level self-call is both directions on itself and gets no halo (it is the selection).
+  // - An inspected edge: the edge itself (.inspected) and its endpoints (.neighbor), as before.
+  // The flow classes replace the former fixed-width `.incident` emphasis: a route's width now carries
+  // its occurrence strength (data(strengthWidth)), so emphasis may only change colour and glow.
   useEffect(() => {
     const cy = cyRef.current; if (!cy) return;
-    cy.elements().removeClass('inspected muted neighbor incident');
-    if (selectedId) {
-      const selected = cy.getElementById(selectedId);
-      if (selected.length) {
-        selected.addClass('inspected');
-        // An edge's closedNeighborhood() is only the edge itself, so an inspected edge keeps its endpoints explicitly.
-        // Containers of anything emphasized stay unmuted too: a dimmed parent would dim the cards drawn inside it.
-        const direct = selected.closedNeighborhood().union(selected.connectedNodes());
-        const neighborhood = direct.union(direct.nodes().ancestors());
-        cy.elements().difference(neighborhood).addClass('muted');
-        direct.nodes().difference(selected).addClass('neighbor');
-        neighborhood.edges().addClass('incident');
-      }
-    }
+    cy.batch(() => {
+      cy.elements().removeClass('inspected muted neighbor flow-out flow-in flow-uncertain rel-out rel-in rel-both').removeStyle(ANIMATED_STYLES);
+      const selected = selectedId ? cy.getElementById(selectedId) : cy.collection();
+      if (!selected.length) return;
+      selected.addClass('inspected');
+      // closedNeighborhood() iterates the collection's *nodes*, so for an edge it yields only the
+      // edge itself -- its endpoints would land in the difference below and get dimmed instead of
+      // emphasized. connectedNodes() supplies them explicitly (verified against Cytoscape 3.34.3).
+      // Containers of anything emphasized stay unmuted too: a dimmed parent would dim the cards
+      // drawn inside it. Ancestors are kept out of `direct` so they never receive a relationship
+      // halo -- containing a related card is not itself a relationship.
+      const direct = selected.closedNeighborhood().union(selected.connectedNodes());
+      const neighborhood = direct.union(direct.nodes().ancestors());
+      cy.elements().difference(neighborhood).addClass('muted');
+      if (selected.isEdge()) { direct.nodes().addClass('neighbor'); return; }
+      const outgoing = new Set<string>(), incoming = new Set<string>();
+      (selected as cytoscape.NodeSingular).connectedEdges().forEach(edge => {
+        const source = edge.source().id(), target = edge.target().id();
+        if (source === selectedId) { edge.addClass('flow-out'); outgoing.add(target); }
+        else { edge.addClass('flow-in'); incoming.add(source); }
+        if (edge.data('resolution') !== 'RESOLVED') edge.addClass('flow-uncertain');
+      });
+      direct.nodes().difference(selected).forEach(node => {
+        const id = node.id();
+        node.addClass(outgoing.has(id) && incoming.has(id) ? 'rel-both' : outgoing.has(id) ? 'rel-out' : 'rel-in');
+      });
+    });
+  }, [selectedId, nodes, edges]);
+
+  // The moving glow: one requestAnimationFrame loop, only while a displayed resource is inspected and
+  // has related routes. Dashes flow from source to target (a decreasing line-dash-offset moves the
+  // pattern forward along the path); route glow and related-resource halos pulse together. The phase
+  // lives in a ref so a re-run caused by a graph poll replacing `edges` does not visibly restart it.
+  // Animated values are element style bypasses, removed on every re-run and on unmount so none leak
+  // into the next selection. Reduced-motion users keep the static colors without movement.
+  const animationPhase = useRef(0);
+  useEffect(() => {
+    const cy = cyRef.current; if (!cy || !selectedId) return;
+    const flowEdges = cy.edges('.flow-out, .flow-in'), halos = cy.nodes('.rel-out, .rel-in, .rel-both');
+    if (!flowEdges.length) return;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    let frame = 0, last = 0;
+    const tick = (now: number) => {
+      frame = requestAnimationFrame(tick);
+      if (now - last < 33) return; // ~30 fps is smooth for dashes and keeps redraws cheap
+      const elapsed = last ? Math.min(now - last, 100) : 33; last = now;
+      animationPhase.current = (animationPhase.current + elapsed * .045) % 23100; // a whole multiple of both dash periods (21px and 11px), so wrapping never jumps
+      const pulse = (Math.sin(now / 420) + 1) / 2;
+      cy.batch(() => {
+        flowEdges.style({ 'line-dash-offset': -animationPhase.current, 'underlay-opacity': .12 + .26 * pulse });
+        halos.style({ 'outline-opacity': .5 + .45 * pulse, 'outline-width': 5 + 4 * pulse });
+      });
+    };
+    frame = requestAnimationFrame(tick);
+    return () => { cancelAnimationFrame(frame); if (!cy.destroyed()) cy.batch(() => { flowEdges.removeStyle(ANIMATED_STYLES); halos.removeStyle(ANIMATED_STYLES); }); };
   }, [selectedId, nodes, edges]);
 
   // Camera: restore a saved camera, or perform the one-time initial fit when a level has never had

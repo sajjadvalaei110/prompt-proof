@@ -393,9 +393,23 @@ console.log(`mode: ${mode}`);
     if (await evaluate(`(document.querySelector('.inspector-top')?.textContent||'').includes('Relationship')`)) { clicked = id; break; }
   }
   assert.ok(clicked, 'a real pointer click landed on an edge');
+  // The inspected line's own endpoints must be emphasized (.neighbor), never dimmed with the rest of
+  // the map. closedNeighborhood() on an edge yields only the edge, so this regressed silently once:
+  // the endpoints landed in the muted difference instead. Assert the classes, not just the inspector.
+  // The canvas runs with autounselectify:true, so Cytoscape's own selection never fires and
+  // ':selected' matches nothing; inspection is carried by the .inspected class instead.
+  // Anchor on the edge the canvas actually has selected, not on `clicked`: bezier lines overlap, so a
+  // click aimed at one candidate can legitimately land on another, and the loop above only checks
+  // that *a* relationship opened.
+  const endpointEmphasis = await evaluate(`(()=>{const sel=${CY}.edges('.inspected');if(sel.length!==1)return {selectedEdges:sel.length};const e=sel[0];const ns=e.connectedNodes();return {selectedEdges:1,id:e.id(),count:ns.length,neighbor:ns.every(n=>n.hasClass('neighbor')),muted:ns.some(n=>n.hasClass('muted')),classes:ns.map(n=>({id:n.id(),neighbor:n.hasClass('neighbor'),muted:n.hasClass('muted')}))};})()`);
+  assert.equal(endpointEmphasis.selectedEdges, 1, `inspecting a relationship selects exactly one line on the canvas (saw ${endpointEmphasis.selectedEdges})`);
+  assert.equal(endpointEmphasis.count, 2, 'the inspected line has both endpoints on the map');
+  assert.ok(endpointEmphasis.neighbor, 'both endpoint cards are emphasized as neighbors: ' + JSON.stringify(endpointEmphasis.classes));
+  assert.ok(!endpointEmphasis.muted, 'no endpoint card is dimmed as unrelated: ' + JSON.stringify(endpointEmphasis.classes));
   const after = await state();
   const d = delta(before, after);
   d.edgeId = clicked;
+  d.endpointEmphasis = endpointEmphasis;
   record('click-edge', before, after, d, {
     // Step 3 removed the layout/fit call from edge selection entirely, so the aggregate-edge-ID
     // focus mismatch that used to fall back to the alphabetical grid no longer matters: nothing is
@@ -514,20 +528,30 @@ console.log(`mode: ${mode}`);
   await pause(300);
   await resetCounters();
   const candidates = await visibleEdgeCandidates(12);
-  let clickedId = null, clickedKind = null;
+  // One line now carries every kind between its ordered pair (kindCounts), so filtering to any kind
+  // the line contains keeps it drawn (thinner). This case needs a kind the clicked line does NOT
+  // contain, so only a line with such a kind available is an eligible candidate.
+  let clickedId = null, clickedKind = null, otherKind = null;
   for (const id of candidates) {
+    const lineKinds = await evaluate(`Object.keys(${CY}.getElementById(${JSON.stringify(id)}).data('kindCounts')||{})`);
+    const absent = edgeKinds.find(k => !lineKinds.includes(k));
+    if (!absent) continue;
     const point = await edgePoint(id);
     if (!point) continue;
     await singleClick(point);
     if (await evaluate(`(document.querySelector('.inspector-top')?.textContent||'').includes('Relationship')`)) {
-      clickedId = id;
-      clickedKind = await evaluate(`${CY}.getElementById(${JSON.stringify(id)}).data('kind')`);
+      // Overlapping bezier lines mean the click can land on a neighbour of the intended candidate,
+      // so take the line the canvas actually selected as the subject and re-derive its kinds from
+      // that. Only accept it if it still has an absent kind to filter to; otherwise keep looking.
+      const landed = await evaluate(`(()=>{const sel=${CY}.edges('.inspected');if(sel.length!==1)return null;const e=sel[0];return {id:e.id(),kind:e.data('kind'),kinds:Object.keys(e.data('kindCounts')||{})};})()`);
+      if (!landed) continue;
+      const absentOnLanded = edgeKinds.find(k => !landed.kinds.includes(k));
+      if (!absentOnLanded) continue;
+      clickedId = landed.id; clickedKind = landed.kind; otherKind = absentOnLanded;
       break;
     }
   }
-  assert.ok(clickedId, 'a real pointer click landed on an edge for the filter-survival case');
-  const otherKind = edgeKinds.find(k => k !== clickedKind);
-  assert.ok(otherKind, 'fixture must expose at least two relationship kinds for this case');
+  assert.ok(clickedId, 'a real pointer click landed on an edge (with at least one kind it does not contain) for the filter-survival case');
   const before = await state();
   await evaluate(`{const s=document.querySelector('select[aria-label="Relationship kind"]');s.value=${JSON.stringify(otherKind)};s.dispatchEvent(new Event('change',{bubbles:true}));}`);
   await pause(700);
@@ -547,6 +571,30 @@ console.log(`mode: ${mode}`);
   ];
   record('inspect-edge-survives-filter-change', before, after, d, { baseline: checks, acceptance: checks });
   await screenshot('s5b-edge-survives-filter');
+
+  // Companion case, the other half of the same rule: filtering to a kind the inspected line DOES
+  // contain must keep the line drawn (thinner, fewer occurrences) and must NOT show the
+  // filtered-out notice. Without this, a regression that hid contained lines -- or raised a
+  // spurious notice -- would pass, because the case above only ever filters to an absent kind.
+  const containedBefore = await state();
+  await evaluate(`{const s=document.querySelector('select[aria-label="Relationship kind"]');s.value=${JSON.stringify(clickedKind)};s.dispatchEvent(new Event('change',{bubbles:true}));}`);
+  await pause(700);
+  const contained = await evaluate(`(()=>{const e=${CY}.getElementById(${JSON.stringify(clickedId)});return {drawn:e.length>0,occurrences:e.length?e.data('occurrenceCount'):0,width:e.length?parseFloat(e.style('width')):0,selected:e.length?e.hasClass('inspected'):false,notice:document.querySelector('.inspector .notice')?.textContent||'',idle:!!document.querySelector('.inspector.idle'),subject:(document.querySelector('.inspector-top')?.textContent||'').replace(/\\s+/g,' ').trim()};})()`);
+  const containedAfter = await state();
+  const cd = delta(containedBefore, containedAfter);
+  cd.filteredToKind = clickedKind; cd.line = contained;
+  const containedChecks = [
+    ['the line keeps its identity and stays drawn', contained.drawn],
+    ['the same line is still the selected one', contained.selected],
+    ['it still carries at least one occurrence of the kind filtered to', contained.occurrences >= 1],
+    ['no filtered-out notice, because the line is still shown', !contained.notice.includes('current relationship filter')],
+    ['inspector stays open, not idle', !contained.idle && contained.subject.includes('Relationship')],
+    ['no card moved', cd.survivorsMoved === 0],
+    ['camera preserved', !cd.zoomChanged && !cd.panChanged]
+  ];
+  record('inspect-edge-survives-filter-to-contained-kind', containedBefore, containedAfter, cd, { baseline: containedChecks, acceptance: containedChecks });
+  await screenshot('s5c-edge-survives-filter-to-contained-kind');
+
   await evaluate(`{const s=document.querySelector('select[aria-label="Relationship kind"]');s.value='ALL';s.dispatchEvent(new Event('change',{bubbles:true}));}`);
   await pause(500);
 }
@@ -1447,7 +1495,7 @@ console.log(`mode: ${mode}`);
 
 // ---------------------------------------------------------------------------
 // S19 — Step 5 review remediation B2 (UI-06): an inspected aggregate edge is level-scoped by
-// construction (aggregate:[source,target,kind,resolution] keys on THAT level's endpoints), so it
+// construction (aggregate:[source,target] keys on THAT level's endpoints), so it
 // can never resolve again at a different level. Before this fix, switching levels via the segmented
 // control left it "inspected" with nothing on screen matching it -- silently dangling rather than
 // either closing or showing a notice. The fix clears it via the same CLEAR_INSPECTION path Back

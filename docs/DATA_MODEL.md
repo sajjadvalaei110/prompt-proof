@@ -128,7 +128,10 @@ are preserved and can be explicitly refreshed.
 Additive API fields: graph edges expose `explanationStatus`; explanation responses
 can include `preExplanation { businessLogic, status: DRAFT|STALE, provenance }`;
 queue status exposes `synthesisStatus` and `errorMessage`. Consumers must not equate
-DRAFT with READY. A grouped edge is READY only when all occurrences are READY.
+DRAFT with READY. A grouped edge is READY when **any** of its occurrences is READY
+(superseding the original all-occurrences rule; see ADR 0003, Amendment 1). When no
+occurrence is READY, the least settled status present wins — FAILED > STALE > QUEUED >
+NOT_REQUESTED — so a failed occurrence is never masked by an unrequested one.
 
 ## 7. Resumable architecture stages (V005)
 

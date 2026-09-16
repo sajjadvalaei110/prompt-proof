@@ -6,6 +6,10 @@
 
 > The single-turn and oversized-input-failure policy below is superseded by
 > [ADR 0004](0004-bounded-architecture-batches.md). Other hierarchy decisions remain.
+>
+> The edge-aggregate sparkle rule below ("only if all of their occurrences are READY") is
+> superseded by [Amendment 1](#amendment-1-edge-aggregate-sparkle-is-any-occurrence) at the end of
+> this record. The original text is retained unchanged as the decision as it was taken.
 
 ## Decision
 
@@ -89,3 +93,31 @@ input invalidation. `HierarchicalMigrationTest` verifies V003→V004 upgrade beh
 The packaged Chromium smoke test uses an explicitly local mock provider and checks
 61 bulk symbols, edge on-demand requests, READY badges, reduced motion and viewport
 preservation. It does not establish live-model output quality.
+
+## Amendment 1: edge-aggregate sparkle is "any occurrence"
+
+- Status: Accepted
+- Date: 2026-09-16
+- Amends: the "Edge aggregates sparkle only if all of their occurrences are READY" rule above.
+
+**Rule.** A merged edge is READY when **any** of its occurrences is READY. When none is, the
+least settled status present wins: FAILED > STALE > QUEUED > NOT_REQUESTED.
+
+**Why the original rule could not hold.** Explanations are requested per *occurrence*, and one
+drawn line now merges every relationship between the same ordered (source, target) pair regardless
+of kind. A CALLS occurrence almost always also carries the DEPENDS_ON derived from it, so
+"every occurrence READY" made the badge effectively unreachable: explaining the call the user
+actually clicked still left the derived occurrence unrequested, and the line never sparkled.
+
+**Why the non-ready ordering matters.** The first implementation of the "any" rule collapsed any
+disagreement among non-ready occurrences to NOT_REQUESTED, which silently erased FAILED and STALE —
+a line whose explanation had failed rendered identically to one nobody had asked about, contradicting
+AGENTS.md ("Keep uncertainty, partial analysis and failed explanations visible"). Ranking the
+non-ready statuses keeps the worst one visible instead.
+
+**Consequences.** The badge means "at least one occurrence of this line has a ready explanation",
+not "this whole line is explained" — the inspector remains the place to see per-occurrence status,
+and its occurrence dropdown is what distinguishes the two. Implemented in
+`graphModel.ts` (`dominantExplanationStatus`, used by `aggregateEdges`); covered by
+`scripts/test-graph-model.mjs` and by the canvas-badge assertion in `scripts/verify-hierarchical-ui.mjs`,
+which asserts the sparkle while only the first occurrence is explained.

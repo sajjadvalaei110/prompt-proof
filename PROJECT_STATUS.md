@@ -1,7 +1,75 @@
 # Project status
-Last updated: 2026-09-14
+Last updated: 2026-09-16
 Active milestone: R6 — Developer comprehension redesign (in progress)
-Current revision: In-place card details (expand packages/classes) and resizable cards (user-requested; Step 6A unstarted)
+Current revision: R6 change-edges slice (one line per direction, directional selection emphasis,
+file-grouped evidence), on top of in-place card details (expand packages/classes) and resizable
+cards; Step 6A unstarted
+
+## Change-edges slice — complete
+
+Requested in `/home/sajjad/prompts/change-edges.md` (2026-09-16).
+
+1. **One line per direction.** `graphModel.ts` `aggregateEdges` now keys on the ordered
+   `(source, target)` pair after roll-up instead of `(source, target, kind, resolution)`. The drawing
+   is merged, the data is not: `occurrenceIds`/`occurrenceKinds` keep every row, `kindCounts` and
+   `resolutions` keep the breakdown, `kind` is the dominant kind, `resolution` the least certain one
+   present (uncertainty stays visible), and `strengthWidth = min(10, 1.2 + 1.5·log2(count))` drives
+   Cytoscape `width`. The ID is `aggregate:[source,target]`, so a relationship-filter change keeps the
+   same route (thinner) or removes it when no kind is left. Label and inspector show the kind breakdown;
+   occurrence options read "calls 2 of 4".
+2. **Directional selection emphasis.** `GraphCanvas.tsx`: inspecting a resource classes incident
+   routes `.flow-out` (sky blue) / `.flow-in` (red) and related resources `.rel-out` (light blue halo),
+   `.rel-in` (light red), `.rel-both` (purple) using Cytoscape `outline-*`. One throttled
+   `requestAnimationFrame` loop moves `line-dash-offset` (source → target) and pulses route underlay and
+   halo width; bypass styles are removed on every re-run/unmount, the phase survives graph polls, and
+   `prefers-reduced-motion` keeps static colors. Edge inspection keeps its previous teal emphasis.
+   Edge labels moved 11px off the line so short routes stay visible.
+3. **Evidence grouped by file.** Cause: a `DEPENDS_ON` occurrence stores one evidence row per call site
+   (`JavaParserAdapter`), so `SourceDialog` rendered the same file once per row. New
+   `POST /api/snapshots/{id}/relationships/source {ids}` (`SourceService.relationships`) returns one
+   entry per file with distinct, line-ordered ranges and the kinds covering each (≤5000 IDs, chunked
+   below SQLite's parameter limit, live-hash check once per file). `sourceEvidence.ts` also groups flat
+   rows, so the per-occurrence endpoint never repeats a file. "View source evidence" on a merged line
+   shows all its occurrences; "View selected occurrence only" keeps the single-occurrence view. The
+   inspector's occurrence picker now holds the chosen occurrence by ID: with endpoint-only route IDs a
+   filter change keeps the line but shrinks `occurrenceIds`, and an index would have silently switched
+   (or overrun) the explained/evidenced occurrence. It opens on the first occurrence with a ready
+   explanation. A merged line is badged ✦ READY when **any** occurrence is READY (previously every
+   occurrence in a kind-scoped group had to be): explain-all queues symbols only and a CALLS line almost
+   always also carries the derived DEPENDS_ON, so the old rule would have made the badge unreachable.
+   Evidence requests are capped client-side at the backend's 5000 IDs with an explicit notice; the
+   largest package-level line in the bundled fixtures has 69 occurrences (online-book-store).
+4. **Teaching page** `/home/sajjad/prompts/how-code-atlas-understands-relations.html` — written from the
+   extractor source; notes that only 6 of the 11 `RelationshipKind` values are produced today.
+
+Verification: `node scripts/test-graph-model.mjs` PASS (merged-route, reverse-direction, method-level,
+filter-identity and width cases replace the per-kind expectations); `node scripts/test-source-evidence.mjs`
+PASS (new); `test-explorer-view-state.mjs`, `test-focused-arrangement.mjs` PASS; `npx tsc -b` and
+`npm run build` PASS; `./gradlew test --tests dev.codeatlas.graph.SourceEvidenceGroupingIntegrationTest`
+PASS (new; asserts the per-occurrence endpoint repeats the file and the batch endpoint does not);
+`python3 scripts/verify_stable_graph_pipeline.py acceptance` PASS (34/34) after deliberately updating
+`inspect-edge-survives-filter-change` to filter to a kind the clicked line does not contain (filtering
+to a contained kind now correctly keeps the line drawn). Live Chromium run against the packaged jar on a
+5-class flow fixture: one line per ordered pair, mutual pair = 2 lines, stronger route renders wider,
+red/blue routes and red/blue/purple halos on the expected cards, dash offset and halo width change over
+time, deselect leaves no classes or bypass styles, Hub.java shown once with lines 8/10/11/16 highlighted
+for both the merged line and the single DEPENDS_ON occurrence, the chosen occurrence ("calls 4 of 4")
+survives a filter to CALLS with no filtered-out notice, zero page errors (`scripts/verify-change-edges-ui.mjs`
+against `test-fixtures/change-edges-fixture`). Evidence:
+`docs/evidence/change-edges/`.
+
+That browser suite is now self-contained: `python3 scripts/verify_change_edges_pipeline.py` picks its
+own ports, starts the jar and Chromium, analyzes an isolated **copy** of the fixture (SHA-256 checked
+before/after), and runs the suite — so change-edges regressions can fail CI instead of needing a
+hand-assembled snapshot ID. It additionally asserts what the first pass only assumed: the inspected
+line's endpoints are emphasized rather than dimmed, the dashes travel source → target (a *decreasing*
+`line-dash-offset`, not merely a changing one), leftover animation styles are detected through the
+public style API instead of Cytoscape's `_private` internals, and the three direction halos differ by
+`border-style` (solid / dashed / double) so direction survives a colour-vision deficiency.
+
+Merged with the in-place card details work below: routes now resolve to the deepest visible card
+inside an expanded container (upstream) *and* merge per ordered endpoint pair (this slice), so an
+expanded package's class connects to a collapsed package as one line carrying every kind.
 
 ## In-place card details and resizable cards — complete (uncommitted)
 
