@@ -54,6 +54,7 @@ node scripts/test-expansion-layout.mjs
 node scripts/test-node-card.mjs
 node scripts/test-focused-arrangement.mjs
 node scripts/test-graph-placement.mjs
+node scripts/test-source-evidence.mjs
 cd frontend && npm run build
 ```
 

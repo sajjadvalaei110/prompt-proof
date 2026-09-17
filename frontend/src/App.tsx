@@ -49,6 +49,11 @@ export default function App() {
   const [queue,setQueue]=useState<any>(null),[revision,setRevision]=useState(0),[profile,setProfile]=useState<any>(null);
   const [showOpen,setShowOpen]=useState(false);
   const navRef=useRef<HTMLElement>(null);
+  // Read inside a pointer-drag's long-lived closure instead of the `navWidth` captured when the drag
+  // started: a keyboard resize (Arrow/Home) mid-drag would otherwise be silently discarded by a
+  // cancel reverting to the pre-drag value rather than the latest one.
+  const navWidthRef=useRef(navWidth);
+  navWidthRef.current=navWidth;
   // The single clamp both the pointer and the keyboard path resize through, so the two can never
   // disagree about the panel's bounds (and both stay in step with .navigation's CSS min/max-width).
   const NAV_MIN=180,navMax=()=>window.innerWidth*0.7;
@@ -59,19 +64,34 @@ export default function App() {
   const currentNavWidth=()=>navRef.current?.getBoundingClientRect().width||navWidth||238;
   const persistNavWidth=()=>setNavWidth(w=>{try{if(w!=null)localStorage.setItem('navWidth',String(w));}catch{}return w;});
   const resetNavWidth=()=>{setNavWidth(null);try{localStorage.removeItem('navWidth');}catch{}};
+  // Sticky for a short window after a real drag: the browser can still deliver a native `dblclick`
+  // right after a quick click-drag-release-click sequence (two `pointerup`s close enough together),
+  // which would otherwise call resetNavWidth() and silently discard the drag the user just made.
+  const justDraggedNavRef=useRef(false);
   function startNavResize(e:React.PointerEvent<HTMLDivElement>){
     e.preventDefault();
     const handle=e.currentTarget,startX=e.clientX,startWidth=currentNavWidth();
     handle.setPointerCapture(e.pointerId);
-    let width=startWidth;
-    const onMove=(ev:PointerEvent)=>{width=clampNavWidth(startWidth+(ev.clientX-startX));navRef.current?.style.setProperty('--nav-width',`${width}px`);};
+    let width=startWidth,moved=false;
+    const onMove=(ev:PointerEvent)=>{
+      if(Math.abs(ev.clientX-startX)>3)moved=true;
+      width=clampNavWidth(startWidth+(ev.clientX-startX));
+      navRef.current?.style.setProperty('--nav-width',`${width}px`);
+      // React state (and the aria-valuenow it drives) does not update mid-drag -- keep the announced
+      // value live rather than frozen at the pre-drag width for the whole gesture (WCAG 2.1 SC 4.1.2).
+      handle.setAttribute('aria-valuenow',String(Math.round(width)));
+    };
     const finish=(cancel:boolean)=>{
       if(handle.hasPointerCapture(e.pointerId))handle.releasePointerCapture(e.pointerId);
       handle.removeEventListener('pointermove',onMove);
       handle.removeEventListener('pointerup',onUp);
       handle.removeEventListener('pointercancel',onCancel);
-      if(cancel){if(navWidth===null)navRef.current?.style.removeProperty('--nav-width');else navRef.current?.style.setProperty('--nav-width',`${navWidth}px`);}
-      else{setNavWidth(width);persistNavWidth();}
+      if(cancel){
+        const latest=navWidthRef.current,reverted=latest??currentNavWidth();
+        if(latest===null)navRef.current?.style.removeProperty('--nav-width');else navRef.current?.style.setProperty('--nav-width',`${latest}px`);
+        handle.setAttribute('aria-valuenow',String(Math.round(reverted)));
+      } else{setNavWidth(width);persistNavWidth();}
+      if(moved){justDraggedNavRef.current=true;setTimeout(()=>{justDraggedNavRef.current=false;},400);}
     };
     const onUp=()=>finish(false),onCancel=()=>finish(true);
     handle.addEventListener('pointercancel',onCancel);
@@ -258,8 +278,11 @@ export default function App() {
   useEffect(()=>{
     const key=(e:KeyboardEvent)=>{
       const {settings,source,active,journeys,clearSelection,setSearch}=latest.current;
-      const target=e.target as HTMLElement;
-      const editing=!!target.closest('input,textarea,select,[contenteditable="true"]');
+      // e.target is occasionally `document` itself (no element focused when the key was dispatched,
+      // seen from synthetic/CDP-driven keydown events), which has no `.closest` -- guard defensively
+      // rather than assume every keydown target is a real Element.
+      const target=e.target as Element|null;
+      const editing=!!target?.closest?.('input,textarea,select,[contenteditable="true"]');
       if((e.ctrlKey||e.metaKey)&&e.key==='k'){e.preventDefault();document.getElementById('global-search')?.focus();return;}
       if(settings||(!source&&document.querySelector('dialog[open]')))return;
       if((e.ctrlKey||e.metaKey)&&['z','y'].includes(e.key.toLowerCase())){
@@ -335,7 +358,7 @@ export default function App() {
   // anchors the focus at its existing stored coordinate so an unchanged camera keeps its screen
   // position fixed (no fit is performed). A no-op when `id` is absent from the currently displayed
   // graph -- matching the inspector button's own disabled condition (H3).
-  function arrangeAround(id:string){
+  function arrangeAround(id:string,collapse=false){
     if(!graph)return;
     // Arrangement moves top-level cards only. An expanded card takes part as its whole box and carries
     // everything inside it (nested expansions included) by the same offset; a card inside a container
@@ -357,7 +380,7 @@ export default function App() {
       const from=centerOf(n),dx=positions[n.id].x-from.x,dy=positions[n.id].y-from.y;
       for(const inner of projected.nodes)if(inner.containerId&&topOf(inner.id)===n.id&&geometry.positions[inner.id])(childPositions[inner.containerId]??={})[inner.id]={x:geometry.positions[inner.id].x+dx,y:geometry.positions[inner.id].y+dy};
     }
-    dispatchView({type:'ARRANGE_AROUND_RESOURCE',level,positions,childPositions,generation:viewState.generation});
+    dispatchView({type:'ARRANGE_AROUND_RESOURCE',level,positions,childPositions,generation:viewState.generation},false,collapse);
   }
   const boxOf=(k:AtlasNode):Box=>geometry.boxes[k.id]||boxOfCard({id:k.id,...cardSizeOf(k),...(geometry.positions[k.id]||{x:0,y:0})});
   // When card `n`'s box changes from `before` to `after` (expand, collapse, resize), cards to its right
@@ -525,7 +548,7 @@ export default function App() {
         {recentHistory.length>0&&<div className="recent-symbols"><h3>Recently viewed</h3>{recentHistory.map(h=>{const n=graph.nodes.find(x=>x.id===h.subjectId);return n?<button key={h.subjectId} onClick={()=>select(n)}>◷ {n.simpleName}</button>:null;})}</div>}
         <div className="workspace-summary"><strong>{name}</strong><span>{typeCount} types across {packages.length} packages</span><button className="text-button" disabled={busy} onClick={()=>analyze()}>↻ Re-analyze source</button></div>
       </aside>
-      <div className="nav-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize navigation panel. Use arrow keys, hold Shift for larger steps, Home to reset." tabIndex={0} aria-valuenow={Math.round(navWidth??currentNavWidth())} aria-valuemin={NAV_MIN} aria-valuemax={Math.round(navMax())} onPointerDown={startNavResize} onKeyDown={navResizeKeyDown} onDoubleClick={resetNavWidth} />
+      <div className="nav-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize navigation panel. Use arrow keys, hold Shift for larger steps, Home to reset." tabIndex={0} aria-valuenow={Math.round(navWidth??currentNavWidth())} aria-valuemin={NAV_MIN} aria-valuemax={Math.round(navMax())} onPointerDown={startNavResize} onKeyDown={navResizeKeyDown} onDoubleClick={()=>{if(justDraggedNavRef.current){justDraggedNavRef.current=false;return;}resetNavWidth();}} />
       <section className="workspace-content">
         {tab==='context'&&workspace?<ProjectDocuments key={workspace.id} workspaceId={workspace.id} onChanged={()=>setRevision(r=>r+1)}/>:tab==='routes'?<section className="entry-view"><div className="page-heading"><div><h1>Start with a request</h1><p>Follow an HTTP entry point into its handler and dependencies.</p></div></div>{routes.length?routes.map(r=>{const handler=graph.nodes.find(n=>n.id===r.symbol_version_id);return <button className="route-card" key={r.id} onClick={()=>{if(handler)(handler.kind==='PACKAGE'?viewClasses:viewMethods)(handler);}}><span className="tag">{r.http_method}</span><strong>{r.path}</strong><span>{handler?.simpleName||r.handler_qualified}</span><span>Explore ↗</span></button>;}):<div className="empty-state"><h2>No HTTP routes found</h2><p>Explore packages and classes to find this application's entry points.</p><button onClick={openCodeMap}>Open code map</button></div>}</section>:<>
           <div className="map-heading"><div className="breadcrumbs"><button onClick={openCodeMap}>{scopeCrumb}</button><span>/</span><span className="breadcrumb-level">{levelWord}</span>{node&&<><span>/</span><button onClick={()=>select(node)}>{node.simpleName}</button></>}</div><div className="page-heading"><div><h1>{node?node.simpleName:'Understand the whole system'}</h1><p>{node?'Follow the relationships around this part of the codebase.':`${typeCount} types across ${packages.length} packages. Choose a starting point.`}</p></div><button onClick={()=>{const entry=viewState.history[viewState.history.length-1];if(entry)dispatchView({type:'NAVIGATE_BACK',eligibleIds:eligibleFor(entry.level)});}} disabled={!viewState.history.length}>← Back</button></div>
@@ -539,8 +562,7 @@ export default function App() {
               const p=pendingInspectRef.current;
               const collapse=!!p&&p.tabId===active.id&&p.nodeId===id&&Date.now()-p.ts<500;
               pendingInspectRef.current=null;
-              dispatchView({type:'INSPECT_NODE',id},false,collapse);
-              arrangeAround(id);
+              arrangeAround(id,collapse);
               setMobilePane('details');
             }} onViewCode={n=>setSource({node:n,type:'symbol'})} restoreVersion={active.restoreVersion}/>}
           <div className="graph-legend"><span><i className="line-sample"/>Static dependency</span><span><i className="line-sample uncertain"/>Candidate / unresolved</span><span>{level==='METHOD'?'Method call occurrences':`${level==='PACKAGE'?'Package':'Class'} connections group occurrences by kind and resolution`}</span></div>

@@ -47,7 +47,7 @@ Selection dimming does not make a relationship filtered out.
 | Single-click a resource or tree label | Inspect; clicking the inspected resource again clears inspection | Preserved | Preserved |
 | Single-click an edge | Inspect evidence; clicking the inspected edge again clears inspection | Preserved | Preserved |
 | Double-click a canvas resource | Arrange the current map around that resource | May change | Keep the clicked resource at its previous screen location and preserve zoom |
-| Reorder map | Arrange the entire current map using its displayed edges | May change | Fit the result once, capped at readable card scale |
+| Reorder map *(not yet implemented — Steps 6-9)* | Arrange the entire current map using its displayed edges | May change | Fit the result once, capped at readable card scale |
 | Check/uncheck a class or package | Add/remove eligible resources and their edges | Survivors preserved; additions below the map | Preserved |
 | Show more | Append the next batch | Preserved | Preserved |
 | Change a relationship filter | Update displayed edges | Preserved | Preserved |

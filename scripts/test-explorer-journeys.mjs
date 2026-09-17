@@ -86,20 +86,37 @@ check('snapshot replacement clears closed tabs and history, rejects old callback
   assert.equal(active(s).past.length, 0); assert.equal(active(s).present.search, '');
   assert.ok(s.activeId > id);
 });
-check('double-click arrangement: collapse:true joins the preceding entry so one undo reverts the whole gesture', () => {
+// Mirrors App.tsx's real double-click path exactly (arrangeAround(id, collapse) -> a single
+// ARRANGE_AROUND_RESOURCE dispatch carrying `collapse`), not a stand-in field mutation -- a prior
+// version of this test drove `multiIds` by hand with `collapse:true` passed straight to `update()`,
+// which passed regardless of what App.tsx actually dispatched and would not have caught the real
+// defect: App.tsx used to re-dispatch INSPECT_NODE for the already-inspected node first (a no-op,
+// since explorerViewState's INSPECT_NODE case returns the identical state object when the subject is
+// unchanged), and journeysReducer's UPDATE case returns early on a no-op (`present === t.present`)
+// *before* it records `group` -- silently dropping the `collapse` flag that no-op dispatch carried.
+// The real ARRANGE_AROUND_RESOURCE dispatch that followed was then hardcoded to `collapse:false`
+// (arrangeAround took no collapse parameter at all), so it always pushed its own, second, undo entry.
+const arrange = (s, group, collapse) => update(s, group, j => ({ ...j, view: viewReduce(j.view, {
+  type: 'ARRANGE_AROUND_RESOURCE', level: 'PACKAGE', positions: { a: { x: 10, y: 20 } }, generation: j.view.generation,
+}) }), s.activeId, collapse);
+check('double-click arrangement: collapse:true on the real ARRANGE_AROUND_RESOURCE dispatch joins the preceding entry so one undo reverts the whole gesture', () => {
   let s = initJourneys(); const before = active(s).present;
   s = inspect(s, 1, 'a'); // click 1: a plain single click, its own sealed undo step (group already closed by the time dbltap fires -- a real macrotask gap separates the two physical clicks)
   assert.equal(active(s).past.length, 1);
-  // dbltap: a fresh group (simulating that gap) explicitly marked collapse:true by the caller, once
-  // it has verified this is the second half of the same double-click on the same node -- must extend
-  // click 1's entry instead of opening a new one.
-  s = update(s, 2, j => ({ ...j, multiIds: ['a'] }), s.activeId, true);
-  assert.equal(active(s).past.length, 1, 'a collapsed update must not push a second history entry');
-  // The coalesced ARRANGE_AROUND_RESOURCE dispatch that follows in the same task/group still merges normally.
-  s = update(s, 2, j => ({ ...j, multiIds: ['a', 'b'] }));
-  assert.equal(active(s).past.length, 1);
+  // dbltap: App.tsx's onArrangeAroundResource recognizes this as the second half of the same
+  // double-click on the same node and calls arrangeAround(id, true) -- a fresh group (simulating the
+  // macrotask gap) but explicitly marked collapse, so it must extend click 1's entry, not open a new one.
+  s = arrange(s, 2, true);
+  assert.equal(active(s).past.length, 1, 'a collapsed arrangement dispatch must not push a second history entry');
   s = reduce(s, { type: 'UNDO' });
   assert.strictEqual(active(s).present, before, 'one undo must fully revert the whole double-click gesture');
+});
+check('without collapse, the same real dispatch shape still gets its own separate undo step (proves the check above is not vacuous)', () => {
+  let s = initJourneys();
+  s = inspect(s, 1, 'a');
+  assert.equal(active(s).past.length, 1);
+  s = arrange(s, 2, false);
+  assert.equal(active(s).past.length, 2, 'an uncollapsed arrangement in a fresh group must push its own entry');
 });
 check('without collapse, an unrelated later group still gets its own separate undo step', () => {
   let s = inspect(initJourneys(), 1, 'x');

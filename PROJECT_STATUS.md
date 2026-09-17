@@ -37,8 +37,8 @@ Verification (exact commands and outcomes):
 
 - `npm run build` in `frontend/` — PASS (TypeScript + production Vite bundle).
   Existing >500 kB bundle-size warning remains.
-- `node scripts/test-explorer-journeys.mjs` — PASS, 10 history checks.
-- `node scripts/test-explorer-view-state.mjs` — PASS, 55 checks.
+- `node scripts/test-explorer-journeys.mjs` — PASS, 13 history checks.
+- `node scripts/test-explorer-view-state.mjs` — PASS, 59 checks.
 - `node scripts/test-graph-model.mjs`, `node scripts/test-expansion-layout.mjs`,
   `node scripts/test-node-card.mjs`, `node scripts/test-focused-arrangement.mjs`,
   `node scripts/test-graph-placement.mjs` — all PASS (focused arrangement 12,

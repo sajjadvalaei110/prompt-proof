@@ -19,7 +19,7 @@ const page=await(await fetch(debug+'/json/new?about:blank',{method:'PUT'})).json
 const socket=new WebSocket(page.webSocketDebuggerUrl);
 await new Promise((resolve,reject)=>{socket.onopen=resolve;socket.onerror=reject;});
 let sequence=0;const pending=new Map();const errors=[];
-socket.onmessage=event=>{const message=JSON.parse(event.data);if(message.id){const wait=pending.get(message.id);if(wait){pending.delete(message.id);message.error?wait.reject(Error(JSON.stringify(message.error))):wait.resolve(message.result);}}else if(message.method==='Runtime.exceptionThrown'){errors.push(message.params.exceptionDetails.text);}};
+socket.onmessage=event=>{const message=JSON.parse(event.data);if(message.id){const wait=pending.get(message.id);if(wait){pending.delete(message.id);message.error?wait.reject(Error(JSON.stringify(message.error))):wait.resolve(message.result);}}else if(message.method==='Runtime.exceptionThrown'){const d=message.params.exceptionDetails;errors.push(`${d.text}: ${d.exception?.description||JSON.stringify(d)}`);}};
 function cdp(method,params={}){const id=++sequence;return new Promise((resolve,reject)=>{pending.set(id,{resolve,reject});socket.send(JSON.stringify({id,method,params}));});}
 async function evaluate(expression){const result=await cdp('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(result.exceptionDetails)throw Error(JSON.stringify(result.exceptionDetails));return result.result.value;}
 async function screenshot(name){await pause(1600);const result=await cdp('Page.captureScreenshot',{format:'png'});await fs.writeFile(`${output}/${name}.png`,Buffer.from(result.data,'base64'));}
@@ -38,17 +38,19 @@ await until(()=>evaluate(`document.querySelector('.architecture-draft')?.textCon
 assert.equal(await evaluate(`document.querySelectorAll('.inspector-top .gemini-badge').length`),0);
 // The package tree owns the remaining navigation height, renders a dotted-name trie, and scrolls.
 assert.equal(await evaluate(`(()=>{const tree=document.querySelector('.scope-tree'),list=document.querySelector('.package-tree');const t=getComputedStyle(tree),l=getComputedStyle(list);return t.display==='flex'&&t.flexDirection==='column'&&t.minHeight==='0px'&&l.overflowY==='auto'&&l.minHeight==='0px'})()`),true,'scope tree flex/overflow chain');
-assert.equal(await evaluate(`document.querySelectorAll('.package-tree details[open]').length<document.querySelectorAll('.package-tree details').length`),true,'branching namespaces start collapsed');
-await evaluate(`[...document.querySelectorAll('.package-tree details:not([open])')].forEach(branch=>branch.querySelector(':scope > summary').click())`);
-await until(()=>evaluate(`document.querySelectorAll('.package-tree details[open]').length===document.querySelectorAll('.package-tree details').length`),'expand overflow fixture');
+assert.equal(await evaluate(`document.querySelectorAll('.package-tree .tree-disclosure[aria-expanded="true"]').length<document.querySelectorAll('.package-tree .tree-branch').length`),true,'branching namespaces start collapsed');
+// A collapsed branch's children are not in the DOM at all (unlike native <details>, which always
+// keeps them there): each click can reveal new, still-collapsed grandchildren, so clicking once and
+// polling separately can never converge. Re-click on every poll attempt instead.
+await until(()=>evaluate(`(()=>{[...document.querySelectorAll('.package-tree .tree-disclosure[aria-expanded="false"]')].forEach(b=>b.click());return document.querySelectorAll('.package-tree .tree-disclosure[aria-expanded="true"]').length===document.querySelectorAll('.package-tree .tree-branch').length})()`),'expand overflow fixture');
 assert.equal(await evaluate(`document.querySelector('.package-tree').scrollHeight>document.querySelector('.package-tree').clientHeight`),true,'large package tree overflows panel');
 assert.equal(await evaluate(`(()=>{const list=document.querySelector('.package-tree');list.scrollTop=160;return list.scrollTop>0})()`),true,'package tree scrolls internally');
-assert.deepEqual(await evaluate(`(()=>{const names=[];let branch=document.querySelector('.scope-row-namespace');for(let i=0;i<4&&branch;i++){names.push(branch.querySelector(':scope > summary .scope-label').textContent.trim());branch=branch.querySelector(':scope > div > .scope-row-namespace, :scope > div > .scope-row-package')}return names})()`),['com','example','overflow','area00'],'dotted package nesting');
+assert.deepEqual(await evaluate(`(()=>{const names=[];let branch=document.querySelector('.scope-row-namespace');for(let i=0;i<4&&branch;i++){names.push(branch.querySelector(':scope > .scope-row-package-row .scope-label').textContent.trim());branch=branch.querySelector(':scope > .tree-branch-children > .scope-row-namespace, :scope > .tree-branch-children > .scope-row-package')}return names})()`),['com','example','overflow','area00'],'dotted package nesting');
 await evaluate(`document.querySelector('.package-tree').scrollTop=0`);
-const rootCheckbox=`document.querySelector('.scope-row-namespace>summary .scope-checkbox')`;
+const rootCheckbox=`document.querySelector('.scope-row-namespace .scope-row-package-row .scope-checkbox')`;
 await evaluate(`document.querySelector('.scope-toolbar button:nth-of-type(2)').click()`);
 assert.equal(await evaluate(`${rootCheckbox}.checked||${rootCheckbox}.indeterminate`),false,'Clear unchecks namespace');
-await evaluate(`document.querySelector('button.scope-label[title="com.example.spring.controller"]').closest('summary').querySelector('.scope-checkbox').click()`);
+await evaluate(`document.querySelector('.scope-label[title="com.example.spring.controller"]').closest('.scope-row-package-row').querySelector('.scope-checkbox').click()`);
 assert.equal(await evaluate(`${rootCheckbox}.indeterminate`),true,'ancestor namespace becomes indeterminate');
 await evaluate(`${rootCheckbox}.click()`);
 assert.equal(await evaluate(`${rootCheckbox}.checked`),false,'clicking an indeterminate namespace clears descendants');
@@ -145,8 +147,7 @@ assert.equal(await evaluate(`getComputedStyle(document.querySelector('.inspector
 await cdp('Emulation.setDeviceMetricsOverride',{width:430,height:900,deviceScaleFactor:1,mobile:false});
 await evaluate(`[...document.querySelectorAll('.mobile-tabs button')].find(button=>button.textContent==='explorer').click()`);
 await screenshot('narrow-scope-tree');
-await evaluate(`[...document.querySelectorAll('.package-tree details:not([open])')].forEach(branch=>branch.querySelector(':scope > summary').click())`);
-await until(()=>evaluate(`document.querySelectorAll('.package-tree details[open]').length===document.querySelectorAll('.package-tree details').length`),'expand narrow overflow fixture');
+await until(()=>evaluate(`(()=>{[...document.querySelectorAll('.package-tree .tree-disclosure[aria-expanded="false"]')].forEach(b=>b.click());return document.querySelectorAll('.package-tree .tree-disclosure[aria-expanded="true"]').length===document.querySelectorAll('.package-tree .tree-branch').length})()`),'expand narrow overflow fixture');
 assert.equal(await evaluate(`document.querySelector('.package-tree').scrollHeight>document.querySelector('.package-tree').clientHeight`),true,'narrow package tree scrolls');
 await evaluate(`[...document.querySelectorAll('.mobile-tabs button')].find(button=>button.textContent==='map').click()`);
 await screenshot('narrow-edge-ready');

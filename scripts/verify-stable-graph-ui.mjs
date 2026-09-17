@@ -109,7 +109,16 @@ const STATE = `(()=>{
     banner:document.querySelector('.scope-banner-text span')?.textContent||null,
     showMore:document.querySelector('.show-more')?.textContent||null,
     inspecting:document.querySelector('.inspecting-chip')?.textContent||null,
-    scopeChecks:[...document.querySelectorAll('.scope-checkbox')].map(i=>i.checked?'c':i.indeterminate?'i':'u').join(''),
+    // Keyed by each row's stable qualified name (its .scope-label title), not DOM order/position: a
+    // collapsed branch's rows are not in the DOM at all (unlike the native <details> this tree used
+    // to render, whose rows always existed there regardless of open state), so inspecting a search
+    // result can reveal(open) an unrelated branch and change which checkboxes exist in the page --
+    // a tree-visibility side effect, not a scope change. delta() below only compares rows present in
+    // both snapshots, so a newly-revealed or newly-hidden row is ignored rather than read as a change.
+    scopeChecks:Object.fromEntries([...document.querySelectorAll('.scope-row-class, .scope-row-package-row')].map(row=>{
+      const label=row.querySelector('.scope-label'), cb=row.querySelector('.scope-checkbox');
+      return [label.getAttribute('title'), cb.checked?'c':cb.indeterminate?'i':'u'];
+    })),
     inspectorOpen:!!document.querySelector('.inspector-top'),
     inspectorSubject:(document.querySelector('.inspector-top')?.textContent||'').replace(/\\s+/g,' ').trim().slice(0,90),
     canvasBox:(()=>{const b=document.querySelector('.graph-canvas').getBoundingClientRect();return{w:Math.round(b.width),h:Math.round(b.height)};})()
@@ -145,7 +154,7 @@ function delta(before, after) {
     edgeCountBefore: before.edgeIds.length, edgeCountAfter: after.edgeIds.length,
     levelBefore: before.level, levelAfter: after.level,
     showMoreBefore: before.showMore, showMoreAfter: after.showMore,
-    scopeChanged: before.scopeChecks !== after.scopeChecks
+    scopeChanged: Object.keys(before.scopeChecks).some(k => Object.hasOwn(after.scopeChecks, k) && after.scopeChecks[k] !== before.scopeChecks[k])
   };
 }
 
@@ -609,7 +618,7 @@ console.log(`mode: ${mode}`);
   // Deliberately start without `service`: its classes carry the highest degree, so adding it
   // later is the case where degree re-ranking can evict already displayed classes.
   for (const pkg of ['domain', 'util', 'external', 'repository']) {
-    await evaluate(`(()=>{const label=[...document.querySelectorAll('.scope-row-package>summary .scope-label')].find(b=>(b.getAttribute('title')||'').endsWith('.${pkg}'));if(!label)throw Error('missing package ${pkg}');label.closest('summary').querySelector('.scope-checkbox').click();return true})()`);
+    await evaluate(`(()=>{const label=[...document.querySelectorAll('.scope-row-package .scope-row-package-row .scope-label')].find(b=>(b.getAttribute('title')||'').endsWith('.${pkg}'));if(!label)throw Error('missing package ${pkg}');label.closest('.scope-row-package-row').querySelector('.scope-checkbox').click();return true})()`);
     await pause(250);
   }
   const shown = await revealClasses(36);
@@ -622,7 +631,7 @@ console.log(`mode: ${mode}`);
   await probe();
   await resetCounters();
   const before = await state();
-  await evaluate(`(()=>{const label=[...document.querySelectorAll('.scope-row-package>summary .scope-label')].find(b=>(b.getAttribute('title')||'').endsWith('.service'));label.closest('summary').querySelector('.scope-checkbox').click();return true})()`);
+  await evaluate(`(()=>{const label=[...document.querySelectorAll('.scope-row-package .scope-row-package-row .scope-label')].find(b=>(b.getAttribute('title')||'').endsWith('.service'));label.closest('.scope-row-package-row').querySelector('.scope-checkbox').click();return true})()`);
   await pause(900);
   const after = await state();
   const d = delta(before, after);
@@ -650,7 +659,7 @@ console.log(`mode: ${mode}`);
 
   await resetCounters();
   const beforeRemove = await state();
-  await evaluate(`(()=>{const label=[...document.querySelectorAll('.scope-row-package>summary .scope-label')].find(b=>(b.getAttribute('title')||'').endsWith('.service'));label.closest('summary').querySelector('.scope-checkbox').click();return true})()`);
+  await evaluate(`(()=>{const label=[...document.querySelectorAll('.scope-row-package .scope-row-package-row .scope-label')].find(b=>(b.getAttribute('title')||'').endsWith('.service'));label.closest('.scope-row-package-row').querySelector('.scope-checkbox').click();return true})()`);
   await pause(900);
   const afterRemove = await state();
   const dr = delta(beforeRemove, afterRemove);
@@ -1194,7 +1203,7 @@ console.log(`mode: ${mode}`);
   await reload();
   await evaluate(`document.querySelector('.scope-toolbar button:nth-of-type(2)').click()`); // Clear
   await pause(300);
-  await evaluate(`(()=>{const label=[...document.querySelectorAll('.scope-row-package>summary .scope-label')].find(b=>(b.getAttribute('title')||'').endsWith('.domain'));label.closest('summary').querySelector('.scope-checkbox').click();return true})()`);
+  await evaluate(`(()=>{const label=[...document.querySelectorAll('.scope-row-package .scope-row-package-row .scope-label')].find(b=>(b.getAttribute('title')||'').endsWith('.domain'));label.closest('.scope-row-package-row').querySelector('.scope-checkbox').click();return true})()`);
   await pause(400);
   await clickLevel('Classes');
   await until(async () => (await evaluate(`${CY}.nodes().length`)) >= 1, 'domain-only classes displayed');
@@ -1253,6 +1262,14 @@ console.log(`mode: ${mode}`);
   const targetId = before12.ids[5];
   const targetNode = graph.nodes.find(n => n.id === targetId);
   assert.ok(targetNode, 'the target displayed class resolves to a real fixture node');
+  // A collapsed branch's children are not in the DOM at all (unlike the native <details> this tree
+  // used to render, whose children always existed there regardless of the `open` attribute), so the
+  // target class row may not exist yet. Expand every branch first; a click can reveal further
+  // still-collapsed grandchildren, so re-click on every poll attempt until none remain.
+  await until(() => evaluate(`(()=>{
+    [...document.querySelectorAll('.package-tree .tree-disclosure[aria-expanded="false"]')].forEach(b=>b.click());
+    return document.querySelectorAll('.package-tree .tree-disclosure[aria-expanded="false"]').length===0;
+  })()`), 'expand package tree to reach the target class');
   const toggleClassCheckbox = () => evaluate(`(()=>{
     const label=[...document.querySelectorAll('.scope-row-class .scope-label')].find(b=>b.getAttribute('title')===${JSON.stringify(targetNode.qualifiedName)});
     if(!label) return false;
@@ -1465,7 +1482,7 @@ console.log(`mode: ${mode}`);
   // legitimate 0 -> >0... no, 1 node at mount, which the *existing* mount-time effect run already
   // handles regardless of this fix (a fresh mount always runs the effect once). The actual case
   // under test is the *subsequent* switch to Methods below, on this same already-mounted instance.
-  await evaluate(`(()=>{const label=[...document.querySelectorAll('.scope-row-package>summary .scope-label')].find(b=>(b.getAttribute('title')||'').endsWith('.marker'));if(!label)throw Error('missing package marker');label.closest('summary').querySelector('.scope-checkbox').click();return true})()`);
+  await evaluate(`(()=>{const label=[...document.querySelectorAll('.scope-row-package .scope-row-package-row .scope-label')].find(b=>(b.getAttribute('title')||'').endsWith('.marker'));if(!label)throw Error('missing package marker');label.closest('.scope-row-package-row').querySelector('.scope-checkbox').click();return true})()`);
   await pause(400);
   await probe(); // (re-)register instrumentation on whatever cy instance is currently mounted
   await clickLevel('Methods');
@@ -1473,7 +1490,7 @@ console.log(`mode: ${mode}`);
   await resetCounters();
   const before = await state();
   assert.equal(before.ids.length, 0, 'Methods view starts genuinely empty: the sole in-scope package has no methods');
-  await evaluate(`(()=>{const label=[...document.querySelectorAll('.scope-row-package>summary .scope-label')].find(b=>(b.getAttribute('title')||'').endsWith('.util'));if(!label)throw Error('missing package util');label.closest('summary').querySelector('.scope-checkbox').click();return true})()`);
+  await evaluate(`(()=>{const label=[...document.querySelectorAll('.scope-row-package .scope-row-package-row .scope-label')].find(b=>(b.getAttribute('title')||'').endsWith('.util'));if(!label)throw Error('missing package util');label.closest('.scope-row-package-row').querySelector('.scope-checkbox').click();return true})()`);
   await pause(900);
   const after = await state();
   const d = delta(before, after);

@@ -131,8 +131,11 @@ branches. Closing a tab retains its history among the ten most recently closed t
 entry (up to 200 per tab). Initial camera fitting updates the baseline without creating
 an undo step. Pending camera changes flush before navigation commands. Tab IDs are never
 reused across snapshot resets, so an old callback cannot edit a replacement snapshot.
-The active pane remounts on tab switches and undo/redo to restore saved widget state;
-ordinary inspection and filtering still preserve the mounted canvas.
+`<main>` is keyed on the active tab's ID, so switching tabs remounts it and restores that
+tab's saved widget state. Undo/redo does not remount it (that would drop keyboard focus
+from the navigation pane or inspector): only `GraphCanvas` consumes a `restoreVersion`
+counter, via its own effect, to resync Cytoscape's live positions/camera to the restored
+tab state. Ordinary inspection and filtering preserve the mounted canvas untouched.
 
 Renderer inputs must not alias saved state: Cytoscape retains and mutates coordinates
 passed to `add()`, so `GraphCanvas` copies positions at that boundary. Parser graph data,

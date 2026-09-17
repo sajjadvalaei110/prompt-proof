@@ -5,7 +5,9 @@
 See [Exploration tabs](EXPLORATION_TABS.md) for the behavior, boundaries and browser
 setup. `node scripts/test-explorer-journeys.mjs` verifies grouped updates, independent
 tabs, cloned past/future branches, close/reopen, retention bounds, initial camera
-baseline and stale callbacks across snapshot resets (10 checks).
+baseline, stale callbacks across snapshot resets, and that a double-click arrangement's
+`collapse:true` dispatch joins the preceding history entry while an uncollapsed one still
+gets its own (13 checks).
 
 `APP=http://127.0.0.1:5198 node scripts/verify-explorer-journeys.mjs /tmp/atlas-journey-fixture`
 exercises a real isolated backend and production frontend in Chromium (42 checks).

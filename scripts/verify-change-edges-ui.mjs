@@ -37,12 +37,14 @@ assert.equal(new Set(pairKeys).size,pairKeys.length,'no ordered pair has more th
 assert.ok(pairKeys.includes('Hub->Peer')&&pairKeys.includes('Peer->Hub'),'mutual relation draws exactly two lines');
 const hubDep=results.edges.find(e=>e.s==='Hub'&&e.t==='Dep'),peerHub=results.edges.find(e=>e.s==='Peer'&&e.t==='Hub');
 assert.ok(hubDep.rendered>peerHub.rendered,'stronger relation renders thicker');
-// Arrange around Hub for a readable picture (double-click), then single-click to inspect.
-let hub=await nodePoint('Hub');
+// Arrange around Hub for a readable picture (double-click). The double-click's own first tap
+// already inspects Hub and it stays inspected through the arrangement -- a follow-up single click
+// here would land on an already-inspected node and only arm App.tsx's 250ms re-click deselect timer
+// (added for a real double-click's second tap to cancel), silently clearing the very selection this
+// check reads a moment later.
+const hub=await nodePoint('Hub');
 await click(hub.x,hub.y,1);await click(hub.x,hub.y,2);await pause(800);
 await evaluate(`document.querySelector('.zoom-controls button:last-child').click()`);await pause(700);
-hub=await nodePoint('Hub');
-await click(hub.x,hub.y,1);await pause(700);
 results.selection=await evaluate(`(()=>{const cy=${CY};const cls=c=>['flow-out','flow-in','rel-out','rel-in','rel-both','muted'].filter(k=>c.hasClass(k));return {nodes:cy.nodes().map(n=>({n:n.data('simpleName'),c:cls(n),outline:n.style('outline-color'),border:n.style('border-color'),borderStyle:n.style('border-style')})),edges:cy.edges().map(e=>({e:e.source().data('simpleName')+'->'+e.target().data('simpleName'),c:cls(e),color:e.style('line-color')}))};})()`);
 const nodeCls=n=>results.selection.nodes.find(x=>x.n===n).c, edgeCls=e=>results.selection.edges.find(x=>x.e===e).c;
 assert.ok(edgeCls('Hub->Dep').includes('flow-out')&&edgeCls('Hub->Peer').includes('flow-out'),'outgoing lines are flow-out');
