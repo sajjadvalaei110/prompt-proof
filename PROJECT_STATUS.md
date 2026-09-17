@@ -1,10 +1,78 @@
 # Project status
 Last updated: 2026-09-16
 Active milestone: R6 — Developer comprehension redesign (in progress)
-Current revision: R6 change-edges slice (one line per direction, directional selection emphasis,
-file-grouped evidence), on top of in-place card details (expand packages/classes) and resizable
-cards; Step 6A unstarted
+Current revision: Exploration tabs, per-tab undo/redo and selection controls (final
+verification), merged on top of the R6 change-edges slice (one line per direction,
+directional selection emphasis, file-grouped evidence), in-place card details (expand
+packages/classes) and resizable cards; Step 6A remains unstarted
 
+
+## Exploration tabs and per-tab history — final verification (2026-09-16)
+
+Resumed the unfinished tab/history implementation already present in the worktree.
+Bounded R6 acceptance criterion: branch an exploration and undo/redo its UI actions
+without losing its map or changing another tab or backend data.
+
+- Independent **New tab**, **Clone tab**, close and **Reopen closed tab** controls.
+  Each tab owns scope, level pages, geometry, expanded cards, inspection/Back history,
+  tree state, search, relationship filter, source-dialog subject, occurrence selection,
+  multi-selection, pane controls, minimap and full-screen preference. Clones inherit
+  both history branches. History is bounded to 200 actions and ten closed tabs.
+- `explorerJourney.ts` wraps the existing view reducer; `useExplorerJourneys.ts` groups
+  synchronous changes from one UI action. Initial fit records a baseline; camera
+  debounces flush before pointer/keyboard actions and tab/history commands. Snapshot
+  replacement clears history and never reuses tab IDs, rejecting stale callbacks.
+- **Clear selection**, empty canvas, Escape and a repeated resource/edge click clear
+  inspection. Escape clears inspection and multi-selection atomically. Undo/redo
+  shortcuts leave native text editing alone. The clear button occupies a permanent
+  slot above the panes, so revealing it cannot move the map between double-clicks.
+- Fixed a renderer ownership defect exposed by undo: Cytoscape mutates the coordinate
+  objects passed to `add()`. The adapter now copies them, preserving historical and
+  cloned-tab positions through expansion, resizing and dragging. Browser fullscreen
+  is owned by App above the keyed canvas, so undo inside full screen keeps it open.
+- Architecture and interaction docs updated; behavior, boundaries and browser setup
+  are documented in `docs/EXPLORATION_TABS.md` and `docs/TESTING.md`.
+
+Verification (exact commands and outcomes):
+
+- `npm run build` in `frontend/` — PASS (TypeScript + production Vite bundle).
+  Existing >500 kB bundle-size warning remains.
+- `node scripts/test-explorer-journeys.mjs` — PASS, 10 history checks.
+- `node scripts/test-explorer-view-state.mjs` — PASS, 55 checks.
+- `node scripts/test-graph-model.mjs`, `node scripts/test-expansion-layout.mjs`,
+  `node scripts/test-node-card.mjs`, `node scripts/test-focused-arrangement.mjs`,
+  `node scripts/test-graph-placement.mjs` — all PASS (focused arrangement 12,
+  placement 9; remaining suites print named assertion groups).
+- `APP=http://127.0.0.1:5198 node scripts/verify-explorer-journeys.mjs /tmp/atlas-journey-fixture`
+  — 42/42 PASS on the final production frontend.
+  Real isolated backend on 8095, production Vite preview on 5198 and Chromium CDP on
+  9333; no model calls. Desktop and 375 px screenshots inspected. Final report and
+  screenshots are retained in `docs/evidence/explorer-journeys/`.
+- `APP=http://127.0.0.1:5198 OUT=build/journey-card-expansion node docs/evidence/card-expansion/browser-check.mjs /tmp/atlas-journey-fixture`
+  — PASS, 35/35, including nested expansion, container dragging and Escape mid-resize.
+- `node scripts/verify-stable-graph-ui.mjs /tmp/atlas-journey-stable-config.json`
+  — final rerun in progress. Config points at production preview 5198, independent
+  Chromium CDP 9334, a temporary copy of the 75-type fixture and output directory
+  `build/journey-stable-graph/`.
+- Failures used to validate fixes: expansion/resize undo corrupted stored positions;
+  separate Escape listeners left inspection selected; canvas remount exited full
+  screen; the clear-selection button wrapped the banner and broke two double-click
+  scenarios (3 assertions). Those checks were retained. An initial temporary Vite
+  dev config failed to resolve react-refresh; verification moved to the production
+  build. Two earlier runs were interrupted by continuation turns and are not counted
+  as completed checks. One stable-graph rerun also stopped when its existing pointer
+  edge picker missed every candidate; the next run passed that scenario.
+- `git diff --check` — PASS.
+- Skipped `./gradlew test`, packaging, and live/hierarchical explanation verification:
+  no backend, schema, provider or packaging changes; this is an exploration UI slice.
+  Existing built backend JAR was used with an isolated temporary database.
+
+Limits: page-session/snapshot history only; no persistence over reload or re-analysis.
+Backend operations, settings and document edits are outside undo. Scroll offsets,
+text selection, transient menus and explanation disclosures are not saved. Native
+browser fullscreen may require a user gesture; the map overlay still restores.
+The wider R6 milestone and stable-map Steps 6–10 remain pending. `docs/BUILD_BRIEF.md`
+is absent; `docs/BUILD.md` is the product specification identified by the plan.
 ## Change-edges slice — complete
 
 Requested in `/home/sajjad/prompts/change-edges.md` (2026-09-16).
@@ -70,7 +138,6 @@ public style API instead of Cytoscape's `_private` internals, and the three dire
 Merged with the in-place card details work below: routes now resolve to the deepest visible card
 inside an expanded container (upstream) *and* merge per ordered endpoint pair (this slice), so an
 expanded package's class connects to a collapsed package as one line carrying every kind.
-
 ## In-place card details and resizable cards — complete (uncommitted)
 
 User request (2026-09-14): a details button on package cards that shows their classes with every

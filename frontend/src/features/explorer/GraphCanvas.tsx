@@ -44,6 +44,13 @@ const ANIMATED_STYLES = 'line-dash-offset underlay-opacity outline-opacity outli
 export interface Camera { zoom: number; pan: Point }
 
 interface Props {
+  multiIds: string[];
+  onMultiIdsChange: (value: React.SetStateAction<string[]>) => void;
+  mapOpen: boolean;
+  onMapOpenChange: (open: boolean) => void;
+  fullscreen: boolean;
+  onFullscreenChange: (open: boolean) => void;
+  onClearSelection: () => void;
   nodes: AtlasNode[]; edges: AtlasEdge[];
   /** Card-center model coordinates for the currently displayed set, owned by explorerViewState. A
    * missing entry (should not normally happen once App always supplies `placement`) falls back to
@@ -78,12 +85,16 @@ interface Props {
   /** A resize-grip drag completed on an expanded card's box; the size excludes the box's padding. */
   onResizeContainer: (id: string, size: CardSize) => void;
   /** The canvas settled on a new pan/zoom (debounced real movement, or the one-time initial fit). */
-  onCameraChange: (camera: Camera) => void;
+  onCameraChange: (camera: Camera, initial?: boolean) => void;
   /** Step 5 (Appendix B): the dedicated focused-arrangement command, distinct from inspection and
    * level navigation. Invoked only by a real double-click (`dbltap`, below) -- never by single tap. */
   onArrangeAroundResource: (id: string) => void;
   /** Quick code: opens the source dialog for a class/method card from its on-card </> button. */
   onViewCode: (node: AtlasNode) => void;
+  /** Increments on every undo/redo (App no longer remounts the canvas for those). Used only to
+   * dismiss transient pointer-interaction UI (context menu, edge hover) a restored state can't
+   * otherwise account for -- never to reset model/camera state, which already resyncs from props. */
+  restoreVersion: number;
 }
 
 /**
@@ -97,10 +108,10 @@ interface Props {
  * `cy.fit()` is called only once per level (when `camera` is null) and by the explicit Fit map
  * button -- both are real camera changes the product allows.
  */
-export default function GraphCanvas({ nodes, edges, positions, camera, selectedId, onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, scopeRemovalTargets, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, sizes, containerSizes, onToggleExpand, onResizeNode, onResizeContainer }: Props) {
+export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, mapOpen, onMapOpenChange: setMapOpen, fullscreen, onFullscreenChange: setFullscreen, onClearSelection, nodes, edges, positions, camera, selectedId, onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, scopeRemovalTargets, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, sizes, containerSizes, onToggleExpand, onResizeNode, onResizeContainer, restoreVersion }: Props) {
   const container = useRef<HTMLDivElement>(null), cyRef = useRef<cytoscape.Core | null>(null), menuRef = useRef<HTMLDivElement>(null);
-  const callbacks = useRef({ onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, onToggleExpand, onResizeNode, onResizeContainer });
-  callbacks.current = { onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, onToggleExpand, onResizeNode, onResizeContainer };
+  const callbacks = useRef({ onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, onToggleExpand, onResizeNode, onResizeContainer, onClearSelection });
+  callbacks.current = { onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, onToggleExpand, onResizeNode, onResizeContainer, onClearSelection };
   const [mini, setMini] = useState<MinimapState | null>(null);
   const [hover,setHover]=useState<{title:string;description:string;x:number;y:number;ready:boolean}|null>(null);
   // `node` is the card that was right-clicked; null when the menu opened from a marquee.
@@ -109,9 +120,7 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
   // Ctrl/Cmd/Shift+click and Ctrl/Cmd/Shift+drag box selection all feed it. Cytoscape's native
   // selection is disabled (`autounselectify`) so there is never a second, action-less selection;
   // inspection emphasis uses the `.inspected` class instead.
-  const [multiIds,setMultiIds]=useState<string[]>([]);
   const multiRef=useRef(multiIds); multiRef.current=multiIds;
-  const [fullscreen,setFullscreen]=useState(false);
   // Right-button marquee in rendered (stage) pixels while a right-drag is in progress.
   const [marquee,setMarquee]=useState<{x1:number;y1:number;x2:number;y2:number}|null>(null);
   const cancelMarqueeRef=useRef<()=>void>(()=>{});
@@ -120,7 +129,6 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
   const [resizeGrips,setResizeGrips]=useState<{id:string;left:number;top:number;size:number}[]>([]);
   // The card corner square the pointer is over (the canvas owns the pointer; see cornerHit).
   const [hotCorner,setHotCorner]=useState<string|null>(null);
-  const [mapOpen, setMapOpen] = useState(true);
   const model = useMemo(() => ({nodes, edges}), [nodes, edges]);
   const currentModel=useRef(model); currentModel.current=model;
   const updateMapRef = useRef<() => void>(() => {});
@@ -228,15 +236,20 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
     let debounceHandle: ReturnType<typeof setTimeout> | null = null;
     let mapFrame = 0;
     cy.on('pan zoom position', () => { if (!mapFrame) mapFrame = requestAnimationFrame(() => { mapFrame = 0; updateMap(); }); });
+    let cameraCallback = callbacks.current.onCameraChange;
+    const flushCamera = () => {
+      if (!debounceHandle) return;
+      clearTimeout(debounceHandle); debounceHandle = null;
+      cameraCallback({ zoom: cy.zoom(), pan: { ...cy.pan() } });
+    };
+    window.addEventListener('atlas:flush-camera', flushCamera);
     cy.on('pan zoom', () => {
       if (programmatic) return;
       if (debounceHandle) clearTimeout(debounceHandle);
-      debounceHandle = setTimeout(() => {
-        debounceHandle = null;
-        callbacks.current.onCameraChange({ zoom: cy.zoom(), pan: { x: cy.pan().x, y: cy.pan().y } });
-      }, 180);
+      cameraCallback = callbacks.current.onCameraChange;
+      debounceHandle = setTimeout(flushCamera, 180);
     });
-    (cy as any).__setProgrammaticCamera = (fn: () => void) => { programmatic = true; try { fn(); } finally { setTimeout(() => { programmatic = false; }, 0); } };
+    (cy as any).__setProgrammaticCamera = (fn: () => void) => { if(debounceHandle){clearTimeout(debounceHandle);debounceHandle=null;} programmatic = true; try { fn(); } finally { setTimeout(() => { programmatic = false; }, 0); } };
     // The quick-code buttons are drawn over the cards but take no pointer events (CSS), so a drag,
     // right-click, double-click or marquee that starts on that corner behaves exactly like the rest of
     // the card. A plain click is hit-tested here instead: inside the square it opens the code.
@@ -270,9 +283,9 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
     // Step 4 disconnected double-click from level navigation (that was explore(), a leftover from
     // before View methods/View classes existed as named commands). Step 5 (Appendix B) gives it its
     // own dedicated ARRANGE_AROUND_RESOURCE command via Cytoscape's own `dbltap` gesture recognition
-    // (H4): the first tap still reaches `onNodeSelect` above (inspection is idempotent, so a repeat
-    // inspect of the same subject is a no-op) and cannot itself move or unmount anything; `dbltap`
-    // fires in addition, once, on the second tap.
+    // (H4): ordinary taps still reach `onNodeSelect` above without moving or unmounting the map;
+    // `dbltap` fires in addition, once, on the second tap. App explicitly inspects the arranged resource,
+    // because a repeated single tap now toggles inspection off.
     cy.on('dbltap', 'node', e => { if (!multiKey(e)) callbacks.current.onArrangeAroundResource(e.target.id()); });
     // Group drag: grabbing a card that belongs to a multi-selection of two or more carries the other
     // selected cards by the same delta. Their start positions are captured at grab time so the
@@ -332,7 +345,7 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
       setContextMenu({node,x:Math.max(8,Math.min(position.x,cy.width()-238)),y:Math.max(8,Math.min(position.y,cy.height()-150))});
     });
     // A plain click on empty canvas clears the multi-selection, like most canvas editors.
-    cy.on('tap', e => { if (e.target === cy && !multiKey(e)) setMultiIds(ids => ids.length ? [] : ids); });
+    cy.on('tap', e => { if (e.target === cy && !multiKey(e)) callbacks.current.onClearSelection(); });
 
     // Ctrl/Cmd/Shift + left-drag on empty canvas: Cytoscape's own box gesture. With native selection
     // disabled it still reports every node in the box ('box', emitted synchronously right after
@@ -404,17 +417,21 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
     // screen swap, sidebar toggle) must not move the camera the user set. Skip on a transient
     // zero-size container so cy.resize() cannot corrupt pan/zoom.
     const observer = new ResizeObserver(() => { if (!container.current?.clientWidth || !container.current?.clientHeight) return; cy.resize(); updateMap(); }); observer.observe(canvas);
-    return () => { canvas.removeEventListener('contextmenu',preventContextMenu); observer.disconnect(); if (debounceHandle) clearTimeout(debounceHandle); if (mapFrame) cancelAnimationFrame(mapFrame); cy.destroy(); cyRef.current = null; };
+    return () => { window.removeEventListener('atlas:flush-camera', flushCamera); canvas.removeEventListener('contextmenu',preventContextMenu); observer.disconnect(); if (debounceHandle) clearTimeout(debounceHandle); if (mapFrame) cancelAnimationFrame(mapFrame); cy.destroy(); cyRef.current = null; };
   }, []);
 
   // A card membership change closes the menu and drops selected cards that are no longer displayed.
   // Keyed on card IDs only: an edge or relationship-filter change leaves the menu's cards untouched.
   useEffect(()=>{
     setContextMenu(null);
-    const displayed=new Set(nodes.map(n=>n.id));
-    setMultiIds(ids=>ids.every(id=>displayed.has(id))?ids:ids.filter(id=>displayed.has(id)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[nodesKey]);
+  // App no longer remounts the canvas on undo/redo (it only remounts on tab switch), so this closes
+  // the one gap that leaves open: transient pointer UI a restored state has no opinion about.
+  useEffect(()=>{
+    setContextMenu(null);setHover(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[restoreVersion]);
   useEffect(()=>{
     if(!contextMenu)return;
     const dismiss=(event:PointerEvent)=>{if(!menuRef.current?.contains(event.target as Node))setContextMenu(null);};
@@ -429,30 +446,10 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
     window.addEventListener('keydown',escape,true);
     return()=>window.removeEventListener('keydown',escape,true);
   },[marquee!==null]);
-  // Escape (with no menu open) clears the multi-selection, or else leaves the full-screen overlay. While
-  // the browser itself is in full screen it handles Escape first and exits (the fullscreenchange listener
-  // below then leaves the overlay too); pages cannot intercept that, so the selection is kept then.
-  useEffect(()=>{
-    if(!multiIds.length&&!fullscreen)return;
-    const escape=(event:KeyboardEvent)=>{
-      if(event.key!=='Escape'||document.querySelector('dialog[open]'))return;
-      if(multiRef.current.length)setMultiIds([]);else setFullscreen(false);
-    };
-    window.addEventListener('keydown',escape);
-    return()=>window.removeEventListener('keydown',escape);
-  },[multiIds.length>0,fullscreen]);
-  // Full screen: the stage becomes a fixed overlay (CSS) and the browser is asked for real full
-  // screen on the document root, so modal dialogs such as the source viewer still appear above it.
-  // Leaving browser full screen (browser Esc, F11) also leaves the overlay. The existing
-  // ResizeObserver resizes the renderer without re-fitting, so the camera is preserved.
-  useEffect(()=>{
-    if(!fullscreen)return;
-    const root=document.documentElement;
-    if(!document.fullscreenElement&&root.requestFullscreen)root.requestFullscreen().catch(()=>{});
-    const change=()=>{if(!document.fullscreenElement)setFullscreen(false);};
-    document.addEventListener('fullscreenchange',change);
-    return()=>{document.removeEventListener('fullscreenchange',change);if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});};
-  },[fullscreen]);
+  // App handles ordinary Escape once, clearing inspection and multi-selection atomically.
+  // Menu/marquee/resize handlers above consume it first when cancelling a transient gesture.
+  // App owns browser fullscreen across canvas remounts. This stage supplies the fixed overlay;
+  // ResizeObserver resizes its renderer without fitting, preserving the saved camera.
   const selectedNodes=multiIds.map(id=>nodes.find(n=>n.id===id)).filter((n):n is AtlasNode=>Boolean(n));
   const removableNodes=selectedNodes.filter(n=>canRemoveFromScope(n));
   // Name what leaves scope when that differs from the selected cards (a method card removes its class).
@@ -509,7 +506,9 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
             if (cur.x !== pos.x || cur.y !== pos.y) { existing.position(pos); arranged = true; }
           }
         } else {
-          cy.add({ data: { ...data, ...(n.containerId ? { parent: n.containerId } : {}) }, position: pos });
+          // Cytoscape retains and mutates the object supplied to add(). History and cloned tabs
+          // share immutable coordinates, so the renderer must receive its own copy.
+          cy.add({ data: { ...data, ...(n.containerId ? { parent: n.containerId } : {}) }, position: { ...pos } });
         }
       }
       for (const e of edges) {
@@ -623,7 +622,7 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
         cy.fit(undefined, 45);
         if (cy.zoom() > 1) { cy.zoom(1); cy.center(); }
       });
-      callbacks.current.onCameraChange({ zoom: cy.zoom(), pan: { x: cy.pan().x, y: cy.pan().y } });
+      callbacks.current.onCameraChange({ zoom: cy.zoom(), pan: { x: cy.pan().x, y: cy.pan().y } }, true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [camera, hasNodes]);
@@ -728,13 +727,13 @@ export default function GraphCanvas({ nodes, edges, positions, camera, selectedI
       <div className="graph-context-menu-heading">{menuTitle}</div>
       <button role="menuitem" className="danger" disabled={!removableNodes.length} title={removalTitle} onClick={removeSelectedFromScope}><span aria-hidden="true">−</span> {removalLabel}</button>
       {menuNode&&menuSelected&&selectedNodes.length>1&&<button role="menuitem" onClick={()=>{setMultiIds(ids=>ids.filter(id=>id!==menuNode.id));setContextMenu(null);}}><span aria-hidden="true">○</span> Deselect {menuNode.simpleName}</button>}
-      <button role="menuitem" onClick={()=>{setMultiIds([]);setContextMenu(null);}}><span aria-hidden="true">✕</span> {selectedNodes.length>1?'Clear selection':'Deselect'}</button>
+      <button role="menuitem" onClick={()=>{onClearSelection();setContextMenu(null);}}><span aria-hidden="true">✕</span> {selectedNodes.length>1?'Clear selection':'Deselect'}</button>
       <p className="graph-context-menu-hint">Right-click or right-drag over more cards to add them. Drag any selected card to move the group.</p>
     </div>}
-    {selectedNodes.length>0&&<div className="selection-bar" role="toolbar" aria-label="Selected resources"><strong>{selectedNodes.length} selected</strong><button className="danger" disabled={!removableNodes.length} title={removalTitle} onClick={removeSelectedFromScope}>{removalLabel}</button><button onClick={()=>setMultiIds([])}>Clear</button></div>}
+    {selectedNodes.length>0&&<div className="selection-bar" role="toolbar" aria-label="Selected resources"><strong>{selectedNodes.length} selected</strong><button className="danger" disabled={!removableNodes.length} title={removalTitle} onClick={removeSelectedFromScope}>{removalLabel}</button><button onClick={onClearSelection}>Clear</button></div>}
     {marquee&&<div className="graph-marquee" aria-hidden="true" style={{left:marquee.x1,top:marquee.y1,width:marquee.x2-marquee.x1,height:marquee.y2-marquee.y1}}/>}
     <div className="canvas-hint">Arrows point from caller to dependency · right-drag or Ctrl+click to select several</div>
-    <div className="zoom-controls"><button onClick={() => zoom(1.2)} aria-label="Zoom in">+</button><span>{Math.round((mini?.zoom || 1)*100)}%</span><button onClick={() => zoom(1/1.2)} aria-label="Zoom out">−</button><button onClick={fit} aria-label="Fit map" title="Fit map"><span aria-hidden="true" className="control-icon">⤧</span><span className="control-text">Fit map</span></button><button onClick={() => setFullscreen(f => !f)} aria-pressed={fullscreen} aria-label={fullscreen ? 'Exit full screen' : 'Full screen'} title={fullscreen ? 'Exit full screen (Esc)' : 'Show the map full screen'}><span aria-hidden="true">{fullscreen ? '⤡' : '⤢'}</span><span className="control-text">{fullscreen ? ' Exit full screen' : ' Full screen'}</span></button></div>
+    <div className="zoom-controls"><button onClick={() => zoom(1.2)} aria-label="Zoom in">+</button><span>{Math.round((mini?.zoom || 1)*100)}%</span><button onClick={() => zoom(1/1.2)} aria-label="Zoom out">−</button><button onClick={fit} aria-label="Fit map" title="Fit map"><span aria-hidden="true" className="control-icon">⤧</span><span className="control-text">Fit map</span></button><button onClick={() => setFullscreen(!fullscreen)} aria-pressed={fullscreen} aria-label={fullscreen ? 'Exit full screen' : 'Full screen'} title={fullscreen ? 'Exit full screen (Esc)' : 'Show the map full screen'}><span aria-hidden="true">{fullscreen ? '⤡' : '⤢'}</span><span className="control-text">{fullscreen ? ' Exit full screen' : ' Full screen'}</span></button></div>
     <div className={`minimap ${mapOpen ? '' : 'collapsed'}`}>
       <button className="minimap-title" onClick={() => setMapOpen(!mapOpen)} aria-expanded={mapOpen}>Map overview <span>{mapOpen ? '−' : '+'}</span></button>
       {mapOpen && mini && <svg role="img" aria-label="Map overview with current viewport" viewBox={`${mini.box.x1} ${mini.box.y1} ${mini.box.w} ${mini.box.h}`} preserveAspectRatio="xMidYMid meet" onClick={e => {

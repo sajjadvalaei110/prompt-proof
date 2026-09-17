@@ -44,8 +44,8 @@ Selection dimming does not make a relationship filtered out.
 
 | Action | Result | Existing positions | Camera |
 | --- | --- | --- | --- |
-| Single-click a resource or tree label | Inspect; emphasize the resource and its visible direct relationships and neighbors | Preserved | Preserved |
-| Single-click an edge | Inspect evidence; emphasize that edge and both endpoints | Preserved | Preserved |
+| Single-click a resource or tree label | Inspect; clicking the inspected resource again clears inspection | Preserved | Preserved |
+| Single-click an edge | Inspect evidence; clicking the inspected edge again clears inspection | Preserved | Preserved |
 | Double-click a canvas resource | Arrange the current map around that resource | May change | Keep the clicked resource at its previous screen location and preserve zoom |
 | Reorder map | Arrange the entire current map using its displayed edges | May change | Fit the result once, capped at readable card scale |
 | Check/uncheck a class or package | Add/remove eligible resources and their edges | Survivors preserved; additions below the map | Preserved |
@@ -65,6 +65,24 @@ initializes its own view. Cross-restart persistence remains outside this slice.
 Expansions and card sizes are kept per level like positions, and leave with their card on a scope
 removal. Manual dragging remains a direct move of the dragged resource only; it must not
 start an automatic layout.
+
+### Exploration tabs (September 2026 addition)
+
+The tab strip above the explorer, map and inspector supports **New tab**, **Clone tab**,
+close and **Reopen closed tab**. Each exploration has its own scope, map geometry,
+expansions, selection, filter and navigation history. A clone also inherits undo/redo
+history; changing it must never change its source tab. Arrow keys, Home and End navigate
+the tab strip.
+
+**Undo** / **Redo** restores exploration actions, including scope edits, card movement,
+resizing, expansion and source-dialog open/close. Ctrl/Cmd Z undoes; Ctrl/Cmd Shift Z or
+Ctrl Y redoes. Text inputs retain their native editing shortcuts. History holds up to
+200 actions per tab and ten recently closed tabs, for this page session and snapshot.
+Backend work, notes/documents and model settings are outside exploration history.
+
+**Clear selection**, clicking empty canvas, or Escape clears inspection and selected
+cards without changing scope, geometry or camera. Menus, resize cancellation and modal
+dialogs handle Escape first. Clicking an already-inspected resource also deselects it.
 
 ## Story 1 — Inspect without losing my place
 

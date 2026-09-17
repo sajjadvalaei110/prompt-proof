@@ -1,5 +1,24 @@
 # Code Atlas — Testing Strategy
 
+## Exploration tabs and undo/redo (R6, September 2026)
+
+See [Exploration tabs](EXPLORATION_TABS.md) for the behavior, boundaries and browser
+setup. `node scripts/test-explorer-journeys.mjs` verifies grouped updates, independent
+tabs, cloned past/future branches, close/reopen, retention bounds, initial camera
+baseline and stale callbacks across snapshot resets (10 checks).
+
+`APP=http://127.0.0.1:5198 node scripts/verify-explorer-journeys.mjs /tmp/atlas-journey-fixture`
+exercises a real isolated backend and production frontend in Chromium (42 checks).
+It includes exact geometry comparisons after expansion/resize/drag undo, clone
+isolation, source-modal history, pending camera capture, one-step Escape clearing,
+closed-tab recovery, full-screen undo and a 375 px layout. The geometry checks failed
+before renderer coordinate copies were added; combined Escape and full-screen
+restoration checks also reproduced defects before their fixes. No model is called.
+
+Keep running the existing stable-graph and card-expansion browser checks after
+changes at this adapter boundary. Final commands, outcomes and screenshot evidence
+are recorded in `PROJECT_STATUS.md`.
+
 ## 1. Overview & Testing Philosophy
 
 Code Atlas separates deterministic code facts from AI explanations. The testing strategy reflects this distinction:

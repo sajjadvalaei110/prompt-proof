@@ -118,6 +118,29 @@ That command resolves methods/constructors to their owning class and delegates t
 package/class toggles. Loading another snapshot initializes a new whole-system selection because
 the prior snapshot's symbol IDs are no longer a valid boundary.
 
+### Exploration tabs and undo history
+
+`explorerJourney.ts` owns independent, in-memory exploration tabs around the existing
+`explorerViewState` reducer. Each tab retains its scope, per-level geometry and expanded
+cards, inspection/navigation, relationship filter, tree disclosures, search, source-dialog
+subject, multi-selection, occurrence choice and pane controls. New tabs start from the
+snapshot's initial view; clones share immutable values and inherit both undo and redo
+branches. Closing a tab retains its history among the ten most recently closed tabs.
+
+`useExplorerJourneys` groups synchronous updates from a user action into one history
+entry (up to 200 per tab). Initial camera fitting updates the baseline without creating
+an undo step. Pending camera changes flush before navigation commands. Tab IDs are never
+reused across snapshot resets, so an old callback cannot edit a replacement snapshot.
+The active pane remounts on tab switches and undo/redo to restore saved widget state;
+ordinary inspection and filtering still preserve the mounted canvas.
+
+Renderer inputs must not alias saved state: Cytoscape retains and mutates coordinates
+passed to `add()`, so `GraphCanvas` copies positions at that boundary. Parser graph data,
+explanation responses, project documents, settings and backend jobs stay outside history.
+Undo restores exploration state; it does not reverse server operations. Tabs/history are
+discarded on reload or loading a new analysis snapshot. DOM scroll offsets, text selection,
+transient menus and disclosures inside generated explanations are not stored.
+
 ---
 
 ## 6. Key Design Decisions
