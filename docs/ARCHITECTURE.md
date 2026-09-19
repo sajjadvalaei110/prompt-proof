@@ -47,6 +47,7 @@ The backend enforces strict modular separation across domain boundaries:
 | `jobs` | Background task orchestration, progress tracking, status reporting, cancellation, and restart recovery. |
 | `storage` | SQLite connection management, Flyway migrations, database constraints, and repository data access. |
 | `api` | REST endpoints, SSE stream handlers, DTO validation, and structured error responses. |
+| `review` | Read-only local Git capture, isolated before/after analysis and deterministic snapshot comparison. |
 
 ---
 
@@ -147,6 +148,22 @@ transient menus and disclosures inside generated explanations are not stored.
 ---
 
 ## 6. Key Design Decisions
+
+### Git review comparison
+
+[ADR 0006](adr/0006-git-review-snapshots.md) defines the revision boundary.
+The review adapter captures a resolved local base commit and working-tree content
+outside the target repository. The analysis service parses those private copies
+into independent retained-source snapshots without publishing either as the normal
+workspace snapshot. A deterministic comparison supplies versioned resource and
+relationship changes; the model is not involved.
+
+The frontend projects base, overlay and after graphs from the same comparison.
+Display identities do not replace actual snapshot subject IDs: source evidence
+requests retain their side. Overlay relationship aggregation also retains change
+status, allowing added and removed occurrences between the same displayed resources
+to remain independently inspectable. Unchanged exploration uses the existing graph
+projection and rendering conventions.
 
 - **Source-Only Analysis**: Analyzes Java code statically without running Gradle tasks, build plugins, or compilers. The analyzed repository is strictly read-only and untrusted.
 - **Modular Monolith**: Kept as a single deployable application to eliminate distributed network complexity and minimize resource footprint.

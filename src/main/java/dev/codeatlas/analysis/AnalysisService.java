@@ -11,6 +11,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.io.File;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.util.*;
 
@@ -195,6 +196,72 @@ public class AnalysisService {
         } finally {
             parserAdapter.releaseRunCaches();
         }
+    }
+
+    /**
+     * Indexes a private, already-captured source tree for a review.  This shares the parser lock with
+     * ordinary analysis, but deliberately has no job, change detection, active-snapshot update, or
+     * explanation invalidation.  The captured tree is owned by the application, never by the target repo.
+     */
+    public synchronized void runReviewAnalysis(String workspaceId, String snapshotId, Path capturedRoot) {
+        try {
+            List<File> javaFiles = discoveryService.discoverJavaFiles(capturedRoot.toFile());
+            parserAdapter.setupSymbolSolver(capturedRoot.toString());
+            List<SpringAnnotationAnalyzer.SpringAnalysisResult> springResults = new ArrayList<>();
+            List<File> declarationFiles = new ArrayList<>();
+            for (File file : javaFiles) {
+                try {
+                    fileTransaction.executeWithoutResult(status -> parserAdapter.parseDeclarations(file, workspaceId, snapshotId));
+                    if (hasIndexedDeclarations(snapshotId, capturedRoot, file)) declarationFiles.add(file);
+                } catch (Exception e) {
+                    parserAdapter.addDiagnostic(file.getName() + ": declaration parsing failed; file excluded from graph.");
+                }
+            }
+            for (File file : declarationFiles) {
+                try {
+                    fileTransaction.executeWithoutResult(status -> parserAdapter.parseRelationships(file, workspaceId, snapshotId));
+                } catch (Exception e) {
+                    parserAdapter.addDiagnostic(file.getName() + ": relationship parsing failed; relationships may be incomplete.");
+                }
+            }
+            for (File file : declarationFiles) {
+                try {
+                    CompilationUnit cu = StaticJavaParser.parse(file);
+                    SpringAnnotationAnalyzer.SpringAnalysisResult result = springAnalyzer.analyze(cu);
+                    if (!result.isEmpty()) springResults.add(result);
+                } catch (Exception e) {
+                    parserAdapter.addDiagnostic(file.getName() + ": Spring annotation analysis skipped.");
+                }
+            }
+            for (SpringAnnotationAnalyzer.SpringAnalysisResult result : springResults) {
+                springAnalyzer.persistRolesRoutesBeans(snapshotId, workspaceId, result);
+            }
+            for (SpringAnnotationAnalyzer.SpringAnalysisResult result : springResults) {
+                springAnalyzer.persistInjections(snapshotId, result);
+            }
+            int symbolCount = countForSnapshot("symbol_versions", snapshotId);
+            int relationshipCount = countForSnapshot("relationship_occurrences", snapshotId);
+            int fileCount = countForSnapshot("source_file_versions", snapshotId);
+            String diagnostics = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(
+                    Map.of("warnings", parserAdapter.diagnostics(), "reviewCapture", true));
+            jdbcTemplate.update("UPDATE snapshots SET status='published', symbol_count=?, relationship_count=?, file_count=?, diagnostics=?, completed_at=datetime('now') WHERE id=?",
+                    symbolCount, relationshipCount, fileCount, diagnostics, snapshotId);
+            log.info("Review snapshot complete: {} source files, {} symbols, {} relationships", fileCount, symbolCount, relationshipCount);
+        } catch (Exception e) {
+            jdbcTemplate.update("UPDATE snapshots SET status='failed', completed_at=datetime('now') WHERE id=?", snapshotId);
+            throw new IllegalArgumentException("Review capture analysis failed (" + e.getClass().getSimpleName() + ").");
+        } finally {
+            parserAdapter.releaseRunCaches();
+        }
+    }
+
+    private boolean hasIndexedDeclarations(String snapshotId, Path root, File file) {
+        String relative = root.relativize(file.toPath().toAbsolutePath()).toString();
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM symbol_evidence se JOIN evidence e ON e.id=se.evidence_id " +
+                        "JOIN source_file_versions f ON f.id=e.source_file_version_id " +
+                        "WHERE f.snapshot_id=? AND f.relative_path=?", Integer.class, snapshotId, relative);
+        return count != null && count > 0;
     }
 
     // -----------------------------------------------------------------------

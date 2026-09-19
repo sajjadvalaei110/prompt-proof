@@ -1,11 +1,11 @@
 import { SetStateAction, useReducer, useRef } from 'react';
-import { ExplorerAction, explorerViewReducer } from './explorerViewState';
-import { Journey, JourneyAction, initJourneys, journeysReducer } from './explorerJourney';
+import { ExplorerAction, ExplorerViewState, explorerViewReducer } from './explorerViewState';
+import { Journey, JourneyAction, initJourneys, journeysReducer, newJourney } from './explorerJourney';
 
 export function flushExplorerCamera() { window.dispatchEvent(new Event('atlas:flush-camera')); }
 
-export function useExplorerJourneys() {
-  const [state, dispatch] = useReducer(journeysReducer, undefined, initJourneys);
+export function useExplorerJourneys(initialView?: ExplorerViewState) {
+  const [state, dispatch] = useReducer(journeysReducer, initialView, view => initJourneys(view ? newJourney(view) : undefined));
   const active = state.tabs.find(t => t.id === state.activeId)!;
   const counter = useRef(0), group = useRef<number | null>(null);
   // All synchronous updates caused by one UI action form one undo step (scope + membership,

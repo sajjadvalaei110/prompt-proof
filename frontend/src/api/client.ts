@@ -90,6 +90,14 @@ export const apiClient = {
   getGraph: (snapshotId: string): Promise<any> =>
     requestJson(`${API_BASE}/snapshots/${snapshotId}/graph`),
 
+  /** Creates one immutable base-vs-working-tree comparison. Its snapshots retain source evidence for both sides. */
+  createReview: (workspaceId: string, baseRef?: string): Promise<any> =>
+    requestJson(`${API_BASE}/workspaces/${workspaceId}/reviews`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ schemaVersion: '1', ...(baseRef?.trim() ? { baseRef: baseRef.trim() } : {}) })
+    }),
+
   // --- R3: Spring-specific endpoints ---
 
   /** Get HTTP routes for a snapshot */
@@ -165,4 +173,3 @@ export const apiClient = {
       body: profile ? JSON.stringify(profile) : JSON.stringify({})
     }),
 };
-

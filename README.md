@@ -17,6 +17,7 @@ Code Atlas is a local, privacy-first Java and Spring code understanding applicat
 ## Prerequisites
 
 - **Runtime Execution**: Java 21 LTS (JDK or JRE)
+- **Local Git reviews**: Git installed on `PATH`; see [Review local changes](docs/GIT_REVIEW.md) for the base, overlay and after-change views.
 - **Source Build** (optional): Node.js 22+ and npm 9+ (only needed when compiling the frontend from source; the packaged JAR includes all compiled assets)
 
 ---

@@ -1,11 +1,70 @@
 # Project status
-Last updated: 2026-09-16
+Last updated: 2026-09-19
 Active milestone: R6 — Developer comprehension redesign (in progress)
 Current revision: Exploration tabs, per-tab undo/redo and selection controls (final
 verification), merged on top of the R6 change-edges slice (one line per direction,
 directional selection emphasis, file-grouped evidence), in-place card details (expand
 packages/classes) and resizable cards; Step 6A remains unstarted
 
+
+## Git review views — complete (2026-09-19)
+
+Bounded R6 acceptance criterion: inspect one local Git changeset in base, overlay
+and after-change graphs at package/class/method level, follow evidence from the
+correct captured source, and return to normal exploration without changing the
+source repository or its active analysis snapshot.
+
+The user confirmed the default base: common ancestor of HEAD and its locally
+available upstream, with a visible HEAD fallback and an explicit-ref override.
+Read-only raw Git capture includes staged, unstaged and nonignored untracked
+content. Independent retained-source snapshots keep ordinary analysis untouched.
+Overlay resources are yellow with physical +/- line counts; relationship occurrences
+remain independently inspectable in green, red or their ordinary unchanged styling.
+Each view reuses the full explorer and keeps independent page-session state.
+See [Git review](docs/GIT_REVIEW.md) and [ADR 0006](docs/adr/0006-git-review-snapshots.md).
+
+Verification (exact commands and outcomes):
+
+- `./gradlew test bootJar` — PASS, 119 tests, zero failures/errors/skips; production
+  frontend and executable JAR built. Existing >500 kB Vite bundle warning remains.
+- `node scripts/test-review-model.mjs`, `node scripts/test-graph-model.mjs`,
+  `node scripts/test-node-card.mjs`, `node scripts/test-explorer-journeys.mjs`,
+  `node scripts/test-explorer-view-state.mjs`, `node scripts/test-expansion-layout.mjs`,
+  `node scripts/test-focused-arrangement.mjs`, `node scripts/test-graph-placement.mjs`
+  and `node scripts/test-source-evidence.mjs` — all PASS.
+- `JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java python3 scripts/verify_git_review_pipeline.py`
+  — PASS, 34/34 checks, zero page errors and zero model requests. Real packaged
+  backend and Chromium exercised all three views, line counts/colors, retained
+  evidence, independent view state, expansion, full-screen arrangement, mobile
+  Details/Map switching and return to ordinary exploration. Fixture source and Git
+  index hashes remained unchanged. All four screenshots inspected. Final evidence:
+  [Git review browser report](docs/evidence/git-review/README.md).
+- `PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH python3 scripts/verify_change_edges_pipeline.py`
+  — PASS on the final packaged frontend, zero browser errors and unchanged fixture.
+  Existing relationship widths, directional selection and grouped source evidence
+  remain working. Screenshot inspected; artifacts: `build/change-edges/run-t6_2u6l5/`.
+- Earlier focused backend run: 15/16 passed; binary-file fixture omitted its initial
+  commit. Fixed fixture; full suite above includes the passing regression.
+- Earlier browser startup: default Java 17 rejected Java 21 bytecode. Browser
+  acceptance uses `/usr/lib/jvm/java-21-openjdk-amd64/bin/java` explicitly.
+- Intermediate browser attempts exposed stale selectors, hidden mobile navigation,
+  and card controls below their minimum hit size. Harness navigation now waits for
+  the active side and uses visible controls; screenshot capture fits after viewport
+  changes. Incomplete attempts are not counted as passing checks.
+- Review-driven fixes include inactive-view listeners/polling, preserved route
+  strength, expanded and multiline resource badges, scrollable review content,
+  mobile pane isolation, readable relationship labels, and root/ancestor symlink
+  freshness checks. Batched base/head source APIs have retained-source regression
+  coverage after live files are removed.
+- `git diff --check` and `git diff --cached --check` — PASS.
+- Live model and constrained-memory explanation-scale suite skipped: review is
+  deterministic and does not modify the model/explanation pipeline.
+
+Limits: Java source-only analysis, supported local Git worktree root with an initial
+commit; no symlinks/submodules, remote fetch, saved human decisions or persisted
+review UI session. Capture limits and partial-analysis behavior are documented.
+The broader R6 milestone remains in progress. An independent Claude review prompt
+is provided in [CLAUDE_REVIEW_PROMPT.md](docs/CLAUDE_REVIEW_PROMPT.md).
 
 ## Exploration tabs and per-tab history — final verification (2026-09-16)
 

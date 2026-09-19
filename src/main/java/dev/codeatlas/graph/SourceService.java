@@ -162,8 +162,19 @@ public class SourceService {
      */
     private boolean isStillExact(String canonicalRoot, String relativePath, String storedHash) {
         try {
-            File liveFile = Path.of(canonicalRoot).resolve(relativePath).normalize().toFile();
-            if (!liveFile.exists() || !liveFile.isFile()) {
+            Path root = Path.of(canonicalRoot).toAbsolutePath().normalize();
+            // The registered workspace root itself can be replaced after analysis. Resolve it before
+            // checking descendants so a root symlink cannot make an outside file look exact.
+            if (!root.equals(root.toRealPath())) return false;
+            Path livePath = root.resolve(relativePath).normalize();
+            if (!livePath.startsWith(root)) return false;
+            Path current = root;
+            for (Path part : root.relativize(livePath)) {
+                current = current.resolve(part);
+                if (java.nio.file.Files.isSymbolicLink(current)) return false;
+            }
+            File liveFile = livePath.toFile();
+            if (!java.nio.file.Files.isRegularFile(livePath, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
                 return false;
             }
             return AnalysisService.computeContentHash(liveFile).equals(storedHash);

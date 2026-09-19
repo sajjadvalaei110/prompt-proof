@@ -90,6 +90,20 @@ export function nodeCard(node: AtlasNode, size?: CardSize) {
   const pkg=node.kind==='PACKAGE', method=node.kind==='METHOD'||node.kind==='CONSTRUCTOR';
   const {width,height}=size||defaultCardSize(node);
   const ready=['CLASS','METHOD'].includes(node.kind) && node.explanationStatus==='READY';
+  // Review state is deliberately rendered into the card image rather than as a Cytoscape label:
+  // the badge stays attached to a card while it is dragged, resized or nested in a compound box.
+  // Fit the complete change string to the available card width so large line counts never run out
+  // of the rounded badge. Base/head graphs omit reviewChange and therefore retain the ordinary card.
+  const reviewChange=node.reviewChange&&node.reviewChange!=='UNCHANGED' ? node.reviewChange : null;
+  const reviewText=reviewChange==='ADDED'?'ADDED':reviewChange==='REMOVED'?'REMOVED':'CHANGED';
+  const reviewCounts=`+${node.reviewAddedLines||0} −${node.reviewRemovedLines||0}`;
+  const reviewLabel=`${reviewText} ${reviewCounts}`;
+  const reviewWidth=Math.min(Math.max(112,reviewLabel.length*6.2+27),Math.max(112,width-24));
+  // Scale the label before falling back to an ellipsis: line totals remain readable together even
+  // when a package contains many changed declarations.
+  const reviewFont=Math.max(7,Math.min(11,(reviewWidth-18)/(reviewLabel.length*.58)));
+  const review=reviewChange
+    ? `<g transform="translate(12 55)"><rect width="${reviewWidth}" height="24" rx="12" fill="#fff0b0" stroke="#ba862d"/><text x="10" y="16" font-size="${reviewFont}" font-weight="600" fill="#805b12">${xml(fitText(reviewLabel,reviewFont,reviewWidth-18))}</text></g>` : '';
   // Top row: kind icon, subtitle, then (right-aligned) the sparkle and the corner button area.
   const corners=cornerButtons(node);
   const codeLeft=corners.length?width-Math.max(...corners.map(c=>c.right+c.size)):width-12;
@@ -101,14 +115,18 @@ export function nodeCard(node: AtlasNode, size?: CardSize) {
   const subtitle=pkg?`${node.memberCount||0} types`:role;
   const inner=width-32;
   const nameLines=wrapText(name,NAME_SIZE,inner,2);
-  const nameY=nameLines.length===1?109:92;
+  // The review badge occupies the upper-left band. Keep the title below it and move the lower
+  // metadata/divider down by the same amount so a two-line reviewed name never collides with either.
+  const reviewOffset=reviewChange?36:0;
+  const nameY=reviewChange?112:nameLines.length===1?109:92;
   const nameSvg=`<text font-size="${NAME_SIZE}" font-weight="600" fill="#19334f">${nameLines.map((line,i)=>`<tspan x="16" y="${nameY+i*34}">${xml(line)}</tspan>`).join('')}</text>`;
   // A text line fits while its baseline leaves room for descenders above the bottom border.
   const fits=(baseline:number)=>baseline+8<=height;
   const rows=[] as string[];
-  for(const n of node.memberNames||[]){const y=170+rows.length*36;if(y+28+8>height)break;rows.push(n);}
-  const lower=pkg?(fits(156)?`<text x="16" y="156" font-size="13" fill="#7c8ea3">${xml(fitText(node.qualifiedName||node.simpleName,13,inner))}</text>`:'')+rows.map((n,i)=>`<rect x="16" y="${170+i*36}" width="${inner}" height="28" rx="5" fill="#edf3f8"/><text x="26" y="${189+i*36}" font-size="14" fill="#4c647f">${xml(fitText(n,14,inner-20))}</text>`).join(''):
-    (fits(142)?`<line x1="16" y1="142" x2="${width-16}" y2="142" stroke="#e5edf3"/>`:'')+(fits(166)?`<text x="16" y="166" font-size="14" fill="#74859a">${xml(fitText(node.packageName?.split('.').slice(-2).join('.')||node.qualifiedName||'',14,inner))}</text>`:'')+(!method&&fits(190)?`<text x="16" y="190" font-size="15" fill="#48637c">${node.memberCount||0} methods</text>`:'');
-  const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><g font-family="Segoe UI, Arial, sans-serif"><g transform="translate(16 16) scale(1.2)"><rect width="30" height="30" rx="7" fill="${color}14"/><g stroke="${color}" stroke-width="1.5" fill="none"><path d="M8 7l7-4 7 4v9l-7 4-7-4zM8 7l7 4 7-4M15 11v9"/></g></g><text x="62" y="40" font-size="15" fill="#6c8097">${xml(fitText(subtitle,15,(ready?sparkleX:codeLeft)-62-8))}</text>${nameSvg}${lower}${sparkle}</g></svg>`;
+  const rowStart=170+reviewOffset;
+  for(const n of node.memberNames||[]){const y=rowStart+rows.length*36;if(y+28+8>height)break;rows.push(n);}
+  const lower=pkg?(fits(156+reviewOffset)?`<text x="16" y="${156+reviewOffset}" font-size="13" fill="#7c8ea3">${xml(fitText(node.qualifiedName||node.simpleName,13,inner))}</text>`:'')+rows.map((n,i)=>`<rect x="16" y="${rowStart+i*36}" width="${inner}" height="28" rx="5" fill="#edf3f8"/><text x="26" y="${189+reviewOffset+i*36}" font-size="14" fill="#4c647f">${xml(fitText(n,14,inner-20))}</text>`).join(''):
+    (fits(142+reviewOffset)?`<line x1="16" y1="${142+reviewOffset}" x2="${width-16}" y2="${142+reviewOffset}" stroke="#e5edf3"/>`:'')+(fits(166+reviewOffset)?`<text x="16" y="${166+reviewOffset}" font-size="14" fill="#74859a">${xml(fitText(node.packageName?.split('.').slice(-2).join('.')||node.qualifiedName||'',14,inner))}</text>`:'')+(!method&&fits(190+reviewOffset)?`<text x="16" y="${190+reviewOffset}" font-size="15" fill="#48637c">${node.memberCount||0} methods</text>`:'');
+  const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><g font-family="Segoe UI, Arial, sans-serif"><g transform="translate(16 16) scale(1.2)"><rect width="30" height="30" rx="7" fill="${color}14"/><g stroke="${color}" stroke-width="1.5" fill="none"><path d="M8 7l7-4 7 4v9l-7 4-7-4zM8 7l7 4 7-4M15 11v9"/></g></g><text x="62" y="40" font-size="15" fill="#6c8097">${xml(fitText(subtitle,15,(ready?sparkleX:codeLeft)-62-8))}</text>${review}${nameSvg}${lower}${sparkle}</g></svg>`;
   return { image: 'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg), width,height };
 }

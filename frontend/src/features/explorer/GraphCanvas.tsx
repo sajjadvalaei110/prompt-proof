@@ -146,8 +146,10 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     const {containerId:_containerId,...rest}=n;
     const card=nodeCard(n,sizes[n.id]),min=containerSizes[n.id];
     const childWord=n.kind==='PACKAGE'?'types':'methods';
-    return {...rest,expanded:!!n.expanded,card:card.image,cardWidth:card.width,cardHeight:card.height,minW:min?.width||0,minH:min?.height||0,
-      containerLabel:`${n.kind==='PACKAGE'?n.qualifiedName||n.simpleName:n.simpleName}  ·  ${childCounts.get(n.id)||0} ${childWord}`,
+    const reviewChange=n.reviewChange&&n.reviewChange!=='UNCHANGED'?n.reviewChange:null;
+    const reviewLabel=reviewChange?` · ${reviewChange} +${n.reviewAddedLines||0} −${n.reviewRemovedLines||0}`:'';
+    return {...rest,...(n.reviewChange?{reviewChange:n.reviewChange}:{}),expanded:!!n.expanded,card:card.image,cardWidth:card.width,cardHeight:card.height,minW:min?.width||0,minH:min?.height||0,
+      containerLabel:`${n.kind==='PACKAGE'?n.qualifiedName||n.simpleName:n.simpleName}  ·  ${childCounts.get(n.id)||0} ${childWord}${reviewLabel}`,
       label:n.simpleName+'\n'+(n.roles?.[0]?.toLowerCase().replaceAll('_',' ')||n.kind.toLowerCase()),color:n.kind==='PACKAGE'?'#6c79b6':n.roles?.includes('SERVICE')?'#16888a':n.roles?.includes('REPOSITORY')?'#6287c8':'#8293a8'};
   };
 
@@ -166,6 +168,11 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         { selector: 'node[?expanded]', style: { 'background-image': 'none', 'background-color': '#f5f8fc', 'border-width': 2, 'border-style': 'dashed', label: 'data(containerLabel)', 'text-valign': 'top', 'text-halign': 'center', 'text-margin-y': CONTAINER_PADDING - 10, 'font-size': 18, 'font-weight': 600, color: '#19334f', 'text-max-width': '2000px', 'text-wrap': 'none', padding: `${CONTAINER_PADDING}px`, 'compound-sizing-wrt-labels': 'exclude', 'min-width': 'data(minW)', 'min-height': 'data(minH)', 'min-width-bias-left': '0%', 'min-width-bias-right': '100%', 'min-height-bias-top': '0%', 'min-height-bias-bottom': '100%' } as any },
         { selector: 'node.inspected', style: { 'background-color': '#e0f4f3', 'border-color': '#07888c', 'border-width': 2.5 } },
         { selector: 'node.neighbor', style: { 'border-color': '#07888c', 'border-width': 2.5 } },
+        // Review change is parser fact carried by the overlay projection. Keep the yellow card fill
+        // visible while a changed resource is inspected; the badge in nodeCard carries the exact
+        // +/- declaration totals. Base and after projections omit reviewChange and match ordinary
+        // exploration styling.
+        { selector: 'node[reviewChange = "ADDED"], node[reviewChange = "MODIFIED"], node[reviewChange = "REMOVED"], node[reviewChange = "ADDED"].inspected, node[reviewChange = "MODIFIED"].inspected, node[reviewChange = "REMOVED"].inspected', style: { 'background-color': '#fff4c8', 'border-color': '#ba862d' } },
         { selector: 'edge', style: { width: 'data(strengthWidth)', 'line-color': '#a0aebd', 'target-arrow-color': '#8395a9', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', label: 'data(label)', 'font-size': 11, color: '#5b6d83', 'text-opacity': .85, 'text-background-color': '#f7f9fc', 'text-background-opacity': 1, 'text-background-padding': '3px', 'text-rotation': 'autorotate', 'text-margin-y': -11, 'arrow-scale': .8, 'text-max-width': '88px', 'text-wrap': 'ellipsis' } },
         { selector: 'edge[resolution != "RESOLVED"]', style: { 'line-color': '#ba862d', 'target-arrow-color': '#ba862d', 'line-style': 'dashed' } },
         { selector: 'edge[explanationStatus = "READY"]', style: { color: '#7955b7', 'text-background-color': '#f3eeff', 'text-opacity': 1 } },
@@ -190,6 +197,9 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         // Multi-select and marquee sit last so their purple outline wins over flow emphasis.
         { selector: 'node.multi-selected', style: { 'border-color': '#7955b7', 'border-width': 4, 'overlay-color': '#7955b7', 'overlay-opacity': .1, 'overlay-padding': 8 } },
         { selector: 'node.marquee-candidate', style: { 'border-color': '#7955b7', 'border-width': 3, 'border-style': 'dashed' } },
+        // Review route color is factual state, so it stays visible through selection/flow emphasis.
+        { selector: 'edge[reviewChange = "ADDED"], edge[reviewChange = "ADDED"].inspected', style: { 'line-color': '#168a58', 'target-arrow-color': '#168a58', color: '#11643f' } },
+        { selector: 'edge[reviewChange = "REMOVED"], edge[reviewChange = "REMOVED"].inspected', style: { 'line-color': '#c74545', 'target-arrow-color': '#c74545', color: '#a42b2b', 'line-style': 'dashed' } },
       ] });
     cyRef.current = cy;
     // A truly empty core has no boundingBox (would feed Infinity into the SVG viewBox), so the

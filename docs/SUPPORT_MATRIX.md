@@ -4,6 +4,12 @@ This document defines the static analysis support status for Java language const
 
 ## Support Status Categories
 
+The Git review feature compares retained source snapshots; its capture limits,
+unsupported symlinks/submodules and raw-byte diff behavior are described in
+[Review local changes](GIT_REVIEW.md). Non-Java file changes remain in the file
+inventory. They do not become graph nodes. Parse failures and unresolved
+relationships remain explicit comparison diagnostics.
+
 - **Supported**: Completely extracted, resolved, and verified with deterministic code facts.
 - **Heuristic**: Recognized via static pattern matching without dynamic runtime container evaluation.
 - **Detected (Uncertain)**: Extracted from AST syntax, but runtime evaluation is required for deterministic resolution; displayed with explicit uncertainty.

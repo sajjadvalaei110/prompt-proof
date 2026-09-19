@@ -2,7 +2,7 @@ import { SetStateAction, useEffect, useMemo, useRef, useState } from 'react';
 import './styles/App.css';
 import { apiClient } from './api/client';
 import GraphCanvas from './features/explorer/GraphCanvas';
-import { AtlasGraph, AtlasNode, AtlasEdge, Level, isType, ownerAt, getEligibleIds, rankEligibleIds, projectDisplayed, childrenOf } from './features/explorer/graphModel';
+import { AtlasGraph, AtlasNode, AtlasEdge, Level, isType, ownerAt, getEligibleIds, rankEligibleIds, projectDisplayed, childrenOf, kindSummary } from './features/explorer/graphModel';
 import { ScopeSelection, wholeSystemScope, scopeToLabel, isNodeInScope, isClassInScope, togglePackages, toggleClass } from './features/explorer/scopeModel';
 import { explorerViewReducer, initExplorerViewState, PlacementDims, Point, Camera, CardMoves } from './features/explorer/explorerViewState';
 import { arrangeAroundResource, ArrangeCard, ArrangeEdge } from './features/explorer/focusedArrangement';
@@ -13,15 +13,45 @@ import InspectorPanel from './features/inspector/InspectorPanel';
 import SettingsScreen from './features/settings/SettingsScreen';
 import ProjectDocuments from './features/context/ProjectDocuments';
 import SourceDialog from './features/source/SourceDialog';
+import ReviewPanel from './features/review/ReviewPanel';
+import type { SourceSubject } from './features/source/SourceDialog';
+import type { ReviewExplorerContext } from './features/review/reviewModel';
 import { startSerialPolling } from './utils/serialPolling';
 import { useExplorerJourneys, flushExplorerCamera } from './features/explorer/useExplorerJourneys';
 
-export default function App() {
+type ReviewSourceTarget = { id: string; ids?: string[]; simpleName?: string; snapshotId: string; label: string; type?: string };
+
+export interface ExplorerAppProps {
+  /** A captured Git side projected into the ordinary explorer. */
+  reviewContext?: ReviewExplorerContext;
+  /** Review explorers send source requests back to the outer review/source owner. */
+  onReviewSource?: (target: ReviewSourceTarget) => void;
+}
+
+const REVIEW_BATCH_SIZE = 12;
+
+function initialViewForGraph(g: AtlasGraph) {
+  const placement: Record<string, PlacementDims> = {};
+  const initialPackageIds = rankEligibleIds(g, 'PACKAGE', getEligibleIds(g, 'PACKAGE', wholeSystemScope()));
+  for (const id of initialPackageIds) {
+    const n = g.nodes.find(item => item.id === id);
+    if (n) { const card = nodeCard(n); placement[id] = { width: card.width, height: card.height, name: n.qualifiedName || n.simpleName }; }
+  }
+  return explorerViewReducer(initExplorerViewState(), { type: 'RESET', level: 'PACKAGE', eligibleIds: initialPackageIds, batchSize: Infinity, placement });
+}
+
+export function ExplorerApp({ reviewContext, onReviewSource }: ExplorerAppProps = {}) {
+  const embedded = !!reviewContext;
+  const contextActive = reviewContext?.active ?? true;
+  const instanceKey = embedded ? `review-${reviewContext!.mode.toLowerCase()}-${reviewContext!.reviewKey}` : 'main';
+  const searchId = embedded ? `${instanceKey}-search` : 'global-search';
+  const journeyTabId = (id: number) => embedded ? `${instanceKey}-journey-tab-${id}` : `journey-tab-${id}`;
+  const panelId = embedded ? `${instanceKey}-exploration-panel` : 'exploration-panel';
   const params = new URLSearchParams(location.search);
-  const [path,setPath]=useState(params.get('path')||''),[workspace,setWorkspace]=useState<any>(null),[snapshot,setSnapshot]=useState<string|null>(null);
-  const [graph,setGraph]=useState<AtlasGraph|null>(null),[routes,setRoutes]=useState<any[]>([]),[recent,setRecent]=useState<any[]>([]);
+  const [path,setPath]=useState(params.get('path')||''),[workspace,setWorkspace]=useState<any>(()=>reviewContext?.workspace||null),[snapshot,setSnapshot]=useState<string|null>(()=>reviewContext?.snapshot||null);
+  const [graph,setGraph]=useState<AtlasGraph|null>(()=>reviewContext?.graph||null),[routes,setRoutes]=useState<any[]>([]),[recent,setRecent]=useState<any[]>([]);
   const [status,setStatus]=useState('Open a project to begin'),[busy,setBusy]=useState(false),[error,setError]=useState('');
-  const journeys=useExplorerJourneys();
+  const journeys=useExplorerJourneys(reviewContext?.graph ? initialViewForGraph(reviewContext.graph) : undefined);
   const {active,dispatchView}=journeys;
   const {view:viewState,scope,kind,tab,search,source,mobilePane,navWidth}=active.present;
   const setScope=(v:ScopeSelection)=>journeys.set('scope',v);
@@ -36,18 +66,30 @@ export default function App() {
   // The browser owns fullscreen on the document root. Keep that lifecycle above the keyed
   // exploration pane: undo/redo can remount the canvas while retaining fullscreen.
   useEffect(()=>{
+    if(embedded&&!contextActive)return;
     if(!active.present.fullscreen)return;
+    // Embedded review maps use their own fixed stage; browser fullscreen would promote the entire
+    // review page and expose inactive side instances. The canvas still keeps its fullscreen layout.
+    if(embedded)return;
     const root=document.documentElement;
     if(!document.fullscreenElement&&root.requestFullscreen)root.requestFullscreen().catch(()=>{});
     const change=()=>{if(!document.fullscreenElement)leaveFullscreen.current();};
     document.addEventListener('fullscreenchange',change);
     return()=>{document.removeEventListener('fullscreenchange',change);if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});};
-  },[active.present.fullscreen]);
-  const BATCH_SIZE=12;
+  },[active.present.fullscreen,embedded,contextActive]);
+  const BATCH_SIZE=REVIEW_BATCH_SIZE;
   const level=viewState.activeLevel;
   const [settings,setSettings]=useState(params.get('settings')==='true');
   const [queue,setQueue]=useState<any>(null),[revision,setRevision]=useState(0),[profile,setProfile]=useState<any>(null);
   const [showOpen,setShowOpen]=useState(false);
+  useEffect(()=>{
+    if(!reviewContext)return;
+    setWorkspace(reviewContext.workspace);setPath(reviewContext.workspace.path||'');setSnapshot(reviewContext.snapshot);setGraph(reviewContext.graph);setRoutes([]);setQueue(null);setError('');setStatus('Review snapshot ready');
+    journeys.reset(initialViewForGraph(reviewContext.graph));
+    // Captured review sides are immutable. The ordinary snapshot poll and queue state must never
+    // replace one while the reviewer is switching among base, overlay and after views.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[reviewContext?.reviewKey,reviewContext?.mode,reviewContext?.graph]);
   const navRef=useRef<HTMLElement>(null);
   // Read inside a pointer-drag's long-lived closure instead of the `navWidth` captured when the drag
   // started: a keyboard resize (Arrow/Home) mid-drag would otherwise be silently discarded by a
@@ -132,6 +174,27 @@ export default function App() {
     return out;
   };
   const node=graph&&viewState.inspectedKind==='NODE'&&viewState.inspectedSubjectId?graph.nodes.find(n=>n.id===viewState.inspectedSubjectId)||null:null;
+  function openSource(subject: SourceSubject | AtlasNode, type='symbol') {
+    if(!subject?.id)return;
+    if(embedded && onReviewSource && reviewContext){
+      if(type==='symbol'){
+        const item=subject as AtlasNode;
+        const identity=reviewContext.sourceIdentityMaps.symbols[item.id];
+        if(!identity)return;
+        onReviewSource({id:identity.id,simpleName:item.simpleName,snapshotId:identity.snapshotId,label:identity.side==='base'?'base snapshot':'after-change snapshot',type});
+      }else{
+        const requested=(subject as SourceSubject).ids;
+        const candidates=requested?.length?requested:[subject.id];
+        const identities=candidates.map(id=>reviewContext.sourceIdentityMaps.relationships[id]).filter(Boolean);
+        const identity=identities[0]||reviewContext.sourceIdentityMaps.relationships[subject.id];
+        if(!identity)return;
+        const ids=identities.length?identities.map(item=>item.id):requested;
+        onReviewSource({id:identity.id,ids,simpleName:subject.simpleName,snapshotId:identity.snapshotId,label:identity.side==='base'?'base snapshot':'after-change snapshot',type});
+      }
+      return;
+    }
+    setSource({node:subject,type});
+  }
   const displayedIds=viewState.levelViews[level].displayedIds;
   const levelGeometry=viewState.levelViews[level];
   const expansions=levelGeometry.expansions,sizes=levelGeometry.sizes;
@@ -249,23 +312,29 @@ export default function App() {
     if(!input.trim()){setError('Enter a repository path accessible to the local server.');return;}
     setBusy(true);setError('');try{setStatus('Registering project…');const ws=await apiClient.createWorkspace(input.trim());setStatus('Analyzing Java source…');let job=await apiClient.triggerAnalysis(ws.id);while(!['COMPLETED','FAILED','CANCELLED'].includes(job.status)){await new Promise(r=>setTimeout(r,500));job=await apiClient.getJob(job.id);}if(job.status!=='COMPLETED')throw new Error(job.errorMessage||`Analysis ${job.status.toLowerCase()}`);const current=await apiClient.getWorkspace(ws.id);if(!current.activeSnapshotId)throw new Error('Analysis did not publish a snapshot');await loadSnapshot(current.activeSnapshotId,current);setRecent(await apiClient.listWorkspaces());}catch(e:any){setError(e.message);setStatus('Analysis could not finish');}finally{setBusy(false);}
   }
-  useEffect(()=>{apiClient.listWorkspaces().then(setRecent).catch(e=>setError(e.message));if(params.get('snapshotId')){setBusy(true);loadSnapshot(params.get('snapshotId')!).catch(e=>setError(e.message)).finally(()=>setBusy(false));}else if(params.get('autoPath'))analyze(params.get('autoPath')!);},[]);
-  useEffect(()=>{apiClient.getModelProfiles().then(p=>setProfile(p[0])).catch(()=>setProfile(null));},[settings]);
   useEffect(()=>{
-    if(!workspace)return;
+    if(embedded)return;
+    apiClient.listWorkspaces().then(setRecent).catch(e=>setError(e.message));
+    if(params.get('snapshotId')){setBusy(true);loadSnapshot(params.get('snapshotId')!).catch(e=>setError(e.message)).finally(()=>setBusy(false));}
+    else if(params.get('autoPath'))analyze(params.get('autoPath')!);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[embedded]);
+  useEffect(()=>{if(embedded)return;apiClient.getModelProfiles().then(p=>setProfile(p[0])).catch(()=>setProfile(null));},[settings,embedded]);
+  useEffect(()=>{
+    if(embedded||!workspace)return;
     return startSerialPolling({
       load:()=>apiClient.getQueueStatus(workspace.id),
       onValue:q=>{setQueue(q);if(!q.activeJobId){if(q.jobStatus==='COMPLETED')setStatus('Explain all completed');else if(q.jobStatus==='FAILED')setStatus('Explain all failed');else if(q.jobStatus==='CANCELLED')setStatus('Explain all cancelled');}},
       shouldContinue:q=>Boolean(q.activeJobId),
       intervalMs:2000
     });
-  },[workspace?.id,queue?.activeJobId]);
+  },[workspace?.id,queue?.activeJobId,embedded]);
   useEffect(()=>{
-    if(!snapshot)return;
+    if(embedded||!snapshot)return;
     let alive=true;
     apiClient.getGraph(snapshot).then(data=>{if(alive)setGraph(previous=>JSON.stringify(previous)===JSON.stringify(data)?previous:data);}).catch(()=>{});
     return()=>{alive=false;};
-  },[snapshot,revision,queue?.completed,queue?.failed,queue?.synthesisStatus]);
+  },[snapshot,revision,queue?.completed,queue?.failed,queue?.synthesisStatus,embedded]);
   function clearSelection(){
     dispatchView({type:'CLEAR_INSPECTION'});
     journeys.set('multiIds',ids=>ids.length?[]:ids);
@@ -273,9 +342,11 @@ export default function App() {
   }
   // Latest ref so the listener effect below can mount its window listeners exactly once (they used
   // to rebind on every render) while still reading current values.
-  const latest=useRef({settings,source,active,journeys,clearSelection,setSearch});
-  latest.current={settings,source,active,journeys,clearSelection,setSearch};
+  const latest=useRef({settings,source,active,journeys,clearSelection,setSearch,tab});
+  latest.current={settings,source,active,journeys,clearSelection,setSearch,tab};
   useEffect(()=>{
+    if(embedded&&!contextActive)return;
+    if(!embedded&&tab==='review')return;
     const key=(e:KeyboardEvent)=>{
       const {settings,source,active,journeys,clearSelection,setSearch}=latest.current;
       // e.target is occasionally `document` itself (no element focused when the key was dispatched,
@@ -283,7 +354,7 @@ export default function App() {
       // rather than assume every keydown target is a real Element.
       const target=e.target as Element|null;
       const editing=!!target?.closest?.('input,textarea,select,[contenteditable="true"]');
-      if((e.ctrlKey||e.metaKey)&&e.key==='k'){e.preventDefault();document.getElementById('global-search')?.focus();return;}
+      if((e.ctrlKey||e.metaKey)&&e.key==='k'){e.preventDefault();document.getElementById(searchId)?.focus();return;}
       if(settings||(!source&&document.querySelector('dialog[open]')))return;
       if((e.ctrlKey||e.metaKey)&&['z','y'].includes(e.key.toLowerCase())){
         if(editing)return; // native text-field undo/redo owns the field
@@ -298,7 +369,7 @@ export default function App() {
     window.addEventListener('pointerdown',flushExplorerCamera,true);
     window.addEventListener('keydown',flushExplorerCamera,true);
     return()=>{window.removeEventListener('keydown',key);window.removeEventListener('pointerdown',flushExplorerCamera,true);window.removeEventListener('keydown',flushExplorerCamera,true);};
-  },[]);
+  },[embedded,contextActive,instanceKey,searchId,tab]);
   function revealInTree(n:AtlasNode){
     if(!graph)return;
     const pkg=ownerAt(n,'PACKAGE',new Map(graph.nodes.map(n=>[n.id,n])));
@@ -517,61 +588,78 @@ export default function App() {
     ? Math.max(0,Math.floor((Date.now()-Date.parse(queue.synthesisStageStartedAt))/1000))
     : 0;
   async function explainAll(){if(!workspace||!snapshot)return;try{if(queue?.activeJobId){await apiClient.cancelJob(queue.activeJobId);setStatus('Pending explanation work cancelled');}else{await apiClient.startExplainAll(workspace.id,snapshot,1);setStatus('Synthesizing architecture, then explaining classes and methods');}setQueue(await apiClient.getQueueStatus(workspace.id));}catch(e:any){setError(e.message);}}
-  return <div className="app-container">
-    <header className="app-header"><button className="brand" onClick={openCodeMap}><span className="brand-mark">◈</span>Code Atlas</button><button className="workspace-switch" onClick={()=>setShowOpen(!showOpen)}>{workspace?name:'Open project'} <span>⌄</span></button>
-      <div className="global-search"><span>⌕</span><input id="global-search" aria-label="Search codebase" placeholder="Find a class, method, or package…" value={search} onChange={e=>setSearch(e.target.value)} disabled={!graph}/><kbd>Ctrl K</kbd>{search&&<div className="search-results">{results.length?results.map(n=><button key={n.id} onClick={()=>{select(n);setTab('map');}}><span>{n.simpleName}<small>{n.qualifiedName}</small></span><span className="tag">{n.kind.toLowerCase()}</span></button>):<p>No matching symbols</p>}</div>}</div>
-      <button className="model-status" onClick={()=>setSettings(true)}><span className={`status-dot ${profile?.baseUrl?'configured':''}`}/>{profile?.baseUrl?'Model configured':'Set up model'}</button><button className="icon-button" aria-label="Model settings" onClick={()=>setSettings(true)}>⚙</button>
+  const reviewSelectionSide=edge?.reviewSide||node?.reviewSide;
+  const reviewSelectionLabel=reviewSelectionSide==='base'?'base':'changed';
+  const reviewSelectionSource=()=>{
+    if(edge){openSource({id:edge.id,ids:edge.occurrenceIds,simpleName:`${graph?.nodes.find(n=>n.id===edge.sourceId)?.simpleName||'Source'} → ${graph?.nodes.find(n=>n.id===edge.targetId)?.simpleName||'target'}`},'relationships');return;}
+    if(node&&node.kind!=='PACKAGE')openSource(node,'symbol');
+  };
+  // ReviewPanel keeps inactive journeys mounted for their state, but they must contribute no
+  // duplicate graph controls, canvas or document-level interaction targets. The next activation
+  // renders the same journey state into its own uniquely keyed DOM instance.
+  if(embedded&&!contextActive)return <div className="embedded-explorer-inactive" data-explorer-instance={instanceKey} aria-hidden="true" />;
+  return <div className={`app-container${embedded?' embedded-explorer-app review-explorer':''}`} data-testid={embedded&&contextActive?'review-explorer':undefined} data-explorer-instance={instanceKey}>
+    <header className="app-header">{!embedded&&<><button className="brand" onClick={openCodeMap}><span className="brand-mark">◈</span>Code Atlas</button><button className="workspace-switch" onClick={()=>setShowOpen(!showOpen)}>{workspace?name:'Open project'} <span>⌄</span></button></>}
+      <div className="global-search"><span>⌕</span><input id={searchId} aria-label="Search codebase" placeholder="Find a class, method, or package…" value={search} onChange={e=>setSearch(e.target.value)} disabled={!graph}/><kbd>Ctrl K</kbd>{search&&<div className="search-results">{results.length?results.map(n=><button key={n.id} onClick={()=>{select(n);setTab('map');}}><span>{n.simpleName}<small>{n.qualifiedName}</small></span><span className="tag">{n.kind.toLowerCase()}</span></button>):<p>No matching symbols</p>}</div>}</div>
+      {!embedded&&<><button className="model-status" onClick={()=>setSettings(true)}><span className={`status-dot ${profile?.baseUrl?'configured':''}`}/>{profile?.baseUrl?'Model configured':'Set up model'}</button><button className="icon-button" aria-label="Model settings" onClick={()=>setSettings(true)}>⚙</button></>}
     </header>
-    {queue?.errorMessage&&<div className="error-banner" role="alert"><span>{queue.errorMessage}</span></div>}
-    {error&&<div className="error-banner" role="alert"><span>{error}</span><button onClick={()=>setError('')} aria-label="Dismiss error">✕</button></div>}
-    {(showOpen||!graph)&&<section className={graph?'open-project-bar':'welcome'}><div><span className="welcome-icon">◈</span><h1>{graph?'Open a project':'Find your way through the code.'}</h1><p>Explore the structure. Follow a dependency. Understand why it exists.</p></div><form onSubmit={e=>{e.preventDefault();analyze();}}><label>Local repository path<input value={path} onChange={e=>setPath(e.target.value)} placeholder="/path/to/your/java-project" disabled={busy}/></label><button className="primary" disabled={busy}>{busy?'Analyzing…':'Analyze project'}</button></form><p className="muted">Source-only analysis. Your repository is read-only; no Gradle builds or application code are executed.</p>{recent.length>0&&<div className="recent-projects"><h3>Recent projects</h3>{recent.map(ws=><button key={ws.id} disabled={busy} onClick={()=>{if(ws.activeSnapshotId){setBusy(true);loadSnapshot(ws.activeSnapshotId,ws).catch(e=>setError(e.message)).finally(()=>setBusy(false));}else{setPath(ws.path);analyze(ws.path);}}}><span>▱ {ws.path.split('/').pop()}<small>{ws.path}</small></span><span>Open ↗</span></button>)}</div>}</section>}
-    {graph&&<><div className="journey-bar">
+    {!embedded&&queue?.errorMessage&&<div className="error-banner" role="alert"><span>{queue.errorMessage}</span></div>}
+    {!embedded&&error&&<div className="error-banner" role="alert"><span>{error}</span><button onClick={()=>setError('')} aria-label="Dismiss error">✕</button></div>}
+    {!embedded&&(showOpen||!graph)&&<section className={graph?'open-project-bar':'welcome'}><div><span className="welcome-icon">◈</span><h1>{graph?'Open a project':'Find your way through the code.'}</h1><p>Explore the structure. Follow a dependency. Understand why it exists.</p></div><form onSubmit={e=>{e.preventDefault();analyze();}}><label>Local repository path<input value={path} onChange={e=>setPath(e.target.value)} placeholder="/path/to/your/java-project" disabled={busy}/></label><button className="primary" disabled={busy}>{busy?'Analyzing…':'Analyze project'}</button></form><p className="muted">Source-only analysis. Your repository is read-only; no Gradle builds or application code are executed.</p>{recent.length>0&&<div className="recent-projects"><h3>Recent projects</h3>{recent.map(ws=><button key={ws.id} disabled={busy} onClick={()=>{if(ws.activeSnapshotId){setBusy(true);loadSnapshot(ws.activeSnapshotId,ws).catch(e=>setError(e.message)).finally(()=>setBusy(false));}else{setPath(ws.path);analyze(ws.path);}}}><span>▱ {ws.path.split('/').pop()}<small>{ws.path}</small></span><span>Open ↗</span></button>)}</div>}</section>}
+    {graph&&<>{embedded&&contextActive&&(node||edge)&&<div className="review-selection"><strong>{node?.simpleName||kindSummary(edge!)}</strong><span>{edge?`${edge.reviewChange==='ADDED'?'Added':edge.reviewChange==='REMOVED'?'Removed':'Unchanged'} relationship`:'Review resource'}</span>{(edge||node?.kind!=='PACKAGE')&&<button aria-label={`View ${edge?'relationship ':''}source from ${reviewSelectionLabel} snapshot`} onClick={reviewSelectionSource}>{edge?'View evidence':'View source'}</button>}</div>}<div className="journey-bar">
       <div className="journey-tabs" role="tablist" aria-label="Exploration tabs">{journeys.state.tabs.map(t=><div className={`journey-tab ${t.id===active.id?'active':''}`} key={t.id}>
-        <button role="tab" id={`journey-tab-${t.id}`} aria-controls="exploration-panel" aria-selected={t.id===active.id} tabIndex={t.id===active.id?0:-1} onKeyDown={e=>{
+        <button role="tab" id={journeyTabId(t.id)} aria-controls={panelId} aria-selected={t.id===active.id} tabIndex={t.id===active.id?0:-1} onKeyDown={e=>{
           const tabs=journeys.state.tabs,index=tabs.findIndex(x=>x.id===t.id);
           const next=e.key==='ArrowRight'?tabs[(index+1)%tabs.length]:e.key==='ArrowLeft'?tabs[(index+tabs.length-1)%tabs.length]:e.key==='Home'?tabs[0]:e.key==='End'?tabs[tabs.length-1]:null;
-          if(next){e.preventDefault();journeys.command({type:'SWITCH',id:next.id});document.getElementById(`journey-tab-${next.id}`)?.focus();}
+          if(next){e.preventDefault();journeys.command({type:'SWITCH',id:next.id});document.getElementById(journeyTabId(next.id))?.focus();}
         }} onClick={()=>journeys.command({type:'SWITCH',id:t.id})}>{t.title}</button>
         <button className="journey-close" aria-label={`Close ${t.title}`} tabIndex={t.id===active.id?0:-1} disabled={journeys.state.tabs.length===1} onClick={()=>{
           const tabs=journeys.state.tabs,index=tabs.findIndex(x=>x.id===t.id);
           const remaining=tabs.filter(x=>x.id!==t.id);
           const focusId=t.id===active.id?remaining[Math.min(index,remaining.length-1)].id:active.id;
           journeys.command({type:'CLOSE',id:t.id});
-          document.getElementById(`journey-tab-${focusId}`)?.focus();
+          document.getElementById(journeyTabId(focusId))?.focus();
         }}>×</button>
       </div>)}</div>
       <div className="journey-actions"><button onClick={()=>journeys.command({type:'NEW'})}>+ New tab</button><button onClick={()=>journeys.command({type:'CLONE'})} title="Copy this tab and its undo/redo history">Clone tab</button><button disabled={journeys.state.closed.length===0} onClick={()=>journeys.command({type:'REOPEN'})}>Reopen closed tab</button></div>
       <div className="journey-history" aria-label="Tab history"><button disabled={!viewState.inspectedSubjectId&&!active.present.multiIds.length} onClick={clearSelection} title="Clear inspection and selected cards (Escape)">Clear selection</button><button disabled={!active.past.length} title="Undo last exploration action (Ctrl/Cmd Z). Up to 200 actions per tab." onClick={()=>journeys.command({type:'UNDO'})}>↶ Undo</button><button disabled={!active.future.length} title="Redo (Ctrl/Cmd Shift Z or Ctrl Y)" onClick={()=>journeys.command({type:'REDO'})}>↷ Redo</button></div>
-    </div><nav className="mobile-tabs">{['explorer','map','details'].map(p=><button className={mobilePane===p?'active':''} key={p} onClick={()=>setMobilePane(p)}>{p}</button>)}</nav><main id="exploration-panel" role="tabpanel" aria-labelledby={`journey-tab-${active.id}`} key={active.id} className={`app-main pane-${mobilePane}`}>
-      <aside className="navigation" ref={navRef} style={navWidth!=null?{['--nav-width' as any]:`${navWidth}px`}:undefined}><nav className="workspace-nav"><button className={tab==='map'?'active':''} onClick={openCodeMap}>▦ <span>Code map</span></button><button className={tab==='routes'?'active':''} onClick={()=>{setTab('routes');setMobilePane('map');}}>▷ <span>Entry points</span><small>{routes.length}</small></button><button className={tab==='context'?'active':''} onClick={()=>{setTab('context');setMobilePane('map');}}>▤ <span>Project context</span></button></nav>
-        <NavigationPane treeOpen={active.present.treeOpen} onTreeOpen={(id,open)=>journeys.set('treeOpen',values=>({...values,[id]:open}))} graph={graph} scope={scope} selectedNode={node} search={search} onScopeChange={handleScopeChange} onSelect={select} onViewClasses={viewClasses} onViewMethods={viewMethods}/>
-        {recentHistory.length>0&&<div className="recent-symbols"><h3>Recently viewed</h3>{recentHistory.map(h=>{const n=graph.nodes.find(x=>x.id===h.subjectId);return n?<button key={h.subjectId} onClick={()=>select(n)}>◷ {n.simpleName}</button>:null;})}</div>}
-        <div className="workspace-summary"><strong>{name}</strong><span>{typeCount} types across {packages.length} packages</span><button className="text-button" disabled={busy} onClick={()=>analyze()}>↻ Re-analyze source</button></div>
+    </div><nav className="mobile-tabs">{['explorer','map','details'].map(p=><button className={mobilePane===p?'active':''} key={p} onClick={()=>setMobilePane(p)}>{p}</button>)}</nav><main id={panelId} role="tabpanel" aria-labelledby={journeyTabId(active.id)} key={active.id} className={`app-main pane-${mobilePane}`}>
+      <aside className="navigation" ref={navRef} style={navWidth!=null?{['--nav-width' as any]:`${navWidth}px`}:undefined}><nav className="workspace-nav"><button className={tab==='map'?'active':''} onClick={openCodeMap}>▦ <span>Code map</span></button>{!embedded&&<><button className={tab==='review'?'active':''} aria-label="Review changes" onClick={()=>{setTab('review');setMobilePane('map');}}>△ <span>Review changes</span></button><button className={tab==='routes'?'active':''} onClick={()=>{setTab('routes');setMobilePane('map');}}>▷ <span>Entry points</span><small>{routes.length}</small></button><button className={tab==='context'?'active':''} onClick={()=>{setTab('context');setMobilePane('map');}}>▤ <span>Project context</span></button></>}</nav>
+        {tab!=='review'&&<><NavigationPane treeOpen={active.present.treeOpen} onTreeOpen={(id,open)=>journeys.set('treeOpen',values=>({...values,[id]:open}))} graph={graph} scope={scope} selectedNode={node} search={search} onScopeChange={handleScopeChange} onSelect={select} onViewClasses={viewClasses} onViewMethods={viewMethods}/>
+        {recentHistory.length>0&&<div className="recent-symbols"><h3>Recently viewed</h3>{recentHistory.map(h=>{const n=graph.nodes.find(x=>x.id===h.subjectId);return n?<button key={h.subjectId} onClick={()=>select(n)}>◷ {n.simpleName}</button>:null;})}</div>}</>}
+        <div className="workspace-summary"><strong>{name}</strong><span>{tab==='review'?'Captured Git comparison':`${typeCount} types across ${packages.length} packages`}</span>{!embedded&&tab!=='review'&&<button className="text-button" disabled={busy} onClick={()=>analyze()}>↻ Re-analyze source</button>}</div>
       </aside>
       <div className="nav-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize navigation panel. Use arrow keys, hold Shift for larger steps, Home to reset." tabIndex={0} aria-valuenow={Math.round(navWidth??currentNavWidth())} aria-valuemin={NAV_MIN} aria-valuemax={Math.round(navMax())} onPointerDown={startNavResize} onKeyDown={navResizeKeyDown} onDoubleClick={()=>{if(justDraggedNavRef.current){justDraggedNavRef.current=false;return;}resetNavWidth();}} />
       <section className="workspace-content">
-        {tab==='context'&&workspace?<ProjectDocuments key={workspace.id} workspaceId={workspace.id} onChanged={()=>setRevision(r=>r+1)}/>:tab==='routes'?<section className="entry-view"><div className="page-heading"><div><h1>Start with a request</h1><p>Follow an HTTP entry point into its handler and dependencies.</p></div></div>{routes.length?routes.map(r=>{const handler=graph.nodes.find(n=>n.id===r.symbol_version_id);return <button className="route-card" key={r.id} onClick={()=>{if(handler)(handler.kind==='PACKAGE'?viewClasses:viewMethods)(handler);}}><span className="tag">{r.http_method}</span><strong>{r.path}</strong><span>{handler?.simpleName||r.handler_qualified}</span><span>Explore ↗</span></button>;}):<div className="empty-state"><h2>No HTTP routes found</h2><p>Explore packages and classes to find this application's entry points.</p><button onClick={openCodeMap}>Open code map</button></div>}</section>:<>
+        {!embedded&&workspace&&<div className="review-workspace" hidden={tab!=='review'}><ReviewPanel key={workspace.id} workspaceId={workspace.id} active={tab==='review'} onSource={target=>onReviewSource?.(target)} renderExplorer={context=><ExplorerApp reviewContext={context} onReviewSource={onReviewSource}/>} /></div>}{tab==='context'&&workspace?<ProjectDocuments key={workspace.id} workspaceId={workspace.id} onChanged={()=>setRevision(r=>r+1)}/>:tab==='routes'?<section className="entry-view"><div className="page-heading"><div><h1>Start with a request</h1><p>Follow an HTTP entry point into its handler and dependencies.</p></div></div>{routes.length?routes.map(r=>{const handler=graph.nodes.find(n=>n.id===r.symbol_version_id);return <button className="route-card" key={r.id} onClick={()=>{if(handler)(handler.kind==='PACKAGE'?viewClasses:viewMethods)(handler);}}><span className="tag">{r.http_method}</span><strong>{r.path}</strong><span>{handler?.simpleName||r.handler_qualified}</span><span>Explore ↗</span></button>;}):<div className="empty-state"><h2>No HTTP routes found</h2><p>Explore packages and classes to find this application's entry points.</p><button onClick={openCodeMap}>Open code map</button></div>}</section>:tab==='review'?null:<>
           <div className="map-heading"><div className="breadcrumbs"><button onClick={openCodeMap}>{scopeCrumb}</button><span>/</span><span className="breadcrumb-level">{levelWord}</span>{node&&<><span>/</span><button onClick={()=>select(node)}>{node.simpleName}</button></>}</div><div className="page-heading"><div><h1>{node?node.simpleName:'Understand the whole system'}</h1><p>{node?'Follow the relationships around this part of the codebase.':`${typeCount} types across ${packages.length} packages. Choose a starting point.`}</p></div><button onClick={()=>{const entry=viewState.history[viewState.history.length-1];if(entry)dispatchView({type:'NAVIGATE_BACK',eligibleIds:eligibleFor(entry.level)});}} disabled={!viewState.history.length}>← Back</button></div>
           <div className="graph-toolbar"><div className="segmented" aria-label="Graph level">{(['PACKAGE','CLASS','METHOD'] as Level[]).map(l=><button className={level===l?'active':''} key={l} onClick={()=>{if(l===level)return;const ids=eligibleFor(l);dispatchView({type:'NAVIGATE_LEVEL',level:l,eligibleIds:ids,batchSize:l==='PACKAGE'?Infinity:BATCH_SIZE,placement:placementFor(ids)});if(viewState.inspectedKind==='EDGE'&&!unresolvedEdge)dispatchView({type:'CLEAR_INSPECTION'});}}>{l==='PACKAGE'?'Packages':l==='CLASS'?'Classes':'Methods'}</button>)}</div><select aria-label="Relationship kind" value={kind} onChange={e=>setKind(e.target.value)}><option value="ALL">All dependencies</option>{[...new Set(graph.edges.map(e=>e.kind))].sort().map(k=><option key={k} value={k}>{k.toLowerCase().replaceAll('_',' ')}</option>)}</select></div>
           <div className="scope-banner"><span className="scope-banner-icon" aria-hidden="true">{scope.mode==='ALL'?'◈':'⌖'}</span><div className="scope-banner-text"><strong>{graph?scopeToLabel(graph,scope):''}</strong><span>Showing {levelWord.toLowerCase()} · {scopedCount} {levelWord.toLowerCase()}{scope.mode!=='ALL'?` in ${scopeUnitLabel()}`:''}</span></div><div className="scope-banner-actions">{node&&<span className="tag inspecting-chip">Inspecting {node.simpleName}</span>}{edge&&!node&&<span className="tag inspecting-chip">Inspecting a relationship</span>}{viewState.newlyAddedIds.length>0&&displayedIds.length>viewState.newlyAddedIds.length&&<span className="tag added-below-chip">{viewState.newlyAddedIds.length} added below</span>}{omittedCount>0&&<button className="show-more" onClick={()=>{const ids=eligibleFor(level);dispatchView({type:'SHOW_MORE',eligibleIds:ids,batchSize:BATCH_SIZE,placement:placementFor(ids)});}}>Showing {visibleCount} of {scopedCount} in scope · show {Math.min(BATCH_SIZE,omittedCount)} more</button>}{scope.mode==='CUSTOM'&&<button className="text-button" onClick={resetScope}>Reset to whole system</button>}</div></div>
           </div>
-          {scopeEmpty
-            ? <div className="scope-empty-state"><h2>No packages or classes selected</h2><p>Check packages or classes in the left tree to define what the graph shows.</p><button className="primary" onClick={resetScope}>Select all</button></div>
-            : <GraphCanvas multiIds={active.present.multiIds} onMultiIdsChange={v=>journeys.set('multiIds',v)} mapOpen={active.present.mapOpen} onMapOpenChange={v=>journeys.set('mapOpen',v)} fullscreen={active.present.fullscreen} onFullscreenChange={v=>journeys.set('fullscreen',v)} onClearSelection={clearSelection} nodes={projected.nodes} edges={projected.edges} positions={geometry.positions} sizes={sizes} containerSizes={containerSizes} onToggleExpand={toggleExpand} onResizeNode={resizeNode} onResizeContainer={resizeContainer} camera={levelGeometry.camera} selectedId={node?.id||edge?.id} onNodeSelect={select} onEdgeSelect={inspectEdge} canRemoveFromScope={n=>isNodeInScope(n,scope,graph)} onRemoveFromScope={removeFromScope} scopeRemovalTargets={nodes=>planScopeRemoval(nodes).removed} onCameraChange={handleCameraChange} onNodeMoved={handleNodeMoved} onNodesMoved={handleNodesMoved} onArrangeAroundResource={id=>{
+          {embedded&&!contextActive
+            ? <div className="canvas-inactive-placeholder" aria-hidden="true" />
+            : scopeEmpty
+              ? <div className="scope-empty-state"><h2>No packages or classes selected</h2><p>Check packages or classes in the left tree to define what the graph shows.</p><button className="primary" onClick={resetScope}>Select all</button></div>
+              : <GraphCanvas multiIds={active.present.multiIds} onMultiIdsChange={v=>journeys.set('multiIds',v)} mapOpen={active.present.mapOpen} onMapOpenChange={v=>journeys.set('mapOpen',v)} fullscreen={active.present.fullscreen} onFullscreenChange={v=>journeys.set('fullscreen',v)} onClearSelection={clearSelection} nodes={projected.nodes} edges={projected.edges} positions={geometry.positions} sizes={sizes} containerSizes={containerSizes} onToggleExpand={toggleExpand} onResizeNode={resizeNode} onResizeContainer={resizeContainer} camera={levelGeometry.camera} selectedId={node?.id||edge?.id} onNodeSelect={select} onEdgeSelect={inspectEdge} canRemoveFromScope={n=>isNodeInScope(n,scope,graph)} onRemoveFromScope={removeFromScope} scopeRemovalTargets={nodes=>planScopeRemoval(nodes).removed} onCameraChange={handleCameraChange} onNodeMoved={handleNodeMoved} onNodesMoved={handleNodesMoved} onArrangeAroundResource={id=>{
               if(reclickTimer.current){clearTimeout(reclickTimer.current);reclickTimer.current=null;}
               const p=pendingInspectRef.current;
               const collapse=!!p&&p.tabId===active.id&&p.nodeId===id&&Date.now()-p.ts<500;
               pendingInspectRef.current=null;
               arrangeAround(id,collapse);
               setMobilePane('details');
-            }} onViewCode={n=>setSource({node:n,type:'symbol'})} restoreVersion={active.restoreVersion}/>}
+            }} onViewCode={n=>openSource(n,'symbol')} restoreVersion={active.restoreVersion}/>}
           <div className="graph-legend"><span><i className="line-sample"/>Static dependency</span><span><i className="line-sample uncertain"/>Candidate / unresolved</span><span>{level==='METHOD'?'Method call occurrences':`${level==='PACKAGE'?'Package':'Class'} connections group occurrences by kind and resolution`}</span></div>
         </>}
       </section>
-      {tab!=='context'&&<InspectorPanel selectedNode={node} selectedEdge={edge} mapStatus={mapStatus} edgeFilteredOut={edgeFilteredOut} edgeHiddenByExpansion={edgeHiddenByExpansion} selectedOccurrenceId={viewState.inspectedOccurrenceId} onSelectOccurrence={id=>dispatchView({type:'SELECT_OCCURRENCE',occurrenceId:id})} workspaceId={workspace?.id||null} snapshotId={snapshot} graph={graph} routes={routes} revision={revision} onExplanationReady={()=>setRevision(r=>r+1)} onInspectEdge={inspectEdge} onSelect={select} onViewClasses={viewClasses} onViewMethods={viewMethods} onArrangeAroundResource={n=>arrangeAround(n.id)} onSource={(n,type='symbol')=>setSource({node:n,type})} onClose={clearSelection}/>}
+      {(!embedded||contextActive)&&tab!=='context'&&tab!=='review'&&<InspectorPanel selectedNode={node} selectedEdge={edge} mapStatus={mapStatus} edgeFilteredOut={edgeFilteredOut} edgeHiddenByExpansion={edgeHiddenByExpansion} selectedOccurrenceId={viewState.inspectedOccurrenceId} onSelectOccurrence={id=>dispatchView({type:'SELECT_OCCURRENCE',occurrenceId:id})} workspaceId={workspace?.id||null} snapshotId={snapshot} graph={graph} routes={routes} revision={revision} onExplanationReady={()=>setRevision(r=>r+1)} onInspectEdge={inspectEdge} onSelect={select} onViewClasses={viewClasses} onViewMethods={viewMethods} onArrangeAroundResource={n=>arrangeAround(n.id)} onSource={(n,type='symbol')=>openSource(n,type)} onClose={clearSelection}/>}
     </main></>}
-    <footer className="app-footer">{graph?.metadata?.diagnostics?.warnings?.length>0&&<details className="analysis-warnings"><summary>{graph?.metadata?.diagnostics?.warnings.length} analysis warning(s)</summary><div>{graph?.metadata?.diagnostics?.warnings.map((w:string,i:number)=><p key={i}>{w}</p>)}</div></details>}<span><i className={`status-dot ${graph?'configured':''}`}/>{status}</span>{graph&&<span>{graph.metadata?.unresolvedCount||0} unresolved external targets</span>}<div className="queue-summary">{queue?.activeJobId&&queue.synthesisStatus!=='READY'&&<span className="synthesis-progress"><i aria-hidden="true"/>{queue.synthesisStage || 'Preparing architecture'} · {synthesisElapsed}s · {queue.synthesisCompleted || 0} validated</span>}{!queue?.activeJobId&&queue?.jobStatus==='CANCELLED'&&<span>Explain all cancelled</span>}{queue&&<span>{queue.completed} explained · {queue.pending+queue.inProgress} queued · {queue.failed} failed</span>}{snapshot&&<button className={queue?.activeJobId?'':'primary'} onClick={explainAll}>{queue?.activeJobId?'Stop explain all':'✧ Explain all'}</button>}</div></footer>
-    <SettingsScreen isOpen={settings} onClose={()=>setSettings(false)}/>
-    {source&&snapshot&&<SourceDialog snapshot={snapshot} subject={source.node} type={source.type} onClose={()=>setSource(null)}/>}
+    {!embedded&&<footer className="app-footer">{tab!=='review'&&graph?.metadata?.diagnostics?.warnings?.length>0&&<details className="analysis-warnings"><summary>{graph?.metadata?.diagnostics?.warnings.length} analysis warning(s)</summary><div>{graph?.metadata?.diagnostics?.warnings.map((w:string,i:number)=><p key={i}>{w}</p>)}</div></details>}<span><i className={`status-dot ${graph?'configured':''}`}/>{tab==='review'?'Review comparison uses captured source facts':status}</span>{tab!=='review'&&graph&&<span>{graph.metadata?.unresolvedCount||0} unresolved external targets</span>}{tab!=='review'&&<div className="queue-summary">{queue?.activeJobId&&queue.synthesisStatus!=='READY'&&<span className="synthesis-progress"><i aria-hidden="true"/>{queue.synthesisStage || 'Preparing architecture'} · {synthesisElapsed}s · {queue.synthesisCompleted || 0} validated</span>}{!queue?.activeJobId&&queue?.jobStatus==='CANCELLED'&&<span>Explain all cancelled</span>}{queue&&<span>{queue.completed} explained · {queue.pending+queue.inProgress} queued · {queue.failed} failed</span>}{snapshot&&<button className={queue?.activeJobId?'':'primary'} onClick={explainAll}>{queue?.activeJobId?'Stop explain all':'✧ Explain all'}</button>}</div>}</footer>}
+    {!embedded&&<SettingsScreen isOpen={settings} onClose={()=>setSettings(false)}/>}
+    {!embedded&&source&&snapshot&&<SourceDialog snapshot={snapshot} subject={source.node} type={source.type} onClose={()=>setSource(null)}/>}
   </div>;
+}
+
+export default function App() {
+  const [reviewSource, setReviewSource] = useState<ReviewSourceTarget | null>(null);
+  return <><ExplorerApp onReviewSource={setReviewSource}/>{reviewSource&&<SourceDialog snapshot={reviewSource.snapshotId} subject={reviewSource} type={reviewSource.type||'symbol'} snapshotLabel={`${reviewSource.label} captured for this review`} historical onClose={()=>setReviewSource(null)}/>}</>;
 }

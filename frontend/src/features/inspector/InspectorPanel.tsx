@@ -37,19 +37,25 @@ export default function InspectorPanel({selectedNode: node, selectedEdge: edge, 
   const defaultIndex=dominantOccurrenceIndex(edge,graph);
   const chosenIndex=edge?.occurrenceIds&&siteId?edge.occurrenceIds.indexOf(siteId):-1;
   const site=chosenIndex>=0?chosenIndex:defaultIndex;
-  const subject=edge?(edge.occurrenceIds?.[site] || edge.id):node?.id;
+  // Review graphs draw synthetic node IDs and aggregate route IDs, while explanation/source APIs
+  // remain snapshot-local. Resolve the inspected subject before every request so selecting a related
+  // row or occurrence cannot accidentally reuse the previously selected resource's snapshot.
+  const subject=edge?(edge.occurrenceIds?.[site] || edge.reviewSourceId || edge.id):node?.reviewSourceId || node?.id;
+  const subjectSnapshot=edge?.reviewSnapshotId || node?.reviewSnapshotId || snapshotId;
   const explanation=loadedSubject===subject?rawExplanation:null;
-  const graphStatus=edge?graph.edges.find(e=>e.id===subject)?.explanationStatus:graph.nodes.find(n=>n.id===subject)?.explanationStatus;
-  useEffect(()=>{setExplanation(null);setEvidence([]);setError('');},[snapshotId,subject]);
+  const graphStatus=edge
+    ? graph.edges.find(e=>e.id===subject || e.id===edge.id || e.occurrenceIds?.includes(subject || ''))?.explanationStatus
+    : graph.nodes.find(n=>n.id===subject || n.id===node?.id)?.explanationStatus;
+  useEffect(()=>{setExplanation(null);setEvidence([]);setError('');},[subjectSnapshot,subject]);
   // Deliberately does NOT clear the chosen occurrence: the reducer already clears it when a genuinely
   // new subject is inspected, and clearing it here would also fire on the edge.id change that
   // NAVIGATE_BACK itself causes -- wiping the very occurrence Back had just restored.
   useEffect(()=>{setExplanation(null);setError('');setEvidence([]);},[node?.id,edge?.id]);
   useEffect(()=>{
-    if (!snapshotId || !subject || node?.kind==='PACKAGE') return;
+    if (!subjectSnapshot || !subject || node?.kind==='PACKAGE') return;
     return startSerialPolling({
       load:async()=>{
-        const [result,ev]=await Promise.all([apiClient.getSubjectExplanation(snapshotId!,subject!,type),apiClient.getExplanationEvidence(snapshotId!,subject!,type)]);
+        const [result,ev]=await Promise.all([apiClient.getSubjectExplanation(subjectSnapshot!,subject!,type),apiClient.getExplanationEvidence(subjectSnapshot!,subject!,type)]);
         return {result,ev};
       },
       onValue:({result,ev})=>{setLoadedSubject(subject!);setExplanation(result);setEvidence(ev);setError('');if(result?.status==='READY'&&requestedSubject.current===subject){requestedSubject.current=null;onExplanationReady();}},
@@ -57,7 +63,7 @@ export default function InspectorPanel({selectedNode: node, selectedEdge: edge, 
       intervalMs:2500,
       onError:(e:any)=>setError(e.message)
     });
-  },[snapshotId,subject,type,revision,requestRevision,graphStatus,node?.kind]);
+  },[subjectSnapshot,subject,type,revision,requestRevision,graphStatus,node?.kind]);
   const parent=graph.nodes.find(n=>n.id===node?.parentId);
   const children=graph.nodes.filter(n=>n.parentId===node?.id);
   const methods=children.filter(n=>n.kind==='METHOD'||n.kind==='CONSTRUCTOR');
@@ -67,7 +73,7 @@ export default function InspectorPanel({selectedNode: node, selectedEdge: edge, 
   const outgoing=graph.edges.filter(e=>relatedIds.has(e.sourceId)&&(!e.targetId||!relatedIds.has(e.targetId)));
   const find=(id:string|null|undefined)=>graph.nodes.find(n=>n.id===id);
   const status=explanation?.status||'NOT_REQUESTED';
-  async function explain(){if(!workspaceId||!snapshotId||!subject)return;setRequesting(true);try{await apiClient.requestExplanation(workspaceId,snapshotId,subject,type);requestedSubject.current=subject;setLoadedSubject(subject);setExplanation((prev:any)=>({...prev,status:'QUEUED'}));setRequestRevision(r=>r+1);setError('');}catch(e:any){setError(e.message);}finally{setRequesting(false);}}
+  async function explain(){if(!workspaceId||!subjectSnapshot||!subject)return;setRequesting(true);try{await apiClient.requestExplanation(workspaceId,subjectSnapshot,subject,type);requestedSubject.current=subject;setLoadedSubject(subject);setExplanation((prev:any)=>({...prev,status:'QUEUED'}));setRequestRevision(r=>r+1);setError('');}catch(e:any){setError(e.message);}finally{setRequesting(false);}}
   function groupEdges(edges:AtlasEdge[],incoming:boolean){ const unique=new Map<string,{node:AtlasNode;count:number}>();for(const e of edges){const n=find(incoming?e.sourceId:e.targetId);if(!n)continue;const old=unique.get(n.id);unique.set(n.id,{node:n,count:(old?.count||0)+1});}return [...unique.values()]; }
   function renderGroups(groups:{node:AtlasNode;count:number}[]){ return groups.map(({node:n,count})=><div className="symbol-row" key={n.id}><button className="related-row" onClick={()=>onSelect(n)}><span>{n.simpleName}<small>{find(n.parentId)?.simpleName}</small></span><span>{count} {count===1?'site':'sites'} ↗</span></button>{codeButtonFor(n)}</div>); }
   // Quick code: every class/method row in this panel can open its source directly, without first

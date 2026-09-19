@@ -1,5 +1,7 @@
 import { ScopeSelection, isNodeInScope } from './scopeModel';
 export interface AtlasNode { id: string; simpleName: string; qualifiedName?: string; kind: string; parentId?: string; roles?: string[]; responsibilitySummary?: string; explanationStatus?: string; memberNames?: string[]; memberCount?: number; packageName?: string;
+  /** A comparison overlay may mark a parser-owned resource; ordinary exploration leaves this absent. */
+  reviewChange?: 'ADDED' | 'MODIFIED' | 'REMOVED' | 'UNCHANGED'; reviewSnapshotId?: string; reviewSide?: 'base' | 'head'; reviewSourceId?: string; reviewAddedLines?: number; reviewRemovedLines?: number;
   /** How many cards expanding this card would show before scope: a package's types, a type's methods and constructors. */
   detailCount?: number;
   /** Set on a projected card drawn inside an expanded card: the id of that container card. */
@@ -7,6 +9,10 @@ export interface AtlasNode { id: string; simpleName: string; qualifiedName?: str
   /** Set on a projected card that is currently expanded into a container of its children. */
   expanded?: boolean }
 export interface AtlasEdge { id: string; sourceId: string; targetId: string | null; kind: string; resolution: string; descriptiveLabel?: string; occurrenceCount?: number; occurrenceIds?: string[]; hoverSummary?: string; explanationStatus?: string;
+  /** Kept in the aggregate key for review overlay facts, so added/removed routes cannot cancel out. */
+  reviewChange?: 'ADDED' | 'REMOVED' | 'UNCHANGED'; reviewSnapshotId?: string; reviewSide?: 'base' | 'head';
+  /** Review occurrence metadata; ordinary graph edges leave these absent. */
+  reviewSourceId?: string;
   /** Aggregate-only (see aggregateEdges): per-occurrence kinds aligned with occurrenceIds, per-kind counts, distinct resolutions present, and the computed line width. */
   occurrenceKinds?: string[]; kindCounts?: Record<string, number>; resolutions?: string[]; strengthWidth?: number }
 export interface AtlasGraph { nodes: AtlasNode[]; edges: AtlasEdge[]; metadata?: Record<string, any> }
@@ -232,7 +238,7 @@ function aggregateEdges(graph: AtlasGraph, level: Level, all: Map<string, AtlasN
     if (source === target && !['METHOD', 'CONSTRUCTOR'].includes(all.get(source)!.kind)) continue;
     // A card and the container it sits in are drawn nested, so a route between them has nowhere to go.
     if (source !== target && (inside(source, target) || inside(target, source))) continue;
-    const key = JSON.stringify([source, target]);
+    const key = e.reviewChange ? JSON.stringify([source, target, e.reviewChange]) : JSON.stringify([source, target]);
     const group = grouped.get(key);
     if (group) {
       group.occurrenceIds!.push(e.id); group.occurrenceKinds!.push(e.kind); group.occurrenceCount!++;

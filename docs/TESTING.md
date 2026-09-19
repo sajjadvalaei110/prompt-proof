@@ -1,5 +1,22 @@
 # Code Atlas — Testing Strategy
 
+## Git review views
+
+`./gradlew test bootJar` runs backend coverage and packages the frontend. Focused
+Git fixtures are `GitReviewBoundaryTest` and `ReviewApiIntegrationTest`: real local
+repositories cover upstream merge bases, staged/unstaged/untracked content, raw
+filter-free reads, binary files, retained source, line counts, repeated call sites,
+partial parsing, failure cleanup and preservation of the active analysis snapshot.
+`node scripts/test-review-model.mjs` checks frontend side and occurrence identities.
+
+Run `JAVA=/path/to/java21/bin/java python3 scripts/verify_git_review_pipeline.py`
+for browser acceptance. It requires installed Chromium (override `CHROMIUM` if
+needed), the packaged JAR and loopback sockets. It creates an isolated Git fixture,
+application database and browser profile, opens the actual review UI and records
+screenshots. Repository/index hashes and a rejecting local model endpoint check
+that review leaves analyzed data unchanged and makes no model calls. Inspect the
+screenshots as well as the assertions. No live model integration is claimed.
+
 ## Exploration tabs and undo/redo (R6, September 2026)
 
 See [Exploration tabs](EXPLORATION_TABS.md) for the behavior, boundaries and browser
