@@ -335,6 +335,36 @@ check('geometryInitialized is monotonic: an empty-scope transition does not clea
   assert.equal(s.levelViews.CLASS.geometryInitialized, true, 'geometryInitialized must remain true across an empty-scope transition');
 });
 
+check('review-only resources join the shared page without disturbing ordinary geometry and survive map-mode reconciliation', () => {
+  let s = initExplorerViewState('PACKAGE');
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'PACKAGE', eligibleIds: ['p0'], batchSize: Infinity, placement: placementFor(['p0']) });
+  s = explorerViewReducer(s, { type: 'EXPAND_RESOURCE', level: 'PACKAGE', id: 'p0', ownerId: null, childPositions: { c0: { x: 210, y: 260 } }, generation: s.generation });
+  s = explorerViewReducer(s, { type: 'SET_CAMERA', level: 'PACKAGE', camera: { zoom: .7, pan: { x: 22, y: -12 } }, generation: s.generation });
+  const before = s.levelViews.PACKAGE;
+  s = explorerViewReducer(s, { type: 'REVIEW_IDS_AVAILABLE', level: 'PACKAGE', ids: ['review-node:removed-package'], placement: placementFor(['p0', 'review-node:removed-package']) });
+  const after = s.levelViews.PACKAGE;
+  assert.deepEqual(after.displayedIds, ['p0', 'review-node:removed-package']);
+  assert.deepEqual(after.positions.p0, before.positions.p0, 'ordinary card position stays fixed');
+  assert.deepEqual(after.expansions, before.expansions, 'ordinary expansion stays fixed');
+  assert.deepEqual(after.camera, before.camera, 'camera stays fixed');
+  assert.ok(after.positions['review-node:removed-package'], 'overlay-only card receives a position');
+  const mapEdit = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: ['p0'], batchSize: Infinity, preserveReviewOnly: true });
+  assert.ok(mapEdit.levelViews.PACKAGE.displayedIds.includes('review-node:removed-package'), 'map-mode scope reconciliation keeps the cached overlay card');
+  const reviewEdit = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: ['p0'], batchSize: Infinity, preserveReviewOnly: false });
+  assert.deepEqual(reviewEdit.levelViews.PACKAGE.displayedIds, ['p0'], 'review-mode scope reconciliation can remove it');
+});
+
+check('PRUNE_REVIEW_IDS removes stale overlay identities while retaining ordinary cards', () => {
+  let s = initExplorerViewState('PACKAGE');
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'PACKAGE', eligibleIds: ['p0'], batchSize: Infinity, placement: placementFor(['p0']) });
+  s = explorerViewReducer(s, { type: 'REVIEW_IDS_AVAILABLE', level: 'PACKAGE', ids: ['review-node:old'], placement: placementFor(['p0', 'review-node:old']) });
+  s = explorerViewReducer(s, { type: 'INSPECT_NODE', id: 'review-node:old' });
+  s = explorerViewReducer(s, { type: 'PRUNE_REVIEW_IDS', ids: ['review-node:new'] });
+  assert.deepEqual(s.levelViews.PACKAGE.displayedIds, ['p0']);
+  assert.equal(s.inspectedSubjectId, null);
+  assert.deepEqual(s.levelViews.PACKAGE.positions, { p0: s.levelViews.PACKAGE.positions.p0 });
+});
+
 check('appendWidth is decided once from the first-ever batch and reused for later batches at that level', () => {
   let s = initExplorerViewState('PACKAGE');
   const first = ['c0'];

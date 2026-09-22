@@ -45,3 +45,13 @@ src/main/resources/static/
 
 .agents/
 .claude/
+
+test-fixtures/
+
+# Local secrets / scratch notes (never commit)
+/gerrit
+codex_handoff.md
+codex_review_report.md
+session_handoff.md
+docs/CODEX_REVIEW_PROMPT.md
+scripts/__pycache__/

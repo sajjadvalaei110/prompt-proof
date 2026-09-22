@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import cytoscape from 'cytoscape';
-import { AtlasNode, AtlasEdge, kindSummary } from './graphModel';
+import { AtlasNode, AtlasEdge, kindSummary, reviewRouteSummary } from './graphModel';
 import { nodeCard, cornerButtons, CODE_BUTTON, MIN_CARD_SIZE, CornerAction, CardSize } from './nodeCard';
 import { CONTAINER_BUTTON, CONTAINER_PADDING } from './expansionLayout';
 import CodeButton from '../../components/CodeButton';
@@ -36,10 +36,20 @@ export interface Point { x: number; y: number }
  * 3.39:1, in 3.88:1, both 4.33:1. The halo tints are deliberately far lighter and do not: they are
  * a glow *around* a border already painted in the conforming route color, never the sole carrier of
  * the relationship, which is also encoded by border-style (see the .rel-* rules below).
+ *
+ * `reviewIn`/`reviewInHalo` are a narrower substitute for `in`/`inHalo`, used only for an inspected
+ * node's incoming routes in the review overlay (edge[reviewChange = "UNCHANGED"] below): plain red
+ * dashed is indistinguishable there from a REMOVED review route, which is also red and dashed (P2.2).
+ * Indigo is deliberately distinct from every other route/overlay color in this palette -- not the
+ * blue of `out`, the violet of `both`, or the red/green/amber the review ADDED/REMOVED/MODIFIED rules
+ * already use -- so "this is just an incoming caller" cannot be misread as any of those.
  */
-const FLOW = { out: '#1d90cc', outHalo: '#a9dcf7', in: '#e0474c', inHalo: '#f6b3b3', both: '#8f5bd6', bothHalo: '#cfb2f2' };
+const FLOW = { out: '#1d90cc', outHalo: '#a9dcf7', in: '#e0474c', inHalo: '#f6b3b3', both: '#8f5bd6', bothHalo: '#cfb2f2', reviewIn: '#5c6bc0', reviewInHalo: '#c5cae9' };
+/** Review overlay route colors: factual change state, kept through selection and flow emphasis. */
+const REVIEW = { added: '#168a58', removed: '#c74545', unknown: '#ba862d' };
 /** Style properties the animation loop writes as bypasses; always cleared together. */
 const ANIMATED_STYLES = 'line-dash-offset underlay-opacity outline-opacity outline-width';
+const REVIEW_DATA_KEYS = ['reviewChange', 'reviewSnapshotId', 'reviewSide', 'reviewSourceId', 'reviewAddedLines', 'reviewRemovedLines'];
 
 export interface Camera { zoom: number; pan: Point }
 
@@ -147,7 +157,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     const card=nodeCard(n,sizes[n.id]),min=containerSizes[n.id];
     const childWord=n.kind==='PACKAGE'?'types':'methods';
     const reviewChange=n.reviewChange&&n.reviewChange!=='UNCHANGED'?n.reviewChange:null;
-    const reviewLabel=reviewChange?` · ${reviewChange} +${n.reviewAddedLines||0} −${n.reviewRemovedLines||0}`:'';
+    const reviewLabel=reviewChange==='UNKNOWN'?' · NOT ANALYZED':reviewChange?` · ${reviewChange} +${n.reviewAddedLines||0} −${n.reviewRemovedLines||0}`:'';
     return {...rest,...(n.reviewChange?{reviewChange:n.reviewChange}:{}),expanded:!!n.expanded,card:card.image,cardWidth:card.width,cardHeight:card.height,minW:min?.width||0,minH:min?.height||0,
       containerLabel:`${n.kind==='PACKAGE'?n.qualifiedName||n.simpleName:n.simpleName}  ·  ${childCounts.get(n.id)||0} ${childWord}${reviewLabel}`,
       label:n.simpleName+'\n'+(n.roles?.[0]?.toLowerCase().replaceAll('_',' ')||n.kind.toLowerCase()),color:n.kind==='PACKAGE'?'#6c79b6':n.roles?.includes('SERVICE')?'#16888a':n.roles?.includes('REPOSITORY')?'#6287c8':'#8293a8'};
@@ -173,6 +183,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         // +/- declaration totals. Base and after projections omit reviewChange and match ordinary
         // exploration styling.
         { selector: 'node[reviewChange = "ADDED"], node[reviewChange = "MODIFIED"], node[reviewChange = "REMOVED"], node[reviewChange = "ADDED"].inspected, node[reviewChange = "MODIFIED"].inspected, node[reviewChange = "REMOVED"].inspected', style: { 'background-color': '#fff4c8', 'border-color': '#ba862d' } },
+        { selector: 'node[reviewChange = "UNKNOWN"]', style: { 'border-color': '#6b7c90', 'border-style': 'dashed' } },
         { selector: 'edge', style: { width: 'data(strengthWidth)', 'line-color': '#a0aebd', 'target-arrow-color': '#8395a9', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', label: 'data(label)', 'font-size': 11, color: '#5b6d83', 'text-opacity': .85, 'text-background-color': '#f7f9fc', 'text-background-opacity': 1, 'text-background-padding': '3px', 'text-rotation': 'autorotate', 'text-margin-y': -11, 'arrow-scale': .8, 'text-max-width': '88px', 'text-wrap': 'ellipsis' } },
         { selector: 'edge[resolution != "RESOLVED"]', style: { 'line-color': '#ba862d', 'target-arrow-color': '#ba862d', 'line-style': 'dashed' } },
         { selector: 'edge[explanationStatus = "READY"]', style: { color: '#7955b7', 'text-background-color': '#f3eeff', 'text-opacity': 1 } },
@@ -186,6 +197,12 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         { selector: 'edge.flow-out, edge.flow-in', style: { 'line-style': 'dashed', 'line-dash-pattern': [14, 7], 'underlay-padding': 5, 'underlay-opacity': .22, 'z-index': 20, 'text-opacity': 1 } },
         { selector: 'edge.flow-out', style: { 'line-color': FLOW.out, 'target-arrow-color': FLOW.out, 'underlay-color': FLOW.out, color: '#1778a8' } },
         { selector: 'edge.flow-in', style: { 'line-color': FLOW.in, 'target-arrow-color': FLOW.in, 'underlay-color': FLOW.in, color: '#b4262b' } },
+        // Review overlay only (P2.2): reviewChange is present solely on overlay elements, so these
+        // never match the ordinary map. Incoming red would read as "removed" there, so every review
+        // incoming route glows indigo and an UNCHANGED one is also drawn indigo; ADDED/REMOVED/UNKNOWN
+        // keep their change color (rules at the end). The animation loop never bypasses color.
+        { selector: 'edge[reviewChange].flow-in', style: { 'underlay-color': FLOW.reviewIn } },
+        { selector: 'edge[reviewChange = "UNCHANGED"].flow-in', style: { 'line-color': FLOW.reviewIn, 'target-arrow-color': FLOW.reviewIn, color: '#3f4b9e' } },
         { selector: 'edge.flow-uncertain', style: { 'line-dash-pattern': [5, 6] } },
         // Direction is carried by border-style as well as hue (WCAG 2.1 SC 1.4.1): output-only keeps
         // a plain solid border, input-only is dashed, and mutual is a double border -- so a viewer
@@ -194,12 +211,22 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         { selector: 'node.rel-out', style: { 'outline-color': FLOW.outHalo, 'border-color': FLOW.out, 'border-style': 'solid' } },
         { selector: 'node.rel-in', style: { 'outline-color': FLOW.inHalo, 'border-color': FLOW.in, 'border-style': 'dashed' } },
         { selector: 'node.rel-both', style: { 'outline-color': FLOW.bothHalo, 'border-color': FLOW.both, 'border-style': 'double', 'border-width': 5 } },
+        // Review overlay: an incoming-related card takes the same indigo as the incoming routes, so
+        // no card or route is red in review mode unless it was removed. Change state stays on the
+        // card fill and badge.
+        { selector: 'node[reviewChange].rel-in', style: { 'outline-color': FLOW.reviewInHalo, 'border-color': FLOW.reviewIn } },
         // Multi-select and marquee sit last so their purple outline wins over flow emphasis.
         { selector: 'node.multi-selected', style: { 'border-color': '#7955b7', 'border-width': 4, 'overlay-color': '#7955b7', 'overlay-opacity': .1, 'overlay-padding': 8 } },
         { selector: 'node.marquee-candidate', style: { 'border-color': '#7955b7', 'border-width': 3, 'border-style': 'dashed' } },
         // Review route color is factual state, so it stays visible through selection/flow emphasis.
-        { selector: 'edge[reviewChange = "ADDED"], edge[reviewChange = "ADDED"].inspected', style: { 'line-color': '#168a58', 'target-arrow-color': '#168a58', color: '#11643f' } },
-        { selector: 'edge[reviewChange = "REMOVED"], edge[reviewChange = "REMOVED"].inspected', style: { 'line-color': '#c74545', 'target-arrow-color': '#c74545', color: '#a42b2b', 'line-style': 'dashed' } },
+        // A flow glow takes the route's own change color so an added route never glows the red of removal.
+        { selector: 'edge[reviewChange = "ADDED"]', style: { 'line-color': REVIEW.added, 'target-arrow-color': REVIEW.added, color: '#11643f' } },
+        { selector: 'edge[reviewChange = "REMOVED"]', style: { 'line-color': REVIEW.removed, 'target-arrow-color': REVIEW.removed, color: '#a42b2b', 'line-style': 'dashed' } },
+        // Unknown existence is uncertainty, drawn in the amber of an unresolved route but dotted.
+        { selector: 'edge[reviewChange = "UNKNOWN"]', style: { 'line-color': REVIEW.unknown, 'target-arrow-color': REVIEW.unknown, color: '#805b12', 'line-style': 'dotted' } },
+        { selector: 'edge[reviewChange = "ADDED"].flow-out, edge[reviewChange = "ADDED"].flow-in', style: { 'underlay-color': REVIEW.added } },
+        { selector: 'edge[reviewChange = "REMOVED"].flow-out, edge[reviewChange = "REMOVED"].flow-in', style: { 'underlay-color': REVIEW.removed } },
+        { selector: 'edge[reviewChange = "UNKNOWN"].flow-out, edge[reviewChange = "UNKNOWN"].flow-in', style: { 'underlay-color': REVIEW.unknown } },
       ] });
     cyRef.current = cy;
     // A truly empty core has no boundingBox (would feed Infinity into the SVG viewBox), so the
@@ -406,7 +433,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       const a=currentModel.current.nodes.find(n=>n.id===edge.sourceId),b=currentModel.current.nodes.find(n=>n.id===edge.targetId);
       const position=e.renderedPosition || e.target.renderedMidpoint();
       const resolutions=(edge.resolutions||[edge.resolution]).map(r=>r.toLowerCase()).join(' + ');
-      setHover({ready:edge.explanationStatus==='READY',title:`${a?.simpleName} → ${b?.simpleName}`,description:`${kindSummary(edge)} · ${edge.occurrenceCount||1} source occurrence(s) · ${resolutions}. Click to inspect evidence.`,x:Math.max(12,Math.min(position.x,cy.width()-280)),y:Math.max(12,position.y-100)});
+      setHover({ready:edge.explanationStatus==='READY',title:`${a?.simpleName} → ${b?.simpleName}`,description:`${kindSummary(edge)} · ${edge.occurrenceCount||1} source occurrence(s) · ${resolutions}.${reviewRouteSummary(edge)} Click to inspect evidence.`,x:Math.max(12,Math.min(position.x,cy.width()-280)),y:Math.max(12,position.y-100)});
     });
     cy.on('mouseout pan zoom tap',()=>setHover(null));
     cy.on('pan zoom tap',()=>setContextMenu(null));
@@ -509,6 +536,10 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         const pos = positions[n.id] || { x: 0, y: 0 };
         const existing = cy.getElementById(n.id);
         if (existing.length) {
+          // Cytoscape's data({ ... }) call merges keys. A shared display ID therefore keeps stale
+          // review facts when Changes is turned off unless every optional review field is removed
+          // explicitly before ordinary data is applied.
+          for (const key of REVIEW_DATA_KEYS) if (!(key in data)) existing.removeData(key);
           existing.data(data);
           // A container's position is its children's bounds; writing it would drag every child along.
           if (!n.expanded || !existing.isParent()) {
@@ -524,7 +555,10 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       for (const e of edges) {
         const data = { ...e, source: e.sourceId, target: e.targetId!, label: edgeLabel(e) };
         const existing = cy.getElementById(e.id);
-        if (existing.length) existing.data(data);
+        if (existing.length) {
+          for (const key of REVIEW_DATA_KEYS) if (!(key in data)) existing.removeData(key);
+          existing.data(data);
+        }
         else cy.add({ data });
       }
     });

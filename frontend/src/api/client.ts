@@ -68,6 +68,9 @@ export const apiClient = {
   getRelationshipsSource: (snapshot: string, ids: string[]): Promise<any[]> => requestJson(`${API_BASE}/snapshots/${snapshot}/relationships/source`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ ids }) }),
   getSubjectExplanation:(snapshot: string, id: string, type: string): Promise<any> => requestJson(`${API_BASE}/snapshots/${snapshot}/${type === 'symbol' ? 'symbols' : 'relationships'}/${id}/explanation`),
   getExplanationEvidence: (snapshot: string, id: string, type: string): Promise<any[]> => requestJson(`${API_BASE}/snapshots/${snapshot}/explanation-evidence/${id}?subjectType=${type}`),
+  /** Whole retained file content by path, for building a git-style diff between two snapshots. */
+  getSnapshotFile: (snapshot: string, path: string): Promise<{schemaVersion:string;path:string;content:string}> =>
+    requestJson(`${API_BASE}/snapshots/${snapshot}/files/source?path=${encodeURIComponent(path)}`),
 
   createWorkspace: (path: string): Promise<any> =>
     requestJson(`${API_BASE}/workspaces`, {

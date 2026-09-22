@@ -5,7 +5,8 @@ import type { AtlasGraph, AtlasNode, AtlasEdge } from '../explorer/graphModel';
  * selects a side for presentation; it never derives a relationship from generated prose.
  */
 export type ReviewMode = 'BASE' | 'OVERLAY' | 'HEAD';
-export type ReviewChange = 'ADDED' | 'MODIFIED' | 'REMOVED' | 'UNCHANGED';
+/** UNKNOWN: the declaration's file did not parse on the side where it is missing, so its fate is unknown. */
+export type ReviewChange = 'ADDED' | 'MODIFIED' | 'REMOVED' | 'UNCHANGED' | 'UNKNOWN';
 
 export interface ReviewSide<T> { snapshotId?: string; value: T }
 export interface ReviewNodeRow<T = any> {
@@ -29,7 +30,7 @@ export interface ReviewComparison {
   head: { snapshotId: string; ref: string; headOid?: string; fingerprint?: string; capturedAt?: string };
   summary: { addedLines: number; removedLines: number; changedFiles: number };
   /** Every changed path is retained, including non-Java and binary files without graph facts. */
-  files?: { path: string; status: string; addedLines: number; removedLines: number; javaFile: boolean; lineCountsAvailable: boolean }[];
+  files?: { path: string; status: string; addedLines: number; removedLines: number; javaFile: boolean; lineCountsAvailable: boolean; hunks?: { oldStart: number; oldCount: number; newStart: number; newCount: number }[] }[];
   nodes: ReviewNodeRow[];
   relationships: ReviewRelationshipRow[];
   diagnostics?: { severity: string; code: string; message: string }[];
@@ -64,17 +65,6 @@ export interface ReviewSourceIdentityMaps {
   /** Both base and head symbol IDs resolve to the same display node when they are a matched row. */
   displayBySymbolId: Record<string, string>;
 }
-export interface ReviewExplorerContext {
-  graph: AtlasGraph;
-  workspace: { id: string; path?: string; [key: string]: any };
-  /** Fallback snapshot for explorer APIs. Selected review nodes/edges carry their own side snapshot. */
-  snapshot: string;
-  /** Inactive instances retain their journey state but do not own global listeners or a canvas. */
-  active: boolean;
-  mode: ReviewMode;
-  sourceIdentityMaps: ReviewSourceIdentityMaps;
-  reviewKey: string;
-}
 
 const sideFor = (mode: ReviewMode, _change: ReviewChange, base: any, head: any): 'base' | 'head' | null => {
   if (mode === 'BASE') return base ? 'base' : null;
@@ -105,16 +95,80 @@ export function projectReviewRelationships(review: ReviewComparison, mode: Revie
 
 /** Overlay groups a route by ordered endpoints and its change status, never collapsing an added or
  * removed route into an unchanged one that happens to share its endpoints. */
-export function projectReviewGraph(review: ReviewComparison, mode: ReviewMode) {
+/**
+ * A review capture has fresh database ids, while the ordinary map has ids from the last
+ * published analysis.  Those ids are deliberately not used as comparison identity by the
+ * backend.  The map can still keep its layout when the overlay is enabled, though, when a review
+ * row is unambiguously matched to the corresponding ordinary declaration.  `currentGraph` is the
+ * ordinary graph currently on screen; matching is guarded by kind, qualified name, module and
+ * parent identity so an overloaded or otherwise ambiguous declaration is never guessed.
+ */
+function ordinaryDisplayIds(review: ReviewComparison, currentGraph?: AtlasGraph) {
+  const sourceToDisplay = new Map<string, string>();
+  if (!currentGraph) {
+    for (const row of review.nodes) {
+      const displayId = `review-node:${row.comparisonKey}`;
+      if (row.base?.id) sourceToDisplay.set(row.base.id, displayId);
+      if (row.head?.id) sourceToDisplay.set(row.head.id, displayId);
+    }
+    return sourceToDisplay;
+  }
+
+  const keyOf = (node: any) => [node?.kind || '', node?.qualifiedName || '', node?.module || ''].join('|');
+  const ordinaryByKey = new Map<string, AtlasNode[]>();
+  for (const node of currentGraph.nodes) {
+    const candidates = ordinaryByKey.get(keyOf(node));
+    if (candidates) candidates.push(node); else ordinaryByKey.set(keyOf(node), [node]);
+  }
+  const reviewKeyCounts = new Map<string, number>();
+  for (const row of review.nodes) {
+    const preferred = row.head || row.base;
+    reviewKeyCounts.set(keyOf(preferred), (reviewKeyCounts.get(keyOf(preferred)) || 0) + 1);
+  }
+  const reviewBySourceId = new Map<string, any>();
+  for (const row of review.nodes) {
+    if (row.base?.id) reviewBySourceId.set(row.base.id, row.base);
+    if (row.head?.id) reviewBySourceId.set(row.head.id, row.head);
+  }
+  const used = new Set<string>();
+  for (const row of review.nodes) {
+    const preferred = row.head || row.base;
+    const candidates = (ordinaryByKey.get(keyOf(preferred)) || []).filter(node => !used.has(node.id));
+    // The review API deliberately keeps ambiguous declarations as separate base/head rows. The
+    // frontend has no file path in GraphNode, so a non-unique logical key is never aligned by order.
+    if (reviewKeyCounts.get(keyOf(preferred)) !== 1 || (ordinaryByKey.get(keyOf(preferred)) || []).length !== 1) {
+      const displayId = `review-node:${row.comparisonKey}`;
+      if (row.base?.id) sourceToDisplay.set(row.base.id, displayId);
+      if (row.head?.id) sourceToDisplay.set(row.head.id, displayId);
+      continue;
+    }
+    const parentCandidates = candidates.filter(node => {
+      const ordinaryParent = node.parentId ? currentGraph.nodes.find(parent => parent.id === node.parentId) : undefined;
+      const reviewParent = preferred.parentId ? reviewBySourceId.get(preferred.parentId) : undefined;
+      return keyOf(ordinaryParent) === keyOf(reviewParent) || (!ordinaryParent && !reviewParent);
+    });
+    const unique = parentCandidates.length === 1 ? parentCandidates[0] : undefined;
+    const displayId = unique?.id || `review-node:${row.comparisonKey}`;
+    if (unique) used.add(unique.id);
+    if (row.base?.id) sourceToDisplay.set(row.base.id, displayId);
+    if (row.head?.id) sourceToDisplay.set(row.head.id, displayId);
+  }
+  return sourceToDisplay;
+}
+
+export function projectReviewGraph(review: ReviewComparison, mode: ReviewMode, currentGraph?: AtlasGraph) {
   const projected = projectReviewNodes(review, mode);
   // Snapshot-local IDs are not stable across analysis runs. A display ID derives from the opaque
   // comparison key; both sides of a modified resource map to it, keeping base-only relationships
-  // visible beside after-change relationships in an overlay.
-  const sourceToDisplay = new Map<string, string>();
-  for (const row of review.nodes) {
-    const displayId = `review-node:${row.comparisonKey}`;
-    if (mode !== 'HEAD' && row.base?.id) sourceToDisplay.set(row.base.id, displayId);
-    if (mode !== 'BASE' && row.head?.id) sourceToDisplay.set(row.head.id, displayId);
+  // visible beside after-change relationships in an overlay. When the ordinary map is supplied,
+  // unambiguous head/base rows reuse its current node id so the map's layout state remains valid.
+  const sourceToDisplay = ordinaryDisplayIds(review, currentGraph);
+  if (mode === 'BASE' || mode === 'HEAD') {
+    for (const row of review.nodes) {
+      const displayId = `review-node:${row.comparisonKey}`;
+      if (mode === 'BASE' && row.base?.id) sourceToDisplay.set(row.base.id, displayId);
+      if (mode === 'HEAD' && row.head?.id) sourceToDisplay.set(row.head.id, displayId);
+    }
   }
   const nodes: ReviewGraphNode[] = projected.map(row => ({ ...row, id: sourceToDisplay.get(row.node.id)!, sourceId: row.node.id,
     parentId: row.node.parentId ? sourceToDisplay.get(row.node.parentId) : undefined,
@@ -175,13 +229,11 @@ export function reviewSourceIdentityMaps(review: ReviewComparison, mode: ReviewM
   for (const edge of projected.edges) relationships[edge.id] = { id: edge.relationship?.id || edge.id, snapshotId: edge.snapshotId, side: edge.side };
   const displayBySymbolId: Record<string, string> = {};
   for (const row of review.nodes) {
-    const displayId = `review-node:${row.comparisonKey}`;
+    const sourceId = mode === 'BASE' ? row.base?.id : mode === 'HEAD' ? row.head?.id : row.head?.id || row.base?.id;
+    const displayId = sourceId ? projected.sourceToDisplay.get(sourceId) : undefined;
+    if (!displayId) continue;
     if (mode !== 'HEAD' && row.base?.id) displayBySymbolId[row.base.id] = displayId;
     if (mode !== 'BASE' && row.head?.id) displayBySymbolId[row.head.id] = displayId;
   }
   return { symbols, relationships, displayBySymbolId };
-}
-
-export function changeLabel(change: ReviewChange) {
-  return change === 'ADDED' ? 'Added' : change === 'REMOVED' ? 'Removed' : change === 'MODIFIED' ? 'Changed' : 'Unchanged';
 }

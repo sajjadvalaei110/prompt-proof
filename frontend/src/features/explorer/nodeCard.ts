@@ -95,15 +95,16 @@ export function nodeCard(node: AtlasNode, size?: CardSize) {
   // Fit the complete change string to the available card width so large line counts never run out
   // of the rounded badge. Base/head graphs omit reviewChange and therefore retain the ordinary card.
   const reviewChange=node.reviewChange&&node.reviewChange!=='UNCHANGED' ? node.reviewChange : null;
+  // UNKNOWN: the declaration's file did not parse on one side, so a line delta would be meaningless.
+  const unknown=reviewChange==='UNKNOWN';
   const reviewText=reviewChange==='ADDED'?'ADDED':reviewChange==='REMOVED'?'REMOVED':'CHANGED';
-  const reviewCounts=`+${node.reviewAddedLines||0} −${node.reviewRemovedLines||0}`;
-  const reviewLabel=`${reviewText} ${reviewCounts}`;
+  const reviewLabel=unknown?'NOT ANALYZED':`${reviewText} +${node.reviewAddedLines||0} −${node.reviewRemovedLines||0}`;
   const reviewWidth=Math.min(Math.max(112,reviewLabel.length*6.2+27),Math.max(112,width-24));
   // Scale the label before falling back to an ellipsis: line totals remain readable together even
   // when a package contains many changed declarations.
   const reviewFont=Math.max(7,Math.min(11,(reviewWidth-18)/(reviewLabel.length*.58)));
   const review=reviewChange
-    ? `<g transform="translate(12 55)"><rect width="${reviewWidth}" height="24" rx="12" fill="#fff0b0" stroke="#ba862d"/><text x="10" y="16" font-size="${reviewFont}" font-weight="600" fill="#805b12">${xml(fitText(reviewLabel,reviewFont,reviewWidth-18))}</text></g>` : '';
+    ? `<g transform="translate(12 55)"><rect width="${reviewWidth}" height="24" rx="12" fill="${unknown?'#eef2f6':'#fff0b0'}" stroke="${unknown?'#6b7c90':'#ba862d'}"${unknown?' stroke-dasharray="4 3"':''}/><text x="10" y="16" font-size="${reviewFont}" font-weight="600" fill="${unknown?'#4d5d70':'#805b12'}">${xml(fitText(reviewLabel,reviewFont,reviewWidth-18))}</text></g>` : '';
   // Top row: kind icon, subtitle, then (right-aligned) the sparkle and the corner button area.
   const corners=cornerButtons(node);
   const codeLeft=corners.length?width-Math.max(...corners.map(c=>c.right+c.size)):width-12;

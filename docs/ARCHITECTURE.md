@@ -158,12 +158,31 @@ into independent retained-source snapshots without publishing either as the norm
 workspace snapshot. A deterministic comparison supplies versioned resource and
 relationship changes; the model is not involved.
 
-The frontend projects base, overlay and after graphs from the same comparison.
-Display identities do not replace actual snapshot subject IDs: source evidence
-requests retain their side. Overlay relationship aggregation also retains change
-status, allowing added and removed occurrences between the same displayed resources
-to remain independently inspectable. Unchanged exploration uses the existing graph
-projection and rendering conventions.
+The frontend projects only the Base+changes overlay from the comparison and draws
+it directly on the ordinary Code map -- there is no separate review page, report
+or legend. A **Changes** toggle in the graph toolbar swaps the active tab's graph
+between the workspace's ordinary snapshot and the overlay; whether a tab shows
+changes is per-tab state carried in its exploration journey (`explorerJourney.ts`),
+so `+ New tab` opens beside the current tab in the same mode and `Clone tab`
+copies it along with layout and undo/redo history, and toggling itself is one
+undoable step. Display identities do not replace actual snapshot subject IDs:
+source evidence requests retain their side. Overlay relationship aggregation also
+retains change status, allowing added and removed occurrences between the same
+displayed resources to remain independently inspectable. Unchanged exploration
+uses the existing graph projection and rendering conventions.
+
+The Changes toggle retains one current exploration state per tab. Unambiguous
+comparison declarations reuse their ordinary map display identities, so the
+renderer preserves surviving cards and their geometry. Review source identities
+remain pinned to the captured base/head snapshots. Mode changes do not restore
+separate parked layouts; review-only resources remain distinguishable from the
+ordinary analysis snapshot. See the layout-continuity addendum in ADR 0006.
+
+Opening a changed file's code (or its relationship evidence) renders a git-style
+diff (`features/source/fileDiff.ts` builds unified/split rows from the
+comparison's retained `git diff --unified=0` hunks and both snapshots' whole-file
+content, fetched via `GET /api/snapshots/{id}/files/source`) instead of plain
+highlighted source.
 
 - **Source-Only Analysis**: Analyzes Java code statically without running Gradle tasks, build plugins, or compilers. The analyzed repository is strictly read-only and untrusted.
 - **Modular Monolith**: Kept as a single deployable application to eliminate distributed network complexity and minimize resource footprint.

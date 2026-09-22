@@ -2,9 +2,9 @@ import { SetStateAction, useEffect, useMemo, useRef, useState } from 'react';
 import './styles/App.css';
 import { apiClient } from './api/client';
 import GraphCanvas from './features/explorer/GraphCanvas';
-import { AtlasGraph, AtlasNode, AtlasEdge, Level, isType, ownerAt, getEligibleIds, rankEligibleIds, projectDisplayed, childrenOf, kindSummary } from './features/explorer/graphModel';
+import { AtlasGraph, AtlasNode, AtlasEdge, Level, isType, ownerAt, getEligibleIds, rankEligibleIds, projectDisplayed, childrenOf } from './features/explorer/graphModel';
 import { ScopeSelection, wholeSystemScope, scopeToLabel, isNodeInScope, isClassInScope, togglePackages, toggleClass } from './features/explorer/scopeModel';
-import { explorerViewReducer, initExplorerViewState, PlacementDims, Point, Camera, CardMoves } from './features/explorer/explorerViewState';
+import { explorerViewReducer, initExplorerViewState, ExplorerViewState, PlacementDims, Point, Camera, CardMoves } from './features/explorer/explorerViewState';
 import { arrangeAroundResource, ArrangeCard, ArrangeEdge } from './features/explorer/focusedArrangement';
 import { nodeCard, defaultCardSize, CardSize } from './features/explorer/nodeCard';
 import { Box, boxOfCard, containerBox, layoutChildren, placeMissingChildren, roomShifts } from './features/explorer/expansionLayout';
@@ -13,20 +13,11 @@ import InspectorPanel from './features/inspector/InspectorPanel';
 import SettingsScreen from './features/settings/SettingsScreen';
 import ProjectDocuments from './features/context/ProjectDocuments';
 import SourceDialog from './features/source/SourceDialog';
-import ReviewPanel from './features/review/ReviewPanel';
 import type { SourceSubject } from './features/source/SourceDialog';
-import type { ReviewExplorerContext } from './features/review/reviewModel';
+import { useReviewComparison } from './features/review/useReviewComparison';
 import { startSerialPolling } from './utils/serialPolling';
 import { useExplorerJourneys, flushExplorerCamera } from './features/explorer/useExplorerJourneys';
-
-type ReviewSourceTarget = { id: string; ids?: string[]; simpleName?: string; snapshotId: string; label: string; type?: string };
-
-export interface ExplorerAppProps {
-  /** A captured Git side projected into the ordinary explorer. */
-  reviewContext?: ReviewExplorerContext;
-  /** Review explorers send source requests back to the outer review/source owner. */
-  onReviewSource?: (target: ReviewSourceTarget) => void;
-}
+import { Journey, newJourney, toggleJourneyReview } from './features/explorer/explorerJourney';
 
 const REVIEW_BATCH_SIZE = 12;
 
@@ -40,19 +31,48 @@ function initialViewForGraph(g: AtlasGraph) {
   return explorerViewReducer(initExplorerViewState(), { type: 'RESET', level: 'PACKAGE', eligibleIds: initialPackageIds, batchSize: Infinity, placement });
 }
 
-export function ExplorerApp({ reviewContext, onReviewSource }: ExplorerAppProps = {}) {
-  const embedded = !!reviewContext;
-  const contextActive = reviewContext?.active ?? true;
-  const instanceKey = embedded ? `review-${reviewContext!.mode.toLowerCase()}-${reviewContext!.reviewKey}` : 'main';
-  const searchId = embedded ? `${instanceKey}-search` : 'global-search';
-  const journeyTabId = (id: number) => embedded ? `${instanceKey}-journey-tab-${id}` : `journey-tab-${id}`;
-  const panelId = embedded ? `${instanceKey}-exploration-panel` : 'exploration-panel';
+/** Derive the current level's boxes from journey state for asynchronous review admissions. This is
+ * the same box calculation used by the live canvas, but it accepts an arbitrary graph so a review
+ * request completing after a tab switch can place an overlay-only card against that tab's own
+ * expanded containers rather than the currently active tab's geometry. */
+function geometryForJourney(g: AtlasGraph, view: ExplorerViewState, scope: ScopeSelection, kind: string) {
+  const level=view.activeLevel, levelView=view.levelViews[level];
+  const expansionInput={expansions:Object.entries(levelView.expansions).map(([id,e])=>({id,ownerId:e.ownerId})),scope};
+  const displayed=projectDisplayed(g,level,levelView.displayedIds,kind,expansionInput);
+  const positions:Record<string,Point>={...levelView.positions},boxes:Record<string,Box>={};
+  const kids=new Map<string,AtlasNode[]>();
+  for(const n of displayed.nodes)if(n.containerId){const list=kids.get(n.containerId);if(list)list.push(n);else kids.set(n.containerId,[n]);}
+  const cardSize=(n:AtlasNode)=>levelView.sizes[n.id]||defaultCardSize(n);
+  for(const n of displayed.nodes){
+    if(!n.expanded)continue;
+    const stored=levelView.expansions[n.id]?.childPositions||{},children=kids.get(n.id)||[],size=cardSize(n),center=positions[n.id]||{x:0,y:0};
+    const placed=children.filter(c=>stored[c.id]).map(c=>({id:c.id,...cardSize(c),...stored[c.id]}));
+    Object.assign(positions,stored,placeMissingChildren({x:center.x-size.width/2,y:center.y-size.height/2},placed,children.filter(c=>!stored[c.id]).map(c=>({id:c.id,...cardSize(c)}))));
+  }
+  for(const n of [...displayed.nodes].reverse()){
+    if(!n.expanded)continue;
+    const childBoxes=(kids.get(n.id)||[]).map(c=>boxes[c.id]||boxOfCard({id:c.id,...cardSize(c),...(positions[c.id]||{x:0,y:0})}));
+    const box=containerBox(childBoxes,levelView.expansions[n.id]?.minSize||null);if(box)boxes[n.id]=box;
+  }
+  return {positions,boxes,projected:displayed};
+}
+
+export default function App() {
+  const searchId = 'global-search';
+  const journeyTabId = (id: number) => `journey-tab-${id}`;
+  const panelId = 'exploration-panel';
   const params = new URLSearchParams(location.search);
-  const [path,setPath]=useState(params.get('path')||''),[workspace,setWorkspace]=useState<any>(()=>reviewContext?.workspace||null),[snapshot,setSnapshot]=useState<string|null>(()=>reviewContext?.snapshot||null);
-  const [graph,setGraph]=useState<AtlasGraph|null>(()=>reviewContext?.graph||null),[routes,setRoutes]=useState<any[]>([]),[recent,setRecent]=useState<any[]>([]);
+  const [path,setPath]=useState(params.get('path')||''),[workspace,setWorkspace]=useState<any>(null),[snapshot,setSnapshot]=useState<string|null>(null);
+  // `mapGraph` is the ordinary analyzed snapshot; `reviewComparison.graph` is the Base+changes
+  // overlay for the currently loaded Git comparison. `graph` below (used by everything downstream --
+  // projection, tree, search, inspector, canvas) picks whichever the ACTIVE TAB currently shows, so
+  // one tab can browse the map while another reviews changes side by side.
+  const [mapGraph,setMapGraph]=useState<AtlasGraph|null>(null),[routes,setRoutes]=useState<any[]>([]),[recent,setRecent]=useState<any[]>([]);
   const [status,setStatus]=useState('Open a project to begin'),[busy,setBusy]=useState(false),[error,setError]=useState('');
-  const journeys=useExplorerJourneys(reviewContext?.graph ? initialViewForGraph(reviewContext.graph) : undefined);
+  const reviewComparison=useReviewComparison(workspace?.id||null,mapGraph);
+  const journeys=useExplorerJourneys();
   const {active,dispatchView}=journeys;
+  const graph = active.present.review && reviewComparison.graph ? reviewComparison.graph : mapGraph;
   const {view:viewState,scope,kind,tab,search,source,mobilePane,navWidth}=active.present;
   const setScope=(v:ScopeSelection)=>journeys.set('scope',v);
   const setKind=(v:string)=>journeys.set('kind',v);
@@ -66,30 +86,18 @@ export function ExplorerApp({ reviewContext, onReviewSource }: ExplorerAppProps 
   // The browser owns fullscreen on the document root. Keep that lifecycle above the keyed
   // exploration pane: undo/redo can remount the canvas while retaining fullscreen.
   useEffect(()=>{
-    if(embedded&&!contextActive)return;
     if(!active.present.fullscreen)return;
-    // Embedded review maps use their own fixed stage; browser fullscreen would promote the entire
-    // review page and expose inactive side instances. The canvas still keeps its fullscreen layout.
-    if(embedded)return;
     const root=document.documentElement;
     if(!document.fullscreenElement&&root.requestFullscreen)root.requestFullscreen().catch(()=>{});
     const change=()=>{if(!document.fullscreenElement)leaveFullscreen.current();};
     document.addEventListener('fullscreenchange',change);
     return()=>{document.removeEventListener('fullscreenchange',change);if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});};
-  },[active.present.fullscreen,embedded,contextActive]);
+  },[active.present.fullscreen]);
   const BATCH_SIZE=REVIEW_BATCH_SIZE;
   const level=viewState.activeLevel;
   const [settings,setSettings]=useState(params.get('settings')==='true');
   const [queue,setQueue]=useState<any>(null),[revision,setRevision]=useState(0),[profile,setProfile]=useState<any>(null);
   const [showOpen,setShowOpen]=useState(false);
-  useEffect(()=>{
-    if(!reviewContext)return;
-    setWorkspace(reviewContext.workspace);setPath(reviewContext.workspace.path||'');setSnapshot(reviewContext.snapshot);setGraph(reviewContext.graph);setRoutes([]);setQueue(null);setError('');setStatus('Review snapshot ready');
-    journeys.reset(initialViewForGraph(reviewContext.graph));
-    // Captured review sides are immutable. The ordinary snapshot poll and queue state must never
-    // replace one while the reviewer is switching among base, overlay and after views.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[reviewContext?.reviewKey,reviewContext?.mode,reviewContext?.graph]);
   const navRef=useRef<HTMLElement>(null);
   // Read inside a pointer-drag's long-lived closure instead of the `navWidth` captured when the drag
   // started: a keyboard resize (Arrow/Home) mid-drag would otherwise be silently discarded by a
@@ -174,22 +182,26 @@ export function ExplorerApp({ reviewContext, onReviewSource }: ExplorerAppProps 
     return out;
   };
   const node=graph&&viewState.inspectedKind==='NODE'&&viewState.inspectedSubjectId?graph.nodes.find(n=>n.id===viewState.inspectedSubjectId)||null:null;
+  // In review mode, a card/route carries only its display ID (keyed on the comparison, not the
+  // database -- see reviewModel.ts). Source and evidence endpoints need the real symbol/relationship
+  // ID and its pinned base/head snapshot, which sourceIdentityMaps resolves.
   function openSource(subject: SourceSubject | AtlasNode, type='symbol') {
     if(!subject?.id)return;
-    if(embedded && onReviewSource && reviewContext){
+    const identityMaps=active.present.review?reviewComparison.identityMaps:null;
+    if(identityMaps){
       if(type==='symbol'){
         const item=subject as AtlasNode;
-        const identity=reviewContext.sourceIdentityMaps.symbols[item.id];
+        const identity=identityMaps.symbols[item.id];
         if(!identity)return;
-        onReviewSource({id:identity.id,simpleName:item.simpleName,snapshotId:identity.snapshotId,label:identity.side==='base'?'base snapshot':'after-change snapshot',type});
+        setSource({node:{id:identity.id,simpleName:item.simpleName},type,snapshotId:identity.snapshotId,label:identity.side==='base'?'base snapshot':'after-change snapshot'});
       }else{
         const requested=(subject as SourceSubject).ids;
         const candidates=requested?.length?requested:[subject.id];
-        const identities=candidates.map(id=>reviewContext.sourceIdentityMaps.relationships[id]).filter(Boolean);
-        const identity=identities[0]||reviewContext.sourceIdentityMaps.relationships[subject.id];
+        const identities=candidates.map(id=>identityMaps.relationships[id]).filter(Boolean);
+        const identity=identities[0]||identityMaps.relationships[subject.id];
         if(!identity)return;
         const ids=identities.length?identities.map(item=>item.id):requested;
-        onReviewSource({id:identity.id,ids,simpleName:subject.simpleName,snapshotId:identity.snapshotId,label:identity.side==='base'?'base snapshot':'after-change snapshot',type});
+        setSource({node:{id:identity.id,ids,simpleName:subject.simpleName},type,snapshotId:identity.snapshotId,label:identity.side==='base'?'base snapshot':'after-change snapshot'});
       }
       return;
     }
@@ -286,12 +298,14 @@ export function ExplorerApp({ reviewContext, onReviewSource }: ExplorerAppProps 
   // right now is not "displayed" on the map they're looking at, even if that other level's page
   // happens to still contain this ID from an earlier visit.
   // A card inside an expanded card is displayed too, whatever its own natural level.
+  // Files the parser could not read: every type they declare is missing from the map, so say so.
+  const unanalyzedFiles:string[]=(graph?.metadata as any)?.unanalyzedFiles||[];
   const mapStatus=node&&graph?(!isNodeInScope(node,scope,graph)?'OUT_OF_SCOPE':(level===levelOf(node)&&displayedIds.includes(node.id))||projected.nodes.some(n=>n.id===node.id)?'DISPLAYED':'IN_SCOPE_NOT_DISPLAYED'):null;
   async function loadSnapshot(id:string, ws?:any) {
     const [data,entryPoints]=await Promise.all([apiClient.getGraph(id),apiClient.getSpringRoutes(id)]);
     if(!ws&&!data?.metadata?.workspaceId)throw new Error('Snapshot response is missing workspace metadata; try re-opening the project.');
     const owner=ws||await apiClient.getWorkspace(data.metadata.workspaceId);
-    setWorkspace(owner);setPath(owner.path);setSnapshot(id);setGraph(data);setRoutes(entryPoints);setQueue(null);setStatus('Source analysis ready');setShowOpen(false);
+    setWorkspace(owner);setPath(owner.path);setSnapshot(id);setMapGraph(data);setRoutes(entryPoints);setQueue(null);setStatus('Source analysis ready');setShowOpen(false);reviewComparison.reset();
     const placementIn=(g:AtlasGraph,ids:string[]):Record<string,PlacementDims>=>{const all=new Map(g.nodes.map(n=>[n.id,n]));const out:Record<string,PlacementDims>={};for(const id of ids){const n=all.get(id);if(n){const c=nodeCard(n);out[id]={width:c.width,height:c.height,name:n.qualifiedName||n.simpleName};}}return out;};
     const initialPackageIds=rankEligibleIds(data,'PACKAGE',getEligibleIds(data,'PACKAGE',wholeSystemScope()));
     let initialView=explorerViewReducer(initExplorerViewState(),{type:'RESET',level:'PACKAGE',eligibleIds:initialPackageIds,batchSize:Infinity,placement:placementIn(data,initialPackageIds)});
@@ -299,8 +313,23 @@ export function ExplorerApp({ reviewContext, onReviewSource }: ExplorerAppProps 
     if(selected){
       const n=data.nodes.find((n:AtlasNode)=>n.id===selected||n.simpleName===selected);
       if(n){
-        const targetLevel=levelOf(n);
-        if(targetLevel!=='PACKAGE'){const ids=rankEligibleIds(data,targetLevel,getEligibleIds(data,targetLevel,wholeSystemScope()));initialView=explorerViewReducer(initialView,{type:'NAVIGATE_LEVEL',level:targetLevel,eligibleIds:ids,batchSize:BATCH_SIZE,placement:placementIn(data,ids)});}
+        // A deep-linked class/method is not a top-level PACKAGE-level card: expand each ancestor
+        // package/class in place (as the ⊞ button would) so the target is actually displayed,
+        // rather than jumping the whole map to a class/method level (that level view is gone).
+        const all=new Map<string,AtlasNode>(data.nodes.map((x:AtlasNode)=>[x.id,x]));
+        const chain:AtlasNode[]=[];
+        for(let p=n.parentId?all.get(n.parentId):undefined;p;p=p.parentId?all.get(p.parentId):undefined)chain.unshift(p);
+        for(const ancestor of chain){
+          const lg=initialView.levelViews.PACKAGE;
+          const pos=lg.positions[ancestor.id];
+          if(!pos)continue;
+          const size=lg.sizes[ancestor.id]||defaultCardSize(ancestor);
+          const before=boxOfCard({id:ancestor.id,...size,...pos});
+          const kids=childrenOf(data,ancestor,wholeSystemScope(),all);
+          if(!kids.length)continue;
+          const childPositions=layoutChildren({x:before.x1,y:before.y1},kids.map(c=>({id:c.id,...nodeCard(c)})));
+          initialView=explorerViewReducer(initialView,{type:'EXPAND_RESOURCE',level:'PACKAGE',id:ancestor.id,ownerId:ancestor.containerId??null,childPositions,generation:initialView.generation});
+        }
         initialView=explorerViewReducer(initialView,{type:'INSPECT_NODE',id:n.id});
       }
     }
@@ -313,28 +342,35 @@ export function ExplorerApp({ reviewContext, onReviewSource }: ExplorerAppProps 
     setBusy(true);setError('');try{setStatus('Registering project…');const ws=await apiClient.createWorkspace(input.trim());setStatus('Analyzing Java source…');let job=await apiClient.triggerAnalysis(ws.id);while(!['COMPLETED','FAILED','CANCELLED'].includes(job.status)){await new Promise(r=>setTimeout(r,500));job=await apiClient.getJob(job.id);}if(job.status!=='COMPLETED')throw new Error(job.errorMessage||`Analysis ${job.status.toLowerCase()}`);const current=await apiClient.getWorkspace(ws.id);if(!current.activeSnapshotId)throw new Error('Analysis did not publish a snapshot');await loadSnapshot(current.activeSnapshotId,current);setRecent(await apiClient.listWorkspaces());}catch(e:any){setError(e.message);setStatus('Analysis could not finish');}finally{setBusy(false);}
   }
   useEffect(()=>{
-    if(embedded)return;
     apiClient.listWorkspaces().then(setRecent).catch(e=>setError(e.message));
     if(params.get('snapshotId')){setBusy(true);loadSnapshot(params.get('snapshotId')!).catch(e=>setError(e.message)).finally(()=>setBusy(false));}
     else if(params.get('autoPath'))analyze(params.get('autoPath')!);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[embedded]);
-  useEffect(()=>{if(embedded)return;apiClient.getModelProfiles().then(p=>setProfile(p[0])).catch(()=>setProfile(null));},[settings,embedded]);
+  },[]);
+  useEffect(()=>{apiClient.getModelProfiles().then(p=>setProfile(p[0])).catch(()=>setProfile(null));},[settings]);
   useEffect(()=>{
-    if(embedded||!workspace)return;
+    if(!workspace)return;
     return startSerialPolling({
       load:()=>apiClient.getQueueStatus(workspace.id),
       onValue:q=>{setQueue(q);if(!q.activeJobId){if(q.jobStatus==='COMPLETED')setStatus('Explain all completed');else if(q.jobStatus==='FAILED')setStatus('Explain all failed');else if(q.jobStatus==='CANCELLED')setStatus('Explain all cancelled');}},
       shouldContinue:q=>Boolean(q.activeJobId),
       intervalMs:2000
     });
-  },[workspace?.id,queue?.activeJobId,embedded]);
+  },[workspace?.id,queue?.activeJobId]);
   useEffect(()=>{
-    if(embedded||!snapshot)return;
+    if(!snapshot)return;
     let alive=true;
-    apiClient.getGraph(snapshot).then(data=>{if(alive)setGraph(previous=>JSON.stringify(previous)===JSON.stringify(data)?previous:data);}).catch(()=>{});
+    apiClient.getGraph(snapshot).then(data=>{if(alive)setMapGraph(previous=>JSON.stringify(previous)===JSON.stringify(data)?previous:data);}).catch(()=>{});
     return()=>{alive=false;};
-  },[snapshot,revision,queue?.completed,queue?.failed,queue?.synthesisStatus,embedded]);
+  },[snapshot,revision,queue?.completed,queue?.failed,queue?.synthesisStatus]);
+  // A failed Changes/Recompare capture (P3.2) otherwise only shows inside the closed review-options
+  // popover, which looks like nothing happened. Surface it through the app's existing dismissable
+  // error banner too, without touching the popover's own display of the same message. load() always
+  // clears reviewComparison.error to '' before a new attempt, so a second failure with the identical
+  // message still transitions '' -> message and re-fires this effect.
+  useEffect(()=>{
+    if(reviewComparison.error)setError(reviewComparison.error);
+  },[reviewComparison.error]);
   function clearSelection(){
     dispatchView({type:'CLEAR_INSPECTION'});
     journeys.set('multiIds',ids=>ids.length?[]:ids);
@@ -345,8 +381,6 @@ export function ExplorerApp({ reviewContext, onReviewSource }: ExplorerAppProps 
   const latest=useRef({settings,source,active,journeys,clearSelection,setSearch,tab});
   latest.current={settings,source,active,journeys,clearSelection,setSearch,tab};
   useEffect(()=>{
-    if(embedded&&!contextActive)return;
-    if(!embedded&&tab==='review')return;
     const key=(e:KeyboardEvent)=>{
       const {settings,source,active,journeys,clearSelection,setSearch}=latest.current;
       // e.target is occasionally `document` itself (no element focused when the key was dispatched,
@@ -369,7 +403,7 @@ export function ExplorerApp({ reviewContext, onReviewSource }: ExplorerAppProps 
     window.addEventListener('pointerdown',flushExplorerCamera,true);
     window.addEventListener('keydown',flushExplorerCamera,true);
     return()=>{window.removeEventListener('keydown',key);window.removeEventListener('pointerdown',flushExplorerCamera,true);window.removeEventListener('keydown',flushExplorerCamera,true);};
-  },[embedded,contextActive,instanceKey,searchId,tab]);
+  },[searchId]);
   function revealInTree(n:AtlasNode){
     if(!graph)return;
     const pkg=ownerAt(n,'PACKAGE',new Map(graph.nodes.map(n=>[n.id,n])));
@@ -404,24 +438,55 @@ export function ExplorerApp({ reviewContext, onReviewSource }: ExplorerAppProps 
     if(viewState.inspectedKind==='EDGE'&&viewState.inspectedSubjectId===e.id){clearSelection();return;}
     dispatchView({type:'INSPECT_EDGE',id:e.id});setMobilePane('details');
   }
-  // Named navigation commands (Step 4, Story 6/H3): explicit level changes triggered from a
-  // specific resource ("View classes", "View methods", the tree's ⌖ button, the
-  // inspector's "View methods"). Canvas double-click no longer routes through here -- it will get
-  // its own dedicated arrangement command in Step 5 (Appendix B); until then it does nothing.
-  function navigateExplicit(n:AtlasNode,targetLevel:Level){
+  // "View classes"/"View methods" (the tree's ⌖ button, the inspector's buttons) used to switch
+  // the whole map to a different abstraction level (Step 4, Story 6/H3). Class/Method level view
+  // is gone; digging in now always happens by expanding the card itself in place, so these ensure
+  // the target is expanded (never collapse an already-expanded one) and select it.
+  function ensureExpanded(n:AtlasNode){if(!expansions[n.id])toggleExpand(n);}
+  function revealChildren(n:AtlasNode){
     if(!graph)return;
-    // NAVIGATE_LEVEL must run first: its reducer case pushes a level-only history breadcrumb when
-    // this navigation starts from a completely uninspected state (Step 5 review remediation B1),
-    // which only fires while inspectedSubjectId is still whatever it was before this call. Dispatching
-    // INSPECT_NODE first would set it before NAVIGATE_LEVEL runs, silently skipping that breadcrumb.
     revealInTree(n);
-    const ids=eligibleFor(targetLevel);
-    dispatchView({type:'NAVIGATE_LEVEL',level:targetLevel,eligibleIds:ids,batchSize:BATCH_SIZE,placement:placementFor(ids)});
-    dispatchView({type:'INSPECT_NODE',id:n.id});
+    ensureExpanded(n);
+    select(n);
     setTab('map');setSearch('');setMobilePane('map');
   }
-  function viewClasses(n:AtlasNode){navigateExplicit(n,'CLASS');}
-  function viewMethods(n:AtlasNode){navigateExplicit(n,'METHOD');}
+  function viewClasses(n:AtlasNode){revealChildren(n);}
+  function viewMethods(n:AtlasNode){revealChildren(n);}
+  // Reveal a node buried under expand-in-place ancestors (an HTTP route handler, a deep link) by
+  // expanding each ancestor in turn, then selecting the target. Each expansion must actually land
+  // in state before the next one is computed -- toggleExpand's own box math reads the current
+  // `expansions`/`geometry`, which are still stale mid-handler -- so this drives one remaining
+  // ancestor per render via the effect below instead of dispatching the whole chain at once.
+  const pendingRevealRef=useRef<{remaining:string[];selectId:string}|null>(null);
+  function expandToReveal(n:AtlasNode){
+    if(!graph)return;
+    const all=new Map(graph.nodes.map(item=>[item.id,item]));
+    const chain:string[]=[];
+    for(let p=n.parentId?all.get(n.parentId):undefined;p;p=p.parentId?all.get(p.parentId):undefined)chain.unshift(p.id);
+    const remaining=chain.filter(id=>!expansions[id]);
+    setTab('map');setMobilePane('map');
+    if(!remaining.length){revealInTree(n);select(n);return;}
+    pendingRevealRef.current={remaining,selectId:n.id};
+    const first=all.get(remaining[0]);
+    if(first)toggleExpand(first);
+  }
+  useEffect(()=>{
+    const pending=pendingRevealRef.current;
+    if(!pending||!graph)return;
+    const all=new Map(graph.nodes.map(item=>[item.id,item]));
+    const [doneId,...rest]=pending.remaining;
+    if(!expansions[doneId])return;
+    if(!rest.length){
+      pendingRevealRef.current=null;
+      const target=all.get(pending.selectId);
+      if(target){revealInTree(target);select(target);}
+      return;
+    }
+    pendingRevealRef.current={remaining:rest,selectId:pending.selectId};
+    const next=all.get(rest[0]);
+    if(next)toggleExpand(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[expansions]);
   // Step 5 (Appendix B): the dedicated focused-arrangement command, wired to canvas double-click
   // (GraphCanvas's dbltap handler) and the inspector's keyboard/touch-accessible "Arrange around
   // this resource" action -- never to a single click, level navigation, or inspection. Uses exactly
@@ -549,7 +614,7 @@ export function ExplorerApp({ reviewContext, onReviewSource }: ExplorerAppProps 
     const all=new Map(graph.nodes.map(n=>[n.id,n]));
     const expansionChildren:Record<string,string[]>={};
     for(const lvl of (['PACKAGE','CLASS','METHOD'] as Level[]))for(const id of Object.keys(viewState.levelViews[lvl].expansions)){const n=all.get(id);if(n&&!expansionChildren[id])expansionChildren[id]=childrenOf(graph,n,next,all).map(c=>c.id);}
-    dispatchView({type:'SCOPE_UPDATED',eligibleIds:ids,explicitClassAddId,batchSize:level==='PACKAGE'?Infinity:BATCH_SIZE,placement:placementFor(ids),otherLevels,expansionChildren});
+    dispatchView({type:'SCOPE_UPDATED',eligibleIds:ids,explicitClassAddId,batchSize:level==='PACKAGE'?Infinity:BATCH_SIZE,placement:placementFor(ids),otherLevels,expansionChildren,preserveReviewOnly:!active.present.review});
   }
   function resetScope(){handleScopeChange(wholeSystemScope());}
   // Removes one or many map cards from scope as a single scope edit: folding every removal into one
@@ -581,38 +646,164 @@ export function ExplorerApp({ reviewContext, onReviewSource }: ExplorerAppProps 
   // entries instead of a duplicate React key.
   const recentHistory=(()=>{const seen=new Set<string>(),out:typeof viewState.history=[];for(let i=viewState.history.length-1;i>=0&&out.length<3;i--){const h=viewState.history[i];if(h.kind!=='NODE'||h.subjectId===null||seen.has(h.subjectId))continue;seen.add(h.subjectId);out.push(h);}return out;})();
   function scopeUnitLabel(){if(scope.mode==='ALL')return'whole system';const pkgs=scope.selectedPackageIds.size,cls=scope.selectedClassIds.size;if(pkgs&&cls)return`${pkgs} selected package${pkgs===1?'':'s'} and ${cls} selected class${cls===1?'':'es'}`;if(pkgs)return`${pkgs} selected package${pkgs===1?'':'s'}`;if(cls)return`${cls} selected class${cls===1?'':'es'}`;return'no selection';}
-  const levelWord=level==='PACKAGE'?'Packages':level==='CLASS'?'Classes':'Methods';
+  const levelWord='Packages';
   const scopeCrumb=scope.mode==='ALL'?'Whole system':scopeUnitLabel();
   const scopeEmpty=scope.mode==='CUSTOM'&&scope.selectedPackageIds.size===0&&scope.selectedClassIds.size===0;
   const synthesisElapsed=queue?.synthesisStageStartedAt
     ? Math.max(0,Math.floor((Date.now()-Date.parse(queue.synthesisStageStartedAt))/1000))
     : 0;
   async function explainAll(){if(!workspace||!snapshot)return;try{if(queue?.activeJobId){await apiClient.cancelJob(queue.activeJobId);setStatus('Pending explanation work cancelled');}else{await apiClient.startExplainAll(workspace.id,snapshot,1);setStatus('Synthesizing architecture, then explaining classes and methods');}setQueue(await apiClient.getQueueStatus(workspace.id));}catch(e:any){setError(e.message);}}
-  const reviewSelectionSide=edge?.reviewSide||node?.reviewSide;
-  const reviewSelectionLabel=reviewSelectionSide==='base'?'base':'changed';
-  const reviewSelectionSource=()=>{
-    if(edge){openSource({id:edge.id,ids:edge.occurrenceIds,simpleName:`${graph?.nodes.find(n=>n.id===edge.sourceId)?.simpleName||'Source'} → ${graph?.nodes.find(n=>n.id===edge.targetId)?.simpleName||'target'}`},'relationships');return;}
-    if(node&&node.kind!=='PACKAGE')openSource(node,'symbol');
-  };
-  // ReviewPanel keeps inactive journeys mounted for their state, but they must contribute no
-  // duplicate graph controls, canvas or document-level interaction targets. The next activation
-  // renders the same journey state into its own uniquely keyed DOM instance.
-  if(embedded&&!contextActive)return <div className="embedded-explorer-inactive" data-explorer-instance={instanceKey} aria-hidden="true" />;
-  return <div className={`app-container${embedded?' embedded-explorer-app review-explorer':''}`} data-testid={embedded&&contextActive?'review-explorer':undefined} data-explorer-instance={instanceKey}>
-    <header className="app-header">{!embedded&&<><button className="brand" onClick={openCodeMap}><span className="brand-mark">◈</span>Code Atlas</button><button className="workspace-switch" onClick={()=>setShowOpen(!showOpen)}>{workspace?name:'Open project'} <span>⌄</span></button></>}
+  // Building blocks for the Git-review overlay living directly on the Code map (no separate page):
+  // a per-tab Changes toggle, a small popover for the base ref/Recompare, and a fresh journey for a
+  // new tab that starts in whichever mode the tab it was opened from is currently showing.
+  function initialViewFor(review:boolean):ExplorerViewState{
+    const source=review?reviewComparison.graph:mapGraph;
+    return source?initialViewForGraph(source):initExplorerViewState();
+  }
+  function buildFreshJourney(review:boolean):Journey{
+    return {...newJourney(initialViewFor(review)),review,reviewKey:review?reviewComparison.reviewKey:null,reviewTouched:review};
+  }
+  /** Keep review-only top-level resources in the shared page cache. Ordinary projection ignores the
+   * synthetic IDs while review projection can draw them, so returning from Changes keeps their
+   * positions available without maintaining a second parked map. */
+  function withReviewResources(j:Journey, reviewGraph:AtlasGraph):Journey {
+    const targetLevel=j.view.activeLevel, levelView=j.view.levelViews[targetLevel];
+    const eligible=rankEligibleIds(reviewGraph,targetLevel,getEligibleIds(reviewGraph,targetLevel,j.scope));
+    const additions=eligible.filter(id=>id.startsWith('review-node:')&&!levelView.displayedIds.includes(id));
+    if(!additions.length)return j;
+    const reviewGeometry=geometryForJourney(reviewGraph,j.view,j.scope,j.kind);
+    const ordinaryGeometry=mapGraph?geometryForJourney(mapGraph,j.view,j.scope,j.kind):reviewGeometry;
+    const placement:Record<string,PlacementDims>={};
+    for(const id of [...levelView.displayedIds,...additions]){
+      const n=reviewGraph.nodes.find(item=>item.id===id);if(!n)continue;
+      const box=reviewGeometry.boxes[id]||ordinaryGeometry.boxes[id],size=box?{width:box.x2-box.x1,height:box.y2-box.y1}:levelView.sizes[id]||defaultCardSize(n),center=box?{x:(box.x1+box.x2)/2,y:(box.y1+box.y2)/2}:reviewGeometry.positions[id]||ordinaryGeometry.positions[id];
+      placement[id]={...size,name:n.qualifiedName||n.simpleName,...(center?{center}:{})};
+    }
+    const view=explorerViewReducer(j.view,{type:'REVIEW_IDS_AVAILABLE',level:targetLevel,ids:additions,placement});
+    return view===j.view?j:{...j,view};
+  }
+  /** An aggregate route's ID includes review status, so it cannot survive a mode switch by value.
+   * Clear that one stale inspection explicitly; node IDs aligned by reviewModel remain selected. */
+  function prepareReviewToggle(j:Journey,on:boolean,reviewKey:string|null,reviewGraph?:AtlasGraph):Journey {
+    let next=on&&reviewGraph?withReviewResources(j,reviewGraph):j;
+    const inspected=next.view.inspectedSubjectId;
+    const nodeStillExists=!inspected||!mapGraph||mapGraph.nodes.some(n=>n.id===inspected);
+    if(inspected&&(next.view.inspectedKind==='EDGE'||(!on&&!nodeStillExists))){
+      next={...next,view:explorerViewReducer(next.view,{type:'CLEAR_INSPECTION'})};
+    }
+    return toggleJourneyReview(next,on,reviewKey);
+  }
+  function toggleChanges(){
+    const tabId=active.id;
+    if(active.present.review){
+      // Camera/layout state belongs to the journey, not to the presentation mode. Flush the latest
+      // Cytoscape camera before the mode-only update so the round trip cannot lose a pan or zoom that
+      // happened after the last React state commit.
+      flushExplorerCamera();
+      journeys.updateTab(tabId,j=>prepareReviewToggle(j,false,null));
+      return;
+    }
+    if(reviewComparison.graph&&reviewComparison.reviewKey){
+      flushExplorerCamera();
+      journeys.updateTab(tabId,j=>prepareReviewToggle(j,true,reviewComparison.reviewKey!,reviewComparison.graph!));
+      return;
+    }
+    // No comparison captured yet: load one, then apply the toggle to whichever tab asked for it (it
+    // may no longer be the active tab, or may have closed, by the time this resolves).
+    reviewComparison.load().then(result=>{
+      if(result){
+        // The comparison request is asynchronous. Capture the camera immediately before applying
+        // the mode flag, rather than relying on the camera value from when the user clicked Changes.
+        flushExplorerCamera();
+        journeys.updateTab(tabId,j=>prepareReviewToggle(j,true,result.reviewKey,result.graph));
+      }
+    });
+  }
+  function recompare(){
+    reviewComparison.load().then(result=>{
+      if(result){
+        // Admit newly introduced review-only cards into every open review tab before the shared
+        // history is invalidated. Closed tabs are pruned by REVIEW_RECAPTURED and can admit cards
+        // when they next toggle/reopen.
+        for(const tabState of journeys.state.tabs.filter(tabState=>tabState.present.review)){
+          journeys.updateTab(tabState.id,j=>({...withReviewResources(j,result.graph),reviewKey:result.reviewKey}));
+        }
+        journeys.command({type:'REVIEW_RECAPTURED',reviewKey:result.reviewKey,reviewIds:result.graph.nodes.filter(n=>n.id.startsWith('review-node:')).map(n=>n.id)});
+      }
+    });
+  }
+  const reviewFilesByPath=useMemo(()=>Object.fromEntries((reviewComparison.review?.files||[]).map((f:any)=>[f.path,{status:f.status,hunks:f.hunks||[],lineCountsAvailable:f.lineCountsAvailable}])),[reviewComparison.review]);
+  // SourceDialog's data-loading effect depends on this object by reference (P1.3): App re-renders on
+  // every 2s queue poll, journey update, etc., so an inline object literal at the call site below
+  // would refetch source and reset the dialog's scroll position on every one of those. Keyed on the
+  // review's identity (base/head snapshot IDs) and reviewFilesByPath, not the whole `review` object,
+  // so an unrelated review field changing (e.g. loading/error) cannot invalidate this either.
+  const reviewDiff=useMemo(()=>{
+    if(!active.present.review||!reviewComparison.review)return undefined;
+    return {baseSnapshotId:reviewComparison.review.base.snapshotId,headSnapshotId:reviewComparison.review.head.snapshotId,filesByPath:reviewFilesByPath};
+  },[active.present.review,reviewComparison.review?.base.snapshotId,reviewComparison.review?.head.snapshotId,reviewFilesByPath]);
+  // Map-heading collapse ("swipe up" for more graph room): a per-viewer convenience, not exploration
+  // state, so it lives in localStorage rather than journey history.
+  const [headingCollapsed,setHeadingCollapsedState]=useState(()=>{try{return localStorage.getItem('mapHeadingCollapsed')==='true';}catch{return false;}});
+  const setHeadingCollapsed=(next:boolean)=>{setHeadingCollapsedState(next);try{localStorage.setItem('mapHeadingCollapsed',String(next));}catch{}};
+  const justDraggedHeadingRef=useRef(false);
+  // Pointer drag on the grip: >24px up collapses, >24px down expands. A drag that never crosses that
+  // threshold is treated as a click by toggleHeadingCollapsed below, matching the nav-resize handle's
+  // established click-vs-drag pattern (startNavResize/justDraggedNavRef).
+  function startHeadingDrag(e:React.PointerEvent<HTMLButtonElement>){
+    const handle=e.currentTarget,startY=e.clientY;
+    handle.setPointerCapture(e.pointerId);
+    let moved=false;
+    const onMove=(ev:PointerEvent)=>{
+      const dy=ev.clientY-startY;
+      if(Math.abs(dy)<24)return;
+      moved=true;justDraggedHeadingRef.current=true;
+      setHeadingCollapsed(dy<0);
+    };
+    const finish=()=>{
+      if(handle.hasPointerCapture(e.pointerId))handle.releasePointerCapture(e.pointerId);
+      handle.removeEventListener('pointermove',onMove);
+      handle.removeEventListener('pointerup',onUp);
+      handle.removeEventListener('pointercancel',onUp);
+      if(moved)setTimeout(()=>{justDraggedHeadingRef.current=false;},400);
+    };
+    const onUp=()=>finish();
+    handle.addEventListener('pointermove',onMove);
+    handle.addEventListener('pointerup',onUp);
+    handle.addEventListener('pointercancel',onUp);
+  }
+  function toggleHeadingCollapsed(){
+    if(justDraggedHeadingRef.current){justDraggedHeadingRef.current=false;return;}
+    setHeadingCollapsed(!headingCollapsed);
+  }
+  // Trackpad/wheel swipe over the heading area also collapses/expands, with a short cooldown so one
+  // physical gesture (many wheel events) does not flip the state repeatedly.
+  const headingWheelCooldown=useRef(0);
+  function onHeadingWheel(e:React.WheelEvent){
+    // A wheel/trackpad gesture over a form control or the review-options popover inside the heading
+    // (base-ref input, relationship select, the popover's own scrollable content) must scroll/adjust
+    // that control, not collapse the whole heading out from under it (P3.1).
+    if((e.target as Element).closest?.('input,select,textarea,.review-options'))return;
+    const now=Date.now();
+    if(now-headingWheelCooldown.current<400)return;
+    if(e.deltaY>12&&!headingCollapsed){headingWheelCooldown.current=now;setHeadingCollapsed(true);}
+    else if(e.deltaY<-12&&headingCollapsed){headingWheelCooldown.current=now;setHeadingCollapsed(false);}
+  }
+  return <div className="app-container">
+    <header className="app-header"><button className="brand" onClick={openCodeMap}><span className="brand-mark">◈</span>Code Atlas</button><button className="workspace-switch" onClick={()=>setShowOpen(!showOpen)}>{workspace?name:'Open project'} <span>⌄</span></button>
       <div className="global-search"><span>⌕</span><input id={searchId} aria-label="Search codebase" placeholder="Find a class, method, or package…" value={search} onChange={e=>setSearch(e.target.value)} disabled={!graph}/><kbd>Ctrl K</kbd>{search&&<div className="search-results">{results.length?results.map(n=><button key={n.id} onClick={()=>{select(n);setTab('map');}}><span>{n.simpleName}<small>{n.qualifiedName}</small></span><span className="tag">{n.kind.toLowerCase()}</span></button>):<p>No matching symbols</p>}</div>}</div>
-      {!embedded&&<><button className="model-status" onClick={()=>setSettings(true)}><span className={`status-dot ${profile?.baseUrl?'configured':''}`}/>{profile?.baseUrl?'Model configured':'Set up model'}</button><button className="icon-button" aria-label="Model settings" onClick={()=>setSettings(true)}>⚙</button></>}
+      <button className="model-status" onClick={()=>setSettings(true)}><span className={`status-dot ${profile?.baseUrl?'configured':''}`}/>{profile?.baseUrl?'Model configured':'Set up model'}</button><button className="icon-button" aria-label="Model settings" onClick={()=>setSettings(true)}>⚙</button>
     </header>
-    {!embedded&&queue?.errorMessage&&<div className="error-banner" role="alert"><span>{queue.errorMessage}</span></div>}
-    {!embedded&&error&&<div className="error-banner" role="alert"><span>{error}</span><button onClick={()=>setError('')} aria-label="Dismiss error">✕</button></div>}
-    {!embedded&&(showOpen||!graph)&&<section className={graph?'open-project-bar':'welcome'}><div><span className="welcome-icon">◈</span><h1>{graph?'Open a project':'Find your way through the code.'}</h1><p>Explore the structure. Follow a dependency. Understand why it exists.</p></div><form onSubmit={e=>{e.preventDefault();analyze();}}><label>Local repository path<input value={path} onChange={e=>setPath(e.target.value)} placeholder="/path/to/your/java-project" disabled={busy}/></label><button className="primary" disabled={busy}>{busy?'Analyzing…':'Analyze project'}</button></form><p className="muted">Source-only analysis. Your repository is read-only; no Gradle builds or application code are executed.</p>{recent.length>0&&<div className="recent-projects"><h3>Recent projects</h3>{recent.map(ws=><button key={ws.id} disabled={busy} onClick={()=>{if(ws.activeSnapshotId){setBusy(true);loadSnapshot(ws.activeSnapshotId,ws).catch(e=>setError(e.message)).finally(()=>setBusy(false));}else{setPath(ws.path);analyze(ws.path);}}}><span>▱ {ws.path.split('/').pop()}<small>{ws.path}</small></span><span>Open ↗</span></button>)}</div>}</section>}
-    {graph&&<>{embedded&&contextActive&&(node||edge)&&<div className="review-selection"><strong>{node?.simpleName||kindSummary(edge!)}</strong><span>{edge?`${edge.reviewChange==='ADDED'?'Added':edge.reviewChange==='REMOVED'?'Removed':'Unchanged'} relationship`:'Review resource'}</span>{(edge||node?.kind!=='PACKAGE')&&<button aria-label={`View ${edge?'relationship ':''}source from ${reviewSelectionLabel} snapshot`} onClick={reviewSelectionSource}>{edge?'View evidence':'View source'}</button>}</div>}<div className="journey-bar">
+    {queue?.errorMessage&&<div className="error-banner" role="alert"><span>{queue.errorMessage}</span></div>}
+    {error&&<div className="error-banner" role="alert"><span>{error}</span><button onClick={()=>setError('')} aria-label="Dismiss error">✕</button></div>}
+    {(showOpen||!graph)&&<section className={graph?'open-project-bar':'welcome'}><div><span className="welcome-icon">◈</span><h1>{graph?'Open a project':'Find your way through the code.'}</h1><p>Explore the structure. Follow a dependency. Understand why it exists.</p></div><form onSubmit={e=>{e.preventDefault();analyze();}}><label>Local repository path<input value={path} onChange={e=>setPath(e.target.value)} placeholder="/path/to/your/java-project" disabled={busy}/></label><button className="primary" disabled={busy}>{busy?'Analyzing…':'Analyze project'}</button></form><p className="muted">Source-only analysis. Your repository is read-only; no Gradle builds or application code are executed.</p>{recent.length>0&&<div className="recent-projects"><h3>Recent projects</h3>{recent.map(ws=><button key={ws.id} disabled={busy} onClick={()=>{if(ws.activeSnapshotId){setBusy(true);loadSnapshot(ws.activeSnapshotId,ws).catch(e=>setError(e.message)).finally(()=>setBusy(false));}else{setPath(ws.path);analyze(ws.path);}}}><span>▱ {ws.path.split('/').pop()}<small>{ws.path}</small></span><span>Open ↗</span></button>)}</div>}</section>}
+    {graph&&<><div className="journey-bar">
       <div className="journey-tabs" role="tablist" aria-label="Exploration tabs">{journeys.state.tabs.map(t=><div className={`journey-tab ${t.id===active.id?'active':''}`} key={t.id}>
         <button role="tab" id={journeyTabId(t.id)} aria-controls={panelId} aria-selected={t.id===active.id} tabIndex={t.id===active.id?0:-1} onKeyDown={e=>{
           const tabs=journeys.state.tabs,index=tabs.findIndex(x=>x.id===t.id);
           const next=e.key==='ArrowRight'?tabs[(index+1)%tabs.length]:e.key==='ArrowLeft'?tabs[(index+tabs.length-1)%tabs.length]:e.key==='Home'?tabs[0]:e.key==='End'?tabs[tabs.length-1]:null;
           if(next){e.preventDefault();journeys.command({type:'SWITCH',id:next.id});document.getElementById(journeyTabId(next.id))?.focus();}
-        }} onClick={()=>journeys.command({type:'SWITCH',id:t.id})}>{t.title}</button>
+        }} onClick={()=>journeys.command({type:'SWITCH',id:t.id})}>{t.title}{t.present.review&&<span className="tag journey-review-tag">changes</span>}</button>
         <button className="journey-close" aria-label={`Close ${t.title}`} tabIndex={t.id===active.id?0:-1} disabled={journeys.state.tabs.length===1} onClick={()=>{
           const tabs=journeys.state.tabs,index=tabs.findIndex(x=>x.id===t.id);
           const remaining=tabs.filter(x=>x.id!==t.id);
@@ -621,26 +812,28 @@ export function ExplorerApp({ reviewContext, onReviewSource }: ExplorerAppProps 
           document.getElementById(journeyTabId(focusId))?.focus();
         }}>×</button>
       </div>)}</div>
-      <div className="journey-actions"><button onClick={()=>journeys.command({type:'NEW'})}>+ New tab</button><button onClick={()=>journeys.command({type:'CLONE'})} title="Copy this tab and its undo/redo history">Clone tab</button><button disabled={journeys.state.closed.length===0} onClick={()=>journeys.command({type:'REOPEN'})}>Reopen closed tab</button></div>
+      <div className="journey-actions"><button onClick={()=>journeys.command({type:'NEW',present:buildFreshJourney(active.present.review)})}>+ New tab</button><button onClick={()=>journeys.command({type:'CLONE'})} title="Copy this tab and its undo/redo history">Clone tab</button><button disabled={journeys.state.closed.length===0} onClick={()=>journeys.command({type:'REOPEN'})}>Reopen closed tab</button></div>
       <div className="journey-history" aria-label="Tab history"><button disabled={!viewState.inspectedSubjectId&&!active.present.multiIds.length} onClick={clearSelection} title="Clear inspection and selected cards (Escape)">Clear selection</button><button disabled={!active.past.length} title="Undo last exploration action (Ctrl/Cmd Z). Up to 200 actions per tab." onClick={()=>journeys.command({type:'UNDO'})}>↶ Undo</button><button disabled={!active.future.length} title="Redo (Ctrl/Cmd Shift Z or Ctrl Y)" onClick={()=>journeys.command({type:'REDO'})}>↷ Redo</button></div>
     </div><nav className="mobile-tabs">{['explorer','map','details'].map(p=><button className={mobilePane===p?'active':''} key={p} onClick={()=>setMobilePane(p)}>{p}</button>)}</nav><main id={panelId} role="tabpanel" aria-labelledby={journeyTabId(active.id)} key={active.id} className={`app-main pane-${mobilePane}`}>
-      <aside className="navigation" ref={navRef} style={navWidth!=null?{['--nav-width' as any]:`${navWidth}px`}:undefined}><nav className="workspace-nav"><button className={tab==='map'?'active':''} onClick={openCodeMap}>▦ <span>Code map</span></button>{!embedded&&<><button className={tab==='review'?'active':''} aria-label="Review changes" onClick={()=>{setTab('review');setMobilePane('map');}}>△ <span>Review changes</span></button><button className={tab==='routes'?'active':''} onClick={()=>{setTab('routes');setMobilePane('map');}}>▷ <span>Entry points</span><small>{routes.length}</small></button><button className={tab==='context'?'active':''} onClick={()=>{setTab('context');setMobilePane('map');}}>▤ <span>Project context</span></button></>}</nav>
-        {tab!=='review'&&<><NavigationPane treeOpen={active.present.treeOpen} onTreeOpen={(id,open)=>journeys.set('treeOpen',values=>({...values,[id]:open}))} graph={graph} scope={scope} selectedNode={node} search={search} onScopeChange={handleScopeChange} onSelect={select} onViewClasses={viewClasses} onViewMethods={viewMethods}/>
-        {recentHistory.length>0&&<div className="recent-symbols"><h3>Recently viewed</h3>{recentHistory.map(h=>{const n=graph.nodes.find(x=>x.id===h.subjectId);return n?<button key={h.subjectId} onClick={()=>select(n)}>◷ {n.simpleName}</button>:null;})}</div>}</>}
-        <div className="workspace-summary"><strong>{name}</strong><span>{tab==='review'?'Captured Git comparison':`${typeCount} types across ${packages.length} packages`}</span>{!embedded&&tab!=='review'&&<button className="text-button" disabled={busy} onClick={()=>analyze()}>↻ Re-analyze source</button>}</div>
+      <aside className="navigation" ref={navRef} style={navWidth!=null?{['--nav-width' as any]:`${navWidth}px`}:undefined}><nav className="workspace-nav"><button className={tab==='map'?'active':''} onClick={openCodeMap}>▦ <span>Code map</span></button><button className={tab==='routes'?'active':''} onClick={()=>{setTab('routes');setMobilePane('map');}}>▷ <span>Entry points</span><small>{routes.length}</small></button><button className={tab==='context'?'active':''} onClick={()=>{setTab('context');setMobilePane('map');}}>▤ <span>Project context</span></button></nav>
+        <NavigationPane treeOpen={active.present.treeOpen} onTreeOpen={(id,open)=>journeys.set('treeOpen',values=>({...values,[id]:open}))} graph={graph} scope={scope} selectedNode={node} search={search} onScopeChange={handleScopeChange} onSelect={select} onViewClasses={viewClasses} onViewMethods={viewMethods}/>
+        {recentHistory.length>0&&<div className="recent-symbols"><h3>Recently viewed</h3>{recentHistory.map(h=>{const n=graph.nodes.find(x=>x.id===h.subjectId);return n?<button key={h.subjectId} onClick={()=>select(n)}>◷ {n.simpleName}</button>:null;})}</div>}
+        <div className="workspace-summary"><strong>{name}</strong><span>{active.present.review?'Base + changes overlay':`${typeCount} types across ${packages.length} packages`}</span><button className="text-button" disabled={busy} onClick={()=>analyze()}>↻ Re-analyze source</button></div>
       </aside>
       <div className="nav-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize navigation panel. Use arrow keys, hold Shift for larger steps, Home to reset." tabIndex={0} aria-valuenow={Math.round(navWidth??currentNavWidth())} aria-valuemin={NAV_MIN} aria-valuemax={Math.round(navMax())} onPointerDown={startNavResize} onKeyDown={navResizeKeyDown} onDoubleClick={()=>{if(justDraggedNavRef.current){justDraggedNavRef.current=false;return;}resetNavWidth();}} />
       <section className="workspace-content">
-        {!embedded&&workspace&&<div className="review-workspace" hidden={tab!=='review'}><ReviewPanel key={workspace.id} workspaceId={workspace.id} active={tab==='review'} onSource={target=>onReviewSource?.(target)} renderExplorer={context=><ExplorerApp reviewContext={context} onReviewSource={onReviewSource}/>} /></div>}{tab==='context'&&workspace?<ProjectDocuments key={workspace.id} workspaceId={workspace.id} onChanged={()=>setRevision(r=>r+1)}/>:tab==='routes'?<section className="entry-view"><div className="page-heading"><div><h1>Start with a request</h1><p>Follow an HTTP entry point into its handler and dependencies.</p></div></div>{routes.length?routes.map(r=>{const handler=graph.nodes.find(n=>n.id===r.symbol_version_id);return <button className="route-card" key={r.id} onClick={()=>{if(handler)(handler.kind==='PACKAGE'?viewClasses:viewMethods)(handler);}}><span className="tag">{r.http_method}</span><strong>{r.path}</strong><span>{handler?.simpleName||r.handler_qualified}</span><span>Explore ↗</span></button>;}):<div className="empty-state"><h2>No HTTP routes found</h2><p>Explore packages and classes to find this application's entry points.</p><button onClick={openCodeMap}>Open code map</button></div>}</section>:tab==='review'?null:<>
-          <div className="map-heading"><div className="breadcrumbs"><button onClick={openCodeMap}>{scopeCrumb}</button><span>/</span><span className="breadcrumb-level">{levelWord}</span>{node&&<><span>/</span><button onClick={()=>select(node)}>{node.simpleName}</button></>}</div><div className="page-heading"><div><h1>{node?node.simpleName:'Understand the whole system'}</h1><p>{node?'Follow the relationships around this part of the codebase.':`${typeCount} types across ${packages.length} packages. Choose a starting point.`}</p></div><button onClick={()=>{const entry=viewState.history[viewState.history.length-1];if(entry)dispatchView({type:'NAVIGATE_BACK',eligibleIds:eligibleFor(entry.level)});}} disabled={!viewState.history.length}>← Back</button></div>
-          <div className="graph-toolbar"><div className="segmented" aria-label="Graph level">{(['PACKAGE','CLASS','METHOD'] as Level[]).map(l=><button className={level===l?'active':''} key={l} onClick={()=>{if(l===level)return;const ids=eligibleFor(l);dispatchView({type:'NAVIGATE_LEVEL',level:l,eligibleIds:ids,batchSize:l==='PACKAGE'?Infinity:BATCH_SIZE,placement:placementFor(ids)});if(viewState.inspectedKind==='EDGE'&&!unresolvedEdge)dispatchView({type:'CLEAR_INSPECTION'});}}>{l==='PACKAGE'?'Packages':l==='CLASS'?'Classes':'Methods'}</button>)}</div><select aria-label="Relationship kind" value={kind} onChange={e=>setKind(e.target.value)}><option value="ALL">All dependencies</option>{[...new Set(graph.edges.map(e=>e.kind))].sort().map(k=><option key={k} value={k}>{k.toLowerCase().replaceAll('_',' ')}</option>)}</select></div>
-          <div className="scope-banner"><span className="scope-banner-icon" aria-hidden="true">{scope.mode==='ALL'?'◈':'⌖'}</span><div className="scope-banner-text"><strong>{graph?scopeToLabel(graph,scope):''}</strong><span>Showing {levelWord.toLowerCase()} · {scopedCount} {levelWord.toLowerCase()}{scope.mode!=='ALL'?` in ${scopeUnitLabel()}`:''}</span></div><div className="scope-banner-actions">{node&&<span className="tag inspecting-chip">Inspecting {node.simpleName}</span>}{edge&&!node&&<span className="tag inspecting-chip">Inspecting a relationship</span>}{viewState.newlyAddedIds.length>0&&displayedIds.length>viewState.newlyAddedIds.length&&<span className="tag added-below-chip">{viewState.newlyAddedIds.length} added below</span>}{omittedCount>0&&<button className="show-more" onClick={()=>{const ids=eligibleFor(level);dispatchView({type:'SHOW_MORE',eligibleIds:ids,batchSize:BATCH_SIZE,placement:placementFor(ids)});}}>Showing {visibleCount} of {scopedCount} in scope · show {Math.min(BATCH_SIZE,omittedCount)} more</button>}{scope.mode==='CUSTOM'&&<button className="text-button" onClick={resetScope}>Reset to whole system</button>}</div></div>
+        {tab==='context'&&workspace?<ProjectDocuments key={workspace.id} workspaceId={workspace.id} onChanged={()=>setRevision(r=>r+1)}/>:tab==='routes'?<section className="entry-view"><div className="page-heading"><div><h1>Start with a request</h1><p>Follow an HTTP entry point into its handler and dependencies.</p></div></div>{routes.length?routes.map(r=>{const handler=graph.nodes.find(n=>n.id===r.symbol_version_id);return <button className="route-card" key={r.id} onClick={()=>{if(handler)(handler.kind==='PACKAGE'?viewClasses:expandToReveal)(handler);}}><span className="tag">{r.http_method}</span><strong>{r.path}</strong><span>{handler?.simpleName||r.handler_qualified}</span><span>Explore ↗</span></button>;}):<div className="empty-state"><h2>No HTTP routes found</h2><p>Explore packages and classes to find this application's entry points.</p><button onClick={openCodeMap}>Open code map</button></div>}</section>:<>
+          <div className={`map-heading${headingCollapsed?' collapsed':''}`} onWheel={onHeadingWheel}>
+          <div className="map-heading-collapsible" inert={headingCollapsed} aria-hidden={headingCollapsed}><div className="breadcrumbs"><button onClick={openCodeMap}>{scopeCrumb}</button><span>/</span><span className="breadcrumb-level">{levelWord}</span>{node&&<><span>/</span><button onClick={()=>select(node)}>{node.simpleName}</button></>}</div><div className="page-heading"><div><h1>{node?node.simpleName:'Understand the whole system'}</h1><p>{node?'Follow the relationships around this part of the codebase.':`${typeCount} types across ${packages.length} packages. Choose a starting point.`}</p></div><button onClick={()=>{const entry=viewState.history[viewState.history.length-1];if(entry)dispatchView({type:'NAVIGATE_BACK',eligibleIds:eligibleFor(entry.level),preserveReviewOnly:!active.present.review});}} disabled={!viewState.history.length}>← Back</button></div></div>
+          <div className="graph-toolbar"><select aria-label="Relationship kind" value={kind} onChange={e=>setKind(e.target.value)}><option value="ALL">All dependencies</option>{[...new Set(graph.edges.map(e=>e.kind))].sort().map(k=><option key={k} value={k}>{k.toLowerCase().replaceAll('_',' ')}</option>)}</select>
+            {workspace&&<div className="review-controls"><button className={`review-toggle${active.present.review?' active':''}`} aria-pressed={active.present.review} disabled={reviewComparison.loading} onClick={toggleChanges} title="Show Base + changes: amber changed cards, green added routes, red removed routes">{reviewComparison.loading?'Comparing…':active.present.review?'✓ Changes':'Changes'}</button><details className="review-options"><summary aria-label="Review comparison options">▾</summary><div><label>Base revision<input value={reviewComparison.baseRef} onChange={e=>reviewComparison.setBaseRef(e.target.value)} placeholder="Default merge base, or origin/main"/></label><button className="primary full-width" type="button" disabled={reviewComparison.loading} onClick={recompare}>{reviewComparison.loading?'Comparing…':'Recompare'}</button>{reviewComparison.review&&<p className="muted">Comparing against <code>{reviewComparison.review.base.resolvedRef||reviewComparison.review.base.requestedRef||'merge base'}</code></p>}{reviewComparison.review?.base.warning&&<p className="notice">{reviewComparison.review.base.warning}</p>}{reviewComparison.error&&<p className="notice" role="alert">{reviewComparison.error}</p>}</div></details></div>}
           </div>
-          {embedded&&!contextActive
-            ? <div className="canvas-inactive-placeholder" aria-hidden="true" />
-            : scopeEmpty
-              ? <div className="scope-empty-state"><h2>No packages or classes selected</h2><p>Check packages or classes in the left tree to define what the graph shows.</p><button className="primary" onClick={resetScope}>Select all</button></div>
-              : <GraphCanvas multiIds={active.present.multiIds} onMultiIdsChange={v=>journeys.set('multiIds',v)} mapOpen={active.present.mapOpen} onMapOpenChange={v=>journeys.set('mapOpen',v)} fullscreen={active.present.fullscreen} onFullscreenChange={v=>journeys.set('fullscreen',v)} onClearSelection={clearSelection} nodes={projected.nodes} edges={projected.edges} positions={geometry.positions} sizes={sizes} containerSizes={containerSizes} onToggleExpand={toggleExpand} onResizeNode={resizeNode} onResizeContainer={resizeContainer} camera={levelGeometry.camera} selectedId={node?.id||edge?.id} onNodeSelect={select} onEdgeSelect={inspectEdge} canRemoveFromScope={n=>isNodeInScope(n,scope,graph)} onRemoveFromScope={removeFromScope} scopeRemovalTargets={nodes=>planScopeRemoval(nodes).removed} onCameraChange={handleCameraChange} onNodeMoved={handleNodeMoved} onNodesMoved={handleNodesMoved} onArrangeAroundResource={id=>{
+          <div className="map-heading-collapsible" inert={headingCollapsed} aria-hidden={headingCollapsed}><div className="scope-banner"><span className="scope-banner-icon" aria-hidden="true">{scope.mode==='ALL'?'◈':'⌖'}</span><div className="scope-banner-text"><strong>{graph?scopeToLabel(graph,scope):''}</strong><span>Showing {levelWord.toLowerCase()} · {scopedCount} {levelWord.toLowerCase()}{scope.mode!=='ALL'?` in ${scopeUnitLabel()}`:''}</span></div><div className="scope-banner-actions">{node&&<span className="tag inspecting-chip">Inspecting {node.simpleName}</span>}{edge&&!node&&<span className="tag inspecting-chip">Inspecting a relationship</span>}{viewState.newlyAddedIds.length>0&&displayedIds.length>viewState.newlyAddedIds.length&&<span className="tag added-below-chip">{viewState.newlyAddedIds.length} added below</span>}{omittedCount>0&&<button className="show-more" onClick={()=>{const ids=eligibleFor(level);dispatchView({type:'SHOW_MORE',eligibleIds:ids,batchSize:BATCH_SIZE,placement:placementFor(ids),preserveReviewOnly:!active.present.review});}}>Showing {visibleCount} of {scopedCount} in scope · show {Math.min(BATCH_SIZE,omittedCount)} more</button>}{scope.mode==='CUSTOM'&&<button className="text-button" onClick={resetScope}>Reset to whole system</button>}</div></div></div>
+          <button className="map-heading-grip" type="button" aria-expanded={!headingCollapsed} aria-label={headingCollapsed?'Expand map heading':'Collapse map heading'} onPointerDown={startHeadingDrag} onClick={toggleHeadingCollapsed}/>
+          </div>
+          {scopeEmpty
+            ? <div className="scope-empty-state"><h2>No packages or classes selected</h2><p>Check packages or classes in the left tree to define what the graph shows.</p><button className="primary" onClick={resetScope}>Select all</button></div>
+            : <GraphCanvas multiIds={active.present.multiIds} onMultiIdsChange={v=>journeys.set('multiIds',v)} mapOpen={active.present.mapOpen} onMapOpenChange={v=>journeys.set('mapOpen',v)} fullscreen={active.present.fullscreen} onFullscreenChange={v=>journeys.set('fullscreen',v)} onClearSelection={clearSelection} nodes={projected.nodes} edges={projected.edges} positions={geometry.positions} sizes={sizes} containerSizes={containerSizes} onToggleExpand={toggleExpand} onResizeNode={resizeNode} onResizeContainer={resizeContainer} camera={levelGeometry.camera} selectedId={node?.id||edge?.id} onNodeSelect={select} onEdgeSelect={inspectEdge} canRemoveFromScope={n=>isNodeInScope(n,scope,graph)} onRemoveFromScope={removeFromScope} scopeRemovalTargets={nodes=>planScopeRemoval(nodes).removed} onCameraChange={handleCameraChange} onNodeMoved={handleNodeMoved} onNodesMoved={handleNodesMoved} onArrangeAroundResource={id=>{
               if(reclickTimer.current){clearTimeout(reclickTimer.current);reclickTimer.current=null;}
               const p=pendingInspectRef.current;
               const collapse=!!p&&p.tabId===active.id&&p.nodeId===id&&Date.now()-p.ts<500;
@@ -648,18 +841,13 @@ export function ExplorerApp({ reviewContext, onReviewSource }: ExplorerAppProps 
               arrangeAround(id,collapse);
               setMobilePane('details');
             }} onViewCode={n=>openSource(n,'symbol')} restoreVersion={active.restoreVersion}/>}
-          <div className="graph-legend"><span><i className="line-sample"/>Static dependency</span><span><i className="line-sample uncertain"/>Candidate / unresolved</span><span>{level==='METHOD'?'Method call occurrences':`${level==='PACKAGE'?'Package':'Class'} connections group occurrences by kind and resolution`}</span></div>
+          {!active.present.review&&<div className="graph-legend"><span><i className="line-sample"/>Static dependency</span><span><i className="line-sample uncertain"/>Candidate / unresolved</span><span>Package connections group occurrences by kind and resolution</span></div>}
         </>}
       </section>
-      {(!embedded||contextActive)&&tab!=='context'&&tab!=='review'&&<InspectorPanel selectedNode={node} selectedEdge={edge} mapStatus={mapStatus} edgeFilteredOut={edgeFilteredOut} edgeHiddenByExpansion={edgeHiddenByExpansion} selectedOccurrenceId={viewState.inspectedOccurrenceId} onSelectOccurrence={id=>dispatchView({type:'SELECT_OCCURRENCE',occurrenceId:id})} workspaceId={workspace?.id||null} snapshotId={snapshot} graph={graph} routes={routes} revision={revision} onExplanationReady={()=>setRevision(r=>r+1)} onInspectEdge={inspectEdge} onSelect={select} onViewClasses={viewClasses} onViewMethods={viewMethods} onArrangeAroundResource={n=>arrangeAround(n.id)} onSource={(n,type='symbol')=>openSource(n,type)} onClose={clearSelection}/>}
+      {tab!=='context'&&<InspectorPanel selectedNode={node} selectedEdge={edge} mapStatus={mapStatus} edgeFilteredOut={edgeFilteredOut} edgeHiddenByExpansion={edgeHiddenByExpansion} selectedOccurrenceId={viewState.inspectedOccurrenceId} onSelectOccurrence={id=>dispatchView({type:'SELECT_OCCURRENCE',occurrenceId:id})} workspaceId={workspace?.id||null} snapshotId={snapshot} graph={graph} routes={routes} revision={revision} onExplanationReady={()=>setRevision(r=>r+1)} onInspectEdge={inspectEdge} onSelect={select} onViewClasses={viewClasses} onViewMethods={viewMethods} onArrangeAroundResource={n=>arrangeAround(n.id)} onSource={(n,type='symbol')=>openSource(n,type)} onClose={clearSelection}/>}
     </main></>}
-    {!embedded&&<footer className="app-footer">{tab!=='review'&&graph?.metadata?.diagnostics?.warnings?.length>0&&<details className="analysis-warnings"><summary>{graph?.metadata?.diagnostics?.warnings.length} analysis warning(s)</summary><div>{graph?.metadata?.diagnostics?.warnings.map((w:string,i:number)=><p key={i}>{w}</p>)}</div></details>}<span><i className={`status-dot ${graph?'configured':''}`}/>{tab==='review'?'Review comparison uses captured source facts':status}</span>{tab!=='review'&&graph&&<span>{graph.metadata?.unresolvedCount||0} unresolved external targets</span>}{tab!=='review'&&<div className="queue-summary">{queue?.activeJobId&&queue.synthesisStatus!=='READY'&&<span className="synthesis-progress"><i aria-hidden="true"/>{queue.synthesisStage || 'Preparing architecture'} · {synthesisElapsed}s · {queue.synthesisCompleted || 0} validated</span>}{!queue?.activeJobId&&queue?.jobStatus==='CANCELLED'&&<span>Explain all cancelled</span>}{queue&&<span>{queue.completed} explained · {queue.pending+queue.inProgress} queued · {queue.failed} failed</span>}{snapshot&&<button className={queue?.activeJobId?'':'primary'} onClick={explainAll}>{queue?.activeJobId?'Stop explain all':'✧ Explain all'}</button>}</div>}</footer>}
-    {!embedded&&<SettingsScreen isOpen={settings} onClose={()=>setSettings(false)}/>}
-    {!embedded&&source&&snapshot&&<SourceDialog snapshot={snapshot} subject={source.node} type={source.type} onClose={()=>setSource(null)}/>}
+    <footer className="app-footer">{graph?.metadata?.diagnostics?.warnings?.length>0&&<details className="analysis-warnings"><summary>{graph?.metadata?.diagnostics?.warnings.length} analysis warning(s)</summary><div>{graph?.metadata?.diagnostics?.warnings.map((w:string,i:number)=><p key={i}>{w}</p>)}</div></details>}<span><i className={`status-dot ${graph?'configured':''}`}/>{status}</span>{graph&&<span>{graph.metadata?.unresolvedCount||0} unresolved external targets</span>}{unanalyzedFiles.length>0&&<span className="unanalyzed-files" title={`These files could not be parsed, so the types they declare are missing from the map:\n${unanalyzedFiles.join('\n')}`}>{unanalyzedFiles.length} file(s) not analyzed</span>}<div className="queue-summary">{queue?.activeJobId&&queue.synthesisStatus!=='READY'&&<span className="synthesis-progress"><i aria-hidden="true"/>{queue.synthesisStage || 'Preparing architecture'} · {synthesisElapsed}s · {queue.synthesisCompleted || 0} validated</span>}{!queue?.activeJobId&&queue?.jobStatus==='CANCELLED'&&<span>Explain all cancelled</span>}{queue&&<span>{queue.completed} explained · {queue.pending+queue.inProgress} queued · {queue.failed} failed</span>}{snapshot&&<button className={queue?.activeJobId?'':'primary'} onClick={explainAll}>{queue?.activeJobId?'Stop explain all':'✧ Explain all'}</button>}</div></footer>
+    <SettingsScreen isOpen={settings} onClose={()=>setSettings(false)}/>
+    {source&&(source.snapshotId||snapshot)&&<SourceDialog snapshot={source.snapshotId||snapshot!} subject={source.node} type={source.type} snapshotLabel={source.label||'analyzed snapshot'} historical={!!source.snapshotId} reviewDiff={reviewDiff} onClose={()=>setSource(null)}/>}
   </div>;
-}
-
-export default function App() {
-  const [reviewSource, setReviewSource] = useState<ReviewSourceTarget | null>(null);
-  return <><ExplorerApp onReviewSource={setReviewSource}/>{reviewSource&&<SourceDialog snapshot={reviewSource.snapshotId} subject={reviewSource} type={reviewSource.type||'symbol'} snapshotLabel={`${reviewSource.label} captured for this review`} historical onClose={()=>setReviewSource(null)}/>}</>;
 }

@@ -15,6 +15,9 @@ and undo or redo exploration actions without changing another tab or server data
   sizes, expansions, pan/zoom, inspection and Back navigation, relationship filter,
   tree disclosures, search, multi-selection, source-dialog subject, occurrence choice,
   navigation width, minimap and full-screen preference.
+- **Changes** switches the active tab's review presentation while keeping its current
+  map arrangement. Both modes share scope, expansions, sizes and pan/zoom; moving a
+  card in either mode carries that position into the other. The toggle is undoable.
 - Selecting an inspected resource again, clicking empty canvas, **Clear selection**
   or Escape clears inspection and multi-selection. Escape first cancels an active
   menu, resize, marquee or source dialog. Clearing selection is one undo action.

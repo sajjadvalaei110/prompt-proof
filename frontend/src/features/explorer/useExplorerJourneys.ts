@@ -23,6 +23,14 @@ export function useExplorerJourneys(initialView?: ExplorerViewState) {
       return Object.is(j[key], next) ? j : { ...j, [key]: next };
     });
   }
+  // Targets a specific tab by ID rather than whichever tab happens to be active right now. Needed for
+  // an update that completes asynchronously (loading a review comparison): the tab that requested it
+  // may no longer be the active one, or may have been closed, by the time the response arrives. Its
+  // own fresh group number keeps it from merging into any transaction currently in progress, and a
+  // stale tab ID is a safe no-op (the reducer's UPDATE case only touches a matching `t.id`).
+  function updateTab(id: number, fn: (j: Journey) => Journey) {
+    dispatch({ type: 'UPDATE', id, group: ++counter.current, collapse: false, update: fn });
+  }
   function dispatchView(action: ExplorerAction, initialCamera = false, collapse = false) {
     if (action.type === 'RESET') {
       dispatch({ type: 'RESET', view: explorerViewReducer(active.present.view, action) });
@@ -38,5 +46,5 @@ export function useExplorerJourneys(initialView?: ExplorerViewState) {
     group.current = null;
     dispatch(action);
   }
-  return { state, active, set, update, dispatchView, command, reset: (view: Journey['view']) => dispatch({ type: 'RESET', view }) };
+  return { state, active, set, update, updateTab, dispatchView, command, reset: (view: Journey['view']) => dispatch({ type: 'RESET', view }) };
 }

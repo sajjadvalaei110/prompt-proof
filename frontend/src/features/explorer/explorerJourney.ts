@@ -1,6 +1,5 @@
 import { explorerViewReducer, initExplorerViewState, ExplorerAction, ExplorerViewState } from './explorerViewState';
 import { ScopeSelection } from './scopeModel';
-
 /** UI state only. Graph facts, generated results and server operations never enter history. */
 export interface Journey {
   view: ExplorerViewState;
@@ -9,12 +8,20 @@ export interface Journey {
   tab: string;
   search: string;
   mobilePane: string;
-  source: { node: { id: string; simpleName?: string }; type: string } | null;
+  // `snapshotId`/`label` are set only when the source is pinned to a specific review-comparison side
+  // rather than the workspace's ordinary active snapshot (see App.tsx's openSource).
+  source: { node: { id: string; ids?: string[]; simpleName?: string }; type: string; snapshotId?: string; label?: string } | null;
   treeOpen: Record<string, boolean>;
   multiIds: string[];
   mapOpen: boolean;
   fullscreen: boolean;
   navWidth: number | null;
+  /** Whether this tab currently shows the Git-review overlay instead of the ordinary code map. */
+  review: boolean;
+  /** The comparison the review-mode state belongs to, or null before any comparison has loaded. */
+  reviewKey: string | null;
+  /** Monotonic bookkeeping used to invalidate review history even after the tab returns to map mode. */
+  reviewTouched: boolean;
 }
 export interface JourneyTab {
   id: number;
@@ -34,7 +41,7 @@ export interface ExplorerJourneys {
 }
 export const HISTORY_LIMIT = 200;
 export function newJourney(view = initExplorerViewState()): Journey {
-  return { view, scope: { mode: 'ALL', selectedPackageIds: new Set(), selectedClassIds: new Set() }, kind: 'ALL', tab: 'map', search: '', mobilePane: 'map', source: null, treeOpen: {}, multiIds: [], mapOpen: true, fullscreen: false, navWidth: null };
+  return { view, scope: { mode: 'ALL', selectedPackageIds: new Set(), selectedClassIds: new Set() }, kind: 'ALL', tab: 'map', search: '', mobilePane: 'map', source: null, treeOpen: {}, multiIds: [], mapOpen: true, fullscreen: false, navWidth: null, review: false, reviewKey: null, reviewTouched: false };
 }
 function newTab(id: number, present: Journey): JourneyTab {
   return { id, title: `Explore ${id}`, present, past: [], future: [], group: null, restoreVersion: 0 };
@@ -42,10 +49,32 @@ function newTab(id: number, present: Journey): JourneyTab {
 export function initJourneys(initial = newJourney()): ExplorerJourneys {
   return { tabs: [newTab(1, initial)], closed: [], activeId: 1, nextId: 2, initial };
 }
+/**
+ * Switches only the presentation mode of a journey. The ordinary graph and the review overlay use
+ * different retained source IDs, but reviewModel aligns unambiguous declarations to the ordinary
+ * graph's display IDs before projection. Keeping one view/scope/selection here means a toggle can
+ * recolor and change source-inspection behavior without parking and restoring a second map layout.
+ * `freshView` remains in the signature for callers compiled against the previous API; it is
+ * intentionally ignored because switching modes must never reset the current map.
+ */
+export function toggleJourneyReview(j: Journey, on: boolean, reviewKey: string | null): Journey {
+  const nextKey = on ? reviewKey : null;
+  if (j.review === on && j.reviewKey === nextKey && (!on || j.reviewTouched)) return j;
+  return { ...j, review: on, reviewKey: nextKey, reviewTouched: j.reviewTouched || on };
+}
 export type JourneyAction =
   | { type: 'RESET'; view: ExplorerViewState }
-  | { type: 'NEW' | 'CLONE' | 'REOPEN' | 'UNDO' | 'REDO' }
+  // `present`: the journey a new tab starts from. Omitted, NEW falls back to the very first journey
+  // (pre-review behavior); ExplorerApp passes one built in the active tab's current mode (map or
+  // review) so "+ New tab" opens beside it in the same mode rather than always resetting to the map.
+  | { type: 'NEW'; present?: Journey }
+  | { type: 'CLONE' | 'REOPEN' | 'UNDO' | 'REDO' }
   | { type: 'SWITCH' | 'CLOSE'; id: number }
+  // Every open and closed tab that ever touched review state under the old comparison is reset to
+  // `view` (a fresh initial view over the recaptured graph) and loses its undo/redo history: display
+  // IDs are derived from `comparisonKey`, which is meaningless once the working tree is recaptured, so
+  // an old step could never be replayed onto the new graph.
+  | { type: 'REVIEW_RECAPTURED'; reviewKey: string; reviewIds?: string[] }
   // `collapse`: used only by the canvas double-click-to-arrange flow. Click 1 (a plain tap on an
   // uninspected node) always seals its own undo step before `dbltap` fires -- a real macrotask gap
   // separates the two physical clicks, so the group-lifecycle mechanism below can never merge them
@@ -56,6 +85,19 @@ export type JourneyAction =
   | { type: 'UPDATE'; id: number; group: number; collapse?: boolean; update: (j: Journey) => Journey }
   | { type: 'INITIAL_CAMERA'; id: number; action: Extract<ExplorerAction, { type: 'SET_CAMERA' }> };
 
+function touchesReview(j: Journey): boolean { return j.reviewTouched; }
+function hasReviewState(t: JourneyTab): boolean { return touchesReview(t.present) || t.past.some(touchesReview) || t.future.some(touchesReview); }
+/** A tab untouched by review is returned unchanged. A tab that has entered review keeps its shared
+ * map state, but loses undo/redo entries that refer to the superseded comparison key. */
+function resetReviewTab(t: JourneyTab, reviewKey: string, reviewIds?: string[]): JourneyTab {
+  if (!hasReviewState(t)) return t;
+  const prune=(j:Journey):Journey=>reviewIds?{...j,view:explorerViewReducer(j.view,{type:'PRUNE_REVIEW_IDS',ids:reviewIds})}:j;
+  const current=prune(t.present);
+  const present: Journey = current.review
+    ? { ...current, reviewKey, source: current.source?.snapshotId ? null : current.source }
+    : current;
+  return { ...t, present, past: [], future: [], group: null };
+}
 export function journeysReducer(state: ExplorerJourneys, action: JourneyAction): ExplorerJourneys {
   if (action.type === 'RESET') {
     const initial = newJourney(action.view);
@@ -64,7 +106,7 @@ export function journeysReducer(state: ExplorerJourneys, action: JourneyAction):
   }
   const active = state.tabs.find(t => t.id === state.activeId)!;
   if (action.type === 'NEW' || action.type === 'CLONE') {
-    const tab = action.type === 'NEW' ? newTab(state.nextId, state.initial)
+    const tab = action.type === 'NEW' ? newTab(state.nextId, action.present ?? state.initial)
       : { ...active, id: state.nextId, title: `Explore ${state.nextId} (copy)`, group: null };
     // Reducers use immutable updates, including scope Sets. Sharing unchanged history is safe.
     return { ...state, tabs: [...state.tabs, tab], activeId: tab.id, nextId: state.nextId + 1 };
@@ -79,6 +121,10 @@ export function journeysReducer(state: ExplorerJourneys, action: JourneyAction):
   if (action.type === 'REOPEN') {
     const tab = state.closed.at(-1);
     return tab ? { ...state, tabs: [...state.tabs, tab], closed: state.closed.slice(0, -1), activeId: tab.id } : state;
+  }
+  if (action.type === 'REVIEW_RECAPTURED') {
+    const resetTab = (t: JourneyTab) => resetReviewTab(t, action.reviewKey, action.reviewIds);
+    return { ...state, tabs: state.tabs.map(resetTab), closed: state.closed.map(resetTab) };
   }
   const id = 'id' in action ? action.id : state.activeId;
   return { ...state, tabs: state.tabs.map(t => {

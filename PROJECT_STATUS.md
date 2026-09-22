@@ -1,13 +1,243 @@
 # Project status
-Last updated: 2026-09-19
+Last updated: 2026-09-22
 Active milestone: R6 — Developer comprehension redesign (in progress)
-Current revision: Exploration tabs, per-tab undo/redo and selection controls (final
-verification), merged on top of the R6 change-edges slice (one line per direction,
-directional selection emphasis, file-grouped evidence), in-place card details (expand
-packages/classes) and resizable cards; Step 6A remains unstarted
+Current revision: Package-only exploration view (Class/Method level view removed,
+see below), on top of Git review merged into the Code map as a per-tab Changes
+toggle with a git-style diff code viewer, exploration tabs with per-tab undo/redo
+and selection controls, the R6 change-edges slice (one line per direction,
+directional selection emphasis, file-grouped evidence), in-place card details
+(expand packages/classes) and resizable cards; Step 6A remains unstarted
+
+## Package-only exploration view — Class/Method level view removed (2026-09-22)
+
+Requested by the user: the explorer had two overlapping ways to drill into
+classes/methods — a "Packages / Classes / Methods" segmented level switcher
+that re-pointed the whole map, and expand-in-place (`⊞`) card details that stay
+in context. Kept only expand-in-place; removed the level switcher. See
+[ADR 0007](docs/adr/0007-package-only-exploration-view.md) for the full
+rationale, including the noted deviation from `docs/BUILD.md:200`'s "abstraction
+(package/class/method)" requirement.
+
+- Removed the "Graph level" segmented control (`App.tsx`) and every UI-reachable
+  `NAVIGATE_LEVEL` dispatch. Confirmed first (via a full call-site trace) that
+  this is frontend-only: `GraphQueryService.java` has no `level` parameter and
+  never did — level slicing is entirely client-side — and the backend
+  `GraphLevel.java` enum was already dead code before this change.
+- Repurposed the four former level-switch triggers to expand-in-place instead
+  of deleting them: the tree's `⌖` "View classes"/"View methods" buttons and
+  the inspector's "View classes ↗"/"View methods ↗" buttons now expand the
+  target card in place (never collapsing an already-expanded one) and select
+  it (`revealChildren`/`ensureExpanded` in `App.tsx`). An HTTP entry-point
+  route card and the `?selectedSymbol=` deep link now expand every ancestor
+  package/class of the target in place, one level per render via a small
+  `pendingRevealRef` + effect (`expandToReveal`) — needed because
+  `toggleExpand`'s box math reads state that is still stale mid-handler, so a
+  two-level reveal (e.g. a method under an unexpanded class under an
+  unexpanded package) cannot be dispatched in one synchronous call.
+- `Level`, `levelViews` and the `NAVIGATE_LEVEL` reducer case are deliberately
+  left in `explorerViewState.ts`/`graphModel.ts`: expand-in-place's edge
+  routing (`ownerAt`/`aggregateEdges`) still takes a `Level` parameter
+  (`activeLevel` is simply never anything but `'PACKAGE'` now), and ~55
+  existing unit tests key state on `Level` values for expand/collapse
+  assertions unrelated to the removed switcher. Confirmed by reading
+  `aggregateEdges` directly that its deeper-than-owner resolution is driven by
+  the expansion/container map, not by which `Level` value is passed.
+- Deleted `frontend/src/features/explorer/GraphControls.tsx`, an unused
+  Class/Method/Package `<select>` stub not imported anywhere (found while
+  tracing this feature; unrelated dead code).
+- Docs updated: `docs/STABLE_GRAPH_INTERACTIONS.md` (Story 2's drill-down
+  acceptance bullet), `docs/GIT_REVIEW.md` (toolbar description). `docs/BUILD.md`
+  intentionally left unedited — a frozen historical brief; the ADR records the
+  deviation instead.
+
+Verification (exact commands and outcomes):
+- `npx tsc -b --force` (frontend) — PASS.
+- `node scripts/test-graph-model.mjs`, `test-explorer-view-state.mjs`,
+  `test-expansion-layout.mjs`, `test-focused-arrangement.mjs`,
+  `test-explorer-journeys.mjs`, `test-node-card.mjs`, `test-graph-placement.mjs`,
+  `test-source-evidence.mjs` — all PASS, unmodified (they test underlying
+  primitives/reducers, not the removed UI).
+- Not run, and known to need follow-up work: `scripts/verify-stable-graph-ui.mjs`,
+  `verify-git-review-ui.mjs`, `verify-hierarchical-ui.mjs`, and
+  `verify-change-edges-ui.mjs` all contain scenarios built around clicking the
+  now-removed `.segmented button`/`[aria-label="Graph level"]` control and will
+  fail as written; they need a rewrite of those specific scenarios (not
+  attempted in this session — no packaged jar/Chromium harness was run). Also
+  not run: the packaged-jar `verify_*_pipeline.py` suites and `./gradlew test`
+  (expected unaffected, since no backend file changed, but not re-verified here).
+- No manual browser walkthrough was performed in this session; the four
+  repurposed trigger points (tree buttons, inspector buttons, route cards,
+  deep link) have not been visually confirmed end-to-end.
+
+## Overlay route colors: unknown vs removed, one route per pair — complete (2026-09-20)
+
+Reported from a real review of `/home/sajjad/projects/second-review-assist/src`: routes out of
+`GraphQueryService` were red for no apparent reason, and lines into the `dto` package looked gray
+until the package was selected and then looked green. Both were reproduced and fixed; neither was a
+palette problem.
+
+1. **A file that does not parse was reported as a deletion.** The user's working tree has
+   `return  null` without a semicolon in `GraphQueryService.java` (confirmed independently with
+   `javac`: `';' expected`). The parser stores the file but indexes no declaration from it, so the
+   class was absent on the after side and the comparison called it, and all 30 of its relationship
+   occurrences, REMOVED — red. `ReviewService.compare` now derives each side's unanalyzed paths
+   structurally (a stored file with no indexed declaration; diagnostic text is not parsed, its format
+   differs per producer) and emits `UNKNOWN` for a declaration missing only there and for any
+   unmatched occurrence touching one. Amber dotted route, dashed "NOT ANALYZED" card badge.
+   Re-running the same comparison: 8 nodes and 30 relationships moved from REMOVED to UNKNOWN, and
+   nothing is REMOVED. On a scratch copy of that repository with only the missing semicolon added,
+   the same backend reports the class MODIFIED with exactly 3 REMOVED occurrences (the dropped
+   `new GraphNode(...)` CONSTRUCTS, the `parseExplanationStatus` CALLS, and the class-level
+   `DEPENDS_ON` on `SymbolKind`) — the change the author actually made.
+2. **The same ordinary map silently hid the class.** The footer now names unparsed files
+   ("1 file(s) not analyzed", with the paths in its title), from new `unanalyzedFiles` graph
+   metadata, so a missing class is never silent.
+3. **Merging the statuses of a pair into one route was tried and reverted.** `reviewChange` is part
+   of the aggregate key, so an unchanged, an added and a removed route between the same two cards are
+   three lines; merging them into one derived-status route was implemented, verified, then reverted at
+   the user's direction — separated lines are the wanted behavior, because a removed relationship must
+   stay visible beside the unchanged one. Occurrences sharing a status still merge into one line.
+   The reported "`api → dto` turns green when dto is selected" is therefore **still open**: with the
+   lines separated, the ADDED `api → dto` route is a real, separate green line, and how a selected
+   card's several same-pair routes should read is being taken up in a separate session.
+4. **Nothing in review mode is red unless it was removed.** Incoming-route emphasis and its glow are
+   indigo for every overlay route, a change color owns its own glow, and an incoming-related card
+   takes the indigo halo instead of the red one.
+5. The review status of the route under the cursor is now named in its hover text.
+
+Verification (exact commands and outcomes):
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew test bootJar` — PASS, 124 tests
+  (1 new: an unparsed file is UNKNOWN, a real deletion stays REMOVED), 0 failures/errors/skips.
+- `npm --prefix frontend run build` — PASS; only the existing >500 kB chunk advisory.
+- All 10 `node scripts/test-*.mjs` — PASS (`test-graph-model.mjs` gains the route-status table and a
+  one-line-per-pair assertion).
+- `JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java python3 scripts/verify_git_review_pipeline.py`
+  — PASS, 29/29 checks, 0 page errors, 0 model calls, fixture tree and `.git/index` unchanged. Seven
+  new checks: unparsed file named on the ordinary map and its class absent there; an unknown route is
+  amber/dotted and its card is UNKNOWN; a call into it is unknown; a dropped call site draws its own
+  removed line beside the unchanged one, and occurrences sharing a status still merge into one line;
+  every route keeps its expected color while each card in turn is selected; deselecting restores every
+  unselected color. The fixture gained `Broken.java` (parses in the base, not in the working tree),
+  `BrokenClient.java`, and a second `KeepDep` call site in the base `Hub.sibling()` that the working
+  tree drops — the pair that now draws an UNCHANGED and a REMOVED line.
+- `PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH python3 scripts/verify_change_edges_pipeline.py`
+  — PASS (the run the previous session deferred), fixture source unchanged, no model provider.
+- `git diff --check` — clean.
+- Skipped: the live-model suite and `constrainedMemoryTest` (deterministic change, no explanation
+  pipeline involved). The user's own application database was never written to; reproduction used a
+  copy of it under a scratch data directory on port 8095, and the analyzed repository was read only.
+
+Remaining limits: `UNKNOWN` is additive within schema version `1` (ADR 0006 addendum). Comparison
+diagnostics are still not rendered as a list — the deliberate reduction recorded last session — so
+the unparsed-file signal is the card badge, the route style and the footer count.
 
 
-## Git review views — complete (2026-09-19)
+## Review remediation for the Code-map review slice — complete (2026-09-19)
+
+An external multi-agent review report (`/home/sajjad/prompts/git-review-code-map-review-report.md`)
+was triaged against the actual tree before any change. Its diagnoses were checked one at a time. Its
+patch blocks were not used because they target code that does not exist here: an illegal `useMemo`
+inside JSX, a CSS selector that matches nothing, and a `fileDiff.ts` line that is not there. Each
+finding was reproduced or re-derived first. Three Sonnet subagents fixed disjoint scopes, and their
+diffs were reviewed and refined before acceptance.
+
+Fixed (reproduced first):
+- P1.1 false red/green relationship pairs: relationship matching included concatenated evidence
+  text, so editing one call's arguments split the aggregated class `DEPENDS_ON` (and that `CALLS`)
+  into REMOVED+ADDED. Failing integration test first, then two-phase matching in
+  `ReviewService.compare` within a structural key (source, target, kind, resolution). Identical-
+  evidence occurrences pair first, then leftovers pair one-to-one. Multiplicity changes still surface,
+  covered by a second new test. Documented in `docs/GIT_REVIEW.md` and the ADR 0006 addendum.
+- P1.2 split diff lost declaration/evidence highlighting and auto-scroll. Fixed. The browser check
+  then exposed a follow-on defect: highlighted added/removed lines lost their green/red to the
+  highlight background in both layouts. Change color now wins, and the highlight shows as an outline.
+- P1.3 an open source dialog refetched on every App re-render (inline `reviewDiff` object). Now
+  memoized; `useReviewComparison`'s derived graph/identity maps are memoized on the comparison too.
+- P2.2 an inspected UNCHANGED incoming overlay route used the red dashed incoming-flow style, which
+  was indistinguishable from REMOVED. Overlay-only indigo; the ordinary map is unchanged.
+- P2.4 an empty file (`''`) was treated as one line, producing a phantom context row. Fixed, with 3 new
+  diff tests.
+- P2.5 collapsed heading controls stayed in keyboard tab order: `inert` + `aria-hidden` +
+  `visibility: hidden` after the collapse transition.
+- P3.1 wheel over inputs/selects/the review popover no longer collapses the heading. P3.2 a failed
+  comparison is now also shown in the app error banner. P3.3 stale links to the removed
+  `docs/CLAUDE_REVIEW_PROMPT.md` and a stale run folder were corrected.
+
+Not changed, with reasons:
+- P2.1 ambiguous declarations get `#base-i`/`#head-i` suffixes and never match across captures.
+  This is intentional and documented (ADR 0006: ambiguous identities are not paired by guess).
+- P1.1 sub-claim "provenance inversion" from sorting on `changedSite`: not separately reproduced.
+  The sort already has a location and id tie-break, and phase-1 pairing by identical evidence makes
+  the order irrelevant for unchanged sites.
+- P2.3 "staged deletions": nothing is staged. The old screenshots and `docs/CLAUDE_REVIEW_PROMPT.md`
+  are unstaged deletions, and the new PNGs, `docs/CODEX_REVIEW_PROMPT.md`, `fileDiff.ts`,
+  `useReviewComparison.ts` and `scripts/test-file-diff.mjs` are untracked. Stage everything together
+  when committing. Exclude `codex_handoff.md` and decide separately on `frontend/tsconfig.tsbuildinfo`
+  (build output flagged in the handoff). Nothing was staged or committed here.
+
+Verification (exact commands and outcomes):
+- `./gradlew test bootJar` — PASS, 123 tests (3 new: argument edit stays UNCHANGED, a dropped
+  distinct call is still REMOVED, a call moved to another method is REMOVED+ADDED), 0 failures.
+- `npm --prefix frontend run build` — PASS; only the existing >500 kB chunk advisory.
+- All 10 `node scripts/test-*.mjs` — PASS (`test-file-diff.mjs` 13 checks, journeys 18).
+- `JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java python3 scripts/verify_git_review_pipeline.py`
+  — PASS, 20/20 checks (6 new: overlay incoming-flow color, ordinary-map flow color unchanged with
+  Changes off, inert collapsed heading, split highlighting, change color inside a highlighted
+  declaration, no refetch on re-render), zero page
+  errors, zero model requests, fixture source and Git index unchanged. Screenshots inspected.
+- `git diff --check` — PASS.
+
+## Git review merged into the Code map, per-tab mode, diff code viewer — complete (2026-09-19)
+
+Follow-up to the Git review slice below, requested by the user: no separate
+"Review changes" page, report or change legend; the Base+changes overlay draws
+directly on the ordinary Code map behind a **Changes** toggle in the graph
+toolbar, review mode is a per-exploration-tab setting (New tab/Clone tab both
+keep working with it), the map-heading can be collapsed for more graph room, and
+opening a changed file's code shows a real unified/split git diff. Base-only and
+after-only views are dropped; the overlay already carries after-change resources
+plus removed base-only resources. See [Git review](docs/GIT_REVIEW.md) and the
+[ADR 0006 addendum](docs/adr/0006-git-review-snapshots.md#addendum-overlay-integrated-into-the-code-map-per-tab-mode).
+
+Verification (exact commands and outcomes):
+
+- `./gradlew test bootJar` — PASS, 120 tests (one new: review-file hunks and the
+  new whole-file-by-path endpoint), zero failures/errors/skips; production
+  frontend and executable JAR built.
+- `npm --prefix frontend run build` — PASS, clean TypeScript build, no CSS warnings.
+- `node scripts/test-explorer-journeys.mjs` — PASS, 18 checks (6 new: toggle
+  round-trip preserves each mode's layout as one undo step, a stale comparison's
+  stash is discarded, `NEW` opens in the requesting tab's mode, `CLONE` copies
+  review mode/stash/history, `REVIEW_RECAPTURED` resets every tab that touched
+  review — open or closed — and drops stale stashes).
+- `node scripts/test-file-diff.mjs` — new, 10 checks: pure-insertion and
+  pure-deletion unified-diff hunk edge cases, multi-hunk offset tracking, added/
+  deleted whole files, and split-view pairing/padding.
+- `node scripts/test-review-model.mjs`, `test-graph-model.mjs`, `test-node-card.mjs`,
+  `test-explorer-view-state.mjs`, `test-expansion-layout.mjs`,
+  `test-focused-arrangement.mjs`, `test-graph-placement.mjs`, `test-source-evidence.mjs`
+  — all PASS, unaffected by this change.
+- `JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java python3 scripts/verify_git_review_pipeline.py`
+  (rewritten for the new flow) — PASS, 14/14 checks, zero page errors, zero model
+  requests, fixture source tree and Git index unchanged. Covers: prior map state
+  (level/selection) preserved across turning Changes on; amber/green/red overlay
+  styling with no report/legend elements present; New tab opens in the current
+  tab's review mode; Clone tab copies review mode and history; collapsing the
+  map-heading grows the graph stage while the toolbar stays visible; the diff
+  viewer shows added and removed lines in unified layout and switches to split;
+  Recompare issues a fresh comparison; a removed class's diff renders all-red
+  with nothing added (the base-side counterpart to the modified-class check,
+  exercising the other-snapshot fetch-404-to-null fallback). Five screenshots
+  inspected.
+- `git diff --check` — PASS.
+- Live model and constrained-memory explanation-scale suites skipped: this change
+  is deterministic and does not touch the model/explanation pipeline.
+
+Known limitation carried over deliberately: the non-Java changed-file list and
+comparison diagnostics the removed report used to show are not surfaced
+elsewhere in this slice (see the ADR addendum's closing note).
+
+## Superseded by the slice above: Git review views — complete (2026-09-19)
 
 Bounded R6 acceptance criterion: inspect one local Git changeset in base, overlay
 and after-change graphs at package/class/method level, follow evidence from the
@@ -63,8 +293,58 @@ Verification (exact commands and outcomes):
 Limits: Java source-only analysis, supported local Git worktree root with an initial
 commit; no symlinks/submodules, remote fetch, saved human decisions or persisted
 review UI session. Capture limits and partial-analysis behavior are documented.
-The broader R6 milestone remains in progress. An independent Claude review prompt
-is provided in [CLAUDE_REVIEW_PROMPT.md](docs/CLAUDE_REVIEW_PROMPT.md).
+The broader R6 milestone remains in progress. The review prompt for this earlier
+slice (`docs/CLAUDE_REVIEW_PROMPT.md`) has since been removed; the current
+multi-agent review prompt is [CODEX_REVIEW_PROMPT.md](docs/CODEX_REVIEW_PROMPT.md).
+
+## Reviewer assistance proposal — documentation only (2026-09-17)
+
+Read current status, BUILD.md (BUILD_BRIEF.md remains absent), architecture, data
+model, support matrix, plans, backlog, relevant ADRs and exploration docs; inspected
+the implementation before proposing review features. Compared the existing design
+at `/home/sajjad/code-atlas-review-designs.html` (the supplied `/home/` location was
+absent). No application feature or active milestone was changed.
+
+Deliverable: `/home/sajjad/code-atlas-review-proposal.html`, a self-contained proposal
+with an interactive synthetic review, prioritized suggestions, implementation gaps,
+acceptance cases and local source references. Recommendation: complete change list,
+exact before/after source and persistent human decisions first; selected-change graph
+context and evidence-backed signals next; optional generated walkthroughs later.
+See [review direction](docs/REVIEW_DIRECTION.md) for the repository handoff.
+The completion pass added a seven-step reviewer journey from revision selection
+and stated intent through evidence/context inspection, test questions, human
+decisions, review handoff and re-review after a new head. It includes a concrete
+finding example and desktop/narrow interaction guidance.
+
+R6 acceptance boundary considered: inspect evidence and branch/return to exploration
+without losing map state or affecting another tab. The proposal assesses reuse of
+that behavior; it does not claim new verification or completion of the existing R6
+slice. Cross-snapshot tabs, method-level diffs and review persistence remain new work.
+
+Verification (exact commands and outcomes):
+
+- `node /home/sajjad/code-atlas-review-proposal-evidence/check.mjs` — PASS, 22/22
+  standalone HTML checks: source links/anchors, script syntax, item selection,
+  independent notes/decisions, progress categories, local Markdown export,
+  literal note display, desktop and 768/390/375 px overflow, disclosure/reload
+  behavior, zero runtime exceptions and zero HTTP requests from the artifact.
+  Eight desktop/mobile screenshots captured; the original six and both added
+  reviewer-journey views were visually inspected. The final rerun remains 22/22 PASS.
+  The harness deletes the previous demo export before checking a new download.
+  Evidence lives
+  in `/home/sajjad/code-atlas-review-proposal-evidence/`.
+- Initial harness attempts did not finish: Chromium Snap rejected a hidden-cache
+  profile directory; a test expression then contained an incorrectly escaped newline.
+  The harness uses a disposable Snap-accessible profile and corrected escaping. Those
+  attempts are not counted as successful checks or application failures.
+- `git diff --check` — PASS.
+- Skipped application build, Gradle tests, application browser suites, packaging and
+  live model checks: only a standalone design artifact and documentation changed.
+
+Limits: synthetic interaction only; demo notes reset on page reload as disclosed.
+No repository comparison, PR integration, real model review or backend workflow was
+implemented or verified. Existing pending stable-graph verification and Step 6A
+remain unchanged.
 
 ## Exploration tabs and per-tab history — final verification (2026-09-16)
 

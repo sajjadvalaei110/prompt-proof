@@ -73,6 +73,17 @@ public class SourceService {
         throw new NoSuchElementException("Exact source range unavailable. Re-analyze the project to index declaration evidence.");
     }
 
+    /** A whole retained file's content, by its path relative to the workspace root. Used to build a
+     * git-style diff against another snapshot's version of the same path (review comparisons pin two
+     * immutable snapshots, so both sides are read this way rather than from the live filesystem). */
+    public record FileContent(String schemaVersion, String path, String content) {}
+    public FileContent file(String snapshot, String path) {
+        var rows = db.query("SELECT source_content FROM source_file_versions WHERE snapshot_id = ? AND relative_path = ?",
+                (rs, n) -> rs.getString(1), snapshot, path);
+        if (rows.isEmpty()) throw new NoSuchElementException("No retained source for this path in the given snapshot.");
+        return new FileContent("1", path, rows.get(0));
+    }
+
     /**
      * Evidence sites of one relationship occurrence. Summary relationships (DEPENDS_ON, USES_TYPE) collect every
      * site, and each row carries the whole file, so the response is bounded by the same evidence-occurrence limit

@@ -11,7 +11,7 @@ const stripLocalImport=(src,name)=>src.replace(new RegExp(`import \\{[^}]*\\} fr
 const scopeCompiled=stripLocalImport(compile('../frontend/src/features/explorer/scopeModel.ts'),'graphModel');
 const graphCompiled=stripLocalImport(compile('../frontend/src/features/explorer/graphModel.ts'),'scopeModel');
 const combined=scopeCompiled+'\n'+graphCompiled;
-const {projectGraph,projectDisplayed,childrenOf,wholeSystemScope,emptyScope,isClassInScope,getPackageCheckState,getPackageGroupCheckState,buildPackageHierarchy,togglePackages,togglePackage,toggleClass,scopeToLabel,EXPLANATION_RANK,explanationRank,dominantOccurrenceIndex,kindSummary,sortedKindCounts}=await import('data:text/javascript;base64,'+Buffer.from(combined).toString('base64'));
+const {projectGraph,projectDisplayed,childrenOf,wholeSystemScope,emptyScope,isClassInScope,getPackageCheckState,getPackageGroupCheckState,buildPackageHierarchy,togglePackages,togglePackage,toggleClass,scopeToLabel,EXPLANATION_RANK,explanationRank,dominantOccurrenceIndex,kindSummary,sortedKindCounts,routeReviewChange}=await import('data:text/javascript;base64,'+Buffer.from(combined).toString('base64'));
 
 const nodes=[{id:'p1',kind:'PACKAGE',simpleName:'api'},{id:'p2',kind:'PACKAGE',simpleName:'service'}, {id:'a',kind:'CLASS',simpleName:'Controller',parentId:'p1'}, {id:'b',kind:'INTERFACE',simpleName:'Worker',parentId:'p2'}, {id:'a1',kind:'METHOD',simpleName:'handle',parentId:'a'}, {id:'b1',kind:'METHOD',simpleName:'work',parentId:'b'}, {id:'b2',kind:'METHOD',simpleName:'audit',parentId:'b'}];
 const edges=[{id:'e1',sourceId:'a1',targetId:'b1',kind:'CALLS',resolution:'RESOLVED'},{id:'e2',sourceId:'a1',targetId:'b1',kind:'CALLS',resolution:'RESOLVED'},{id:'e3',sourceId:'a',targetId:'b',kind:'INJECTS',resolution:'CANDIDATE'},{id:'e4',sourceId:'b1',targetId:'b2',kind:'CALLS',resolution:'RESOLVED'},{id:'e5',sourceId:'a1',targetId:null,kind:'CALLS',resolution:'UNRESOLVED'}];
@@ -319,3 +319,24 @@ resolveFirst({active:true});await new Promise(resolve=>setTimeout(resolve,0));as
 scheduled.shift()();await Promise.resolve();assert.equal(maxRequests,1);stop();resolveSecond({active:true});await new Promise(resolve=>setTimeout(resolve,0));
 assert.equal(updates,1);assert.equal(scheduled.length,0);
 console.log('PASS: queue/inspector polling is non-overlapping and stops when inactive');
+
+// Review overlay: added, removed, unknown and unchanged routes between the same two cards stay
+// separate lines -- the aggregate key carries reviewChange, so a removed route can never be
+// cancelled out by an unchanged one that happens to share its endpoints.
+const reviewGraph={nodes:[
+ {id:'ra',simpleName:'A',kind:'CLASS',parentId:'rp1'},{id:'rb',simpleName:'B',kind:'CLASS',parentId:'rp2'},
+ {id:'rp1',simpleName:'p1',kind:'PACKAGE'},{id:'rp2',simpleName:'p2',kind:'PACKAGE'}],
+ edges:[
+ {id:'e1',sourceId:'ra',targetId:'rb',kind:'CALLS',resolution:'RESOLVED',reviewChange:'UNCHANGED'},
+ {id:'e2',sourceId:'ra',targetId:'rb',kind:'CALLS',resolution:'RESOLVED',reviewChange:'ADDED'},
+ {id:'e3',sourceId:'ra',targetId:'rb',kind:'DEPENDS_ON',resolution:'RESOLVED',reviewChange:'REMOVED'},
+ {id:'e4',sourceId:'ra',targetId:'rb',kind:'USES_TYPE',resolution:'RESOLVED',reviewChange:'UNKNOWN'}]};
+const reviewRoutes=projectDisplayed(reviewGraph,'CLASS',['ra','rb'],'ALL').edges;
+assert.equal(reviewRoutes.length,4,'each review status between the same pair keeps its own line');
+assert.deepEqual(reviewRoutes.map(e=>e.reviewChange).sort(),['ADDED','REMOVED','UNCHANGED','UNKNOWN']);
+assert.equal(new Set(reviewRoutes.map(e=>e.id)).size,4,'each separated route has its own aggregate id');
+const twoUnchanged=projectDisplayed({...reviewGraph,edges:[reviewGraph.edges[0],{...reviewGraph.edges[0],id:'e1b',kind:'USES_TYPE'}]},'CLASS',['ra','rb'],'ALL').edges;
+assert.equal(twoUnchanged.length,1,'occurrences sharing a status still merge into one line');
+assert.equal(twoUnchanged[0].occurrenceIds.length,2);
+assert.equal(projectDisplayed(graph,'CLASS',['a','b'],'ALL').edges[0].reviewChange,undefined,'the ordinary map carries no review status');
+console.log('PASS: review overlay keeps one line per ordered pair and change status');
