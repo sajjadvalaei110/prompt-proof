@@ -45,7 +45,8 @@ The versioned review DTO retains each side's actual symbol and relationship IDs.
 The frontend remaps IDs only for display and routes source requests to the correct
 snapshot. Added and removed occurrences remain separate when they share the same
 displayed endpoint pair. Base and after views use ordinary graph colors; the
-overlay adds yellow resources, line counts, and green/red relationship styling.
+overlay colors added resources green, removed resources red, modified resources yellow,
+and adds line counts plus matching relationship styling.
 Text and line patterns accompany color.
 
 ## Consequences
@@ -138,3 +139,29 @@ emphasis and its glow are indigo, and a route's change color owns its own glow.
 An open question stays with the separated lines: what a selected card's routes
 should look like when several statuses run between the same pair. That is being
 taken up separately.
+
+ADR 0008 resolves the selection-color question: selection no longer recolors
+routes; direction uses chevrons and resource halos in both map modes.
+
+## Addendum: layout continuity across Changes mode (2026-09-22)
+
+The separate `stash.map` / `stash.review` layouts described above are superseded.
+They restarted the map on first activation and restored an older arrangement on
+later toggles. Each tab now owns one current exploration state across both modes:
+scope, card positions, expansions, sizes, camera and resource selection.
+
+Comparison declarations reuse ordinary display IDs only when kind, qualified name
+and module match uniquely in both inventories and their parents also align.
+Ambiguous declarations and ancestors retain comparison display IDs. This is a
+presentation mapping, not a claim of canonical identity across snapshots. Source
+and explanation requests still use each fact's actual retained-snapshot identity.
+
+Review-only resources remain real parser facts from the comparison: they appear
+in Changes mode without resetting surviving cards. Expanded container bounds can
+grow to include removed children. Turning Changes off hides these resources while
+retaining the current arrangement of shared cards. The canvas explicitly removes
+review data when switching shared elements back to ordinary styling.
+
+A toggle remains one undoable action. Recompare invalidates history that refers to
+the superseded capture and reconciles review state for open and closed tabs.
+No model call, backend schema change, or target-repository execution is introduced.

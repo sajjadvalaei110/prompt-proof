@@ -156,9 +156,24 @@ public class Stable {
     }
 }
 ''')
+    # A whole base-only package exercises the scope boundary for review-only resources. The
+    # comparison must retain its REMOVED package fact, while the browser's narrowed review scope
+    # must not resurrect that package merely because it is review-only.
+    write(fixture, 'src/main/java/legacy/Retired.java', '''package legacy;
+
+public class Retired {
+    public String value() {
+        return "retired";
+    }
+}
+''')
     git(fixture, 'add', 'src/main/java')
     git(fixture, 'commit', '--quiet', '-m', 'review fixture base')
     base_oid = git(fixture, 'rev-parse', 'HEAD')
+    # Leave the whole legacy package present only in the pinned base snapshot. The active working
+    # tree must omit it so the ordinary map starts with review/support while the overlay can prove
+    # that its removed package fact is still scope-filtered.
+    (fixture / 'src/main/java/legacy/Retired.java').unlink()
 
     # Keep the base and changed relation visible in the exact changed method; the sibling keeps
     # one original route in the mixed view for a color and selection regression check.

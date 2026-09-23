@@ -54,8 +54,6 @@ export function initJourneys(initial = newJourney()): ExplorerJourneys {
  * different retained source IDs, but reviewModel aligns unambiguous declarations to the ordinary
  * graph's display IDs before projection. Keeping one view/scope/selection here means a toggle can
  * recolor and change source-inspection behavior without parking and restoring a second map layout.
- * `freshView` remains in the signature for callers compiled against the previous API; it is
- * intentionally ignored because switching modes must never reset the current map.
  */
 export function toggleJourneyReview(j: Journey, on: boolean, reviewKey: string | null): Journey {
   const nextKey = on ? reviewKey : null;
@@ -70,11 +68,15 @@ export type JourneyAction =
   | { type: 'NEW'; present?: Journey }
   | { type: 'CLONE' | 'REOPEN' | 'UNDO' | 'REDO' }
   | { type: 'SWITCH' | 'CLOSE'; id: number }
-  // Every open and closed tab that ever touched review state under the old comparison is reset to
-  // `view` (a fresh initial view over the recaptured graph) and loses its undo/redo history: display
-  // IDs are derived from `comparisonKey`, which is meaningless once the working tree is recaptured, so
-  // an old step could never be replayed onto the new graph.
-  | { type: 'REVIEW_RECAPTURED'; reviewKey: string; reviewIds?: string[] }
+  // Every open and closed tab that ever touched review state under the old comparison is reconciled
+  // against the recaptured graph and loses its undo/redo history: display IDs are derived from
+  // `comparisonKey`, which is meaningless once the working tree is recaptured, so an old step could
+  // never be replayed onto the new graph.
+  | { type: 'REVIEW_RECAPTURED'; reviewKey: string; reviewIds?: string[]; reconcile?: (j: Journey) => Journey }
+  // View-only controls stay current across undo/redo instead of creating or occupying history
+  // entries. Applying the same update to every branch prevents a later semantic undo from
+  // incidentally restoring an older fullscreen, minimap or button-zoom value.
+  | { type: 'TRANSIENT_UPDATE'; id: number; update: (j: Journey) => Journey }
   // `collapse`: used only by the canvas double-click-to-arrange flow. Click 1 (a plain tap on an
   // uninspected node) always seals its own undo step before `dbltap` fires -- a real macrotask gap
   // separates the two physical clicks, so the group-lifecycle mechanism below can never merge them
@@ -89,13 +91,17 @@ function touchesReview(j: Journey): boolean { return j.reviewTouched; }
 function hasReviewState(t: JourneyTab): boolean { return touchesReview(t.present) || t.past.some(touchesReview) || t.future.some(touchesReview); }
 /** A tab untouched by review is returned unchanged. A tab that has entered review keeps its shared
  * map state, but loses undo/redo entries that refer to the superseded comparison key. */
-function resetReviewTab(t: JourneyTab, reviewKey: string, reviewIds?: string[]): JourneyTab {
+function resetReviewTab(t: JourneyTab, reviewKey: string, reviewIds?: string[], reconcile?: (j: Journey) => Journey): JourneyTab {
   if (!hasReviewState(t)) return t;
   const prune=(j:Journey):Journey=>reviewIds?{...j,view:explorerViewReducer(j.view,{type:'PRUNE_REVIEW_IDS',ids:reviewIds})}:j;
-  const current=prune(t.present);
+  // Reconciliation belongs to this atomic reducer action so a capture cannot update a stale list of
+  // open tabs while silently missing recently closed review tabs. The callback only transforms the
+  // current presentation; old undo/redo branches are discarded below because their IDs belong to
+  // the superseded comparison.
+  const current=prune(reconcile ? reconcile(t.present) : t.present);
   const present: Journey = current.review
     ? { ...current, reviewKey, source: current.source?.snapshotId ? null : current.source }
-    : current;
+    : { ...current, reviewKey: null, source: current.source?.snapshotId ? null : current.source };
   return { ...t, present, past: [], future: [], group: null };
 }
 export function journeysReducer(state: ExplorerJourneys, action: JourneyAction): ExplorerJourneys {
@@ -123,7 +129,7 @@ export function journeysReducer(state: ExplorerJourneys, action: JourneyAction):
     return tab ? { ...state, tabs: [...state.tabs, tab], closed: state.closed.slice(0, -1), activeId: tab.id } : state;
   }
   if (action.type === 'REVIEW_RECAPTURED') {
-    const resetTab = (t: JourneyTab) => resetReviewTab(t, action.reviewKey, action.reviewIds);
+    const resetTab = (t: JourneyTab) => resetReviewTab(t, action.reviewKey, action.reviewIds, action.reconcile);
     return { ...state, tabs: state.tabs.map(resetTab), closed: state.closed.map(resetTab) };
   }
   const id = 'id' in action ? action.id : state.activeId;
@@ -134,6 +140,10 @@ export function journeysReducer(state: ExplorerJourneys, action: JourneyAction):
       const capture = (j: Journey): Journey => j.view.levelViews[level] === before
         ? { ...j, view: explorerViewReducer(j.view, action.action) } : j;
       return { ...t, present: capture(t.present), past: t.past.map(capture), future: t.future.map(capture) };
+    }
+    if (action.type === 'TRANSIENT_UPDATE') {
+      const apply = (j: Journey) => action.update(j);
+      return { ...t, present: apply(t.present), past: t.past.map(apply), future: t.future.map(apply) };
     }
     if (action.type === 'UPDATE') {
       const present = action.update(t.present);

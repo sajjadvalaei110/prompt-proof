@@ -124,7 +124,9 @@ the prior snapshot's symbol IDs are no longer a valid boundary.
 `explorerJourney.ts` owns independent, in-memory exploration tabs around the existing
 `explorerViewState` reducer. Each tab retains its scope, per-level geometry and expanded
 cards, inspection/navigation, relationship filter, tree disclosures, search, source-dialog
-subject, multi-selection, occurrence choice and pane controls. New tabs start from the
+subject, multi-selection, occurrence choice and pane controls. Fullscreen, Map overview and
+button zoom remain per-tab/current-view values but are rebased across history rather than
+creating or being restored by undo/redo. New tabs start from the
 snapshot's initial view; clones share immutable values and inherit both undo and redo
 branches. Closing a tab retains its history among the ten most recently closed tabs.
 
@@ -141,7 +143,9 @@ tab state. Ordinary inspection and filtering preserve the mounted canvas untouch
 Renderer inputs must not alias saved state: Cytoscape retains and mutates coordinates
 passed to `add()`, so `GraphCanvas` copies positions at that boundary. Parser graph data,
 explanation responses, project documents, settings and backend jobs stay outside history.
-Undo restores exploration state; it does not reverse server operations. Tabs/history are
+Undo restores exploration state; it does not reverse server operations. Zooming with the
+dedicated +/− buttons, toggling fullscreen and toggling Map overview do not consume an undo
+step and stay unchanged while another action is undone or redone. Tabs/history are
 discarded on reload or loading a new analysis snapshot. DOM scroll offsets, text selection,
 transient menus and disclosures inside generated explanations are not stored.
 

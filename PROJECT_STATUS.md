@@ -1,12 +1,216 @@
 # Project status
-Last updated: 2026-09-22
+Last updated: 2026-09-24
 Active milestone: R6 — Developer comprehension redesign (in progress)
-Current revision: Package-only exploration view (Class/Method level view removed,
-see below), on top of Git review merged into the Code map as a per-tab Changes
+Current revision: selected-edge moving dashes and directional margins, with
+view-only map controls excluded from undo/redo with stronger zoom steps,
+on top of selection direction and change-color redesign (Step 10 backlog, step one)
+and Changes-mode layout continuity (step zero),
+with the package-only exploration view (Class/Method level view removed,
+see below), Git review merged into the Code map as a per-tab Changes
 toggle with a git-style diff code viewer, exploration tabs with per-tab undo/redo
 and selection controls, the R6 change-edges slice (one line per direction,
 directional selection emphasis, file-grouped evidence), in-place card details
 (expand packages/classes) and resizable cards; Step 6A remains unstarted
+
+## Direct edge selection uses black (2026-09-24)
+
+Bounded R6 criterion: clicking an edge highlights its line, arrow, label and
+underlay in black in ordinary and Changes modes. The inspection selector follows
+review selectors so even ADDED routes become black while inspected. Deselecting
+restores factual colors. Resource-selection directional margins are unchanged.
+ADR 0008, interaction docs and the Claude handoff record this distinction.
+
+Verification:
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar` — PASS,
+  including TypeScript/Vite; existing chunk-size advisory remains.
+- `PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH python3 scripts/verify_change_edges_pipeline.py`
+  — PASS, zero page errors, source unchanged; black edge screenshot inspected at
+  `build/change-edges/run-cmendzqp/req3-edge-inspector.png`.
+- `JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java python3 scripts/verify_git_review_pipeline.py`
+  — PASS, 41/41 checks, zero page errors, source/index unchanged, no model
+  requests. All four review statuses use black during inspection and restore
+  factual colors afterward (`build/git-review/run-2xtljh8a`).
+- `git diff --check` — PASS.
+Backend tests and live-model checks skipped for this frontend style-only change.
+
+## Selected-edge dashes and directional margins (2026-09-24)
+
+Bounded R6 criterion: restore moving dashes when selecting a resource and give its
+attached edges thin directional margins without recoloring the factual lines.
+
+- Native dash-offset animation replaces canvas arrowheads. A two-unit underlay
+  uses incoming indigo / outgoing cyan, matching related-resource borders in both
+  ordinary and Changes modes. UNKNOWN review routes retain dots. Deselecting
+  restores the original patterns; reduced motion keeps static styling.
+- Removed custom edge sampling/arrow painting; the canvas retains the split node
+  ring. Other uncommitted behavior and change-state colors are preserved.
+- Updated ADR 0008, graph interaction/testing documentation and
+  `docs/STEP_ONE_REVIEW.md` for Claude review. Current reports and inspected
+  screenshots are retained under `docs/evidence/selection-halo/`.
+
+Verification (exact commands and outcomes):
+- `cd frontend && npx tsc -b --force` — PASS.
+- `node scripts/test-graph-model.mjs` — PASS.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar` — PASS,
+  including frontend production build; existing Vite chunk-size advisory remains.
+- `PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH python3 scripts/verify_change_edges_pipeline.py`
+  — PASS, zero page errors, unchanged fixture source. Verified native moving dash
+  offsets, directional margin colors, resource halos and cleanup. Screenshots in
+  `build/change-edges/run-hsr6mopc`; selected-flow screenshot inspected.
+- `JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java python3 scripts/verify_git_review_pipeline.py`
+  — PASS, 40/40 checks, zero page errors, unchanged source and index, no model
+  requests. Verified factual route colors survive selection. Selected Changes
+  screenshot inspected in `build/git-review/run-_1vpq26m`.
+- `git diff --check` — PASS.
+
+Limits: full backend tests and live-model checks skipped because this is a frontend
+rendering change. Selected solid routes temporarily become dashed; UNKNOWN stays
+dotted. The earlier step-one arrowhead implementation below is historical and is
+superseded by this revision. `docs/BUILD_BRIEF.md` is absent; `docs/BUILD.md` is the
+repository's equivalent brief.
+
+## View-only controls outside undo/redo; stronger zoom steps (2026-09-23)
+
+Bounded R6 criterion: fullscreen, Map overview and the dedicated zoom buttons do not
+consume undo/redo entries or change when another exploration action is restored. One
+zoom-button click has the effect of three former clicks.
+
+- `explorerJourney.ts` supports a transient update that rebases the current value across
+  the active tab's past and future branches. Fullscreen and Map overview use this path,
+  so an undo still reaches the preceding semantic exploration action without changing
+  either control.
+- Dedicated zoom clicks suppress the normal debounced camera-history callback and commit
+  through the same transient path. Mouse-wheel/pinch/pan and **Fit map** remain ordinary
+  camera navigation and continue to participate in history.
+- Zoom in now multiplies scale by `1.2³` (1.728); zoom out uses its reciprocal. Both stay
+  centered on the canvas.
+
+Verification (exact commands and outcomes):
+- `node scripts/test-explorer-journeys.mjs` — PASS, 20/20 checks, including rebasing
+  fullscreen, Map overview and button zoom across both undo and redo.
+- `for test in scripts/test-*.mjs; do node "$test" || exit; done` — PASS, all 11 suites.
+- `cd frontend && npx tsc -b --force` — PASS.
+- `cd frontend && npm run build` — PASS; Vite reported the existing chunk-size advisory.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar` — PASS.
+- `BACKEND=http://127.0.0.1:8095 APP=http://127.0.0.1:5199 DEBUG=http://127.0.0.1:9333 OUT=/tmp/code-atlas-undo-zoom-sw2WR5/evidence node scripts/verify-explorer-journeys.mjs /tmp/code-atlas-undo-zoom-sw2WR5/atlas-journey-fixture`
+  — PASS, 44/44 real-browser checks, zero page/console errors. Zoom measured 0.8 →
+  1.3824 → 0.8. Desktop and 375 px screenshots were inspected; retained copies and the
+  report are under `build/undo-zoom/`. The disposable fixture was analyzed read-only and
+  no model request was made.
+
+Limits: only the dedicated +/− zoom buttons are excluded from camera history. Existing
+wheel/pinch/pan and Fit-map behavior is intentionally unchanged. No live model integration
+was exercised.
+
+## Step 10 backlog — step one: selection halo and change-state colors (2026-09-23)
+
+Bounded R6 criterion: selecting a resource preserves every route's factual color
+and pattern while showing direction with moving chevrons and resource halos in
+both ordinary and Changes modes. Added, removed and modified resources have
+distinct green, red and yellow card/badge colors. Step zero's layout state is
+preserved. See [ADR 0008](docs/adr/0008-selection-halo-and-change-color-redesign.md)
+and [the Claude review handoff](docs/STEP_ONE_REVIEW.md), including inspected
+screenshots under `docs/evidence/selection-halo/`.
+
+- `GraphCanvas.tsx` uses one pointer-transparent canvas for repeated
+  source-to-target arrowheads and the left-indigo/right-cyan ring on resources
+  with both directions. It is below menus, controls, minimap, tooltips and the
+  selection bar; card masks and multi-select priority keep overlay marks off card
+  content and the purple outline. Paths use every rendered control point. For a
+  self-loop whose renderer supplies two controls before finite endpoints, card
+  boundary intersections complete the loop instead of drawing a chord.
+- Ordinary resolved routes are 10% lighter gray (`#AAB6C4`) and their terminal
+  and moving arrowheads are 10% darker (`#768698`). Moving arrowheads scale with
+  rendered route width, clear edge labels and the scaled terminal arrow, and stay
+  wider than strong routes. Selection changes neither factual color nor pattern.
+  Terminal arrowheads retain scale 1.4; unrelated elements use opacity 0.5.
+- Sampled edge paths and card masks are cached until geometry changes. One RAF
+  queue coalesces pan/zoom and animation requests. Resize invalidates geometry
+  even with reduced motion, so a static split ring follows its container.
+- `reviewPalette.ts`, `nodeCard.ts` and graph styles share one palette for ADDED
+  green, REMOVED red, MODIFIED yellow and UNKNOWN amber/neutral presentation.
+  Card labels, parser statuses, snapshot IDs and review rollup rules are unchanged.
+
+Verification (exact commands and outcomes):
+- `for test in scripts/test-*.mjs; do node "$test" || exit; done` — all 11 scripts
+  PASS, including 66 view-state checks, 19 journey checks, graph/review projection,
+  placement and all three node-card badge fill/stroke pairs.
+- `cd frontend && npx tsc -b --force && npm run build` — PASS (run as the
+  two commands); Vite reported its existing chunk-size advisory.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar` — PASS.
+- `PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH python3 scripts/verify_change_edges_pipeline.py`
+  — PASS, zero browser page errors, unchanged copied fixture source, no model
+  requests. Final run `build/change-edges/run-c10q4let`. The browser script checks
+  actual overlay pixels, stacking, card masks, source-to-target orientation,
+  adaptive width, label/terminal clearance, two-control self-loops, cache reuse,
+  reduced-motion resize, factual patterns, all three halos and source evidence.
+- `JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java python3 scripts/verify_git_review_pipeline.py`
+  — PASS, 39/39 checks, zero browser page errors, unchanged fixture source and
+  index, no model requests. Final run `build/git-review/run-ddy2cjdp`. Its route
+  baseline is unselected and it checks color, darker arrow color, line style and
+  dash pattern through selection. Four step-one screenshots were inspected and saved.
+- `PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH python3 scripts/verify_stable_graph_pipeline.py acceptance`
+  — stopped in the legacy browser harness at `revealClasses`: it tries to
+  click the removed graph-level switcher. It did not reach a step-one assertion.
+- `git diff --check` — PASS.
+
+Limit: cyan `#0EA5E9` measures 2.65:1 against the canvas, below the 3:1
+non-text contrast target. Border pattern and chevrons carry direction as well.
+No live model integration was exercised.
+
+## Changes-mode layout continuity — complete after Claude review (2026-09-23)
+
+Claude identified three missing cases: ordinary-only geometry across mode toggles,
+ordinary relationship inspection during Recompare, and open ordinary symbol
+source when entering Changes. All three are corrected and covered by targeted
+regressions. [Claude review handoff](docs/STEP_ZERO_REVIEW.md).
+
+Bounded R6 criterion: turning Changes on/off preserves the current map arrangement
+instead of initializing or restoring a separate layout. Step one's edge/halo
+styling requests are outside this slice.
+
+- Tabs share their current geometry, scope, expansions, sizes and camera between
+  ordinary and review mode. Matching comparison declarations reuse ordinary
+  display IDs, while code and evidence retain actual base/head source identities.
+- Matching requires unique kind/qualified-name/module keys and aligned ancestors;
+  ambiguous declarations stay separate. Review-only resources remain inspectable
+  in the overlay. Expanded container bounds can grow around removed children.
+- Cytoscape explicitly removes review fields on ordinary-mode updates, preventing
+  stale change colors on surviving canvas elements.
+- The review browser harness uses package-only expand-in-place navigation, with
+  first-toggle and edited-layout round trips, undo/redo and independent tabs.
+- Recapture reconciles current open and closed tabs atomically; stale comparison
+  history and source identities are discarded while surviving geometry remains.
+
+- Placement reserves the in-scope geometry of parked review-only cards and the
+  union of ordinary/review compound bounds, preventing new ordinary cards from
+  overlapping removed cards when Changes returns.
+
+Verification (exact commands and outcomes):
+- `for test in scripts/test-*.mjs; do node "$test" || exit; done` — all 11 scripts
+  PASS, including 66 view-state checks, 19 journey checks and the new parked-card,
+  compound-bound and target-scope placement regressions.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar` — PASS, including
+  TypeScript and Vite. Existing Vite advisory: output chunk exceeds 500 kB.
+- `JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java python3 scripts/verify_git_review_pipeline.py`
+  — PASS, 39/39 browser checks, zero page errors, zero model requests, unchanged
+  source tree and Git index hashes. Final combined Step Zero/Step One run:
+  `build/git-review/run-wsa3ja3y`.
+  The Step Zero screenshots and the Step One selection screenshot were inspected;
+  [saved report and screenshots](docs/evidence/changes-toggle/README.md).
+- `git diff --check` — PASS. Luna max implementation and independent review were
+  supervised; the final audit's hidden-card placement collision was fixed.
+- Earlier browser harness failures (obsolete compound-parent lookup, duplicate
+  selection click and insertion-order comparison) were corrected before the final run.
+- Full backend tests, constrained-memory and live-model suites were not rerun:
+  this slice changes frontend state/projection/placement only. The real packaged
+  parser/Git/API/browser path was tested. Other legacy browser suites still target
+  the removed level switcher and were not run; this review harness was updated.
+
+Limits: unambiguously matched resources retain identity; ambiguous declarations
+remain distinct. Review-only children can grow container bounds. Aggregate edge
+inspection clears across modes because route identities differ. Step One is recorded
+in the section above; no live model integration is claimed.
 
 ## Package-only exploration view — Class/Method level view removed (2026-09-22)
 
@@ -424,13 +628,11 @@ Requested in `/home/sajjad/prompts/change-edges.md` (2026-09-16).
    Cytoscape `width`. The ID is `aggregate:[source,target]`, so a relationship-filter change keeps the
    same route (thinner) or removes it when no kind is left. Label and inspector show the kind breakdown;
    occurrence options read "calls 2 of 4".
-2. **Directional selection emphasis.** `GraphCanvas.tsx`: inspecting a resource classes incident
-   routes `.flow-out` (sky blue) / `.flow-in` (red) and related resources `.rel-out` (light blue halo),
-   `.rel-in` (light red), `.rel-both` (purple) using Cytoscape `outline-*`. One throttled
-   `requestAnimationFrame` loop moves `line-dash-offset` (source → target) and pulses route underlay and
-   halo width; bypass styles are removed on every re-run/unmount, the phase survives graph polls, and
-   `prefers-reduced-motion` keeps static colors. Edge inspection keeps its previous teal emphasis.
-   Edge labels moved 11px off the line so short routes stay visible.
+2. **Directional selection emphasis (original implementation, superseded by ADR 0008).** The first
+   change-edges pass recolored and dashed selected routes. Step 10 Step One now preserves factual route
+   color/pattern and uses cached overlay arrowheads plus indigo/cyan resource halos instead. The shared
+   animation loop still pulses route underlay and halo width; reduced motion keeps static direction
+   marks. Edge inspection retains its teal emphasis. Edge labels remain 11px off the line.
 3. **Evidence grouped by file.** Cause: a `DEPENDS_ON` occurrence stores one evidence row per call site
    (`JavaParserAdapter`), so `SourceDialog` rendered the same file once per row. New
    `POST /api/snapshots/{id}/relationships/source {ids}` (`SourceService.relationships`) returns one
@@ -458,8 +660,8 @@ PASS (new; asserts the per-occurrence endpoint repeats the file and the batch en
 `inspect-edge-survives-filter-change` to filter to a kind the clicked line does not contain (filtering
 to a contained kind now correctly keeps the line drawn). Live Chromium run against the packaged jar on a
 5-class flow fixture: one line per ordered pair, mutual pair = 2 lines, stronger route renders wider,
-red/blue routes and red/blue/purple halos on the expected cards, dash offset and halo width change over
-time, deselect leaves no classes or bypass styles, Hub.java shown once with lines 8/10/11/16 highlighted
+the expected directional classes and halos, animated direction phase and halo width change over time,
+deselect leaves no classes or bypass styles, Hub.java shown once with lines 8/10/11/16 highlighted
 for both the merged line and the single DEPENDS_ON occurrence, the chosen occurrence ("calls 4 of 4")
 survives a filter to CALLS with no filtered-out notice, zero page errors (`scripts/verify-change-edges-ui.mjs`
 against `test-fixtures/change-edges-fixture`). Evidence:
@@ -469,9 +671,9 @@ That browser suite is now self-contained: `python3 scripts/verify_change_edges_p
 own ports, starts the jar and Chromium, analyzes an isolated **copy** of the fixture (SHA-256 checked
 before/after), and runs the suite — so change-edges regressions can fail CI instead of needing a
 hand-assembled snapshot ID. It additionally asserts what the first pass only assumed: the inspected
-line's endpoints are emphasized rather than dimmed, the dashes travel source → target (a *decreasing*
-`line-dash-offset`, not merely a changing one), leftover animation styles are detected through the
-public style API instead of Cytoscape's `_private` internals, and the three direction halos differ by
+line's endpoints are emphasized rather than dimmed, overlay arrowheads follow increasing source-to-target
+path distance, leftover animation styles are detected through the public style API instead of Cytoscape's
+`_private` internals, and the three direction halos differ by
 `border-style` (solid / dashed / double) so direction survives a colour-vision deficiency.
 
 Merged with the in-place card details work below: routes now resolve to the deepest visible card

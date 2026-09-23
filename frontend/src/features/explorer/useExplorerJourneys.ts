@@ -23,6 +23,16 @@ export function useExplorerJourneys(initialView?: ExplorerViewState) {
       return Object.is(j[key], next) ? j : { ...j, [key]: next };
     });
   }
+  function setTransient<K extends keyof Journey>(key: K, value: SetStateAction<Journey[K]>) {
+    const next = typeof value === 'function' ? (value as (v: Journey[K]) => Journey[K])(active.present[key]) : value;
+    dispatch({ type: 'TRANSIENT_UPDATE', id: active.id, update: j => Object.is(j[key], next) ? j : { ...j, [key]: next } });
+  }
+  function setTransientCamera(action: Extract<ExplorerAction, { type: 'SET_CAMERA' }>) {
+    dispatch({ type: 'TRANSIENT_UPDATE', id: active.id, update: j => {
+      const view = explorerViewReducer(j.view, { ...action, generation: j.view.generation });
+      return view === j.view ? j : { ...j, view };
+    } });
+  }
   // Targets a specific tab by ID rather than whichever tab happens to be active right now. Needed for
   // an update that completes asynchronously (loading a review comparison): the tab that requested it
   // may no longer be the active one, or may have been closed, by the time the response arrives. Its
@@ -46,5 +56,5 @@ export function useExplorerJourneys(initialView?: ExplorerViewState) {
     group.current = null;
     dispatch(action);
   }
-  return { state, active, set, update, updateTab, dispatchView, command, reset: (view: Journey['view']) => dispatch({ type: 'RESET', view }) };
+  return { state, active, set, setTransient, setTransientCamera, update, updateTab, dispatchView, command, reset: (view: Journey['view']) => dispatch({ type: 'RESET', view }) };
 }

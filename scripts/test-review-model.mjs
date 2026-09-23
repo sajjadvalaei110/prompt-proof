@@ -58,4 +58,26 @@ assert.ok(aligned.edges.some(x => x.change === 'ADDED' && x.sourceId === 'oh' &&
 const alignedIdentity = reviewSourceIdentityMaps(review, 'OVERLAY', aligned);
 assert.equal(alignedIdentity.symbols.oh.id, 'hh', 'aligned display IDs still resolve source calls to the head snapshot');
 assert.equal(alignedIdentity.symbols.oh.snapshotId, 'head');
+const displayOf = (comparison, graph, key) => projectReviewGraph(comparison, 'OVERLAY', graph).nodes.find(n => n.comparisonKey === key).id;
+const duplicateOrdinary = { ...ordinary, nodes: [...ordinary.nodes, node('other-hub', 'Hub', 'op')] };
+assert.equal(displayOf(review, duplicateOrdinary, 'hub'), 'review-node:hub', 'duplicate ordinary declarations must not be guessed');
+const duplicateReview = { ...review, nodes: [...review.nodes, { comparisonKey: 'hub-copy', change: 'ADDED', head: node('hh2', 'Hub', 'hp') }] };
+for (const rows of [duplicateReview.nodes, [...duplicateReview.nodes].reverse()]) {
+  const comparison = { ...duplicateReview, nodes: rows };
+  assert.equal(displayOf(comparison, ordinary, 'hub'), 'review-node:hub', 'duplicate review rows must not be matched by order');
+  assert.equal(displayOf(comparison, ordinary, 'hub-copy'), 'review-node:hub-copy');
+}
+const duplicateParent = { ...ordinary, nodes: [...ordinary.nodes, node('other-pkg', 'app')] };
+assert.equal(displayOf(review, duplicateParent, 'hub'), 'review-node:hub', 'a unique child of an ambiguous parent must not be falsely aligned');
+assert.equal(displayOf({ ...review, nodes: [...review.nodes].reverse() }, ordinary, 'hub'), 'oh', 'parent alignment must not depend on row order');
+const differentModule = { ...ordinary, nodes: ordinary.nodes.map(n => n.id === 'oh' ? { ...n, module: 'other' } : n) };
+assert.equal(displayOf(review, differentModule, 'hub'), 'review-node:hub', 'declarations in different modules must not share geometry');
+for (const mode of ['BASE', 'HEAD']) {
+  const projection = projectReviewGraph(review, mode, ordinary);
+  const identities = reviewSourceIdentityMaps(review, mode, projection);
+  const included = mode === 'BASE' ? 'bh' : 'hh', excluded = mode === 'BASE' ? 'hh' : 'bh';
+  assert.equal(identities.displayBySymbolId[included], 'review-node:hub');
+  assert.equal(identities.displayBySymbolId[excluded], undefined, 'side-only projection must not expose the other side');
+  assert.equal(projection.sourceToDisplay.has(excluded), false);
+}
 console.log('PASS: review base/head/overlay side selection, pinned snapshots, display remapping, and occurrence-preserving routes');

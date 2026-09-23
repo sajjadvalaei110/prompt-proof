@@ -10,8 +10,9 @@ Code Atlas does not fetch or pull; remote-tracking refs have the values already
 present on your machine.
 
 Turning Changes on for the first time captures the default comparison and shows
-the **Base + changes** overlay directly on the map: changed resources are amber
-with added/removed line counts, added relationships are green, removed
+the **Base + changes** overlay directly on the map: added resources are green,
+removed resources red, and modified resources yellow, each with added/removed
+line counts. Added relationships are green, removed
 relationships are red and dashed, and everything else keeps ordinary styling.
 Added, removed, unknown and unchanged relationships between the same two cards are
 drawn as separate lines, so a dropped call site stays visible as its own red route
@@ -26,14 +27,17 @@ There is no separate report, file list or legend — the overlay is the only
 review surface. Enter a ref and choose **Recompare** to capture a different base
 or to pick up later edits; an existing comparison otherwise stays pinned to what
 it captured. Recompare replaces the comparison for every tab that has Changes on
-and clears their undo/redo history, since display IDs are keyed to the
-comparison itself.
+and clears affected tabs' undo/redo history because source identities belong to
+the superseded capture. Surviving cards keep their current arrangement.
 
 Changes is a **per-tab** setting. Each tab keeps one current scope, layout,
 expansion state, card sizes, selection and camera across both modes. Turning Changes
 on or off carries the current arrangement forward; it does not restart the map or
 restore an older arrangement saved for that mode. Review-only resources can appear
-when Changes is on, while surviving cards retain their positions. **+ New tab** opens a fresh tab in whichever
+when Changes is on, while surviving cards retain their positions. An expanded
+package's bounds can grow to contain removed children. Hidden review resources
+retain their occupied space for subsequent additions, so returning to Changes
+does not reveal a new card placed over a removed card. **+ New tab** opens a fresh tab in whichever
 mode the current tab is in; **Clone tab** copies the current tab's mode along
 with its layout and undo/redo history. Toggling Changes on or off is itself one
 undoable step, so Ctrl/Cmd+Z restores the tab's previous mode and layout exactly.

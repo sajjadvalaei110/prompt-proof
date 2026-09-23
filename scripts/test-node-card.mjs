@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 const require=createRequire(new URL('../frontend/package.json',import.meta.url));
 const ts=require('typescript');
-const compiled=ts.transpileModule(fs.readFileSync(new URL('../frontend/src/features/explorer/nodeCard.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.ES2022,target:ts.ScriptTarget.ES2022}}).outputText;
+const palette=fs.readFileSync(new URL('../frontend/src/features/review/reviewPalette.ts',import.meta.url),'utf8');
+const card=fs.readFileSync(new URL('../frontend/src/features/explorer/nodeCard.ts',import.meta.url),'utf8').replace("import { REVIEW_CHANGE_PALETTE } from '../review/reviewPalette';",'');
+const compiled=ts.transpileModule(`${palette}\n${card}`,{compilerOptions:{module:ts.ModuleKind.ES2022,target:ts.ScriptTarget.ES2022}}).outputText;
 const {wrapText,fitText,nodeCard}=await import('data:text/javascript;base64,'+Buffer.from(compiled).toString('base64'));
 
 // Card name metrics used by nodeCard(): 30px font, 250px card minus 32px padding.
@@ -30,6 +32,12 @@ for(const line of wrapText('事件通知服务控制器管理类实现工厂',SI
 
 // The card still renders for such names.
 assert.match(nodeCard({id:'x',kind:'CLASS',simpleName:'事件通知服务控制器'}).image,/^data:image\/svg\+xml/);
+for (const [change, fill, stroke] of [
+  ['ADDED','#d7f3e3','#168a58'], ['REMOVED','#fbdada','#c74545'], ['MODIFIED','#fff0b0','#ba862d']
+]) {
+  const image=decodeURIComponent(nodeCard({id:'review',kind:'CLASS',simpleName:'Review',reviewChange:change}).image);
+  assert.ok(image.includes(`fill="${fill}" stroke="${stroke}"`),`${change} badge uses its own change color`);
+}
 console.log('nodeCard tests: PASS');
 
 // Resizing: the default size is unchanged output; a taller package shows more member rows; a short one drops lower lines.

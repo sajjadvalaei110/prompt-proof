@@ -93,82 +93,65 @@ export function projectReviewRelationships(review: ReviewComparison, mode: Revie
   });
 }
 
-/** Overlay groups a route by ordered endpoints and its change status, never collapsing an added or
- * removed route into an unchanged one that happens to share its endpoints. */
-/**
- * A review capture has fresh database ids, while the ordinary map has ids from the last
- * published analysis.  Those ids are deliberately not used as comparison identity by the
- * backend.  The map can still keep its layout when the overlay is enabled, though, when a review
- * row is unambiguously matched to the corresponding ordinary declaration.  `currentGraph` is the
- * ordinary graph currently on screen; matching is guarded by kind, qualified name, module and
- * parent identity so an overloaded or otherwise ambiguous declaration is never guessed.
- */
+/** Reuse an ordinary display ID only for a unique declaration under an aligned parent.
+ * Source IDs stay snapshot-local. Ambiguous declarations (or ancestors) retain review IDs. */
 function ordinaryDisplayIds(review: ReviewComparison, currentGraph?: AtlasGraph) {
   const sourceToDisplay = new Map<string, string>();
-  if (!currentGraph) {
-    for (const row of review.nodes) {
-      const displayId = `review-node:${row.comparisonKey}`;
-      if (row.base?.id) sourceToDisplay.set(row.base.id, displayId);
-      if (row.head?.id) sourceToDisplay.set(row.head.id, displayId);
-    }
-    return sourceToDisplay;
-  }
-
-  const keyOf = (node: any) => [node?.kind || '', node?.qualifiedName || '', node?.module || ''].join('|');
+  const keyOf = (node: any) => JSON.stringify([node.kind, node.qualifiedName, node.module || '']);
   const ordinaryByKey = new Map<string, AtlasNode[]>();
-  for (const node of currentGraph.nodes) {
-    const candidates = ordinaryByKey.get(keyOf(node));
-    if (candidates) candidates.push(node); else ordinaryByKey.set(keyOf(node), [node]);
+  for (const node of currentGraph?.nodes || []) {
+    const key = keyOf(node), group = ordinaryByKey.get(key) || [];
+    group.push(node); ordinaryByKey.set(key, group);
   }
-  const reviewKeyCounts = new Map<string, number>();
+  const rowsByKey = new Map<string, ReviewNodeRow[]>();
+  const rowBySourceId = new Map<string, ReviewNodeRow>();
   for (const row of review.nodes) {
-    const preferred = row.head || row.base;
-    reviewKeyCounts.set(keyOf(preferred), (reviewKeyCounts.get(keyOf(preferred)) || 0) + 1);
+    const node = row.head || row.base;
+    const key = keyOf(node), group = rowsByKey.get(key) || [];
+    group.push(row); rowsByKey.set(key, group);
+    if (row.base?.id) rowBySourceId.set(row.base.id, row);
+    if (row.head?.id) rowBySourceId.set(row.head.id, row);
   }
-  const reviewBySourceId = new Map<string, any>();
-  for (const row of review.nodes) {
-    if (row.base?.id) reviewBySourceId.set(row.base.id, row.base);
-    if (row.head?.id) reviewBySourceId.set(row.head.id, row.head);
-  }
-  const used = new Set<string>();
-  for (const row of review.nodes) {
-    const preferred = row.head || row.base;
-    const candidates = (ordinaryByKey.get(keyOf(preferred)) || []).filter(node => !used.has(node.id));
-    // The review API deliberately keeps ambiguous declarations as separate base/head rows. The
-    // frontend has no file path in GraphNode, so a non-unique logical key is never aligned by order.
-    if (reviewKeyCounts.get(keyOf(preferred)) !== 1 || (ordinaryByKey.get(keyOf(preferred)) || []).length !== 1) {
-      const displayId = `review-node:${row.comparisonKey}`;
-      if (row.base?.id) sourceToDisplay.set(row.base.id, displayId);
-      if (row.head?.id) sourceToDisplay.set(row.head.id, displayId);
-      continue;
+  const matches = new Map<ReviewNodeRow, AtlasNode | undefined>();
+  // Resolve ancestry iteratively so malformed/cyclic or deeply nested input cannot recurse forever.
+  const match = (row: ReviewNodeRow): AtlasNode | undefined => {
+    const path: ReviewNodeRow[] = [], visiting = new Set<ReviewNodeRow>();
+    let cursor: ReviewNodeRow | undefined = row;
+    while (cursor && !matches.has(cursor)) {
+      if (visiting.has(cursor)) { matches.set(cursor, undefined); break; }
+      visiting.add(cursor); path.push(cursor);
+      const node: AtlasNode = cursor.head || cursor.base;
+      cursor = node.parentId ? rowBySourceId.get(node.parentId) : undefined;
     }
-    const parentCandidates = candidates.filter(node => {
-      const ordinaryParent = node.parentId ? currentGraph.nodes.find(parent => parent.id === node.parentId) : undefined;
-      const reviewParent = preferred.parentId ? reviewBySourceId.get(preferred.parentId) : undefined;
-      return keyOf(ordinaryParent) === keyOf(reviewParent) || (!ordinaryParent && !reviewParent);
-    });
-    const unique = parentCandidates.length === 1 ? parentCandidates[0] : undefined;
-    const displayId = unique?.id || `review-node:${row.comparisonKey}`;
-    if (unique) used.add(unique.id);
+    for (const item of path.reverse()) {
+      if (matches.has(item)) continue;
+      const node = item.head || item.base, key = keyOf(node);
+      const candidates = ordinaryByKey.get(key) || [];
+      const candidate = node.qualifiedName && rowsByKey.get(key)?.length === 1 && candidates.length === 1 ? candidates[0] : undefined;
+      const parentRow = node.parentId ? rowBySourceId.get(node.parentId) : undefined;
+      const parent = parentRow ? matches.get(parentRow) : undefined;
+      const parentsMatch = node.parentId
+        ? !!parent && candidate?.parentId === parent.id
+        : !candidate?.parentId;
+      matches.set(item, candidate && parentsMatch ? candidate : undefined);
+    }
+    return matches.get(row);
+  };
+  for (const row of review.nodes) {
+    const displayId = match(row)?.id || `review-node:${row.comparisonKey}`;
     if (row.base?.id) sourceToDisplay.set(row.base.id, displayId);
     if (row.head?.id) sourceToDisplay.set(row.head.id, displayId);
   }
   return sourceToDisplay;
 }
 
+/** Overlay groups a route by ordered endpoints and its change status, never collapsing an added or
+ * removed route into an unchanged one that happens to share its endpoints. */
 export function projectReviewGraph(review: ReviewComparison, mode: ReviewMode, currentGraph?: AtlasGraph) {
   const projected = projectReviewNodes(review, mode);
-  // Snapshot-local IDs are not stable across analysis runs. A display ID derives from the opaque
-  // comparison key; both sides of a modified resource map to it, keeping base-only relationships
-  // visible beside after-change relationships in an overlay. When the ordinary map is supplied,
-  // unambiguous head/base rows reuse its current node id so the map's layout state remains valid.
-  const sourceToDisplay = ordinaryDisplayIds(review, currentGraph);
-  if (mode === 'BASE' || mode === 'HEAD') {
-    for (const row of review.nodes) {
-      const displayId = `review-node:${row.comparisonKey}`;
-      if (mode === 'BASE' && row.base?.id) sourceToDisplay.set(row.base.id, displayId);
-      if (mode === 'HEAD' && row.head?.id) sourceToDisplay.set(row.head.id, displayId);
-    }
+  const sourceToDisplay = mode === 'OVERLAY' ? ordinaryDisplayIds(review, currentGraph) : new Map<string, string>();
+  if (mode !== 'OVERLAY') {
+    for (const row of projected) sourceToDisplay.set(row.node.id, `review-node:${row.comparisonKey}`);
   }
   const nodes: ReviewGraphNode[] = projected.map(row => ({ ...row, id: sourceToDisplay.get(row.node.id)!, sourceId: row.node.id,
     parentId: row.node.parentId ? sourceToDisplay.get(row.node.parentId) : undefined,

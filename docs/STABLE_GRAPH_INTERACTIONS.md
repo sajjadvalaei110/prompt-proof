@@ -80,6 +80,10 @@ resizing, expansion and source-dialog open/close. Ctrl/Cmd Z undoes; Ctrl/Cmd Sh
 Ctrl Y redoes. Text inputs retain their native editing shortcuts. History holds up to
 200 actions per tab and ten recently closed tabs, for this page session and snapshot.
 Backend work, notes/documents and model settings are outside exploration history.
+Fullscreen, the Map overview disclosure and the dedicated zoom-in/zoom-out buttons are
+also outside history: they remain at their current values while undoing or redoing another
+action. Each dedicated zoom click is three former 1.2× steps (1.728× in, reciprocal out).
+Wheel/pinch/pan and Fit map remain camera-navigation history.
 
 **Clear selection**, clicking empty canvas, or Escape clears inspection and selected
 cards without changing scope, geometry or camera. Menus, resize cancellation and modal
@@ -94,15 +98,18 @@ Acceptance:
 
 - Single-click immediately opens the appropriate inspector without changing scope,
   abstraction level, displayed node IDs, display limit, node coordinates, or pan/zoom.
-- Selected cards get a stronger outline. Revised 2026-09-16 (change-edges): outgoing
-  visible routes turn sky blue and incoming routes red, with dashes animated from source
-  to target and a pulsing glow; related resources get a halo by direction — light blue
-  (selection points at them), light red (they point at the selection), purple (both).
-  Emphasis never overrides a route's strength width. Unrelated resources may be gently
-  dimmed but remain readable and selectable. Do not resize cards to highlight. Motion
-  is skipped under `prefers-reduced-motion`; colors remain.
-- Preserve arrow direction, candidate/unresolved distinction (a shorter dash pattern
-  while highlighted), resolution meaning, and explanation indicators while highlighting.
+- Selected cards get a stronger outline. Revised 2026-09-23 (ADR 0008): route
+  colors and line patterns keep their ordinary or Changes meaning when a resource is
+  selected. Repeated, route-width-aware arrowheads move from source to target along the
+  selected resource's routes, clear labels and terminal arrows, follow compound/self-loop
+  control points, and are masked off cards. Related resources get an indigo incoming halo, cyan outgoing halo, or one
+  hard-split ring with indigo on the left and cyan on the right for both directions.
+  Emphasis never overrides a route's strength width. Unrelated resources dim to 0.5
+  opacity but remain readable and selectable. Do not resize cards to highlight. Motion
+  is skipped under `prefers-reduced-motion`; direction marks and colors remain, and a
+  resized card or container redraws its static ring immediately.
+- Preserve terminal arrow direction, candidate/unresolved line pattern,
+  resolution meaning, and explanation indicators while highlighting.
   Hidden edges never contribute neighbors.
 - Edge selection highlights only that relationship and its endpoints. Clicking
   another element or clearing selection updates emphasis without layout or fitting.
@@ -234,3 +241,19 @@ Keyboard/touch equivalents and reduced motion need explicit verification.
 This proposal was checked against the existing R6 scope boundary, build brief
 (`docs/BUILD.md`; `docs/BUILD_BRIEF.md` is absent), architecture, and ADRs 0001/0003.
 Runtime tests and screenshots are deferred to implementation: no UI code changed.
+
+### Selection motion revision (2026-09-24)
+
+Selected-resource routes now animate native dashes toward the target, with thin
+incoming indigo / outgoing cyan margins matching related-resource borders. Line
+and terminal-arrow colors retain their factual meanings, including Changes colors.
+UNKNOWN review routes stay dotted. Deselecting restores the original pattern;
+reduced motion leaves static patterns. See ADR 0008's amendment.
+
+### Direct edge inspection (2026-09-24)
+
+Clicking an edge highlights its line, terminal arrow, label and underlay in black,
+including in Changes mode, to avoid confusing selection with an added relation.
+This temporary direct-inspection override takes precedence over review colors;
+deselection restores the factual colors. Selecting a resource still preserves
+its attached edges' factual colors and uses directional margins.

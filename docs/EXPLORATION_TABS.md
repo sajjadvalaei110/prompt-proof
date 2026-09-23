@@ -14,7 +14,12 @@ and undo or redo exploration actions without changing another tab or server data
 - Saved exploration state includes scope, displayed cards at each level, coordinates,
   sizes, expansions, pan/zoom, inspection and Back navigation, relationship filter,
   tree disclosures, search, multi-selection, source-dialog subject, occurrence choice,
-  navigation width, minimap and full-screen preference.
+  and navigation width. Fullscreen, the **Map overview** disclosure and dedicated zoom
+  buttons are view-only controls: they do not add history entries, and their current values
+  stay in place when another exploration action is undone or redone. Wheel/pinch/pan and
+  **Fit map** continue to record camera navigation.
+- One dedicated zoom click now equals three former 1.2× steps: zoom in is 1.728× and zoom
+  out is its reciprocal, both centered on the canvas.
 - **Changes** switches the active tab's review presentation while keeping its current
   map arrangement. Both modes share scope, expansions, sizes and pan/zoom; moving a
   card in either mode carries that position into the other. The toggle is undoable.
@@ -24,8 +29,8 @@ and undo or redo exploration actions without changing another tab or server data
 
 Tabs and history last for the current page session and snapshot. A reload or new
 snapshot starts over. DOM scroll offsets, text selection, transient menus and
-explanation disclosures are not saved. Full-screen restoration always supplies the
-map overlay; native browser full screen depends on browser permissions and gestures.
+explanation disclosures are not saved. Native browser full screen depends on browser
+permissions and gestures.
 
 ## Boundaries
 
@@ -39,11 +44,12 @@ retains and mutates the position object passed to `add()`, so the adapter gives 
 a copy. Otherwise expanding, resizing or dragging one tab silently corrupts the
 coordinates saved by another tab and its undo history.
 
-The initial fit records a baseline without adding an undo step. Pending camera
-updates flush before pointer/keyboard actions and tab/history commands. Ordinary
+The initial fit records a baseline without adding an undo step. View-only changes are
+rebased across both history branches so a later undo cannot incidentally change them.
+Pending camera updates flush before pointer/keyboard actions and tab/history commands. Ordinary
 Escape runs through one handler so clearing inspection and multi-selection stays
-atomic. Browser full-screen ownership lives above the canvas lifecycle so undo
-inside full screen does not accidentally create a second history action to exit it.
+atomic. Browser full-screen ownership lives above the canvas lifecycle; undo and redo
+never enter or exit full screen.
 
 ## Verification
 

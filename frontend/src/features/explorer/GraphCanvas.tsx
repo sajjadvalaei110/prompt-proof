@@ -4,6 +4,7 @@ import { AtlasNode, AtlasEdge, kindSummary, reviewRouteSummary } from './graphMo
 import { nodeCard, cornerButtons, CODE_BUTTON, MIN_CARD_SIZE, CornerAction, CardSize } from './nodeCard';
 import { CONTAINER_BUTTON, CONTAINER_PADDING } from './expansionLayout';
 import CodeButton from '../../components/CodeButton';
+import { REVIEW_CHANGE_PALETTE } from '../review/reviewPalette';
 
 /** Below this rendered size the corner buttons are hidden and the corner is part of the card. */
 const MIN_CODE_BUTTON_PX = 14;
@@ -30,23 +31,13 @@ import GeminiBadge from '../../components/GeminiBadge';
 
 export interface Point { x: number; y: number }
 
-/**
- * Inspection flow palette: route colors plus the lighter halo drawn around related resources.
- * The three route colors each clear WCAG 2.1 SC 1.4.11 (3:1) against the #f8fafc canvas -- out
- * 3.39:1, in 3.88:1, both 4.33:1. The halo tints are deliberately far lighter and do not: they are
- * a glow *around* a border already painted in the conforming route color, never the sole carrier of
- * the relationship, which is also encoded by border-style (see the .rel-* rules below).
- *
- * `reviewIn`/`reviewInHalo` are a narrower substitute for `in`/`inHalo`, used only for an inspected
- * node's incoming routes in the review overlay (edge[reviewChange = "UNCHANGED"] below): plain red
- * dashed is indistinguishable there from a REMOVED review route, which is also red and dashed (P2.2).
- * Indigo is deliberately distinct from every other route/overlay color in this palette -- not the
- * blue of `out`, the violet of `both`, or the red/green/amber the review ADDED/REMOVED/MODIFIED rules
- * already use -- so "this is just an incoming caller" cannot be misread as any of those.
- */
-const FLOW = { out: '#1d90cc', outHalo: '#a9dcf7', in: '#e0474c', inHalo: '#f6b3b3', both: '#8f5bd6', bothHalo: '#cfb2f2', reviewIn: '#5c6bc0', reviewInHalo: '#c5cae9' };
-/** Review overlay route colors: factual change state, kept through selection and flow emphasis. */
-const REVIEW = { added: '#168a58', removed: '#c74545', unknown: '#ba862d' };
+/** Selection direction is independent of review change state. Against the #f8fafc canvas,
+ * WCAG 2.1 SC 1.4.11 contrast is 4.27:1 for indigo and 2.65:1 for cyan; border pattern and
+ * terminal arrows also encode direction (ADR 0008 records the cyan contrast limit). */
+const HALO = { in: '#6366F1', out: '#0EA5E9' };
+/** Ordinary resolved lines are 10% lighter than #a0aebd; their terminal
+ * arrowheads are 10% darker than the prior #8395a9 arrow color. */
+const ORDINARY_ROUTE = { line: '#aab6c4', arrow: '#768698' };
 /** Style properties the animation loop writes as bypasses; always cleared together. */
 const ANIMATED_STYLES = 'line-dash-offset underlay-opacity outline-opacity outline-width';
 const REVIEW_DATA_KEYS = ['reviewChange', 'reviewSnapshotId', 'reviewSide', 'reviewSourceId', 'reviewAddedLines', 'reviewRemovedLines'];
@@ -95,7 +86,7 @@ interface Props {
   /** A resize-grip drag completed on an expanded card's box; the size excludes the box's padding. */
   onResizeContainer: (id: string, size: CardSize) => void;
   /** The canvas settled on a new pan/zoom (debounced real movement, or the one-time initial fit). */
-  onCameraChange: (camera: Camera, initial?: boolean) => void;
+  onCameraChange: (camera: Camera, initial?: boolean, transient?: boolean) => void;
   /** Step 5 (Appendix B): the dedicated focused-arrangement command, distinct from inspection and
    * level navigation. Invoked only by a real double-click (`dbltap`, below) -- never by single tap. */
   onArrangeAroundResource: (id: string) => void;
@@ -142,6 +133,8 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
   const model = useMemo(() => ({nodes, edges}), [nodes, edges]);
   const currentModel=useRef(model); currentModel.current=model;
   const updateMapRef = useRef<() => void>(() => {});
+  const drawDirectionRef = useRef<(phase?: number, pulse?: number, invalidate?: boolean) => void>(() => {});
+  const animationPhase = useRef(0);
   const nodesKey=useMemo(()=>JSON.stringify(nodes.map(n=>n.id)),[nodes]);
   // One merged route carries several kinds, so the label is the kind breakdown (top 2, "+n" tail)
   // rather than a single kind plus a site count; the ✦ still marks a ready explanation.
@@ -178,57 +171,87 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         { selector: 'node[?expanded]', style: { 'background-image': 'none', 'background-color': '#f5f8fc', 'border-width': 2, 'border-style': 'dashed', label: 'data(containerLabel)', 'text-valign': 'top', 'text-halign': 'center', 'text-margin-y': CONTAINER_PADDING - 10, 'font-size': 18, 'font-weight': 600, color: '#19334f', 'text-max-width': '2000px', 'text-wrap': 'none', padding: `${CONTAINER_PADDING}px`, 'compound-sizing-wrt-labels': 'exclude', 'min-width': 'data(minW)', 'min-height': 'data(minH)', 'min-width-bias-left': '0%', 'min-width-bias-right': '100%', 'min-height-bias-top': '0%', 'min-height-bias-bottom': '100%' } as any },
         { selector: 'node.inspected', style: { 'background-color': '#e0f4f3', 'border-color': '#07888c', 'border-width': 2.5 } },
         { selector: 'node.neighbor', style: { 'border-color': '#07888c', 'border-width': 2.5 } },
-        // Review change is parser fact carried by the overlay projection. Keep the yellow card fill
+        // Review change is parser fact carried by the overlay projection. Keep its card fill
         // visible while a changed resource is inspected; the badge in nodeCard carries the exact
         // +/- declaration totals. Base and after projections omit reviewChange and match ordinary
         // exploration styling.
-        { selector: 'node[reviewChange = "ADDED"], node[reviewChange = "MODIFIED"], node[reviewChange = "REMOVED"], node[reviewChange = "ADDED"].inspected, node[reviewChange = "MODIFIED"].inspected, node[reviewChange = "REMOVED"].inspected', style: { 'background-color': '#fff4c8', 'border-color': '#ba862d' } },
-        { selector: 'node[reviewChange = "UNKNOWN"]', style: { 'border-color': '#6b7c90', 'border-style': 'dashed' } },
-        { selector: 'edge', style: { width: 'data(strengthWidth)', 'line-color': '#a0aebd', 'target-arrow-color': '#8395a9', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', label: 'data(label)', 'font-size': 11, color: '#5b6d83', 'text-opacity': .85, 'text-background-color': '#f7f9fc', 'text-background-opacity': 1, 'text-background-padding': '3px', 'text-rotation': 'autorotate', 'text-margin-y': -11, 'arrow-scale': .8, 'text-max-width': '88px', 'text-wrap': 'ellipsis' } },
-        { selector: 'edge[resolution != "RESOLVED"]', style: { 'line-color': '#ba862d', 'target-arrow-color': '#ba862d', 'line-style': 'dashed' } },
+        { selector: 'node[reviewChange = "ADDED"]', style: { 'background-color': REVIEW_CHANGE_PALETTE.ADDED.nodeFill, 'border-color': REVIEW_CHANGE_PALETTE.ADDED.border } },
+        { selector: 'node[reviewChange = "REMOVED"]', style: { 'background-color': REVIEW_CHANGE_PALETTE.REMOVED.nodeFill, 'border-color': REVIEW_CHANGE_PALETTE.REMOVED.border } },
+        { selector: 'node[reviewChange = "MODIFIED"]', style: { 'background-color': REVIEW_CHANGE_PALETTE.MODIFIED.nodeFill, 'border-color': REVIEW_CHANGE_PALETTE.MODIFIED.border } },
+        { selector: 'node[reviewChange = "UNKNOWN"]', style: { 'border-color': REVIEW_CHANGE_PALETTE.UNKNOWN.border, 'border-style': 'dashed' } },
+        { selector: 'edge', style: { width: 'data(strengthWidth)', 'line-color': ORDINARY_ROUTE.line, 'target-arrow-color': ORDINARY_ROUTE.arrow, 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', label: 'data(label)', 'font-size': 11, color: '#5b6d83', 'text-opacity': .85, 'text-background-color': '#f7f9fc', 'text-background-opacity': 1, 'text-background-padding': '3px', 'text-rotation': 'autorotate', 'text-margin-y': -11, 'arrow-scale': 1.4, 'text-max-width': '88px', 'text-wrap': 'ellipsis' } },
+        { selector: 'edge[resolution != "RESOLVED"]', style: { 'line-color': REVIEW_CHANGE_PALETTE.UNKNOWN.route, 'target-arrow-color': REVIEW_CHANGE_PALETTE.UNKNOWN.arrow, 'line-style': 'dashed' } },
         { selector: 'edge[explanationStatus = "READY"]', style: { color: '#7955b7', 'text-background-color': '#f3eeff', 'text-opacity': 1 } },
         // Strength lives in data(strengthWidth); emphasis below changes color/glow only, never a fixed
         // width that would thin a strong route. These rules sit after the resolution rule on purpose:
         // Cytoscape resolves conflicts by array order, not selector specificity.
-        { selector: 'edge.inspected', style: { 'line-color': '#07888c', 'target-arrow-color': '#07888c', color: '#08777b', 'underlay-color': '#07888c', 'underlay-opacity': .16, 'underlay-padding': 4 } },
-        { selector: '.muted', style: { opacity: .6 } },
-        // Inspection of a resource (Change-edges requirement 2): outgoing routes sky blue, incoming red,
-        // animated dashes flowing source -> target with a pulsing glow (see the animation effect).
-        { selector: 'edge.flow-out, edge.flow-in', style: { 'line-style': 'dashed', 'line-dash-pattern': [14, 7], 'underlay-padding': 5, 'underlay-opacity': .22, 'z-index': 20, 'text-opacity': 1 } },
-        { selector: 'edge.flow-out', style: { 'line-color': FLOW.out, 'target-arrow-color': FLOW.out, 'underlay-color': FLOW.out, color: '#1778a8' } },
-        { selector: 'edge.flow-in', style: { 'line-color': FLOW.in, 'target-arrow-color': FLOW.in, 'underlay-color': FLOW.in, color: '#b4262b' } },
-        // Review overlay only (P2.2): reviewChange is present solely on overlay elements, so these
-        // never match the ordinary map. Incoming red would read as "removed" there, so every review
-        // incoming route glows indigo and an UNCHANGED one is also drawn indigo; ADDED/REMOVED/UNKNOWN
-        // keep their change color (rules at the end). The animation loop never bypasses color.
-        { selector: 'edge[reviewChange].flow-in', style: { 'underlay-color': FLOW.reviewIn } },
-        { selector: 'edge[reviewChange = "UNCHANGED"].flow-in', style: { 'line-color': FLOW.reviewIn, 'target-arrow-color': FLOW.reviewIn, color: '#3f4b9e' } },
-        { selector: 'edge.flow-uncertain', style: { 'line-dash-pattern': [5, 6] } },
+        { selector: '.muted', style: { opacity: .5 } },
+        // Selection restores moving dashes without replacing the factual route color.
+        { selector: 'edge.flow-out, edge.flow-in', style: { 'line-style': 'dashed', 'line-dash-pattern': [8, 5], 'underlay-padding': 2, 'underlay-opacity': .32, 'z-index': 20, 'text-opacity': 1 } },
         // Direction is carried by border-style as well as hue (WCAG 2.1 SC 1.4.1): output-only keeps
         // a plain solid border, input-only is dashed, and mutual is a double border -- so a viewer
         // with a colour-vision deficiency can still tell a caller from a bidirectional collaborator.
-        { selector: 'node.rel-out, node.rel-in, node.rel-both', style: { 'outline-width': 6, 'outline-offset': 2, 'outline-opacity': .85, 'border-width': 2.5 } },
-        { selector: 'node.rel-out', style: { 'outline-color': FLOW.outHalo, 'border-color': FLOW.out, 'border-style': 'solid' } },
-        { selector: 'node.rel-in', style: { 'outline-color': FLOW.inHalo, 'border-color': FLOW.in, 'border-style': 'dashed' } },
-        { selector: 'node.rel-both', style: { 'outline-color': FLOW.bothHalo, 'border-color': FLOW.both, 'border-style': 'double', 'border-width': 5 } },
-        // Review overlay: an incoming-related card takes the same indigo as the incoming routes, so
-        // no card or route is red in review mode unless it was removed. Change state stays on the
-        // card fill and badge.
-        { selector: 'node[reviewChange].rel-in', style: { 'outline-color': FLOW.reviewInHalo, 'border-color': FLOW.reviewIn } },
+        { selector: 'node.rel-out, node.rel-in, node.rel-both', style: { 'outline-width': 9, 'outline-offset': 2, 'outline-opacity': .85, 'border-width': 2.5 } },
+        { selector: 'node.rel-out', style: { 'outline-color': HALO.out, 'border-color': HALO.out, 'border-style': 'solid' } },
+        { selector: 'node.rel-in', style: { 'outline-color': HALO.in, 'border-color': HALO.in, 'border-style': 'dashed' } },
+        { selector: 'node.rel-both', style: { 'outline-opacity': 0, 'border-color': '#64748b', 'border-style': 'double', 'border-width': 5 } },
         // Multi-select and marquee sit last so their purple outline wins over flow emphasis.
         { selector: 'node.multi-selected', style: { 'border-color': '#7955b7', 'border-width': 4, 'overlay-color': '#7955b7', 'overlay-opacity': .1, 'overlay-padding': 8 } },
         { selector: 'node.marquee-candidate', style: { 'border-color': '#7955b7', 'border-width': 3, 'border-style': 'dashed' } },
         // Review route color is factual state, so it stays visible through selection/flow emphasis.
-        // A flow glow takes the route's own change color so an added route never glows the red of removal.
-        { selector: 'edge[reviewChange = "ADDED"]', style: { 'line-color': REVIEW.added, 'target-arrow-color': REVIEW.added, color: '#11643f' } },
-        { selector: 'edge[reviewChange = "REMOVED"]', style: { 'line-color': REVIEW.removed, 'target-arrow-color': REVIEW.removed, color: '#a42b2b', 'line-style': 'dashed' } },
+        { selector: 'edge[reviewChange = "ADDED"]', style: { 'line-color': REVIEW_CHANGE_PALETTE.ADDED.route, 'target-arrow-color': REVIEW_CHANGE_PALETTE.ADDED.arrow, color: '#11643f' } },
+        { selector: 'edge[reviewChange = "REMOVED"]', style: { 'line-color': REVIEW_CHANGE_PALETTE.REMOVED.route, 'target-arrow-color': REVIEW_CHANGE_PALETTE.REMOVED.arrow, color: '#a42b2b', 'line-style': 'dashed' } },
         // Unknown existence is uncertainty, drawn in the amber of an unresolved route but dotted.
-        { selector: 'edge[reviewChange = "UNKNOWN"]', style: { 'line-color': REVIEW.unknown, 'target-arrow-color': REVIEW.unknown, color: '#805b12', 'line-style': 'dotted' } },
-        { selector: 'edge[reviewChange = "ADDED"].flow-out, edge[reviewChange = "ADDED"].flow-in', style: { 'underlay-color': REVIEW.added } },
-        { selector: 'edge[reviewChange = "REMOVED"].flow-out, edge[reviewChange = "REMOVED"].flow-in', style: { 'underlay-color': REVIEW.removed } },
-        { selector: 'edge[reviewChange = "UNKNOWN"].flow-out, edge[reviewChange = "UNKNOWN"].flow-in', style: { 'underlay-color': REVIEW.unknown } },
+        { selector: 'edge[reviewChange = "UNKNOWN"]', style: { 'line-color': REVIEW_CHANGE_PALETTE.UNKNOWN.route, 'target-arrow-color': REVIEW_CHANGE_PALETTE.UNKNOWN.arrow, color: '#805b12', 'line-style': 'dotted' } },
+        { selector: 'edge.flow-out', style: { 'underlay-color': HALO.out } },
+        { selector: 'edge.flow-in', style: { 'underlay-color': HALO.in } },
+        // Direct edge inspection overrides change colors until deselection.
+        { selector: 'edge.inspected', style: { 'line-color': '#000000', 'target-arrow-color': '#000000', color: '#000000', 'underlay-color': '#000000', 'underlay-opacity': .16, 'underlay-padding': 4 } },
       ] });
     cyRef.current = cy;
+    const directionCanvas = document.createElement('canvas');
+    directionCanvas.className = 'graph-direction-overlay';
+    directionCanvas.setAttribute('aria-hidden', 'true');
+    Object.assign(directionCanvas.style, { position: 'absolute', inset: '0', width: '100%', height: '100%', zIndex: '1', pointerEvents: 'none' });
+    container.current.appendChild(directionCanvas);
+    const directionContext = directionCanvas.getContext('2d');
+    let overlayDraws = 0, directionFrame = 0, queuedPhase = 0, queuedPulse = .5;
+    const drawDirection = (_phase = animationPhase.current, pulse = .5) => {
+      if (!directionContext || !container.current) return;
+      const w = container.current.clientWidth, h = container.current.clientHeight;
+      const ratio = window.devicePixelRatio || 1;
+      const pixelWidth = Math.round(w * ratio), pixelHeight = Math.round(h * ratio);
+      if (directionCanvas.width !== pixelWidth || directionCanvas.height !== pixelHeight) {
+        directionCanvas.width = pixelWidth; directionCanvas.height = pixelHeight;
+      }
+      directionContext.setTransform(ratio, 0, 0, ratio, 0, 0);
+      directionContext.clearRect(0, 0, w, h);
+      const rings:{nodeId:string;x:number;y:number;width:number;height:number;leftColor:string;rightColor:string}[]=[];
+      cy.nodes('.rel-both').not('.multi-selected').forEach(node => {
+        const p = node.renderedPosition(), zoom = cy.zoom();
+        const offset = 2 * zoom + 4.5 * zoom;
+        const x = p.x - node.renderedWidth()/2 - offset, y = p.y - node.renderedHeight()/2 - offset;
+        const width = node.renderedWidth() + 2*offset, height = node.renderedHeight() + 2*offset;
+        const lineWidth = (5 + 4*pulse) * zoom;
+        if (![x, y, width, height].every(Number.isFinite) || width <= 0 || height <= 0) return;
+        const ring = () => { directionContext.beginPath(); directionContext.roundRect(x, y, width, height, Math.min(12*zoom, width/4, height/4)); };
+        directionContext.lineWidth = lineWidth;
+        directionContext.globalAlpha = .5 + .45*pulse;
+        for (const [left, color] of [[true, HALO.in], [false, HALO.out]] as const) {
+          directionContext.save();
+          directionContext.beginPath(); directionContext.rect(left ? x-lineWidth : x+width/2, y-lineWidth, width/2+lineWidth, height+2*lineWidth);
+          directionContext.clip(); ring(); directionContext.strokeStyle = color; directionContext.stroke(); directionContext.restore();
+        }
+        directionContext.globalAlpha = 1;
+        rings.push({nodeId:node.id(),x,y,width,height,leftColor:HALO.in,rightColor:HALO.out});
+      });
+      overlayDraws++;cy.scratch('atlas:directionOverlay',{rings,draws:overlayDraws});
+    };
+    const queueDirectionDraw=(phase=animationPhase.current,pulse=.5,_invalidate=false)=>{
+      queuedPhase=phase;queuedPulse=pulse;
+      if(!directionFrame)directionFrame=requestAnimationFrame(()=>{directionFrame=0;drawDirection(queuedPhase,queuedPulse);});
+    };
+    drawDirectionRef.current = queueDirectionDraw;
     // A truly empty core has no boundingBox (would feed Infinity into the SVG viewBox), so the
     // minimap stays unset (mini === null, already guarded at render) until the reconciliation
     // effect below adds the first elements and calls this via updateMapRef.
@@ -272,7 +295,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     let programmatic = false;
     let debounceHandle: ReturnType<typeof setTimeout> | null = null;
     let mapFrame = 0;
-    cy.on('pan zoom position', () => { if (!mapFrame) mapFrame = requestAnimationFrame(() => { mapFrame = 0; updateMap(); }); });
+    cy.on('pan zoom position', () => { if (!mapFrame) mapFrame = requestAnimationFrame(() => { mapFrame = 0; updateMap(); queueDirectionDraw(animationPhase.current,queuedPulse,true); }); });
     let cameraCallback = callbacks.current.onCameraChange;
     const flushCamera = () => {
       if (!debounceHandle) return;
@@ -453,8 +476,8 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     // Resize keeps the renderer's own dimensions in sync but never re-fits: a pane resize (narrow
     // screen swap, sidebar toggle) must not move the camera the user set. Skip on a transient
     // zero-size container so cy.resize() cannot corrupt pan/zoom.
-    const observer = new ResizeObserver(() => { if (!container.current?.clientWidth || !container.current?.clientHeight) return; cy.resize(); updateMap(); }); observer.observe(canvas);
-    return () => { window.removeEventListener('atlas:flush-camera', flushCamera); canvas.removeEventListener('contextmenu',preventContextMenu); observer.disconnect(); if (debounceHandle) clearTimeout(debounceHandle); if (mapFrame) cancelAnimationFrame(mapFrame); cy.destroy(); cyRef.current = null; };
+    const observer = new ResizeObserver(() => { if (!container.current?.clientWidth || !container.current?.clientHeight) return; cy.resize(); updateMap(); queueDirectionDraw(animationPhase.current,queuedPulse,true); }); observer.observe(canvas);
+    return () => { window.removeEventListener('atlas:flush-camera', flushCamera); canvas.removeEventListener('contextmenu',preventContextMenu); observer.disconnect(); if (debounceHandle) clearTimeout(debounceHandle); if (mapFrame) cancelAnimationFrame(mapFrame); if(directionFrame)cancelAnimationFrame(directionFrame); drawDirectionRef.current = () => {}; directionCanvas.remove(); cy.destroy(); cyRef.current = null; };
   }, []);
 
   // A card membership change closes the menu and drops selected cards that are no longer displayed.
@@ -569,27 +592,29 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     // cy.add() does not emit 'position', so a membership change (Show more, a package add/remove)
     // would otherwise leave the minimap showing a stale bounding box until the user's next pan/zoom.
     updateMapRef.current();
+    drawDirectionRef.current(undefined,undefined,true);
   }, [nodes, edges, positions, sizes, containerSizes]);
 
   // Multi-selection outline. Declared after reconciliation so a card added in the same commit already exists.
   useEffect(()=>{
     const cy=cyRef.current; if(!cy)return;
     cy.batch(()=>{cy.nodes('.multi-selected').removeClass('multi-selected');for(const id of multiIds)cy.getElementById(id).addClass('multi-selected');});
+    drawDirectionRef.current(undefined,undefined,true);
   },[multiIds,nodes]);
 
   // Selection/inspection emphasis only: never a layout or fit call. Everything outside the selected
   // element's closed neighborhood is gently dimmed (.muted). Hidden edges contribute no neighbors
   // because they were never added to cy in the first place (filtered out by the caller).
-  // - An inspected resource: outgoing routes .flow-out (sky blue), incoming .flow-in (red); related
-  //   resources get a halo by direction -- .rel-out light blue, .rel-in light red, .rel-both purple.
+  // - An inspected resource: route colors stay factual; moving dashes show source-to-target flow.
+  //   Related resources get cyan, indigo, or left/right split halos by direction.
   //   A METHOD-level self-call is both directions on itself and gets no halo (it is the selection).
   // - An inspected edge: the edge itself (.inspected) and its endpoints (.neighbor), as before.
   // The flow classes replace the former fixed-width `.incident` emphasis: a route's width now carries
-  // its occurrence strength (data(strengthWidth)), so emphasis may only change colour and glow.
+  // its occurrence strength (data(strengthWidth)), so emphasis only adds glow and direction marks.
   useEffect(() => {
     const cy = cyRef.current; if (!cy) return;
     cy.batch(() => {
-      cy.elements().removeClass('inspected muted neighbor flow-out flow-in flow-uncertain rel-out rel-in rel-both').removeStyle(ANIMATED_STYLES);
+      cy.elements().removeClass('inspected muted neighbor flow-out flow-in rel-out rel-in rel-both').removeStyle(ANIMATED_STYLES);
       const selected = selectedId ? cy.getElementById(selectedId) : cy.collection();
       if (!selected.length) return;
       selected.addClass('inspected');
@@ -608,25 +633,23 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         const source = edge.source().id(), target = edge.target().id();
         if (source === selectedId) { edge.addClass('flow-out'); outgoing.add(target); }
         else { edge.addClass('flow-in'); incoming.add(source); }
-        if (edge.data('resolution') !== 'RESOLVED') edge.addClass('flow-uncertain');
       });
       direct.nodes().difference(selected).forEach(node => {
         const id = node.id();
         node.addClass(outgoing.has(id) && incoming.has(id) ? 'rel-both' : outgoing.has(id) ? 'rel-out' : 'rel-in');
       });
     });
+    drawDirectionRef.current(undefined,undefined,true);
   }, [selectedId, nodes, edges]);
 
   // The moving glow: one requestAnimationFrame loop, only while a displayed resource is inspected and
-  // has related routes. Dashes flow from source to target (a decreasing line-dash-offset moves the
-  // pattern forward along the path); route glow and related-resource halos pulse together. The phase
+  // has related routes. Dash phase moves from source to target; route glow and halos pulse together. The phase
   // lives in a ref so a re-run caused by a graph poll replacing `edges` does not visibly restart it.
   // Animated values are element style bypasses, removed on every re-run and on unmount so none leak
   // into the next selection. Reduced-motion users keep the static colors without movement.
-  const animationPhase = useRef(0);
   useEffect(() => {
     const cy = cyRef.current; if (!cy || !selectedId) return;
-    const flowEdges = cy.edges('.flow-out, .flow-in'), halos = cy.nodes('.rel-out, .rel-in, .rel-both');
+    const flowEdges = cy.edges('.flow-out, .flow-in'), halos = cy.nodes('.rel-out, .rel-in');
     if (!flowEdges.length) return;
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
     let frame = 0, last = 0;
@@ -634,15 +657,17 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       frame = requestAnimationFrame(tick);
       if (now - last < 33) return; // ~30 fps is smooth for dashes and keeps redraws cheap
       const elapsed = last ? Math.min(now - last, 100) : 33; last = now;
-      animationPhase.current = (animationPhase.current + elapsed * .045) % 23100; // a whole multiple of both dash periods (21px and 11px), so wrapping never jumps
+      animationPhase.current = (animationPhase.current + elapsed * .045) % 26000; // whole multiple of the dash period
       const pulse = (Math.sin(now / 420) + 1) / 2;
       cy.batch(() => {
-        flowEdges.style({ 'line-dash-offset': -animationPhase.current, 'underlay-opacity': .12 + .26 * pulse });
+        flowEdges.style({ 'line-dash-offset': -animationPhase.current, 'underlay-opacity': .28 + .12 * pulse });
         halos.style({ 'outline-opacity': .5 + .45 * pulse, 'outline-width': 5 + 4 * pulse });
       });
+      cy.scratch('atlas:dashPhase', animationPhase.current);
+      drawDirectionRef.current(animationPhase.current, pulse);
     };
     frame = requestAnimationFrame(tick);
-    return () => { cancelAnimationFrame(frame); if (!cy.destroyed()) cy.batch(() => { flowEdges.removeStyle(ANIMATED_STYLES); halos.removeStyle(ANIMATED_STYLES); }); };
+    return () => { cancelAnimationFrame(frame); if (!cy.destroyed()) { cy.batch(() => { flowEdges.removeStyle(ANIMATED_STYLES); halos.removeStyle(ANIMATED_STYLES); }); cy.scratch('atlas:dashPhase', 0); } drawDirectionRef.current(undefined,undefined,true); };
   }, [selectedId, nodes, edges]);
 
   // Camera: restore a saved camera, or perform the one-time initial fit when a level has never had
@@ -746,7 +771,13 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     resizeByKeys(id, d[0], d[1]);
   }
 
-  function zoom(factor: number) { const cy = cyRef.current; if (cy) cy.zoom({level: cy.zoom() * factor, renderedPosition: {x: cy.width()/2, y: cy.height()/2}}); }
+  function zoom(factor: number) {
+    const cy = cyRef.current; if (!cy) return;
+    const apply = () => cy.zoom({level: cy.zoom() * factor, renderedPosition: {x: cy.width()/2, y: cy.height()/2}});
+    const setProgrammatic = (cy as any).__setProgrammaticCamera as ((fn: () => void) => void) | undefined;
+    if (setProgrammatic) setProgrammatic(apply); else apply();
+    callbacks.current.onCameraChange({ zoom: cy.zoom(), pan: { ...cy.pan() } }, false, true);
+  }
   function fit() { const cy = cyRef.current; if (cy && nodes.length) { cy.fit(undefined, 55); if (cy.zoom() > 1) { cy.zoom(1); cy.center(); } } }
   const menuNode=contextMenu?.node||null;
   const menuSelected=menuNode?selectedNodes.some(n=>n.id===menuNode.id):false;
@@ -777,7 +808,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     {selectedNodes.length>0&&<div className="selection-bar" role="toolbar" aria-label="Selected resources"><strong>{selectedNodes.length} selected</strong><button className="danger" disabled={!removableNodes.length} title={removalTitle} onClick={removeSelectedFromScope}>{removalLabel}</button><button onClick={onClearSelection}>Clear</button></div>}
     {marquee&&<div className="graph-marquee" aria-hidden="true" style={{left:marquee.x1,top:marquee.y1,width:marquee.x2-marquee.x1,height:marquee.y2-marquee.y1}}/>}
     <div className="canvas-hint">Arrows point from caller to dependency · right-drag or Ctrl+click to select several</div>
-    <div className="zoom-controls"><button onClick={() => zoom(1.2)} aria-label="Zoom in">+</button><span>{Math.round((mini?.zoom || 1)*100)}%</span><button onClick={() => zoom(1/1.2)} aria-label="Zoom out">−</button><button onClick={fit} aria-label="Fit map" title="Fit map"><span aria-hidden="true" className="control-icon">⤧</span><span className="control-text">Fit map</span></button><button onClick={() => setFullscreen(!fullscreen)} aria-pressed={fullscreen} aria-label={fullscreen ? 'Exit full screen' : 'Full screen'} title={fullscreen ? 'Exit full screen (Esc)' : 'Show the map full screen'}><span aria-hidden="true">{fullscreen ? '⤡' : '⤢'}</span><span className="control-text">{fullscreen ? ' Exit full screen' : ' Full screen'}</span></button></div>
+    <div className="zoom-controls"><button onClick={() => zoom(1.2 ** 3)} aria-label="Zoom in">+</button><span>{Math.round((mini?.zoom || 1)*100)}%</span><button onClick={() => zoom(1/(1.2 ** 3))} aria-label="Zoom out">−</button><button onClick={fit} aria-label="Fit map" title="Fit map"><span aria-hidden="true" className="control-icon">⤧</span><span className="control-text">Fit map</span></button><button onClick={() => setFullscreen(!fullscreen)} aria-pressed={fullscreen} aria-label={fullscreen ? 'Exit full screen' : 'Full screen'} title={fullscreen ? 'Exit full screen (Esc)' : 'Show the map full screen'}><span aria-hidden="true">{fullscreen ? '⤡' : '⤢'}</span><span className="control-text">{fullscreen ? ' Exit full screen' : ' Full screen'}</span></button></div>
     <div className={`minimap ${mapOpen ? '' : 'collapsed'}`}>
       <button className="minimap-title" onClick={() => setMapOpen(!mapOpen)} aria-expanded={mapOpen}>Map overview <span>{mapOpen ? '−' : '+'}</span></button>
       {mapOpen && mini && <svg role="img" aria-label="Map overview with current viewport" viewBox={`${mini.box.x1} ${mini.box.y1} ${mini.box.w} ${mini.box.h}`} preserveAspectRatio="xMidYMid meet" onClick={e => {

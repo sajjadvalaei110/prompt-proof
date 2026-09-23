@@ -7,7 +7,10 @@ Git fixtures are `GitReviewBoundaryTest` and `ReviewApiIntegrationTest`: real lo
 repositories cover upstream merge bases, staged/unstaged/untracked content, raw
 filter-free reads, binary files, retained source, line counts, repeated call sites,
 partial parsing, failure cleanup and preservation of the active analysis snapshot.
-`node scripts/test-review-model.mjs` checks frontend side and occurrence identities.
+`node scripts/test-review-model.mjs` checks frontend side and occurrence identities,
+ordinary-map display alignment, duplicate declarations and ambiguous ancestors.
+`node scripts/test-review-placement.mjs` exercises the shared geometry helper and
+reducer to verify parked review cards, hidden children and target-scope placement.
 
 Run `JAVA=/path/to/java21/bin/java python3 scripts/verify_git_review_pipeline.py`
 for browser acceptance. It requires installed Chromium (override `CHROMIUM` if
@@ -17,20 +20,29 @@ screenshots. Repository/index hashes and a rejecting local model endpoint check
 that review leaves analyzed data unchanged and makes no model calls. Inspect the
 screenshots as well as the assertions. No live model integration is claimed.
 
+The Changes-toggle regression uses the package-only expand-in-place controls. It
+compares surviving card positions and sizes, expansion ancestry and pan/zoom across
+first activation and both toggle directions after edits. Review-only removed and
+unknown declarations are checked separately from shared cards; their appearance
+can change a compound container's bounds. The same run checks ordinary versus diff
+source inspection, undo/redo, tab isolation and removal of stale review styling.
+
 ## Exploration tabs and undo/redo (R6, September 2026)
 
 See [Exploration tabs](EXPLORATION_TABS.md) for the behavior, boundaries and browser
 setup. `node scripts/test-explorer-journeys.mjs` verifies grouped updates, independent
 tabs, cloned past/future branches, close/reopen, retention bounds, initial camera
-baseline, stale callbacks across snapshot resets, and that a double-click arrangement's
+baseline, stale callbacks across snapshot resets, view-only fullscreen/minimap/button-zoom
+rebasing, and that a double-click arrangement's
 `collapse:true` dispatch joins the preceding history entry while an uncollapsed one still
-gets its own (13 checks).
+gets its own, mode continuity, and atomic recapture for open and closed tabs (20 checks).
 
 `APP=http://127.0.0.1:5198 node scripts/verify-explorer-journeys.mjs /tmp/atlas-journey-fixture`
-exercises a real isolated backend and production frontend in Chromium (42 checks).
+exercises a real isolated backend and production frontend in Chromium (44 checks).
 It includes exact geometry comparisons after expansion/resize/drag undo, clone
 isolation, source-modal history, pending camera capture, one-step Escape clearing,
-closed-tab recovery, full-screen undo and a 375 px layout. The geometry checks failed
+closed-tab recovery, fullscreen/minimap/button-zoom history exclusion, the three-step zoom
+factor and a 375 px layout. The geometry checks failed
 before renderer coordinate copies were added; combined Escape and full-screen
 restoration checks also reproduced defects before their fixes. No model is called.
 
@@ -547,8 +559,11 @@ pointed at a closed loopback port so this can never be mistaken for a live-model
 **What the suite asserts.** One line per ordered pair (a mutual relation draws exactly two), width
 following occurrence count, `.flow-out`/`.flow-in` direction classes and `.rel-out`/`.rel-in`/
 `.rel-both` halos on the right cards, the inspected line's own endpoints emphasized rather than
-dimmed, animated dashes that travel **source → target** (a decreasing `line-dash-offset`, not merely
-a changing one), no animation style left behind after deselection, evidence grouped one section per
+dimmed, and native dash offsets advancing with selection. Selected edges retain their
+line/terminal-arrow colors and receive incoming indigo or outgoing cyan underlays.
+Pixel checks verify the left-indigo/right-cyan split ring, transparent card content
+and controls above the overlay. Reduced-motion resize keeps the split ring aligned.
+The suite also checks no animated style remains after deselection, evidence grouped one section per
 file with several highlighted lines, and a chosen occurrence surviving a relationship-filter change.
 
 **Non-colour differentiation.** Direction is carried by `border-style` as well as hue — solid for

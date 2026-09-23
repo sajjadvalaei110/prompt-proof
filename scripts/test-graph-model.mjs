@@ -291,7 +291,9 @@ assert.equal(pick(['NOT_REQUESTED','NOT_REQUESTED']),0,'an all-equal line opens 
 assert.equal(pick(['READY','READY']),0,'ties resolve to the earliest occurrence, so a stable line keeps its first-occurrence default');
 assert.equal(dominantOccurrenceIndex(null,graph),0,'no edge falls back to index 0');
 assert.equal(dominantOccurrenceIndex({id:'x',occurrenceIds:[]},graph),0,'an empty occurrence list falls back to index 0');
-const cardCompiled=ts.transpileModule(fs.readFileSync(new URL('../frontend/src/features/explorer/nodeCard.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.ES2022,target:ts.ScriptTarget.ES2022}}).outputText;
+const paletteSource=fs.readFileSync(new URL('../frontend/src/features/review/reviewPalette.ts',import.meta.url),'utf8');
+const cardSource=fs.readFileSync(new URL('../frontend/src/features/explorer/nodeCard.ts',import.meta.url),'utf8').replace("import { REVIEW_CHANGE_PALETTE } from '../review/reviewPalette';",'');
+const cardCompiled=ts.transpileModule(`${paletteSource}\n${cardSource}`,{compilerOptions:{module:ts.ModuleKind.ES2022,target:ts.ScriptTarget.ES2022}}).outputText;
 const {nodeCard}=await import('data:text/javascript;base64,'+Buffer.from(cardCompiled).toString('base64'));
 for(const kind of ['CLASS','METHOD']){
  const node={id:'n',kind,simpleName:'<script>&unsafe'};

@@ -6,9 +6,9 @@ const ts = require('typescript');
 const compile = name => ts.transpileModule(fs.readFileSync(new URL(`../frontend/src/features/explorer/${name}.ts`, import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
 }).outputText.replace(/import \{[^}]*\} from ['"]\.\/[^'"]+['"];?\n?/g, '');
-const compiled = ['graphPlacement', 'scopeModel', 'explorerViewState', 'explorerJourney'].map(name => name === 'explorerViewState'
+const compiled = ['graphPlacement', 'scopeModel', 'explorerViewState', 'explorerJourney', 'revalidateJourney'].map(name => name === 'explorerViewState'
   ? compile(name).replaceAll('HISTORY_LIMIT', 'NAVIGATION_HISTORY_LIMIT') : compile(name)).join('\n');
-const { initJourneys, journeysReducer: reduce, explorerViewReducer: viewReduce, HISTORY_LIMIT, newJourney, toggleJourneyReview, initExplorerViewState } = await import('data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'));
+const { initJourneys, journeysReducer: reduce, explorerViewReducer: viewReduce, HISTORY_LIMIT, newJourney, toggleJourneyReview, initExplorerViewState, revalidateJourneyState } = await import('data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'));
 let count = 0;
 const check = (name, fn) => { fn(); count++; console.log('PASS', name); };
 const active = s => s.tabs.find(t => t.id === s.activeId);
@@ -55,15 +55,43 @@ check('close/reopen restores history and the final tab cannot close', () => {
   assert.equal(s.tabs.length, 1); s = reduce(s, { type: 'REOPEN' });
   assert.strictEqual(active(s), first);
 });
-check('geometry, camera, source, selection and auxiliary controls restore exactly', () => {
+check('geometry, camera, source and selection restore exactly', () => {
   let s = initJourneys(); const before = active(s).present;
-  s = update(s, 1, j => ({ ...j, multiIds: ['c'], mapOpen: false, fullscreen: true,
+  s = update(s, 1, j => ({ ...j, multiIds: ['c'],
     source: { node: { id: 'c' }, type: 'symbol' }, navWidth: 320,
     view: viewReduce(j.view, { type: 'SET_CAMERA', level: 'PACKAGE', generation: j.view.generation, camera: { zoom: 0.7, pan: { x: 10, y: 20 } } }),
   }));
   const after = active(s).present;
   s = reduce(s, { type: 'UNDO' }); assert.strictEqual(active(s).present, before);
   s = reduce(s, { type: 'REDO' }); assert.strictEqual(active(s).present, after);
+});
+check('fullscreen, map overview and button zoom stay outside undo/redo history', () => {
+  let s = inspect(initJourneys(), 1, 'a');
+  s = inspect(s, 2, 'b');
+  s = reduce(s, { type: 'UNDO' });
+  assert.equal(active(s).present.view.inspectedSubjectId, 'a');
+  assert.equal(active(s).future.length, 1, 'the transient update starts with an existing redo branch');
+  const transient = (state, fn) => reduce(state, { type: 'TRANSIENT_UPDATE', id: state.activeId, update: fn });
+  s = transient(s, j => ({ ...j, fullscreen: true, mapOpen: false, view: viewReduce(j.view, {
+    type: 'SET_CAMERA', level: 'PACKAGE', generation: j.view.generation, camera: { zoom: 1.728, pan: { x: -20, y: 15 } },
+  }) }));
+  assert.equal(active(s).past.length, 1, 'view-only controls do not add history entries');
+  assert.equal(active(s).future.length, 1, 'view-only controls do not discard the redo branch');
+  s = reduce(s, { type: 'UNDO' });
+  assert.equal(active(s).present.view.inspectedSubjectId, null, 'undo still reaches the last semantic action');
+  assert.equal(active(s).present.fullscreen, true);
+  assert.equal(active(s).present.mapOpen, false);
+  assert.equal(active(s).present.view.levelViews.PACKAGE.camera.zoom, 1.728);
+  s = reduce(s, { type: 'REDO' });
+  assert.equal(active(s).present.view.inspectedSubjectId, 'a');
+  assert.equal(active(s).present.fullscreen, true);
+  assert.equal(active(s).present.mapOpen, false);
+  assert.equal(active(s).present.view.levelViews.PACKAGE.camera.zoom, 1.728);
+  s = reduce(s, { type: 'REDO' });
+  assert.equal(active(s).present.view.inspectedSubjectId, 'b', 'the pre-existing redo branch remains usable');
+  assert.equal(active(s).present.fullscreen, true);
+  assert.equal(active(s).present.mapOpen, false);
+  assert.equal(active(s).present.view.levelViews.PACKAGE.camera.zoom, 1.728);
 });
 check('initial fit is baseline state, never an undo action or a redo invalidation', () => {
   let s = inspect(initJourneys(), 1, 'a'); s = reduce(s, { type: 'UNDO' });
@@ -202,6 +230,88 @@ check('REVIEW_RECAPTURED clears review history even after returning to map mode'
   assert.equal(active(s).past.length, 0);
   assert.equal(active(s).future.length, 0);
   assert.strictEqual(active(s).present.view, viewBefore, 'recapture keeps the shared map geometry');
+});
+
+check('REVIEW_RECAPTURED reconciles recently closed review tabs atomically', () => {
+  let s = initJourneys();
+  s = update(s, 1, j => ({ ...j, ...toggleJourneyReview(j, true, 'rk1'), search: 'open-review', view: viewReduce(j.view, { type: 'REVIEW_IDS_AVAILABLE', level: 'PACKAGE', ids: ['review-node:old'], placement: { 'review-node:old': { width: 220, height: 100, name: 'old' } } }) }));
+  const closedId = active(s).id;
+  s = reduce(s, { type: 'NEW' });
+  s = reduce(s, { type: 'CLOSE', id: closedId });
+  assert.equal(s.closed.length, 1);
+  s = reduce(s, { type: 'REVIEW_RECAPTURED', reviewKey: 'rk2', reviewIds: ['review-node:new'], reconcile: j => ({ ...j, search: `${j.search}:recaptured`, view: viewReduce(j.view, { type: 'REVIEW_IDS_AVAILABLE', level: 'PACKAGE', ids: ['review-node:new'], placement: { 'review-node:new': { width: 220, height: 100, name: 'new' } } }) }) });
+  assert.equal(s.closed[0].present.search, 'open-review:recaptured', 'the closed tab receives the same recapture reconciliation');
+  assert.deepEqual(s.closed[0].present.view.levelViews.PACKAGE.displayedIds, ['review-node:new'], 'the closed tab drops the old review card and admits the recaptured one');
+  assert.equal(active(s).present.search, '', 'an untouched open tab remains unchanged');
+});
+
+check('ordinary recapture preserves open and closed edge inspection/source state, while Changes closes ordinary symbol source', () => {
+  const ordinaryGraph = { nodes: [
+    { id: 'a', simpleName: 'A', qualifiedName: 'A', kind: 'CLASS' },
+    { id: 'b', simpleName: 'B', qualifiedName: 'B', kind: 'CLASS' },
+  ], edges: [] };
+  let edgeView = initExplorerViewState('PACKAGE');
+  edgeView = viewReduce(edgeView, { type: 'INSPECT_NODE', id: 'a' });
+  edgeView = viewReduce(edgeView, { type: 'INSPECT_EDGE', id: 'ordinary-edge-old' });
+  edgeView = viewReduce(edgeView, { type: 'INSPECT_NODE', id: 'b' });
+  edgeView = viewReduce(edgeView, { type: 'INSPECT_EDGE', id: 'ordinary-edge-current' });
+  edgeView = viewReduce(edgeView, { type: 'SELECT_OCCURRENCE', occurrenceId: 'ordinary-occurrence-current' });
+  const source = { node: { id: 'ordinary-edge-current', ids: ['ordinary-edge-current'], simpleName: 'A → B' }, type: 'relationships' };
+  const ordinaryJourney = { ...newJourney(edgeView), reviewTouched: true, source };
+  const historyBefore = edgeView.history.map(entry => `${entry.kind}:${entry.subjectId}`);
+  const preserved = revalidateJourneyState(ordinaryJourney, ordinaryGraph, false);
+  assert.equal(preserved.view.inspectedKind, 'EDGE');
+  assert.equal(preserved.view.inspectedSubjectId, 'ordinary-edge-current');
+  assert.equal(preserved.view.inspectedOccurrenceId, 'ordinary-occurrence-current');
+  assert.deepEqual(preserved.view.history.map(entry => `${entry.kind}:${entry.subjectId}`), historyBefore);
+  assert.strictEqual(preserved.source, source);
+
+  let state = initJourneys(ordinaryJourney);
+  state = reduce(state, { type: 'CLONE' });
+  const closedId = state.tabs[0].id;
+  state = reduce(state, { type: 'CLOSE', id: closedId });
+  state = reduce(state, {
+    type: 'REVIEW_RECAPTURED', reviewKey: 'recaptured', reviewIds: [],
+    reconcile: journey => revalidateJourneyState(journey, ordinaryGraph, false),
+  });
+  for (const tab of [active(state), state.closed[0]]) {
+    assert.equal(tab.present.view.inspectedKind, 'EDGE');
+    assert.equal(tab.present.view.inspectedSubjectId, 'ordinary-edge-current');
+    assert.equal(tab.present.view.inspectedOccurrenceId, 'ordinary-occurrence-current');
+    assert.strictEqual(tab.present.source, source);
+    assert.ok(tab.present.view.history.some(entry => entry.subjectId === 'ordinary-edge-old' && entry.kind === 'EDGE'));
+  }
+
+  const enteringChanges = revalidateJourneyState(ordinaryJourney, ordinaryGraph, true);
+  assert.equal(enteringChanges.view.inspectedSubjectId, null, 'entering Changes clears an ordinary edge inspection');
+  assert.equal(enteringChanges.view.inspectedKind, null);
+  assert.equal(enteringChanges.view.inspectedOccurrenceId, null);
+  assert.ok(enteringChanges.view.history.every(entry => entry.kind !== 'EDGE'), 'entering Changes removes ordinary edge Back entries');
+  assert.equal(enteringChanges.source, null, 'entering Changes closes an ordinary relationship source');
+
+  const reviewJourney = { ...ordinaryJourney, review: true, reviewKey: 'old-review', source: { node: { id: 'a' }, type: 'symbol', snapshotId: 'head', label: 'after-change snapshot' } };
+  const leavingChanges = revalidateJourneyState(reviewJourney, ordinaryGraph, false);
+  assert.equal(leavingChanges.view.inspectedSubjectId, null, 'leaving Changes clears a review edge inspection');
+  assert.equal(leavingChanges.view.inspectedKind, null);
+  assert.equal(leavingChanges.view.inspectedOccurrenceId, null);
+  assert.ok(leavingChanges.view.history.every(entry => entry.kind !== 'EDGE'), 'leaving Changes removes review edge Back entries');
+  assert.equal(leavingChanges.source, null, 'leaving Changes closes a pinned review source');
+
+  const recapturedReview = revalidateJourneyState(reviewJourney, ordinaryGraph, true);
+  assert.equal(recapturedReview.view.inspectedSubjectId, null, 'review recapture clears the stale edge inspection');
+  assert.equal(recapturedReview.view.inspectedKind, null);
+  assert.equal(recapturedReview.view.inspectedOccurrenceId, null);
+  assert.ok(recapturedReview.view.history.every(entry => entry.kind !== 'EDGE'), 'review recapture removes stale edge Back entries');
+  assert.equal(recapturedReview.source, null, 'review recapture closes a pinned review source');
+
+  const ordinarySymbol = { ...newJourney(viewReduce(initExplorerViewState('PACKAGE'), { type: 'INSPECT_NODE', id: 'a' })), reviewTouched: true, source: { node: { id: 'a' }, type: 'symbol' } };
+  const recapturedOrdinarySymbol = revalidateJourneyState(ordinarySymbol, ordinaryGraph, false);
+  assert.strictEqual(recapturedOrdinarySymbol.source, ordinarySymbol.source, 'ordinary recapture keeps an ordinary symbol source');
+  assert.equal(recapturedOrdinarySymbol.view.inspectedSubjectId, 'a', 'ordinary recapture keeps a valid node inspection');
+
+  const reviewSymbol = revalidateJourneyState(ordinarySymbol, ordinaryGraph, true);
+  assert.equal(reviewSymbol.source, null, 'entering Changes must close a plain ordinary symbol source');
+  assert.equal(reviewSymbol.view.inspectedSubjectId, 'a', 'a matched ordinary node inspection remains valid');
 });
 
 check('history and recently closed retention are bounded', () => {

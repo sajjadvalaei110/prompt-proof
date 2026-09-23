@@ -354,6 +354,102 @@ check('review-only resources join the shared page without disturbing ordinary ge
   assert.deepEqual(reviewEdit.levelViews.PACKAGE.displayedIds, ['p0'], 'review-mode scope reconciliation can remove it');
 });
 
+check('map-mode scope reconciliation keeps only review resources still eligible in the comparison', () => {
+  let s = initExplorerViewState('PACKAGE');
+  s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'PACKAGE', eligibleIds: ['p0'], batchSize: Infinity, placement: placementFor(['p0']) });
+  s = explorerViewReducer(s, { type: 'REVIEW_IDS_AVAILABLE', level: 'PACKAGE', ids: ['review-node:kept', 'review-node:excluded'], placement: placementFor(['p0', 'review-node:kept', 'review-node:excluded']) });
+  const ordinaryPosition = s.levelViews.PACKAGE.positions.p0;
+  const keptPosition = s.levelViews.PACKAGE.positions['review-node:kept'];
+  s = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: ['p0'], batchSize: Infinity, placement: placementFor(['p0']), preserveReviewOnly: true, reviewOnlyIds: ['review-node:kept'] });
+  assert.deepEqual(s.levelViews.PACKAGE.displayedIds, ['p0', 'review-node:kept'], 'an excluded removed package must leave the parked page');
+  assert.deepEqual(s.levelViews.PACKAGE.positions.p0, ordinaryPosition, 'scope reconciliation preserves ordinary geometry');
+  assert.deepEqual(s.levelViews.PACKAGE.positions['review-node:kept'], keptPosition, 'eligible parked geometry remains stable');
+});
+
+check('Changes-mode reconciliation parks unmatched ordinary cards in both directions', () => {
+  let s = initExplorerViewState('PACKAGE');
+  s = explorerViewReducer(s, { type: 'RESET', level: 'PACKAGE', eligibleIds: ['p0', 'p-orphan'], batchSize: Infinity,
+    placement: placementFor(['p0', 'p-orphan']) });
+  const orphanPosition = { x: 940, y: 520 };
+  s = explorerViewReducer(s, { type: 'NODE_MOVED', level: 'PACKAGE', id: 'p-orphan', position: orphanPosition, generation: s.generation });
+  s = explorerViewReducer(s, { type: 'RESIZE_RESOURCE', level: 'PACKAGE', id: 'p-orphan', containerId: null,
+    size: { width: 530, height: 310 }, position: orphanPosition, generation: s.generation });
+  const before = s.levelViews.PACKAGE;
+  // The review graph has only p0. p-orphan is retained as an ordinary parked ID, including its
+  // user position and dimensions, while the overlay is active.
+  s = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: ['p0'], batchSize: Infinity,
+    placement: placementFor(['p0', 'p-orphan']), parkedIds: ['p-orphan'] });
+  assert.deepEqual(s.levelViews.PACKAGE.displayedIds, ['p0', 'p-orphan']);
+  assert.deepEqual(s.levelViews.PACKAGE.positions['p-orphan'], before.positions['p-orphan'], 'ordinary-only position survives entering Changes');
+  assert.deepEqual(s.levelViews.PACKAGE.sizes['p-orphan'], { width: 530, height: 310 }, 'ordinary-only resize survives entering Changes');
+  // Returning to the ordinary graph consumes the parked card as an existing survivor, so it does
+  // not get appended as a fresh card below its former siblings.
+  s = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: ['p0', 'p-orphan'], batchSize: Infinity,
+    placement: placementFor(['p0', 'p-orphan']) });
+  assert.deepEqual(s.levelViews.PACKAGE.positions['p-orphan'], orphanPosition, 'ordinary-only position survives returning from Changes');
+  assert.deepEqual(s.levelViews.PACKAGE.sizes['p-orphan'], { width: 530, height: 310 }, 'ordinary-only size survives returning from Changes');
+});
+
+check('scope exclusion drops a parked ordinary card and its geometry instead of resurrecting it', () => {
+  let s = initExplorerViewState('PACKAGE');
+  s = explorerViewReducer(s, { type: 'RESET', level: 'PACKAGE', eligibleIds: ['p0', 'p-orphan'], batchSize: Infinity,
+    placement: placementFor(['p0', 'p-orphan']) });
+  s = explorerViewReducer(s, { type: 'NODE_MOVED', level: 'PACKAGE', id: 'p-orphan', position: { x: 940, y: 520 }, generation: s.generation });
+  const old = s.levelViews.PACKAGE.positions['p-orphan'];
+  s = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: ['p0'], batchSize: Infinity, parkedIds: [] });
+  assert.deepEqual(s.levelViews.PACKAGE.displayedIds, ['p0'], 'ordinary-only card leaves the parked page when it leaves hidden-graph scope');
+  assert.equal(s.levelViews.PACKAGE.positions['p-orphan'], undefined, 'excluded parked geometry is discarded');
+  s = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: ['p0', 'p-orphan'], batchSize: Infinity, placement: placementFor(['p0', 'p-orphan']) });
+  assert.notDeepEqual(s.levelViews.PACKAGE.positions['p-orphan'], old, 'a later ordinary re-add gets fresh placement');
+});
+
+check('an unmatched ordinary child keeps nested expansion, child position, and resize through Changes', () => {
+  let s = explorerViewReducer(initExplorerViewState('PACKAGE'), { type: 'RESET', level: 'PACKAGE', eligibleIds: ['p0'], batchSize: Infinity,
+    placement: placementFor(['p0']) });
+  s = explorerViewReducer(s, { type: 'EXPAND_RESOURCE', level: 'PACKAGE', id: 'p0', ownerId: null,
+    childPositions: { 'c-orphan': { x: 240, y: 280 } }, generation: s.generation });
+  s = explorerViewReducer(s, { type: 'RESIZE_RESOURCE', level: 'PACKAGE', id: 'c-orphan', containerId: 'p0',
+    size: { width: 420, height: 240 }, position: { x: 240, y: 280 }, generation: s.generation });
+  s = explorerViewReducer(s, { type: 'EXPAND_RESOURCE', level: 'PACKAGE', id: 'c-orphan', ownerId: 'p0',
+    childPositions: { 'm-orphan': { x: 250, y: 620 } }, generation: s.generation });
+  s = explorerViewReducer(s, { type: 'RESIZE_CONTAINER', level: 'PACKAGE', id: 'c-orphan', minSize: { width: 680, height: 430 }, generation: s.generation });
+  const before = s.levelViews.PACKAGE;
+  const expansionChildren = { p0: ['c-orphan'], 'c-orphan': ['m-orphan'] };
+  // The review graph keeps the parent package but has no row for the ordinary child. The child is
+  // parked as a hidden ordinary ID; its nested expansion is retained through the same scope-aware
+  // child facts used by App's reconciliation path.
+  s = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: ['p0'], batchSize: Infinity,
+    parkedIds: ['c-orphan'], expansionChildren });
+  const during = s.levelViews.PACKAGE;
+  assert.deepEqual(during.expansions.p0.childPositions['c-orphan'], before.expansions.p0.childPositions['c-orphan']);
+  assert.deepEqual(during.expansions['c-orphan'].childPositions['m-orphan'], before.expansions['c-orphan'].childPositions['m-orphan']);
+  assert.deepEqual(during.expansions['c-orphan'].minSize, { width: 680, height: 430 }, 'nested ordinary container minimum survives Changes');
+  assert.deepEqual(during.sizes['c-orphan'], { width: 420, height: 240 }, 'nested ordinary child resize survives Changes');
+  // Switching back to ordinary scope retains the same expansion facts and child geometry.
+  s = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: ['p0'], batchSize: Infinity, expansionChildren });
+  assert.deepEqual(s.levelViews.PACKAGE.expansions, before.expansions, 'ordinary child expansion survives returning from Changes');
+  assert.deepEqual(s.levelViews.PACKAGE.sizes['c-orphan'], before.sizes['c-orphan']);
+});
+
+check('a late review child keeps its expansion and minimum size across mode reconciliation', () => {
+  let s = explorerViewReducer(initExplorerViewState('PACKAGE'), { type: 'RESET', level: 'PACKAGE', eligibleIds: ['p0'], batchSize: Infinity, placement: placementFor(['p0']) });
+  s = explorerViewReducer(s, { type: 'EXPAND_RESOURCE', level: 'PACKAGE', id: 'p0', ownerId: null, childPositions: { c0: { x: 100, y: 200 } }, generation: s.generation });
+  const late = 'review-node:removed-class', method = 'review-node:removed-method';
+  s = explorerViewReducer(s, { type: 'EXPAND_RESOURCE', level: 'PACKAGE', id: late, ownerId: 'p0', childPositions: { [method]: { x: 100, y: 500 } }, generation: s.generation });
+  s = explorerViewReducer(s, { type: 'RESIZE_CONTAINER', level: 'PACKAGE', id: late, minSize: { width: 700, height: 400 }, generation: s.generation });
+  const before = s.levelViews.PACKAGE.expansions[late];
+  assert.equal(s.levelViews.PACKAGE.expansions.p0.childPositions[late], undefined, 'late child has not been dragged into stored parent positions');
+  for (const preserveReviewOnly of [true, false]) {
+    s = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: ['p0'], batchSize: Infinity, preserveReviewOnly, reviewOnlyIds: [], expansionChildren: { p0: ['c0', late], [late]: [method] } });
+    assert.deepEqual(s.levelViews.PACKAGE.expansions[late], before, 'scope facts retain a late child even without a stored parent position');
+  }
+  s = explorerViewReducer(s, { type: 'REVIEW_IDS_AVAILABLE', level: 'PACKAGE', ids: ['review-node:stale-package'], placement: placementFor(['p0', 'review-node:stale-package']) });
+  s = explorerViewReducer(s, { type: 'PRUNE_REVIEW_IDS', ids: [late, method] });
+  assert.deepEqual(s.levelViews.PACKAGE.expansions[late], before, 'recapture pruning elsewhere must not drop a still-valid late expansion');
+  s = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: ['p0'], batchSize: Infinity, expansionChildren: { p0: ['c0'], [late]: [] } });
+  assert.equal(s.levelViews.PACKAGE.expansions[late], undefined, 'actually removing the child from scope still drops its expansion');
+});
+
 check('PRUNE_REVIEW_IDS removes stale overlay identities while retaining ordinary cards', () => {
   let s = initExplorerViewState('PACKAGE');
   s = explorerViewReducer(s, { type: 'NAVIGATE_LEVEL', level: 'PACKAGE', eligibleIds: ['p0'], batchSize: Infinity, placement: placementFor(['p0']) });

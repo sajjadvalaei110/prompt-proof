@@ -1,4 +1,5 @@
 import type { AtlasNode } from './graphModel';
+import { REVIEW_CHANGE_PALETTE } from '../review/reviewPalette';
 const xml = (s: string) => s.replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&apos;'}[c]!));
 // Approximate glyph advance in em for a proportional sans-serif (Segoe UI / Arial / DejaVu fallback),
 // deliberately on the wide side so an estimated fit never overflows in the widest fallback font.
@@ -103,8 +104,9 @@ export function nodeCard(node: AtlasNode, size?: CardSize) {
   // Scale the label before falling back to an ellipsis: line totals remain readable together even
   // when a package contains many changed declarations.
   const reviewFont=Math.max(7,Math.min(11,(reviewWidth-18)/(reviewLabel.length*.58)));
+  const badgeTone=unknown?REVIEW_CHANGE_PALETTE.UNKNOWN:reviewChange==='ADDED'?REVIEW_CHANGE_PALETTE.ADDED:reviewChange==='REMOVED'?REVIEW_CHANGE_PALETTE.REMOVED:REVIEW_CHANGE_PALETTE.MODIFIED;
   const review=reviewChange
-    ? `<g transform="translate(12 55)"><rect width="${reviewWidth}" height="24" rx="12" fill="${unknown?'#eef2f6':'#fff0b0'}" stroke="${unknown?'#6b7c90':'#ba862d'}"${unknown?' stroke-dasharray="4 3"':''}/><text x="10" y="16" font-size="${reviewFont}" font-weight="600" fill="${unknown?'#4d5d70':'#805b12'}">${xml(fitText(reviewLabel,reviewFont,reviewWidth-18))}</text></g>` : '';
+    ? `<g transform="translate(12 55)"><rect width="${reviewWidth}" height="24" rx="12" fill="${badgeTone.badgeFill}" stroke="${badgeTone.border}"${unknown?' stroke-dasharray="4 3"':''}/><text x="10" y="16" font-size="${reviewFont}" font-weight="600" fill="${badgeTone.text}">${xml(fitText(reviewLabel,reviewFont,reviewWidth-18))}</text></g>` : '';
   // Top row: kind icon, subtitle, then (right-aligned) the sparkle and the corner button area.
   const corners=cornerButtons(node);
   const codeLeft=corners.length?width-Math.max(...corners.map(c=>c.right+c.size)):width-12;

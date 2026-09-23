@@ -127,12 +127,12 @@ export type ExplorerAction =
   | { type: 'SELECT_OCCURRENCE'; occurrenceId: string | null }
   /** Explicit level navigation (segmented control, View methods/classes, Explore). Admits a bounded batch of anything newly eligible since this level was last visited. `placement` supplies actual dimensions for every ID in `eligibleIds` (survivors included) so newly admitted cards can be placed below the current bounding box; omit it only from tests that do not exercise geometry. */
   | { type: 'NAVIGATE_LEVEL'; level: Level; eligibleIds: string[]; batchSize: number; placement?: Record<string, PlacementDims> }
-  /** A scope edit (checkbox, reset, remove-from-scope) applied to the active level. `explicitClassAddId` marks a direct single-class checkbox add, which appends exactly that class rather than a ranked batch. `otherLevels` carries the fresh eligible-ID set for the levels NOT currently active (Appendix F3): a scope edit changes eligibility for every level at once, not just the one on screen, so an inactive level's cached membership must drop now-ineligible survivors immediately rather than waiting for its next visit -- otherwise a later reconciliation cannot distinguish "still eligible, never left" from "removed then re-added" (Step 4 point 8). Omitting it (e.g. existing pure tests) simply skips that bookkeeping; membership for the active level is unaffected either way. */
-  | { type: 'SCOPE_UPDATED'; eligibleIds: string[]; explicitClassAddId?: string; batchSize: number; placement?: Record<string, PlacementDims>; otherLevels?: Partial<Record<Level, string[]>>; expansionChildren?: Record<string, string[]>; preserveReviewOnly?: boolean }
+  /** A scope edit (checkbox, reset, remove-from-scope) applied to the active level. `explicitClassAddId` marks a direct single-class checkbox add, which appends exactly that class rather than a ranked batch. `otherLevels` carries the fresh eligible-ID set for the levels NOT currently active (Appendix F3): a scope edit changes eligibility for every level at once, not just the one on screen, so an inactive level's cached membership must drop now-ineligible survivors immediately rather than waiting for its next visit -- otherwise a later reconciliation cannot distinguish "still eligible, never left" from "removed then re-added" (Step 4 point 8). `reviewOnlyIds`/`otherReviewOnlyIds` narrow the review-only survivors that may remain parked while the ordinary map is showing. `parkedIds`/`otherParkedIds` do the symmetric job for IDs from the ordinary graph while Changes is showing; callers must pass the IDs that are eligible in the parked graph under the new scope. Omitting these fields (e.g. existing pure tests) preserves the pre-review behavior. */
+  | { type: 'SCOPE_UPDATED'; eligibleIds: string[]; explicitClassAddId?: string; batchSize: number; placement?: Record<string, PlacementDims>; otherLevels?: Partial<Record<Level, string[]>>; expansionChildren?: Record<string, string[]>; preserveReviewOnly?: boolean; reviewOnlyIds?: string[]; otherReviewOnlyIds?: Partial<Record<Level, string[]>>; parkedIds?: string[]; otherParkedIds?: Partial<Record<Level, string[]>> }
   /** Reveal the next batch from everything already eligible-but-undisplayed on the active level. */
-  | { type: 'SHOW_MORE'; eligibleIds: string[]; batchSize: number; placement?: Record<string, PlacementDims>; preserveReviewOnly?: boolean }
+  | { type: 'SHOW_MORE'; eligibleIds: string[]; batchSize: number; placement?: Record<string, PlacementDims>; preserveReviewOnly?: boolean; reviewOnlyIds?: string[]; parkedIds?: string[] }
   /** Pop the last inspection off history and restore it. Purely restorative: drops now-ineligible survivors but never auto-admits new eligibility (that is what NAVIGATE_LEVEL / Show more are for). Never admits, so it needs no placement. */
-  | { type: 'NAVIGATE_BACK'; eligibleIds: string[]; preserveReviewOnly?: boolean }
+  | { type: 'NAVIGATE_BACK'; eligibleIds: string[]; preserveReviewOnly?: boolean; reviewOnlyIds?: string[]; parkedIds?: string[] }
   /** Add review-only resources to the shared displayed page while preserving ordinary geometry. */
   | { type: 'REVIEW_IDS_AVAILABLE'; level: Level; ids: string[]; placement?: Record<string, PlacementDims> }
   /** Drop review-only display identities that no longer exist after a fresh comparison capture. */
@@ -221,7 +221,10 @@ function pruneExpansions(view: LevelViewState, survivors: string[], children?: R
     seen.add(id);
     if (e.ownerId === null) return top.has(id);
     const owner = source[e.ownerId];
-    return !!owner && (!children || id in owner.childPositions) && rooted(e.ownerId, seen);
+    // A late comparison child can be expanded before it has ever been dragged: its position is
+    // derived by the renderer, so absence from childPositions is not absence from the scope.
+    const allowed = children?.[e.ownerId];
+    return !!owner && (!children || (allowed ? allowed.includes(id) : id in owner.childPositions)) && rooted(e.ownerId, seen);
   };
   for (const id of Object.keys(source)) if (rooted(id)) kept[id] = source[id];
   const live = new Set(survivors);
@@ -302,6 +305,15 @@ function reconcilePositions(
 
 const isReviewDisplayId = (id: string) => id.startsWith('review-node:');
 
+/** IDs retained from the graph that is temporarily hidden by the active presentation. Review-only
+ * IDs predate the symmetric `parkedIds` field, so keep accepting their specialized inputs for
+ * callers and fixtures that only know about the one-way ordinary-map handoff. An omitted
+ * `reviewOnlyIds` retains the legacy meaning "all review-only IDs"; an explicit empty list means
+ * that no review-only ID is eligible to stay parked. */
+const parkedIdSet = (parkedIds?: string[]) => new Set(parkedIds || []);
+const isParkedId = (id: string, preserveReviewOnly: boolean, reviewOnlyIds: string[] | undefined, parked: Set<string>) =>
+  parked.has(id) || (preserveReviewOnly && isReviewDisplayId(id) && (reviewOnlyIds === undefined || reviewOnlyIds.includes(id)));
+
 /**
  * Appendix A2 membership reconciliation for one level.
  *   survivors = previous displayedIds filtered by new eligibility, keeping order
@@ -324,10 +336,13 @@ function reconcileLevelView(
   batchSize: number,
   placement?: Record<string, PlacementDims>,
   preserveReviewOnly = false,
+  reviewOnlyIds?: string[],
+  parkedIds?: string[],
 ): { next: LevelViewState; added: string[]; changed: boolean } {
   const eligibleSet = new Set(eligibleIdsRanked);
   const priorEligibleSet = new Set(view.priorEligibleIds);
-  const survivors = view.displayedIds.filter(id => eligibleSet.has(id) || (preserveReviewOnly && isReviewDisplayId(id)));
+  const parked = parkedIdSet(parkedIds);
+  const survivors = view.displayedIds.filter(id => eligibleSet.has(id) || isParkedId(id, preserveReviewOnly, reviewOnlyIds, parked));
   const survivorSet = new Set(survivors);
   const added = explicitAddId !== undefined
     ? (eligibleSet.has(explicitAddId) && !survivorSet.has(explicitAddId) ? [explicitAddId] : [])
@@ -364,9 +379,12 @@ function appendPendingBatch(
   batchSize: number,
   placement?: Record<string, PlacementDims>,
   preserveReviewOnly = false,
+  reviewOnlyIds?: string[],
+  parkedIds?: string[],
 ): { next: LevelViewState; added: string[]; changed: boolean } {
   const eligibleSet = new Set(eligibleIdsRanked);
-  const survivors = view.displayedIds.filter(id => eligibleSet.has(id) || (preserveReviewOnly && isReviewDisplayId(id)));
+  const parked = parkedIdSet(parkedIds);
+  const survivors = view.displayedIds.filter(id => eligibleSet.has(id) || isParkedId(id, preserveReviewOnly, reviewOnlyIds, parked));
   const survivorSet = new Set(survivors);
   const pending = eligibleIdsRanked.filter(id => !survivorSet.has(id));
   const added = pending.slice(0, Math.max(0, batchSize));
@@ -428,10 +446,11 @@ function inspect(state: ExplorerViewState, id: string, kind: InspectedKind): Exp
  * `reconcileLevelView`: that path sets `initialized: true` and overwrites `priorEligibleIds` with
  * the FULL eligible set, which would erase the very distinction this function exists to preserve.
  */
-function shadowTrimLevel(view: LevelViewState, eligibleIds: string[], preserveReviewOnly = false): { next: LevelViewState; changed: boolean } {
+function shadowTrimLevel(view: LevelViewState, eligibleIds: string[], preserveReviewOnly = false, reviewOnlyIds?: string[], parkedIds?: string[]): { next: LevelViewState; changed: boolean } {
   const eligibleSet = new Set(eligibleIds);
-  const survivors = view.displayedIds.filter(id => eligibleSet.has(id) || (preserveReviewOnly && isReviewDisplayId(id)));
-  const priorEligibleIds = view.priorEligibleIds.filter(id => eligibleSet.has(id));
+  const parked = parkedIdSet(parkedIds);
+  const survivors = view.displayedIds.filter(id => eligibleSet.has(id) || isParkedId(id, preserveReviewOnly, reviewOnlyIds, parked));
+  const priorEligibleIds = view.priorEligibleIds.filter(id => eligibleSet.has(id) || isParkedId(id, preserveReviewOnly, reviewOnlyIds, parked));
   if (survivors.length === view.displayedIds.length && priorEligibleIds.length === view.priorEligibleIds.length) {
     return { next: view, changed: false };
   }
@@ -455,6 +474,9 @@ function pruneReviewOnly(view: LevelViewState, valid: Set<string>): { next: Leve
     const allowed=Object.keys(e.childPositions).filter(child=>!isReviewDisplayId(child)||valid.has(child));
     expansions[id]={...e,childPositions:Object.fromEntries(allowed.map(child=>[child,e.childPositions[child]]))};
     children[id]=allowed;
+  }
+  for (const [id, e] of Object.entries(expansions)) {
+    if (e.ownerId && children[e.ownerId] && !children[e.ownerId].includes(id)) children[e.ownerId].push(id);
   }
   if(!invalidDisplayed&&!invalidPrior&&Object.keys(expansions).length===Object.keys(view.expansions).length&&Object.entries(expansions).every(([id,e])=>e===view.expansions[id]||Object.keys(e.childPositions).length===Object.keys(view.expansions[id].childPositions).length)) return {next:view,changed:false};
   const trimmed=pruneExpansions({...view,displayedIds,priorEligibleIds,positions,expansions},displayedIds,children);
@@ -503,7 +525,7 @@ export function explorerViewReducer(state: ExplorerViewState, action: ExplorerAc
       };
     }
     case 'SCOPE_UPDATED': {
-      const { next, added, changed } = reconcileLevelView(state.levelViews[state.activeLevel], action.eligibleIds, action.explicitClassAddId, action.batchSize, action.placement, action.preserveReviewOnly);
+      const { next, added, changed } = reconcileLevelView(state.levelViews[state.activeLevel], action.eligibleIds, action.explicitClassAddId, action.batchSize, action.placement, action.preserveReviewOnly, action.reviewOnlyIds, action.parkedIds);
       // Expanded cards on every level lose children that left scope (see pruneExpansions).
       const withChildren = (view: LevelViewState): LevelViewState => {
         if (!action.expansionChildren || !Object.keys(view.expansions).length) return view;
@@ -516,7 +538,7 @@ export function explorerViewReducer(state: ExplorerViewState, action: ExplorerAc
         for (const key of Object.keys(action.otherLevels)) {
           const lvl = key as Level;
           if (lvl === state.activeLevel) continue;
-          const trimmed = shadowTrimLevel(state.levelViews[lvl], action.otherLevels[lvl]!, action.preserveReviewOnly);
+          const trimmed = shadowTrimLevel(state.levelViews[lvl], action.otherLevels[lvl]!, action.preserveReviewOnly, action.otherReviewOnlyIds?.[lvl], action.otherParkedIds?.[lvl]);
           levelViews[lvl] = withChildren(trimmed.next);
           otherChanged = otherChanged || trimmed.changed;
         }
@@ -529,7 +551,7 @@ export function explorerViewReducer(state: ExplorerViewState, action: ExplorerAc
       };
     }
     case 'SHOW_MORE': {
-      const { next, added, changed } = appendPendingBatch(state.levelViews[state.activeLevel], action.eligibleIds, action.batchSize, action.placement, action.preserveReviewOnly);
+      const { next, added, changed } = appendPendingBatch(state.levelViews[state.activeLevel], action.eligibleIds, action.batchSize, action.placement, action.preserveReviewOnly, action.reviewOnlyIds, action.parkedIds);
       return {
         ...state,
         levelViews: { ...state.levelViews, [state.activeLevel]: next },
@@ -540,7 +562,7 @@ export function explorerViewReducer(state: ExplorerViewState, action: ExplorerAc
     case 'NAVIGATE_BACK': {
       if (!state.history.length) return state;
       const entry = state.history[state.history.length - 1];
-      const { next, changed } = reconcileLevelView(state.levelViews[entry.level], action.eligibleIds, undefined, 0, undefined, action.preserveReviewOnly);
+      const { next, changed } = reconcileLevelView(state.levelViews[entry.level], action.eligibleIds, undefined, 0, undefined, action.preserveReviewOnly, action.reviewOnlyIds, action.parkedIds);
       return {
         ...state,
         activeLevel: entry.level,

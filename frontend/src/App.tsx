@@ -7,7 +7,8 @@ import { ScopeSelection, wholeSystemScope, scopeToLabel, isNodeInScope, isClassI
 import { explorerViewReducer, initExplorerViewState, ExplorerViewState, PlacementDims, Point, Camera, CardMoves } from './features/explorer/explorerViewState';
 import { arrangeAroundResource, ArrangeCard, ArrangeEdge } from './features/explorer/focusedArrangement';
 import { nodeCard, defaultCardSize, CardSize } from './features/explorer/nodeCard';
-import { Box, boxOfCard, containerBox, layoutChildren, placeMissingChildren, roomShifts } from './features/explorer/expansionLayout';
+import { Box, boxOfCard, containerBox, layoutChildren, roomShifts } from './features/explorer/expansionLayout';
+import { geometryForJourney, placementForGraphs } from './features/explorer/placementGeometry';
 import NavigationPane from './features/explorer/NavigationPane';
 import InspectorPanel from './features/inspector/InspectorPanel';
 import SettingsScreen from './features/settings/SettingsScreen';
@@ -18,6 +19,7 @@ import { useReviewComparison } from './features/review/useReviewComparison';
 import { startSerialPolling } from './utils/serialPolling';
 import { useExplorerJourneys, flushExplorerCamera } from './features/explorer/useExplorerJourneys';
 import { Journey, newJourney, toggleJourneyReview } from './features/explorer/explorerJourney';
+import { revalidateJourneyState } from './features/explorer/revalidateJourney';
 
 const REVIEW_BATCH_SIZE = 12;
 
@@ -29,32 +31,6 @@ function initialViewForGraph(g: AtlasGraph) {
     if (n) { const card = nodeCard(n); placement[id] = { width: card.width, height: card.height, name: n.qualifiedName || n.simpleName }; }
   }
   return explorerViewReducer(initExplorerViewState(), { type: 'RESET', level: 'PACKAGE', eligibleIds: initialPackageIds, batchSize: Infinity, placement });
-}
-
-/** Derive the current level's boxes from journey state for asynchronous review admissions. This is
- * the same box calculation used by the live canvas, but it accepts an arbitrary graph so a review
- * request completing after a tab switch can place an overlay-only card against that tab's own
- * expanded containers rather than the currently active tab's geometry. */
-function geometryForJourney(g: AtlasGraph, view: ExplorerViewState, scope: ScopeSelection, kind: string) {
-  const level=view.activeLevel, levelView=view.levelViews[level];
-  const expansionInput={expansions:Object.entries(levelView.expansions).map(([id,e])=>({id,ownerId:e.ownerId})),scope};
-  const displayed=projectDisplayed(g,level,levelView.displayedIds,kind,expansionInput);
-  const positions:Record<string,Point>={...levelView.positions},boxes:Record<string,Box>={};
-  const kids=new Map<string,AtlasNode[]>();
-  for(const n of displayed.nodes)if(n.containerId){const list=kids.get(n.containerId);if(list)list.push(n);else kids.set(n.containerId,[n]);}
-  const cardSize=(n:AtlasNode)=>levelView.sizes[n.id]||defaultCardSize(n);
-  for(const n of displayed.nodes){
-    if(!n.expanded)continue;
-    const stored=levelView.expansions[n.id]?.childPositions||{},children=kids.get(n.id)||[],size=cardSize(n),center=positions[n.id]||{x:0,y:0};
-    const placed=children.filter(c=>stored[c.id]).map(c=>({id:c.id,...cardSize(c),...stored[c.id]}));
-    Object.assign(positions,stored,placeMissingChildren({x:center.x-size.width/2,y:center.y-size.height/2},placed,children.filter(c=>!stored[c.id]).map(c=>({id:c.id,...cardSize(c)}))));
-  }
-  for(const n of [...displayed.nodes].reverse()){
-    if(!n.expanded)continue;
-    const childBoxes=(kids.get(n.id)||[]).map(c=>boxes[c.id]||boxOfCard({id:c.id,...cardSize(c),...(positions[c.id]||{x:0,y:0})}));
-    const box=containerBox(childBoxes,levelView.expansions[n.id]?.minSize||null);if(box)boxes[n.id]=box;
-  }
-  return {positions,boxes,projected:displayed};
 }
 
 export default function App() {
@@ -82,9 +58,9 @@ export default function App() {
   const setMobilePane=(v:string)=>journeys.set('mobilePane',v);
   const setNavWidth=(v:SetStateAction<number|null>)=>journeys.set('navWidth',v);
   const leaveFullscreen=useRef(()=>{});
-  leaveFullscreen.current=()=>journeys.set('fullscreen',false);
+  leaveFullscreen.current=()=>journeys.setTransient('fullscreen',false);
   // The browser owns fullscreen on the document root. Keep that lifecycle above the keyed
-  // exploration pane: undo/redo can remount the canvas while retaining fullscreen.
+  // exploration pane so tab remounts do not detach the native fullscreen owner.
   useEffect(()=>{
     if(!active.present.fullscreen)return;
     const root=document.documentElement;
@@ -170,16 +146,14 @@ export default function App() {
   // itself importing nodeCard or duplicating its dimension logic. Always covers survivors too
   // (dimensions are needed to compute their exact bottom/left edge, not just their center).
   // An expanded survivor reports its real box (and center), so additions land below what is on screen.
-  const placementFor=(ids:string[]):Record<string,PlacementDims>|undefined=>{
+  const placementFor=(ids:string[],targetScope:ScopeSelection=scope):Record<string,PlacementDims>|undefined=>{
     if(!graph)return undefined;
-    const all=new Map(graph.nodes.map(n=>[n.id,n]));
-    const out:Record<string,PlacementDims>={};
-    for(const id of ids){
-      const n=all.get(id);if(!n)continue;
-      const box=geometry.boxes[id];
-      out[id]=box?{width:box.x2-box.x1,height:box.y2-box.y1,name:n.qualifiedName||n.simpleName,center:{x:(box.x1+box.x2)/2,y:(box.y1+box.y2)/2}}:{...cardSizeOf(n),name:n.qualifiedName||n.simpleName};
-    }
-    return out;
+    // The current journey keeps cards from the hidden presentation parked in the same geometry.
+    // They are absent from `graph`, but still occupy the map and may enlarge a shared expanded
+    // card. This is deliberately symmetric: ordinary-only cards stay parked while Changes is on,
+    // just as review-only cards do while it is off.
+    const parkedGraph=active.present.review?mapGraph||undefined:reviewComparison.graph||undefined;
+    return placementForGraphs(graph,viewState,targetScope,kind,ids,parkedGraph);
   };
   const node=graph&&viewState.inspectedKind==='NODE'&&viewState.inspectedSubjectId?graph.nodes.find(n=>n.id===viewState.inspectedSubjectId)||null:null;
   // In review mode, a card/route carries only its display ID (keyed on the comparison, not the
@@ -213,7 +187,10 @@ export default function App() {
   // The one source of card dimensions for placement, arrangement, expansion and rendering alike.
   const cardSizeOf=(n:AtlasNode):CardSize=>sizes[n.id]||defaultCardSize(n);
   const containerSizes=useMemo(()=>{const out:Record<string,CardSize>={};for(const [id,e] of Object.entries(expansions))if(e.minSize)out[id]=e.minSize;return out;},[expansions]);
-  function handleCameraChange(camera:Camera,initial=false){dispatchView({type:'SET_CAMERA',level,camera,generation:viewState.generation},initial);}
+  function handleCameraChange(camera:Camera,initial=false,transient=false){
+    const action={type:'SET_CAMERA' as const,level,camera,generation:viewState.generation};
+    if(transient)journeys.setTransientCamera(action);else dispatchView(action,initial);
+  }
   function handleNodeMoved(id:string,position:Point,containerId:string|null){dispatchView({type:'NODE_MOVED',level,id,position,containerId,generation:viewState.generation});}
   function handleNodesMoved(moves:{id:string;position:Point;containerId:string|null}[]){dispatchView({type:'NODES_MOVED',level,moves,generation:viewState.generation});}
   const expansionInput=useMemo(()=>({expansions:Object.entries(expansions).map(([id,e])=>({id,ownerId:e.ownerId})),scope}),[expansions,scope]);
@@ -221,28 +198,14 @@ export default function App() {
   // Model positions for every visible card (children of expanded cards included) and the derived box
   // of every expanded card. A child with no stored position yet (it entered scope while its container
   // was open) is placed below its placed siblings, deterministically, until it is first moved.
+  // Keep the live canvas and asynchronous review admissions on the same geometry path. In
+  // particular, an expanded card is placed using its derived compound box (including a user
+  // minimum size), rather than its stale ordinary card dimensions.
   const geometry=useMemo(()=>{
-    const positions:Record<string,Point>={...levelGeometry.positions};
-    const boxes:Record<string,Box>={};
-    const kids=new Map<string,AtlasNode[]>();
-    for(const n of projected.nodes)if(n.containerId){const list=kids.get(n.containerId);if(list)list.push(n);else kids.set(n.containerId,[n]);}
-    for(const n of projected.nodes){
-      if(!n.expanded)continue;
-      const stored=expansions[n.id]?.childPositions||{},children=kids.get(n.id)||[];
-      const size=cardSizeOf(n),center=positions[n.id]||{x:0,y:0};
-      const placed=children.filter(c=>stored[c.id]).map(c=>({id:c.id,...cardSizeOf(c),...stored[c.id]}));
-      Object.assign(positions,stored,placeMissingChildren({x:center.x-size.width/2,y:center.y-size.height/2},placed,children.filter(c=>!stored[c.id]).map(c=>({id:c.id,...cardSizeOf(c)}))));
-    }
-    // Innermost containers first, so an outer box wraps an inner expanded card's box, not its old card.
-    for(const n of [...projected.nodes].reverse()){
-      if(!n.expanded)continue;
-      const childBoxes=(kids.get(n.id)||[]).map(c=>boxes[c.id]||boxOfCard({id:c.id,...cardSizeOf(c),...positions[c.id]}));
-      const box=containerBox(childBoxes,expansions[n.id]?.minSize||null);
-      if(box)boxes[n.id]=box;
-    }
-    return {positions,boxes};
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[projected.nodes,levelGeometry.positions,expansions,sizes]);
+    if(!graph)return {positions:{} as Record<string,Point>,boxes:{} as Record<string,Box>};
+    const derived=geometryForJourney(graph,viewState,scope,kind,projected);
+    return {positions:derived.positions,boxes:derived.boxes};
+  },[graph,level,displayedIds,projected,levelGeometry.positions,expansions,sizes,scope,kind]);
   // An inspected aggregate edge must survive a relationship-filter change that excludes its kind
   // (Step 4, Appendix F3): its identity is resolved independently of the currently filtered
   // `projected.edges` by also checking an unfiltered ('ALL') projection of the same displayed page.
@@ -394,7 +357,7 @@ export default function App() {
         if(editing)return; // native text-field undo/redo owns the field
         e.preventDefault();journeys.command({type:e.key.toLowerCase()==='y'||e.shiftKey?'REDO':'UNDO'});
       }else if(e.key==='Escape'&&!source){
-        if(active.present.fullscreen&&!active.present.view.inspectedSubjectId&&!active.present.multiIds.length)journeys.set('fullscreen',false);
+        if(active.present.fullscreen&&!active.present.view.inspectedSubjectId&&!active.present.multiIds.length)journeys.setTransient('fullscreen',false);
         clearSelection();setSearch('');
       }
     };
@@ -612,9 +575,19 @@ export default function App() {
     for(const lvl of (['PACKAGE','CLASS','METHOD'] as Level[])) if(lvl!==level) otherLevels[lvl]=getEligibleIds(graph,lvl,next);
     // Every expanded card, on any level, learns which of its children are still in scope.
     const all=new Map(graph.nodes.map(n=>[n.id,n]));
+    // Scope reconciliation retains eligible cards from the hidden graph in either direction.
+    const parkedGraph=active.present.review?mapGraph:reviewComparison.graph;
+    const parkedAll=parkedGraph&&new Map(parkedGraph.nodes.map(n=>[n.id,n]));
     const expansionChildren:Record<string,string[]>={};
-    for(const lvl of (['PACKAGE','CLASS','METHOD'] as Level[]))for(const id of Object.keys(viewState.levelViews[lvl].expansions)){const n=all.get(id);if(n&&!expansionChildren[id])expansionChildren[id]=childrenOf(graph,n,next,all).map(c=>c.id);}
-    dispatchView({type:'SCOPE_UPDATED',eligibleIds:ids,explicitClassAddId,batchSize:level==='PACKAGE'?Infinity:BATCH_SIZE,placement:placementFor(ids),otherLevels,expansionChildren,preserveReviewOnly:!active.present.review});
+    for(const lvl of (['PACKAGE','CLASS','METHOD'] as Level[]))for(const id of Object.keys(viewState.levelViews[lvl].expansions)){
+      const n=all.get(id),parked=parkedAll?.get(id);
+      expansionChildren[id]=[...new Set([...(n?childrenOf(graph,n,next,all).map(c=>c.id):[]),...(parked&&parkedAll?childrenOf(parkedGraph!,parked,next,parkedAll).map(c=>c.id):[])])];
+    }
+    const parkedByLevel:Partial<Record<Level,string[]>>={};
+    if(parkedGraph) for(const lvl of (['PACKAGE','CLASS','METHOD'] as Level[])) parkedByLevel[lvl]=eligibleByLevel(parkedGraph,next,lvl);
+    const reviewOnlyByLevel:Partial<Record<Level,string[]>>={};
+    if(!active.present.review&&reviewComparison.graph) for(const lvl of (['PACKAGE','CLASS','METHOD'] as Level[])) reviewOnlyByLevel[lvl]=reviewOnly(parkedByLevel[lvl]||[]);
+    dispatchView({type:'SCOPE_UPDATED',eligibleIds:ids,explicitClassAddId,batchSize:level==='PACKAGE'?Infinity:BATCH_SIZE,placement:placementFor(ids,next),otherLevels,expansionChildren,preserveReviewOnly:!active.present.review,reviewOnlyIds:reviewOnlyByLevel[level],otherReviewOnlyIds:reviewOnlyByLevel,parkedIds:parkedByLevel[level],otherParkedIds:parkedByLevel});
   }
   function resetScope(){handleScopeChange(wholeSystemScope());}
   // Removes one or many map cards from scope as a single scope edit: folding every removal into one
@@ -663,34 +636,61 @@ export default function App() {
   function buildFreshJourney(review:boolean):Journey{
     return {...newJourney(initialViewFor(review)),review,reviewKey:review?reviewComparison.reviewKey:null,reviewTouched:review};
   }
-  /** Keep review-only top-level resources in the shared page cache. Ordinary projection ignores the
-   * synthetic IDs while review projection can draw them, so returning from Changes keeps their
-   * positions available without maintaining a second parked map. */
-  function withReviewResources(j:Journey, reviewGraph:AtlasGraph):Journey {
-    const targetLevel=j.view.activeLevel, levelView=j.view.levelViews[targetLevel];
-    const eligible=rankEligibleIds(reviewGraph,targetLevel,getEligibleIds(reviewGraph,targetLevel,j.scope));
-    const additions=eligible.filter(id=>id.startsWith('review-node:')&&!levelView.displayedIds.includes(id));
-    if(!additions.length)return j;
-    const reviewGeometry=geometryForJourney(reviewGraph,j.view,j.scope,j.kind);
-    const ordinaryGeometry=mapGraph?geometryForJourney(mapGraph,j.view,j.scope,j.kind):reviewGeometry;
-    const placement:Record<string,PlacementDims>={};
-    for(const id of [...levelView.displayedIds,...additions]){
-      const n=reviewGraph.nodes.find(item=>item.id===id);if(!n)continue;
-      const box=reviewGeometry.boxes[id]||ordinaryGeometry.boxes[id],size=box?{width:box.x2-box.x1,height:box.y2-box.y1}:levelView.sizes[id]||defaultCardSize(n),center=box?{x:(box.x1+box.x2)/2,y:(box.y1+box.y2)/2}:reviewGeometry.positions[id]||ordinaryGeometry.positions[id];
-      placement[id]={...size,name:n.qualifiedName||n.simpleName,...(center?{center}:{})};
-    }
-    const view=explorerViewReducer(j.view,{type:'REVIEW_IDS_AVAILABLE',level:targetLevel,ids:additions,placement});
-    return view===j.view?j:{...j,view};
+  const reviewOnly = (ids:string[]) => ids.filter(id=>id.startsWith('review-node:'));
+  const eligibleByLevel = (g:AtlasGraph,scope:ScopeSelection,lvl:Level) => rankEligibleIds(g,lvl,getEligibleIds(g,lvl,scope));
+  /** Scope-filtered cards from the hidden graph stay parked while the active tab shows the other
+   * graph. This includes ordinary IDs that have no comparison row, which are the cards whose
+   * geometry would otherwise be pruned on entry to Changes. */
+  const parkedIdsFor = (lvl:Level,s:ScopeSelection=scope) => {
+    const hidden=active.present.review?mapGraph:reviewComparison.graph;
+    return hidden ? eligibleByLevel(hidden,s,lvl) : undefined;
+  };
+
+  /** Build placement records from the same derived boxes used by the live canvas. An expanded
+   * card's record therefore carries its actual compound dimensions and center, including a stored
+   * minimum size, so a newly admitted review card is appended below what the user can see. */
+  function placementForJourney(g:AtlasGraph,j:Journey,ids:string[],parkedGraph?:AtlasGraph):Record<string,PlacementDims> {
+    return placementForGraphs(g,j.view,j.scope,j.kind,ids,parkedGraph);
   }
-  /** An aggregate route's ID includes review status, so it cannot survive a mode switch by value.
-   * Clear that one stale inspection explicitly; node IDs aligned by reviewModel remain selected. */
-  function prepareReviewToggle(j:Journey,on:boolean,reviewKey:string|null,reviewGraph?:AtlasGraph):Journey {
-    let next=on&&reviewGraph?withReviewResources(j,reviewGraph):j;
-    const inspected=next.view.inspectedSubjectId;
-    const nodeStillExists=!inspected||!mapGraph||mapGraph.nodes.some(n=>n.id===inspected);
-    if(inspected&&(next.view.inspectedKind==='EDGE'||(!on&&!nodeStillExists))){
-      next={...next,view:explorerViewReducer(next.view,{type:'CLEAR_INSPECTION'})};
+
+  /** Scope-aware expansion children for every cached level. Unknown review containers receive an
+   * empty list so recapture/mode changes prune their stale child positions and minimum boxes. */
+  function expansionChildrenFor(g:AtlasGraph,j:Journey,parkedGraph?:AtlasGraph):Record<string,string[]> {
+    const all=new Map(g.nodes.map(n=>[n.id,n])),parkedAll=parkedGraph&&new Map(parkedGraph.nodes.map(n=>[n.id,n])),out:Record<string,string[]>={};
+    for(const lvl of (['PACKAGE','CLASS','METHOD'] as Level[])) for(const id of Object.keys(j.view.levelViews[lvl].expansions)){
+      const n=all.get(id),parked=parkedAll?.get(id);
+      out[id]=[...new Set([...(n?childrenOf(g,n,j.scope,all).map(c=>c.id):[]),...(parked&&parkedAll?childrenOf(parkedGraph!,parked,j.scope,parkedAll).map(c=>c.id):[])])];
     }
+    return out;
+  }
+
+  /** Reconcile one journey against the graph it is about to render without replacing its saved
+   * geometry. Existing eligible IDs retain their order/positions; only newly admitted IDs are
+   * placed by the reducer. In map mode review-only IDs are parked only while they remain eligible
+   * in the current comparison, so an ordinary scope edit cannot resurrect an excluded resource. */
+  function reconcileJourneyGraph(j:Journey,targetGraph:AtlasGraph,targetIsReview:boolean,reviewGraph?:AtlasGraph):Journey {
+    const levels=(['PACKAGE','CLASS','METHOD'] as Level[]);
+    const eligible=Object.fromEntries(levels.map(l=>[l,eligibleByLevel(targetGraph,j.scope,l)])) as Record<Level,string[]>;
+    const parkedGraph=targetIsReview?mapGraph||undefined:reviewGraph;
+    const parkedByLevel:Partial<Record<Level,string[]>>={};
+    if(parkedGraph) for(const l of levels) parkedByLevel[l]=eligibleByLevel(parkedGraph,j.scope,l);
+    const reviewOnlyByLevel:Partial<Record<Level,string[]>>={};
+    if(!targetIsReview&&reviewGraph) for(const l of levels) reviewOnlyByLevel[l]=reviewOnly(parkedByLevel[l]||[]);
+    const activeLevel=j.view.activeLevel;
+    const view=explorerViewReducer(j.view,{type:'SCOPE_UPDATED',eligibleIds:eligible[activeLevel],batchSize:activeLevel==='PACKAGE'?Infinity:REVIEW_BATCH_SIZE,placement:placementForJourney(targetGraph,j,eligible[activeLevel],parkedGraph),otherLevels:Object.fromEntries(levels.filter(l=>l!==activeLevel).map(l=>[l,eligible[l]])) as Partial<Record<Level,string[]>>,expansionChildren:expansionChildrenFor(targetGraph,j,parkedGraph),preserveReviewOnly:!targetIsReview,reviewOnlyIds:reviewOnlyByLevel[activeLevel],otherReviewOnlyIds:reviewOnlyByLevel,parkedIds:parkedByLevel[activeLevel],otherParkedIds:parkedByLevel});
+    return revalidateJourney({ ...j, view },targetGraph,targetIsReview);
+  }
+
+  /** Comparison-aware identity cleanup; ordinary recapture keeps ordinary edge/source state. */
+  function revalidateJourney(j:Journey,targetGraph:AtlasGraph,targetIsReview:boolean):Journey {
+    return revalidateJourneyState(j,targetGraph,targetIsReview);
+  }
+
+  function prepareReviewToggle(j:Journey,on:boolean,reviewKey:string|null,reviewGraph?:AtlasGraph):Journey {
+    const target=on?reviewGraph:mapGraph;
+    const comparison=reviewGraph||reviewComparison.graph||undefined;
+    if(!target)return toggleJourneyReview(j,on,reviewKey);
+    const next=reconcileJourneyGraph(j,target,on,comparison);
     return toggleJourneyReview(next,on,reviewKey);
   }
   function toggleChanges(){
@@ -722,13 +722,14 @@ export default function App() {
   function recompare(){
     reviewComparison.load().then(result=>{
       if(result){
-        // Admit newly introduced review-only cards into every open review tab before the shared
-        // history is invalidated. Closed tabs are pruned by REVIEW_RECAPTURED and can admit cards
-        // when they next toggle/reopen.
-        for(const tabState of journeys.state.tabs.filter(tabState=>tabState.present.review)){
-          journeys.updateTab(tabState.id,j=>({...withReviewResources(j,result.graph),reviewKey:result.reviewKey}));
-        }
-        journeys.command({type:'REVIEW_RECAPTURED',reviewKey:result.reviewKey,reviewIds:result.graph.nodes.filter(n=>n.id.startsWith('review-node:')).map(n=>n.id)});
+        // Reconciliation is part of the recapture command itself. The reducer applies it to every
+        // open and recently closed tab that ever touched review, so a closed review tab cannot
+        // reopen with the old comparison's scope, selection or parked resources.
+        const reviewIds=result.graph.nodes.filter(n=>n.id.startsWith('review-node:')).map(n=>n.id);
+        journeys.command({type:'REVIEW_RECAPTURED',reviewKey:result.reviewKey,reviewIds,reconcile:j=>{
+          const target=j.review?result.graph:mapGraph;
+          return target?reconcileJourneyGraph(j,target,j.review,result.graph):j;
+        }});
       }
     });
   }
@@ -824,16 +825,16 @@ export default function App() {
       <section className="workspace-content">
         {tab==='context'&&workspace?<ProjectDocuments key={workspace.id} workspaceId={workspace.id} onChanged={()=>setRevision(r=>r+1)}/>:tab==='routes'?<section className="entry-view"><div className="page-heading"><div><h1>Start with a request</h1><p>Follow an HTTP entry point into its handler and dependencies.</p></div></div>{routes.length?routes.map(r=>{const handler=graph.nodes.find(n=>n.id===r.symbol_version_id);return <button className="route-card" key={r.id} onClick={()=>{if(handler)(handler.kind==='PACKAGE'?viewClasses:expandToReveal)(handler);}}><span className="tag">{r.http_method}</span><strong>{r.path}</strong><span>{handler?.simpleName||r.handler_qualified}</span><span>Explore ↗</span></button>;}):<div className="empty-state"><h2>No HTTP routes found</h2><p>Explore packages and classes to find this application's entry points.</p><button onClick={openCodeMap}>Open code map</button></div>}</section>:<>
           <div className={`map-heading${headingCollapsed?' collapsed':''}`} onWheel={onHeadingWheel}>
-          <div className="map-heading-collapsible" inert={headingCollapsed} aria-hidden={headingCollapsed}><div className="breadcrumbs"><button onClick={openCodeMap}>{scopeCrumb}</button><span>/</span><span className="breadcrumb-level">{levelWord}</span>{node&&<><span>/</span><button onClick={()=>select(node)}>{node.simpleName}</button></>}</div><div className="page-heading"><div><h1>{node?node.simpleName:'Understand the whole system'}</h1><p>{node?'Follow the relationships around this part of the codebase.':`${typeCount} types across ${packages.length} packages. Choose a starting point.`}</p></div><button onClick={()=>{const entry=viewState.history[viewState.history.length-1];if(entry)dispatchView({type:'NAVIGATE_BACK',eligibleIds:eligibleFor(entry.level),preserveReviewOnly:!active.present.review});}} disabled={!viewState.history.length}>← Back</button></div></div>
+          <div className="map-heading-collapsible" inert={headingCollapsed} aria-hidden={headingCollapsed}><div className="breadcrumbs"><button onClick={openCodeMap}>{scopeCrumb}</button><span>/</span><span className="breadcrumb-level">{levelWord}</span>{node&&<><span>/</span><button onClick={()=>select(node)}>{node.simpleName}</button></>}</div><div className="page-heading"><div><h1>{node?node.simpleName:'Understand the whole system'}</h1><p>{node?'Follow the relationships around this part of the codebase.':`${typeCount} types across ${packages.length} packages. Choose a starting point.`}</p></div><button onClick={()=>{const entry=viewState.history[viewState.history.length-1];if(entry)dispatchView({type:'NAVIGATE_BACK',eligibleIds:eligibleFor(entry.level),preserveReviewOnly:!active.present.review,reviewOnlyIds:active.present.review?undefined:reviewOnly(parkedIdsFor(entry.level)||[]),parkedIds:parkedIdsFor(entry.level)});}} disabled={!viewState.history.length}>← Back</button></div></div>
           <div className="graph-toolbar"><select aria-label="Relationship kind" value={kind} onChange={e=>setKind(e.target.value)}><option value="ALL">All dependencies</option>{[...new Set(graph.edges.map(e=>e.kind))].sort().map(k=><option key={k} value={k}>{k.toLowerCase().replaceAll('_',' ')}</option>)}</select>
             {workspace&&<div className="review-controls"><button className={`review-toggle${active.present.review?' active':''}`} aria-pressed={active.present.review} disabled={reviewComparison.loading} onClick={toggleChanges} title="Show Base + changes: amber changed cards, green added routes, red removed routes">{reviewComparison.loading?'Comparing…':active.present.review?'✓ Changes':'Changes'}</button><details className="review-options"><summary aria-label="Review comparison options">▾</summary><div><label>Base revision<input value={reviewComparison.baseRef} onChange={e=>reviewComparison.setBaseRef(e.target.value)} placeholder="Default merge base, or origin/main"/></label><button className="primary full-width" type="button" disabled={reviewComparison.loading} onClick={recompare}>{reviewComparison.loading?'Comparing…':'Recompare'}</button>{reviewComparison.review&&<p className="muted">Comparing against <code>{reviewComparison.review.base.resolvedRef||reviewComparison.review.base.requestedRef||'merge base'}</code></p>}{reviewComparison.review?.base.warning&&<p className="notice">{reviewComparison.review.base.warning}</p>}{reviewComparison.error&&<p className="notice" role="alert">{reviewComparison.error}</p>}</div></details></div>}
           </div>
-          <div className="map-heading-collapsible" inert={headingCollapsed} aria-hidden={headingCollapsed}><div className="scope-banner"><span className="scope-banner-icon" aria-hidden="true">{scope.mode==='ALL'?'◈':'⌖'}</span><div className="scope-banner-text"><strong>{graph?scopeToLabel(graph,scope):''}</strong><span>Showing {levelWord.toLowerCase()} · {scopedCount} {levelWord.toLowerCase()}{scope.mode!=='ALL'?` in ${scopeUnitLabel()}`:''}</span></div><div className="scope-banner-actions">{node&&<span className="tag inspecting-chip">Inspecting {node.simpleName}</span>}{edge&&!node&&<span className="tag inspecting-chip">Inspecting a relationship</span>}{viewState.newlyAddedIds.length>0&&displayedIds.length>viewState.newlyAddedIds.length&&<span className="tag added-below-chip">{viewState.newlyAddedIds.length} added below</span>}{omittedCount>0&&<button className="show-more" onClick={()=>{const ids=eligibleFor(level);dispatchView({type:'SHOW_MORE',eligibleIds:ids,batchSize:BATCH_SIZE,placement:placementFor(ids),preserveReviewOnly:!active.present.review});}}>Showing {visibleCount} of {scopedCount} in scope · show {Math.min(BATCH_SIZE,omittedCount)} more</button>}{scope.mode==='CUSTOM'&&<button className="text-button" onClick={resetScope}>Reset to whole system</button>}</div></div></div>
+          <div className="map-heading-collapsible" inert={headingCollapsed} aria-hidden={headingCollapsed}><div className="scope-banner"><span className="scope-banner-icon" aria-hidden="true">{scope.mode==='ALL'?'◈':'⌖'}</span><div className="scope-banner-text"><strong>{graph?scopeToLabel(graph,scope):''}</strong><span>Showing {levelWord.toLowerCase()} · {scopedCount} {levelWord.toLowerCase()}{scope.mode!=='ALL'?` in ${scopeUnitLabel()}`:''}</span></div><div className="scope-banner-actions">{node&&<span className="tag inspecting-chip">Inspecting {node.simpleName}</span>}{edge&&!node&&<span className="tag inspecting-chip">Inspecting a relationship</span>}{viewState.newlyAddedIds.length>0&&displayedIds.length>viewState.newlyAddedIds.length&&<span className="tag added-below-chip">{viewState.newlyAddedIds.length} added below</span>}{omittedCount>0&&<button className="show-more" onClick={()=>{const ids=eligibleFor(level);dispatchView({type:'SHOW_MORE',eligibleIds:ids,batchSize:BATCH_SIZE,placement:placementFor(ids),preserveReviewOnly:!active.present.review,reviewOnlyIds:active.present.review?undefined:reviewOnly(parkedIdsFor(level)||[]),parkedIds:parkedIdsFor(level)});}}>Showing {visibleCount} of {scopedCount} in scope · show {Math.min(BATCH_SIZE,omittedCount)} more</button>}{scope.mode==='CUSTOM'&&<button className="text-button" onClick={resetScope}>Reset to whole system</button>}</div></div></div>
           <button className="map-heading-grip" type="button" aria-expanded={!headingCollapsed} aria-label={headingCollapsed?'Expand map heading':'Collapse map heading'} onPointerDown={startHeadingDrag} onClick={toggleHeadingCollapsed}/>
           </div>
           {scopeEmpty
             ? <div className="scope-empty-state"><h2>No packages or classes selected</h2><p>Check packages or classes in the left tree to define what the graph shows.</p><button className="primary" onClick={resetScope}>Select all</button></div>
-            : <GraphCanvas multiIds={active.present.multiIds} onMultiIdsChange={v=>journeys.set('multiIds',v)} mapOpen={active.present.mapOpen} onMapOpenChange={v=>journeys.set('mapOpen',v)} fullscreen={active.present.fullscreen} onFullscreenChange={v=>journeys.set('fullscreen',v)} onClearSelection={clearSelection} nodes={projected.nodes} edges={projected.edges} positions={geometry.positions} sizes={sizes} containerSizes={containerSizes} onToggleExpand={toggleExpand} onResizeNode={resizeNode} onResizeContainer={resizeContainer} camera={levelGeometry.camera} selectedId={node?.id||edge?.id} onNodeSelect={select} onEdgeSelect={inspectEdge} canRemoveFromScope={n=>isNodeInScope(n,scope,graph)} onRemoveFromScope={removeFromScope} scopeRemovalTargets={nodes=>planScopeRemoval(nodes).removed} onCameraChange={handleCameraChange} onNodeMoved={handleNodeMoved} onNodesMoved={handleNodesMoved} onArrangeAroundResource={id=>{
+            : <GraphCanvas multiIds={active.present.multiIds} onMultiIdsChange={v=>journeys.set('multiIds',v)} mapOpen={active.present.mapOpen} onMapOpenChange={v=>journeys.setTransient('mapOpen',v)} fullscreen={active.present.fullscreen} onFullscreenChange={v=>journeys.setTransient('fullscreen',v)} onClearSelection={clearSelection} nodes={projected.nodes} edges={projected.edges} positions={geometry.positions} sizes={sizes} containerSizes={containerSizes} onToggleExpand={toggleExpand} onResizeNode={resizeNode} onResizeContainer={resizeContainer} camera={levelGeometry.camera} selectedId={node?.id||edge?.id} onNodeSelect={select} onEdgeSelect={inspectEdge} canRemoveFromScope={n=>isNodeInScope(n,scope,graph)} onRemoveFromScope={removeFromScope} scopeRemovalTargets={nodes=>planScopeRemoval(nodes).removed} onCameraChange={handleCameraChange} onNodeMoved={handleNodeMoved} onNodesMoved={handleNodesMoved} onArrangeAroundResource={id=>{
               if(reclickTimer.current){clearTimeout(reclickTimer.current);reclickTimer.current=null;}
               const p=pendingInspectRef.current;
               const collapse=!!p&&p.tabId===active.id&&p.nodeId===id&&Date.now()-p.ts<500;

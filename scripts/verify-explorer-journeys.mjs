@@ -154,8 +154,9 @@ check('scope removal hides package and expanded children', !(await geometryState
 await undo();await checkGeometry('undo scope edit restores expanded children and positions',beforeScope);
 
 await clickSelector('.minimap-title');
-check('map overview collapse is recorded',await evaluate(`document.querySelector('.minimap').classList.contains('collapsed')`));
-await undo();check('undo restores map overview',await evaluate(`!document.querySelector('.minimap').classList.contains('collapsed')`));
+check('map overview can collapse',await evaluate(`document.querySelector('.minimap').classList.contains('collapsed')`));
+await clickSelector('.minimap-title');
+check('map overview can reopen without history',await evaluate(`!document.querySelector('.minimap').classList.contains('collapsed')`));
 
 // Multi-selection and inspection clear together as one keyboard action.
 await evaluate(`${CY}.getElementById('${leaf.id}').emit({type:'tap',originalEvent:{ctrlKey:true}});0`);await pause(350);
@@ -174,11 +175,14 @@ await redo();check('reopen retains redo history',await selected()===null && awai
 await clickSelector('[aria-label="Full screen"]');
 check('full screen opens',await evaluate(`!!document.querySelector('.graph-stage.fullscreen')`));
 await key('z',2);
-check('undo exits full screen',await evaluate(`!document.querySelector('.graph-stage.fullscreen')`));
+check('undo ignores full screen',await evaluate(`!!document.querySelector('.graph-stage.fullscreen')`));
 await key('z',10);
-check('redo restores full screen',await evaluate(`!!document.querySelector('.graph-stage.fullscreen')`));
-await clickSelector('.minimap-title');await key('z',2);
-check('undo inside full screen preserves full screen and overview',await evaluate(`!!document.querySelector('.graph-stage.fullscreen')&&!document.querySelector('.minimap').classList.contains('collapsed')`));
+check('redo ignores full screen',await evaluate(`!!document.querySelector('.graph-stage.fullscreen')`));
+await clickSelector('.minimap-title');
+const zoomBefore=await camera();await clickSelector('[aria-label="Zoom in"]');const zoomIn=await camera();await clickSelector('[aria-label="Zoom out"]');const zoomOut=await camera();await key('z',2);
+check('view-only map controls stay current through undo',await evaluate(`!!document.querySelector('.graph-stage.fullscreen')&&document.querySelector('.minimap').classList.contains('collapsed')`)&&Math.abs((await camera()).z-zoomOut.z)<.001);
+check('one zoom-in click is three former 1.2x steps',Math.abs(zoomIn.z-zoomBefore.z*(1.2**3))<.001,{before:zoomBefore.z,after:zoomIn.z});
+check('one zoom-out click is the reciprocal three-step change',Math.abs(zoomOut.z-zoomIn.z/(1.2**3))<.001,{before:zoomIn.z,after:zoomOut.z});
 if(await evaluate(`!!document.querySelector('[aria-label="Exit full screen"]')`))await clickSelector('[aria-label="Exit full screen"]');
 await shot('journeys-desktop');
 

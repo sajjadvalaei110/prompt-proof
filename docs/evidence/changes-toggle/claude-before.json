@@ -1,0 +1,21 @@
+{
+  "description": "New Claude regression assertions against the pre-fix packaged application",
+  "run": "build/git-review/run-hyaoyyvm",
+  "passed": 33,
+  "total": 36,
+  "failed": [
+    {
+      "label": "entering Changes closes an open ordinary symbol source dialog",
+      "pass": false
+    },
+    {
+      "label": "Recompare preserves ordinary relationship inspection",
+      "pass": false
+    },
+    {
+      "label": "Recompare preserves an open ordinary relationship source dialog",
+      "pass": false
+    }
+  ],
+  "pageErrors": []
+}
