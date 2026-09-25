@@ -72,9 +72,9 @@ public class ReviewService {
             }
             String capturedAt = Instant.now().toString();
             baseSnapshot = createSnapshot(workspaceId, "REVIEW_BASE", "base=" + base.oid());
-            analysis.runReviewAnalysis(workspaceId, baseSnapshot, capture.resolve("base"));
+            analysis.runReviewAnalysis(workspaceId, baseSnapshot, capture.resolve("base"), repo);
             headSnapshot = createSnapshot(workspaceId, "REVIEW_HEAD", "head=" + headCapture.headOid() + ";fingerprint=" + frozenInput);
-            analysis.runReviewAnalysis(workspaceId, headSnapshot, capture.resolve("head"));
+            analysis.runReviewAnalysis(workspaceId, headSnapshot, capture.resolve("head"), repo);
             diagnostics.addAll(snapshotDiagnostics(baseSnapshot, "BASE"));
             diagnostics.addAll(snapshotDiagnostics(headSnapshot, "HEAD"));
             Comparison comparison = compare(baseSnapshot, headSnapshot, hunks, diagnostics);

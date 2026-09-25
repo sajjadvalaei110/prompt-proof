@@ -165,3 +165,15 @@ review data when switching shared elements back to ordinary styling.
 A toggle remains one undoable action. Recompare invalidates history that refers to
 the superseded capture and reconciles review state for open and closed tabs.
 No model call, backend schema change, or target-repository execution is introduced.
+
+### Amendment (2026-09-25): source roots follow the workspace layout
+
+A capture is analyzed from `capture-*/base` and `capture-*/head`, but the symbol solver's source
+roots were found by matching absolute paths against `src/main/java` / `src/test/java`. For a
+repository whose root is itself a `src` directory, the ordinary analysis matched `main/java`
+through the root's own name and the captures did not, so the solver saw no in-source types in
+review and facts that need it (for example `DeveloperWorkflowTest -> ExplanationResponse`,
+a DEPENDS_ON inferred from a call chain) vanished in Changes mode. `runReviewAnalysis` now takes
+the workspace root, and `JavaParserAdapter.setupSymbolSolver(capturedRoot, workspaceRoot)` matches
+each capture directory as if it were laid out under the workspace root, so both sides find the
+same source roots as the ordinary analysis. Ordinary analysis is unchanged.

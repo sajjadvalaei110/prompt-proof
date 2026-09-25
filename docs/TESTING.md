@@ -7,6 +7,11 @@ Git fixtures are `GitReviewBoundaryTest` and `ReviewApiIntegrationTest`: real lo
 repositories cover upstream merge bases, staged/unstaged/untracked content, raw
 filter-free reads, binary files, retained source, line counts, repeated call sites,
 partial parsing, failure cleanup and preservation of the active analysis snapshot.
+`ReviewSourceRootParityTest` (2026-09-25) pins that the review captures find the same source roots
+as the ordinary analysis: for a repository rooted at a `src` directory (`main/java`, `test/java`),
+a cross-file resolved CALLS and a DEPENDS_ON inferred from a call chain's receiver type exist on
+the ordinary map, on both review sides and as UNCHANGED comparison rows (the user's vanishing
+`DeveloperWorkflowTest -> ExplanationResponse` edge).
 `node scripts/test-review-model.mjs` checks frontend side and occurrence identities,
 ordinary-map display alignment, duplicate declarations and ambiguous ancestors.
 `node scripts/test-review-placement.mjs` exercises the shared geometry helper and

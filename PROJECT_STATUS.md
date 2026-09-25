@@ -1,7 +1,9 @@
 # Project status
 Last updated: 2026-09-25
 Active milestone: R6 — Developer comprehension redesign (in progress)
-Current revision: step 12 phases B/C review fixes (analyzer visibility and lexical-receiver rules,
+Current revision: step 12 follow-up (candidate calls reverted, uniform route colour, Changes-mode
+source-root fix), on top of
+step 12 phases B/C review fixes (analyzer visibility and lexical-receiver rules,
 ADR 0010 amendment; keyboard card menu and stack focus retention), on top of
 step 12 phase C (full outgoing journey from any root: candidate calls and
 OVERRIDES facts, ADR 0010; type targets, dispatch, card-hop layers and the beyond-the-map count in
@@ -21,6 +23,112 @@ toggle with a git-style diff code viewer, exploration tabs with per-tab undo/red
 and selection controls, the R6 change-edges slice (one line per direction,
 directional selection emphasis, file-grouped evidence), in-place card details
 (expand packages/classes) and resizable cards; Step 6A remains unstarted
+
+## Step 12 follow-up: candidate calls reverted, uniform route colour, Changes-mode edge fix (2026-09-25)
+
+Three user-directed changes on branch `worktree-step12-bc-review-fixes`, one commit each, plus this
+status/evidence commit.
+
+- **Task 1, candidate calls reverted (`9969ab3`).** User decision: the map read as mostly yellow,
+  because one CANDIDATE among a route's resolved occurrences turns the aggregate amber. ADR 0010 D1
+  is withdrawn (dated amendment "candidate calls reverted"); OVERRIDES (D3) is kept unchanged. A
+  call the solver cannot resolve is `CALLS/UNRESOLVED` again, with no target and reason "Static
+  target unavailable in indexed source". The post-pass is `linkOverrides` in `JavaParserAdapter`
+  and `AnalysisService`; `PendingCall`, the pending lists, `lexicalTypes`, `solved`,
+  `lexicalReceiver`, `hasMethodNamed`, `inAnonymousOrLocalClass`, `nestHostByType`, `opaqueTypes`,
+  `OBJECT_METHODS` and the unused `MethodFacts.varargs/privateMethod` are removed.
+  - Tests: `CandidateCallsAndOverridesTest` → `UnresolvedCallsAndOverridesTest` (14 tests: every
+    former candidate case asserts UNRESOLVED, no target, the reason, and no CALLS/CANDIDATE
+    anywhere; the OVERRIDES tests are unchanged). `CandidateAndOverrideEdgeCasesTest` →
+    `OverridesAndUnresolvedCallEdgeCasesTest` (11 tests): C1/C2/F1 kept; the C3 tests kept (they
+    already asserted UNRESOLVED); the C4 tests converted to "stays UNRESOLVED, no target", plus a
+    no-CALLS/CANDIDATE check. None dropped.
+  - `scripts/verify-outgoing-stack-ui.mjs` (still 81 checks): the fixture check now asserts the
+    controller call stays UNRESOLVED and no CALLS/CANDIDATE exists. Method root
+    `SignupController.register` is dto 1 only ("1 layer · 1 resource"; its only call is
+    unresolved). The dispatch and beyond-the-map checks, which are not about candidates, now start
+    from `SignupService.register(String,String)`, whose `notifier.send` call resolves: Notifier,
+    dto and domain 1, MailNotifier 2 through reversed OVERRIDES, and EventStore not reached. With
+    domain out of scope, the result is "2 layers · 3 resources · 1 beyond the map". Two methods are
+    named `register`, so that stack is started by `data-card-id`, after zooming in so the corner
+    buttons show. `outgoingStack.ts` and `scripts/test-outgoing-stack.mjs` are unchanged.
+  - Probe (packaged jar on 8097, the same fixture copies, hashed unchanged, 0 model requests):
+    microservice-java 36 unresolved, 0 CALLS CANDIDATE, 0 OVERRIDES; online-book-store 247
+    unresolved, 0 CALLS CANDIDATE, 29 OVERRIDES. These are the pre-phase-C unresolved counts.
+- **Task 2, uniform route colour (`2564e3f`).** User decision, recorded as a dated amendment to
+  ADR 0008. The `edge[resolution != "RESOLVED"]` rule in `GraphCanvas.tsx`, the "Candidate /
+  unresolved" legend sample and its CSS are removed. The legend line "Package connections group
+  occurrences by kind and resolution" was inaccurate: routes group by ordered endpoints, whatever
+  the kind or resolution. It became "Hover a line for its kinds and resolution". The hover text and
+  the inspector are untouched; so are the Changes `reviewChange` colours and the selection dashes.
+  No script asserted amber/dashed unresolved routes. The git-review UNKNOWN dotted check is change
+  status, so it stays.
+- **Task 3, Changes-mode vanishing edge (`b0bee6f`).** The user's workspace
+  `second-review-assist/src` is itself a Git repository rooted at a `src` directory, holding
+  `main/java` and `test/java`. It was copied with `.git` (`cp -a`) to
+  `$JOB/tmp/changes/user-src/src`. The original was never touched, and the copy is hashed unchanged
+  after every probe.
+  - Trace: on the ordinary map, `DeveloperWorkflowTest -> ExplanationResponse` is one class-level
+    `DEPENDS_ON/RESOLVED` fact. Its six sites (`explanations.getExplanationForSymbol(snap,run).status()`,
+    `response.status()`, ...) come from `receiverType`, which needs the symbol solver. Neither review
+    snapshot had it. Package route `workflow -> api.dto` was missing in Changes (41 of 42 routes),
+    and 539 ordinary facts were absent from the head side.
+  - Root cause: `setupSymbolSolver` recognized source roots by absolute paths ending in
+    `src/main/java` / `src/test/java`. The ordinary run matched `<root>/main/java` only because the
+    root's own name is `src`. Review captures live under `capture-*/base|head`, so no root matched,
+    the solver saw no in-source types, and every solver-dependent fact vanished. It was not the
+    identity pairing in `ReviewService` nor the frontend projection: the facts never existed in the
+    review snapshots.
+  - Fix: `runReviewAnalysis(..., workspaceRoot)` and `setupSymbolSolver(capturedRoot,
+    workspaceRoot)`, which match each captured directory as laid out under the workspace root.
+    Ordinary analysis is unchanged. Recorded as a dated amendment to ADR 0006.
+  - Test: `ReviewSourceRootParityTest` (temp-dir Git repo rooted at `project/src`). Red before the
+    fix: "review base" lacked `FlowTest.run() -> Service.get() CALLS RESOLVED` and
+    `FlowTest -> Response DEPENDS_ON RESOLVED`. Green after, with head facts equal to the ordinary
+    facts and every comparison row UNCHANGED.
+  - After the fix, on the user copy (data probe on 8097; 0 model requests): 0 ordinary facts
+    missing from the head side, package routes 42/42, and no class-level route missing. Live canvas
+    (`changes-ui.mjs`, jar on 8095, snap Chromium on 9333, both stopped after): package level 42
+    ordinary routes, all present and visible in Changes (47 with added/removed); class level 167,
+    all present and visible (174). No page errors.
+
+Checks (this entry's final tree):
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew test`: PASS, 21 classes, 150 tests, 0
+  failures (149 after task 1, +1 `ReviewSourceRootParityTest`).
+- `for t in scripts/test-*.mjs; do node "$t" >/dev/null && echo "PASS $t" || echo "FAIL $t"; done`:
+  12/12 PASS.
+- `cd frontend && npx tsc -b --force && npm run build`: PASS.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar`: PASS.
+- `git diff --check`: clean.
+- Browser suites, one at a time, each started fresh by `$JOB/tmp/isolated4.sh start` (jar on 8095
+  with its own data dir, model URL `http://127.0.0.1:9/v1`, snap Chromium on 9333, fixtures copied
+  and hashed); `stop` reported every fixture unchanged, 0 model requests and the ports free:
+  - `verify-outgoing-stack-ui.mjs`: 81/81 PASS (run `run-0l4y`). Its screenshots replace
+    `docs/evidence/outgoing-stack/`. 14, 15 and 16 were inspected: dto 1 only, with the unresolved
+    call listed in the inspector; Notifier, dto and domain 1, MailNotifier 2; "2 layers · 3
+    resources · 1 beyond the map"; the new legend. 07 (Changes mode) was inspected too: the
+    change fills and the green ADDED route colour are intact.
+  - `verify-explorer-journeys.mjs`: 51/51 PASS (run `run-NhOk`).
+  - `verify_git_review_pipeline.py` (`$JOB/tmp/run-git-review4.sh`): 41/41 PASS, 0 page errors,
+    source tree and Git index SHA-256 unchanged, no model requests. `01-ordinary-layout-before-changes`
+    (grey solid routes, new legend) and `02-changes-preserved-layout` (Changes fills and route
+    colours intact) were inspected.
+- The leftover `run-xkZA` jar and Chromium from the previous session were stopped through
+  `isolated4.sh stop` (fixtures unchanged). No other process was touched.
+- Rerun by the lead session on `072552a` before the Codex review handoff:
+  - `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew constrainedMemoryTest --no-daemon`: PASS,
+    `BoundedExplanationScaleTest` 1/1;
+  - `./gradlew test`: PASS, 21 classes, 150 tests, 0 failures;
+  - all 12 node suites: PASS;
+  - `npx tsc -b --force && npm run build`: PASS;
+  - `git diff --check 8f472f9 HEAD`: PASS.
+
+  The review brief is `/home/sajjad/prompts/step12/followup-ultrareview-codex.md`.
+- Not run: `verify_stable_graph_pipeline.py`, `verify_hierarchical_pipeline.py` and
+  `verify_change_edges_pipeline.py` were not in this task's check list, and the changes do not
+  touch their areas beyond the removed style rule. No browser check asserts
+  that an uncertain route is drawn in the ordinary colour, because no browser fixture draws a
+  non-RESOLVED route after the revert. The rule deletion is covered by inspection only.
 
 ## Step 12 phases B/C review fixes (2026-09-25)
 

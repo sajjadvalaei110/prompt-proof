@@ -203,11 +203,13 @@ public class AnalysisService {
      * Indexes a private, already-captured source tree for a review.  This shares the parser lock with
      * ordinary analysis, but deliberately has no job, change detection, active-snapshot update, or
      * explanation invalidation.  The captured tree is owned by the application, never by the target repo.
+     * {@code workspaceRoot} is the workspace the tree was captured from; source roots are found by its layout.
      */
-    public synchronized void runReviewAnalysis(String workspaceId, String snapshotId, Path capturedRoot) {
+    public synchronized void runReviewAnalysis(String workspaceId, String snapshotId, Path capturedRoot, Path workspaceRoot) {
         try {
             List<File> javaFiles = discoveryService.discoverJavaFiles(capturedRoot.toFile());
-            parserAdapter.setupSymbolSolver(capturedRoot.toString());
+            // Source roots follow the workspace's own layout, as in the ordinary analysis of the same tree.
+            parserAdapter.setupSymbolSolver(capturedRoot.toString(), workspaceRoot);
             List<SpringAnnotationAnalyzer.SpringAnalysisResult> springResults = new ArrayList<>();
             List<File> declarationFiles = new ArrayList<>();
             for (File file : javaFiles) {

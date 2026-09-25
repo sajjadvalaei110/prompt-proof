@@ -46,18 +46,29 @@ public class JavaParserAdapter {
     public void addDiagnostic(String message) { diagnostics.add(message); }
     public JavaParserAdapter(JdbcTemplate db) { this.db = db; }
 
-    public void setupSymbolSolver(String workspacePath) {
+    public void setupSymbolSolver(String workspacePath) { setupSymbolSolver(workspacePath, Path.of(workspacePath)); }
+
+    /**
+     * Prepares the symbol solver for {@code analyzedPath}. A directory is a source root when its path, laid out under
+     * {@code layoutRoot} instead of {@code analyzedPath}, ends with {@code src/main/java} or {@code src/test/java}. An
+     * ordinary analysis passes its own path. A review capture passes the workspace root it was captured from: the
+     * capture lives under {@code capture-*}/{@code base|head}, so without this a repository rooted at a {@code src}
+     * directory (its {@code main/java} and {@code test/java} completed by the root's own name) found no source roots
+     * in review, the solver saw no in-source types, and the Changes comparison lost every fact that needs it.
+     */
+    public void setupSymbolSolver(String analyzedPath, Path layoutRoot) {
         diagnostics.clear();
         relationshipLookups.clear();
         indexedTypeNames.clear();
         typesWithConstructors.clear();
         recordCanonicalConstructors.clear();
         clearOverrideFacts();
-        root = Path.of(workspacePath).toAbsolutePath().normalize();
+        root = Path.of(analyzedPath).toAbsolutePath().normalize();
+        Path layout = layoutRoot.toAbsolutePath().normalize();
         CombinedTypeSolver solver = new CombinedTypeSolver(new ReflectionTypeSolver());
         try (var paths = Files.walk(root)) {
             List<Path> roots = paths.filter(Files::isDirectory)
-                .filter(p -> p.endsWith("src/main/java") || p.endsWith("src/test/java"))
+                .filter(p -> { Path logical = layout.resolve(root.relativize(p)); return logical.endsWith("src/main/java") || logical.endsWith("src/test/java"); })
                 .filter(p -> !Files.isSymbolicLink(p)).sorted().toList();
             if (roots.isEmpty()) solver.add(new JavaParserTypeSolver(root));
             else for (Path path : roots) solver.add(new JavaParserTypeSolver(path));

@@ -269,7 +269,7 @@
       "pass": true
     },
     {
-      "label": "journey fixture: the analyzer gives the controller method a CANDIDATE call and MailNotifier an OVERRIDES fact",
+      "label": "journey fixture: the controller method's call stays UNRESOLVED (no CALLS/CANDIDATE anywhere) and MailNotifier has an OVERRIDES fact",
       "pass": true
     },
     {
@@ -285,15 +285,15 @@
       "pass": true
     },
     {
-      "label": "journey, method root register: no longer empty; service 1, dto 1, domain 2 (literal and oracle)",
+      "label": "journey, method root register: only its parameter type, dto 1; the unresolved call is not walked (literal and oracle)",
       "pass": true
     },
     {
-      "label": "journey, method root register: chain routes match the oracle; the summary counts 2 layers and 3 resources",
+      "label": "journey, method root register: chain routes match the oracle; the summary counts 1 layer and 1 resource",
       "pass": true
     },
     {
-      "label": "journey, method root with service expanded: SignupService 1, dto 1, EventStore/Notifier/domain 2, MailNotifier 3 (literal and oracle)",
+      "label": "journey, method root SignupService.register: Notifier/dto/domain 1, MailNotifier 2; EventStore not reached (literal and oracle)",
       "pass": true
     },
     {
@@ -301,7 +301,7 @@
       "pass": true
     },
     {
-      "label": "journey: badges cover every layer 1..3 with no gap",
+      "label": "journey: badges cover every layer 1..2 with no gap",
       "pass": true
     },
     {
@@ -313,7 +313,7 @@
       "pass": true
     },
     {
-      "label": "journey, domain out of scope: the inspector reads \"3 layers · 5 resources · 1 beyond the map\"",
+      "label": "journey, domain out of scope: the inspector reads \"2 layers · 3 resources · 1 beyond the map\"",
       "pass": true
     },
     {
