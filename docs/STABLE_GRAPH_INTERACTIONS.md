@@ -77,7 +77,18 @@ the tab strip.
 
 **Undo** / **Redo** restores exploration actions, including scope edits, card movement,
 resizing, expansion and source-dialog open/close. Ctrl/Cmd Z undoes; Ctrl/Cmd Shift Z or
-Ctrl Y redoes. Text inputs retain their native editing shortcuts. History holds up to
+Ctrl Y redoes. Selection is not an exploration action
+([ADR 0009](adr/0009-selection-outside-undo-history.md)): inspecting a resource or route,
+choosing an occurrence, multi-selecting and clearing selection never create an undo entry
+and never discard redo. The inspector's Back keeps its own trail. A Back that also drops
+cards that are no longer eligible is recorded; otherwise it is only a selection change. Undo and redo leave the current selection in place. They drop
+only what the restored map no longer draws: an inspected card, an inspected route,
+multi-selected cards and Back-trail entries for cards and routes that were on the map before
+the step, so Back cannot return to a card that undo removed. A selection that was never on the
+map, such as a tree pick inside a collapsed package, is kept. A double-click is an inspection
+plus one arrangement entry, so one undo reverts the arrangement and keeps the card inspected.
+When one action both edits and selects (removing the selected card from scope, say), the
+edit is recorded and the selection changes alongside it. Text inputs retain their native editing shortcuts. History holds up to
 200 actions per tab and ten recently closed tabs, for this page session and snapshot.
 Backend work, notes/documents and model settings are outside exploration history.
 Fullscreen, the Map overview disclosure and the dedicated zoom-in/zoom-out buttons are
@@ -86,8 +97,10 @@ action. Each dedicated zoom click is three former 1.2× steps (1.728× in, recip
 Wheel/pinch/pan and Fit map remain camera-navigation history.
 
 **Clear selection**, clicking empty canvas, or Escape clears inspection and selected
-cards without changing scope, geometry or camera. Menus, resize cancellation and modal
-dialogs handle Escape first. Clicking an already-inspected resource also deselects it.
+cards without changing scope, geometry or camera, and without adding an undo entry. With
+nothing selected it does nothing (it does not switch the mobile pane either).
+Menus, resize cancellation and modal dialogs handle Escape first. Clicking an
+already-inspected resource also deselects it.
 
 ## Story 1 — Inspect without losing my place
 

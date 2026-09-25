@@ -197,6 +197,16 @@ export function kindSummary(edge: AtlasEdge, limit = Infinity) {
   return shown.join(' · ') + (kinds.length > limit ? ` · +${kinds.length - limit}` : '');
 }
 
+const AGGREGATE_ROUTE_PREFIX = 'aggregate:';
+/** The card IDs an aggregateEdges route ID joins, or null for any other (raw relationship) ID. */
+export function aggregateRouteEndpoints(id: string): [string, string] | null {
+  if (!id.startsWith(AGGREGATE_ROUTE_PREFIX)) return null;
+  try {
+    const key: unknown = JSON.parse(id.slice(AGGREGATE_ROUTE_PREFIX.length));
+    return Array.isArray(key) && typeof key[0] === 'string' && typeof key[1] === 'string' ? [key[0], key[1]] : null;
+  } catch { return null; }
+}
+
 /**
  * The single occurrence-aggregation implementation: every relationship between the same ordered
  * (source, target) pair among the visible cards becomes one directed route, whatever its kind or
@@ -256,7 +266,7 @@ function aggregateEdges(graph: AtlasGraph, level: Level, all: Map<string, AtlasN
       group.resolution = worseResolution(group.resolution, e.resolution);
       group.explanationStatus = dominantExplanationStatus(group.explanationStatus, e.explanationStatus);
     }
-    else grouped.set(key, { ...e, id: `aggregate:${key}`, sourceId: source, targetId: target, occurrenceIds: [e.id], occurrenceKinds: [e.kind], occurrenceCount: 1, kindCounts: { [e.kind]: 1 }, resolutions: [e.resolution] });
+    else grouped.set(key, { ...e, id: `${AGGREGATE_ROUTE_PREFIX}${key}`, sourceId: source, targetId: target, occurrenceIds: [e.id], occurrenceKinds: [e.kind], occurrenceCount: 1, kindCounts: { [e.kind]: 1 }, resolutions: [e.resolution] });
   }
   const edges = [...grouped.values()];
   for (const edge of edges) { edge.kind = sortedKindCounts(edge)[0][0]; edge.strengthWidth = strengthWidth(edge.occurrenceCount || 1); }

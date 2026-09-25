@@ -12,9 +12,19 @@ and undo or redo exploration actions without changing another tab or server data
 - **Undo** and **Redo** keep up to 200 actions per tab. Ctrl/Cmd Z undoes;
   Ctrl/Cmd Shift Z and Ctrl Y redo. Editable fields retain native text undo.
 - Saved exploration state includes scope, displayed cards at each level, coordinates,
-  sizes, expansions, pan/zoom, inspection and Back navigation, relationship filter,
-  tree disclosures, search, multi-selection, source-dialog subject, occurrence choice,
-  and navigation width. Fullscreen, the **Map overview** disclosure and dedicated zoom
+  sizes, expansions, pan/zoom, relationship filter, tree disclosures, search,
+  source-dialog subject and navigation width.
+- Selection is per-tab state outside history
+  ([ADR 0009](adr/0009-selection-outside-undo-history.md)). This covers the inspected
+  resource or route, its occurrence choice, the inspector's Back trail and the
+  multi-selection. Changing selection never adds an undo entry or discards redo. A Back
+  that also drops cards that are no longer eligible is recorded; otherwise it is only a
+  selection change. The tree
+  reveal, search reset and details pane that come with a click are part of the same
+  gesture. Undo and redo keep the current selection, dropping only cards and routes that were
+  on the map before the step and are not after it, from the Back trail too. A double-click is one arrangement entry;
+  undoing it keeps the card inspected.
+- Fullscreen, the **Map overview** disclosure and dedicated zoom
   buttons are view-only controls: they do not add history entries, and their current values
   stay in place when another exploration action is undone or redone. Wheel/pinch/pan and
   **Fit map** continue to record camera navigation.
@@ -25,7 +35,7 @@ and undo or redo exploration actions without changing another tab or server data
   card in either mode carries that position into the other. The toggle is undoable.
 - Selecting an inspected resource again, clicking empty canvas, **Clear selection**
   or Escape clears inspection and multi-selection. Escape first cancels an active
-  menu, resize, marquee or source dialog. Clearing selection is one undo action.
+  menu, resize, marquee or source dialog. Clearing selection is not an undo action.
 
 Tabs and history last for the current page session and snapshot. A reload or new
 snapshot starts over. DOM scroll offsets, text selection, transient menus and

@@ -122,11 +122,18 @@ the prior snapshot's symbol IDs are no longer a valid boundary.
 ### Exploration tabs and undo history
 
 `explorerJourney.ts` owns independent, in-memory exploration tabs around the existing
-`explorerViewState` reducer. Each tab retains its scope, per-level geometry and expanded
-cards, inspection/navigation, relationship filter, tree disclosures, search, source-dialog
-subject, multi-selection, occurrence choice and pane controls. Fullscreen, Map overview and
+`explorerViewState` reducer. Each tab's history retains its scope, per-level geometry and
+expanded cards, relationship filter, tree disclosures, search, source-dialog subject and pane
+controls. Fullscreen, Map overview and
 button zoom remain per-tab/current-view values but are rebased across history rather than
-creating or being restored by undo/redo. New tabs start from the
+creating or being restored by undo/redo. Selection (inspected subject, occurrence, Back
+trail, multi-selection) is outside history too (ADR 0009). An `UPDATE` that changes only
+selection, optionally with the tree reveal, search reset and pane that accompany a click,
+replaces `present` without a history entry. `UNDO`/`REDO` carry the current selection into
+the restored entry and prune it with `revalidateJourney.pruneRestoredSelection`, which
+compares the cards and routes drawn before and after the step and drops inspected,
+multi-selected and Back-trail subjects that left the map. App passes a `graphFor`
+lookup so that comparison uses each journey's real graph. New tabs start from the
 snapshot's initial view; clones share immutable values and inherit both undo and redo
 branches. Closing a tab retains its history among the ten most recently closed tabs.
 

@@ -9,13 +9,14 @@ export function useExplorerJourneys(initialView?: ExplorerViewState) {
   const active = state.tabs.find(t => t.id === state.activeId)!;
   const counter = useRef(0), group = useRef<number | null>(null);
   // All synchronous updates caused by one UI action form one undo step (scope + membership,
-  // drill-down + inspection, source + pane). Each later event starts a new transaction.
-  function update(fn: (j: Journey) => Journey, collapse = false) {
+  // drill-down + inspection, source + pane). Each later event starts a new transaction. An update
+  // that only moves the selection never becomes a step at all (ADR 0009, see journeysReducer).
+  function update(fn: (j: Journey) => Journey) {
     if (group.current === null) {
       group.current = ++counter.current;
       queueMicrotask(() => { group.current = null; });
     }
-    dispatch({ type: 'UPDATE', id: active.id, group: group.current, collapse, update: fn });
+    dispatch({ type: 'UPDATE', id: active.id, group: group.current, update: fn });
   }
   function set<K extends keyof Journey>(key: K, value: SetStateAction<Journey[K]>) {
     update(j => {
@@ -39,9 +40,9 @@ export function useExplorerJourneys(initialView?: ExplorerViewState) {
   // own fresh group number keeps it from merging into any transaction currently in progress, and a
   // stale tab ID is a safe no-op (the reducer's UPDATE case only touches a matching `t.id`).
   function updateTab(id: number, fn: (j: Journey) => Journey) {
-    dispatch({ type: 'UPDATE', id, group: ++counter.current, collapse: false, update: fn });
+    dispatch({ type: 'UPDATE', id, group: ++counter.current, update: fn });
   }
-  function dispatchView(action: ExplorerAction, initialCamera = false, collapse = false) {
+  function dispatchView(action: ExplorerAction, initialCamera = false) {
     if (action.type === 'RESET') {
       dispatch({ type: 'RESET', view: explorerViewReducer(active.present.view, action) });
     } else if (initialCamera && action.type === 'SET_CAMERA') {
@@ -49,7 +50,7 @@ export function useExplorerJourneys(initialView?: ExplorerViewState) {
     } else update(j => {
       const view = explorerViewReducer(j.view, action);
       return view === j.view ? j : { ...j, view };
-    }, collapse);
+    });
   }
   function command(action: Exclude<JourneyAction, { type: 'UPDATE' | 'INITIAL_CAMERA' | 'RESET' }>) {
     flushExplorerCamera();

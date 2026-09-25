@@ -1,5 +1,7 @@
-import { explorerViewReducer, initExplorerViewState, ExplorerAction, ExplorerViewState } from './explorerViewState';
+import { explorerViewReducer, initExplorerViewState, sameDisplayedLevelView, ExplorerAction, ExplorerViewState } from './explorerViewState';
+import type { AtlasGraph } from './graphModel';
 import { ScopeSelection } from './scopeModel';
+import { pruneRestoredSelection } from './revalidateJourney';
 /** UI state only. Graph facts, generated results and server operations never enter history. */
 export interface Journey {
   view: ExplorerViewState;
@@ -66,7 +68,12 @@ export type JourneyAction =
   // (pre-review behavior); ExplorerApp passes one built in the active tab's current mode (map or
   // review) so "+ New tab" opens beside it in the same mode rather than always resetting to the map.
   | { type: 'NEW'; present?: Journey }
-  | { type: 'CLONE' | 'REOPEN' | 'UNDO' | 'REDO' }
+  | { type: 'CLONE' | 'REOPEN' }
+  // Undo/redo walk exploration edits only; the current selection stays in place (ADR 0009).
+  // `graphFor` returns the graph a journey renders (ordinary or Changes), so selection that the
+  // restored map no longer displays can be pruned exactly, children of expanded cards included.
+  // Without it, pruning falls back to the view's own record of displayed cards.
+  | { type: 'UNDO' | 'REDO'; graphFor?: (j: Journey) => AtlasGraph | null | undefined }
   | { type: 'SWITCH' | 'CLOSE'; id: number }
   // Every open and closed tab that ever touched review state under the old comparison is reconciled
   // against the recaptured graph and loses its undo/redo history: display IDs are derived from
@@ -77,15 +84,55 @@ export type JourneyAction =
   // entries. Applying the same update to every branch prevents a later semantic undo from
   // incidentally restoring an older fullscreen, minimap or button-zoom value.
   | { type: 'TRANSIENT_UPDATE'; id: number; update: (j: Journey) => Journey }
-  // `collapse`: used only by the canvas double-click-to-arrange flow. Click 1 (a plain tap on an
-  // uninspected node) always seals its own undo step before `dbltap` fires -- a real macrotask gap
-  // separates the two physical clicks, so the group-lifecycle mechanism below can never merge them
-  // on its own. When the caller has verified this update is the second half of that same gesture
-  // (same node, same tab, within the gesture window), it sets `collapse: true` so this update joins
-  // the immediately preceding entry instead of opening a new one -- one undo then fully reverts the
-  // whole double-click, not just the arrangement.
-  | { type: 'UPDATE'; id: number; group: number; collapse?: boolean; update: (j: Journey) => Journey }
+  // An update that only moves the selection (see isSelectionOnly) replaces `present` without
+  // creating, occupying or merging into an undo entry, and keeps the redo branch.
+  | { type: 'UPDATE'; id: number; group: number; update: (j: Journey) => Journey }
   | { type: 'INITIAL_CAMERA'; id: number; action: Extract<ExplorerAction, { type: 'SET_CAMERA' }> };
+
+/**
+ * Selection is a pointer, not an exploration edit (ADR 0009): the inspected subject, the inspector's
+ * Back trail that inspecting extends, and the multi-selection. Undo/redo carries these from the
+ * current present into whatever entry it restores, so history entries' own copies are never read.
+ */
+const SELECTION_VIEW_KEYS = ['inspectedSubjectId', 'inspectedKind', 'inspectedOccurrenceId', 'inspectedLevel', 'history'] as const;
+/** Presentation that a selection gesture updates alongside the selection itself (App's `select`
+ * reveals the card in the tree, clears the search that found it and shows the details pane). On
+ * their own these are still exploration edits; together with a selection change they are not. */
+const SELECTION_COMPANION_KEYS: (keyof Journey)[] = ['treeOpen', 'search', 'mobilePane'];
+
+function selectionChanged(a: Journey, b: Journey): boolean {
+  return a.multiIds !== b.multiIds || SELECTION_VIEW_KEYS.some(key => a.view[key] !== b.view[key]);
+}
+/** True when `next` differs from `prev` in the selection (plus, optionally, its companions) only. */
+function isSelectionOnly(prev: Journey, next: Journey): boolean {
+  if (!selectionChanged(prev, next)) return false;
+  for (const key of Object.keys(next) as (keyof Journey)[]) {
+    if (key === 'view' || key === 'multiIds' || SELECTION_COMPANION_KEYS.includes(key)) continue;
+    if (prev[key] !== next[key]) return false;
+  }
+  if (prev.view === next.view) return true;
+  for (const key of Object.keys(next.view) as (keyof ExplorerViewState)[]) {
+    if ((SELECTION_VIEW_KEYS as readonly string[]).includes(key)) continue;
+    // The "N added below" hint follows membership, which `levelViews` already compares; Back resets it.
+    if (key === 'newlyAddedIds') continue;
+    if (key === 'levelViews' && sameDisplayedLevelViews(prev.view.levelViews, next.view.levelViews)) continue;
+    if (prev.view[key] !== next.view[key]) return false;
+  }
+  return true;
+}
+/** A Back that only refreshes `priorEligibleIds` changes nothing a user could undo. */
+function sameDisplayedLevelViews(a: ExplorerViewState['levelViews'], b: ExplorerViewState['levelViews']): boolean {
+  if (a === b) return true;
+  const levels = Object.keys(b) as (keyof typeof b)[];
+  return levels.length === Object.keys(a).length && levels.every(level => a[level] && sameDisplayedLevelView(a[level], b[level]));
+}
+/** `target` with the selection of `from`; `target` itself when they already agree. */
+function carrySelection(target: Journey, from: Journey): Journey {
+  if (!selectionChanged(target, from)) return target;
+  const view = { ...target.view };
+  for (const key of SELECTION_VIEW_KEYS) (view as Record<string, unknown>)[key] = from.view[key];
+  return { ...target, view, multiIds: from.multiIds };
+}
 
 function touchesReview(j: Journey): boolean { return j.reviewTouched; }
 function hasReviewState(t: JourneyTab): boolean { return touchesReview(t.present) || t.past.some(touchesReview) || t.future.some(touchesReview); }
@@ -148,16 +195,19 @@ export function journeysReducer(state: ExplorerJourneys, action: JourneyAction):
     if (action.type === 'UPDATE') {
       const present = action.update(t.present);
       if (present === t.present) return t;
-      const push = t.group !== action.group && !action.collapse;
+      // `group` is left alone: a later real edit of the same UI action still merges with whatever
+      // that action already recorded, and one of a new action still pushes (carrying this selection).
+      if (isSelectionOnly(t.present, present)) return { ...t, present };
+      const push = t.group !== action.group;
       return { ...t, present, past: push ? [...t.past, t.present].slice(-HISTORY_LIMIT) : t.past, future: [], group: action.group };
     }
-    if (action.type === 'UNDO') {
-      const present = t.past.at(-1);
-      return present ? { ...t, present, past: t.past.slice(0, -1), future: [t.present, ...t.future], group: null, restoreVersion: t.restoreVersion + 1 } : t;
-    }
-    if (action.type === 'REDO') {
-      const present = t.future[0];
-      return present ? { ...t, present, past: [...t.past, t.present], future: t.future.slice(1), group: null, restoreVersion: t.restoreVersion + 1 } : t;
+    if (action.type === 'UNDO' || action.type === 'REDO') {
+      const target = action.type === 'UNDO' ? t.past.at(-1) : t.future[0];
+      if (!target) return t;
+      const present = pruneRestoredSelection(carrySelection(target, t.present), t.present, action.graphFor);
+      return action.type === 'UNDO'
+        ? { ...t, present, past: t.past.slice(0, -1), future: [t.present, ...t.future], group: null, restoreVersion: t.restoreVersion + 1 }
+        : { ...t, present, past: [...t.past, t.present], future: t.future.slice(1), group: null, restoreVersion: t.restoreVersion + 1 };
     }
     return t;
   }) };

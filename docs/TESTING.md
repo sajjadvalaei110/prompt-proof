@@ -33,14 +33,20 @@ See [Exploration tabs](EXPLORATION_TABS.md) for the behavior, boundaries and bro
 setup. `node scripts/test-explorer-journeys.mjs` verifies grouped updates, independent
 tabs, cloned past/future branches, close/reopen, retention bounds, initial camera
 baseline, stale callbacks across snapshot resets, view-only fullscreen/minimap/button-zoom
-rebasing, and that a double-click arrangement's
-`collapse:true` dispatch joins the preceding history entry while an uncollapsed one still
-gets its own, mode continuity, and atomic recapture for open and closed tabs (20 checks).
+rebasing, selection outside history (ADR 0009: click sequences add no entry and keep redo,
+undo/redo keep the current selection and prune only cards/routes the restored map no
+longer draws, including across a Changes toggle, and a double-click is one arrangement
+entry, and a Back that leaves the map unchanged or only refreshes eligibility bookkeeping
+adds none; Back-trail pruning, the graph-less route fallback, companion revert on undo and
+the pruning short-circuits), mode continuity, and atomic recapture for open and closed tabs
+(37 checks).
 
 `APP=http://127.0.0.1:5198 node scripts/verify-explorer-journeys.mjs /tmp/atlas-journey-fixture`
-exercises a real isolated backend and production frontend in Chromium (44 checks).
+exercises a real isolated backend and production frontend in Chromium (51 checks).
 It includes exact geometry comparisons after expansion/resize/drag undo, clone
-isolation, source-modal history, pending camera capture, one-step Escape clearing,
+isolation, source-modal history, pending camera capture, Escape clearing without history,
+selection outside undo (clicks leave undo empty, redo that removes the selected card prunes
+it, double-click undo keeps the inspection),
 closed-tab recovery, fullscreen/minimap/button-zoom history exclusion, the three-step zoom
 factor and a 375 px layout. The geometry checks failed
 before renderer coordinate copies were added; combined Escape and full-screen

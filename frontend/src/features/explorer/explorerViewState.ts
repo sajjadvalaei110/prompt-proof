@@ -484,6 +484,27 @@ function pruneReviewOnly(view: LevelViewState, valid: Set<string>): { next: Leve
   return {next,changed:next!==view};
 }
 
+/** Field-by-field equality one level deep: rebuilt arrays and records with the same entries match. */
+function sameLevelViewExcept(a: LevelViewState, b: LevelViewState, ignored?: keyof LevelViewState): boolean {
+  const same = (x: unknown, y: unknown): boolean => {
+    if (x === y) return true;
+    if (Array.isArray(x) && Array.isArray(y)) return x.length === y.length && x.every((v, i) => v === y[i]);
+    if (!x || !y || typeof x !== 'object' || typeof y !== 'object' || Array.isArray(x) || Array.isArray(y)) return false;
+    const xk = Object.keys(x), yr = y as Record<string, unknown>, xr = x as Record<string, unknown>;
+    return xk.length === Object.keys(y).length && xk.every(k => k in yr && xr[k] === yr[k]);
+  };
+  return (Object.keys(b) as (keyof LevelViewState)[]).every(k => k === ignored || same(a[k], b[k])) && Object.keys(a).length === Object.keys(b).length;
+}
+function sameLevelView(a: LevelViewState, b: LevelViewState): boolean { return sameLevelViewExcept(a, b); }
+/**
+ * Equal in everything the map shows. `priorEligibleIds` is admission bookkeeping only: a Back
+ * refreshes it without drawing anything differently, so the journey does not count that as an
+ * exploration edit (ADR 0009), while the reducer still keeps the refreshed value.
+ */
+export function sameDisplayedLevelView(a: LevelViewState, b: LevelViewState): boolean {
+  return a === b || sameLevelViewExcept(a, b, 'priorEligibleIds');
+}
+
 export function explorerViewReducer(state: ExplorerViewState, action: ExplorerAction): ExplorerViewState {
   switch (action.type) {
     case 'INSPECT_NODE':
@@ -563,10 +584,13 @@ export function explorerViewReducer(state: ExplorerViewState, action: ExplorerAc
       if (!state.history.length) return state;
       const entry = state.history[state.history.length - 1];
       const { next, changed } = reconcileLevelView(state.levelViews[entry.level], action.eligibleIds, undefined, 0, undefined, action.preserveReviewOnly, action.reviewOnlyIds, action.parkedIds);
+      // A Back that leaves the level exactly as it was keeps the same object, so the journey sees a
+      // pure selection change and records no undo entry for it (ADR 0009).
+      const levelView = sameLevelView(state.levelViews[entry.level], next) ? state.levelViews[entry.level] : next;
       return {
         ...state,
         activeLevel: entry.level,
-        levelViews: { ...state.levelViews, [entry.level]: next },
+        levelViews: levelView === state.levelViews[entry.level] ? state.levelViews : { ...state.levelViews, [entry.level]: levelView },
         inspectedSubjectId: entry.subjectId,
         inspectedKind: entry.kind,
         inspectedOccurrenceId: entry.occurrenceId,

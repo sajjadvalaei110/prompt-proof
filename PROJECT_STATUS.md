@@ -1,7 +1,9 @@
 # Project status
 Last updated: 2026-09-24
 Active milestone: R6 — Developer comprehension redesign (in progress)
-Current revision: selected-edge moving dashes and directional margins, with
+Current revision: step 12 phase A review remediation, on top of selection outside undo
+history (step 12 phase A, ADR 0009), on top of
+selected-edge moving dashes and directional margins, with
 view-only map controls excluded from undo/redo with stronger zoom steps,
 on top of selection direction and change-color redesign (Step 10 backlog, step one)
 and Changes-mode layout continuity (step zero),
@@ -11,6 +13,201 @@ toggle with a git-style diff code viewer, exploration tabs with per-tab undo/red
 and selection controls, the R6 change-edges slice (one line per direction,
 directional selection emphasis, file-grouped evidence), in-place card details
 (expand packages/classes) and resizable cards; Step 6A remains unstarted
+
+## Step 12 phase A: review remediation (2026-09-24)
+
+Resolves the verified findings of the phase A review
+(`/home/sajjad/prompts/step12/phase-a-review-report.md`) without changing any ADR 0009
+decision. Behavior bugs were fixed test-first: the new journey checks were red on the phase A
+code for findings 3, 4, 5 and 6 before the fixes.
+
+Findings and dispositions:
+- P1 re-click timer wipes later selections: fixed. `App.tsx` has `cancelReclick()`, called at
+  the start of `inspectNode`, `inspectEdge` and `clearSelection` and from an effect cleanup
+  keyed on `active.id`. The timer nulls its ref before calling `clearSelection`. The
+  double-click cancel in `onArrangeAroundResource` is kept, now through the helper. Verified
+  by build/type check and the browser double-click checks (still pass); there is no unit
+  harness for App timers.
+- P1 empty-canvas tap with no selection records a pane-only entry: fixed differently from
+  the report's suggestion. `clearSelection` returns the journey unchanged when nothing is
+  inspected and `multiIds` is empty. Confirmed in `styles/App.css` that `pane-*` rules exist
+  only under `@media(max-width:760px)`, where the canvas (`.workspace-content`) is shown only
+  in `pane-map`, and that desktop ignores `mobilePane`. The inspector's close button renders
+  only with a selection. Browser check "Escape clears ... without history" still passes.
+- P1 Back records a dead entry when only `priorEligibleIds` changes: fixed at the
+  classification layer. `explorerViewState.sameDisplayedLevelView` (next to `sameLevelView`)
+  ignores `priorEligibleIds`, and `isSelectionOnly` uses it for `levelViews`. `NAVIGATE_BACK`
+  output and its object reuse are unchanged. New check: the report's reproduction (past stays
+  0, `priorEligibleIds` still advances). The existing "Back that drops a card is recorded"
+  check still passes.
+- P1 carried Back trail keeps cards/routes removed by undo: fixed. `pruneRestoredSelection`
+  filters `view.history` with the same drawn-before/not-after rule: card entries by card,
+  route entries by route (including the graph-less fallback). Level-only breadcrumbs and
+  never-drawn subjects stay. New check: the report's scenario (add p2, inspect p2, inspect
+  p1, undo: trail empty, Back stays on p1), plus a route entry dropped next to a kept
+  never-drawn entry.
+- P2 4x `projectDisplayed` per undo: fixed with three short-circuits: nothing
+  selected or trailed; same mode, scope, level, displayed IDs and expansions by reference; and
+  route sets built only for an inspected or trailed route. The `graphFor` graph is resolved lazily. New
+  check counts `graphFor` calls and `edges` reads. Scratch benchmark (100 packages, 1,900
+  classes, 5,000 edges, 20 undo+redo pairs, node 22): drag undo with a card inspected 15.03
+  -> 0.01 ms/step, with nothing selected 13.54 -> 0.00, scope undo with a card inspected
+  13.40 -> 5.94, scope undo with a route inspected 13.41 -> 13.58 (unchanged, it needs all
+  four projections).
+- P2 inspected route never pruned without a graph: fixed. `graphModel.aggregateRouteEndpoints`
+  parses the ID next to its builder (which now shares the prefix constant). Without route
+  knowledge on both sides, an aggregate route is gone when an endpoint card was drawn before
+  and is not after. Raw relationship IDs are never pruned this way. New check with no
+  `graphFor`: inspected route and route Back entry pruned, raw ID kept, route with both
+  endpoints still drawn kept.
+- P2 `expandToReveal` pane regression: rejected. `git show 24a5fa6:frontend/src/App.tsx`
+  shows base doing `setTab('map');setMobilePane('map'); if(!remaining.length){revealInTree(n);select(n);return;}`
+  and base `select(n)` ending in `setMobilePane('details')`. Both versions therefore end on
+  `details` for a card that is not yet inspected. For an already-inspected card both end on
+  `map`: the deferred `clearSelection` sets it. No code change.
+- P2 breadcrumb current-node click deselects: fixed. The button stays and calls
+  `inspectNode(node,'details')`, a no-op re-inspection plus tree reveal. No `scripts/verify-*`
+  or pipeline script clicks the breadcrumb (grep).
+- P2 vacuous redo-pruning browser check: fixed. Running the tightened check first showed
+  that it really was vacuous: a ctrl-tap only toggles the multi-selection and never inspects
+  (`GraphCanvas` tap handler), so after Escape the old step never re-inspected the leaf. The
+  script now taps, then ctrl-taps, and asserts that the leaf is inspected and the selection
+  bar is shown. The redo check then asserts that `leaf.id` is no longer drawn (was
+  `services.id`), with no selection and no bar.
+- P2 `ARCHITECTURE.md` contradiction: fixed. The "Each tab's history retains ..." sentence no
+  longer lists inspection, occurrence or multi-selection.
+- P3 `EXPLORATION_TABS.md` Back rule: fixed with the qualifying sentence.
+- P3 companion revert on undo untested: added a check. Move, then one click gesture
+  (inspect p2 + `treeOpen` + `search: ''` + `mobilePane: 'details'`), then undo: the move is
+  reverted, the companions come from the restored entry and p2 stays inspected.
+- P3 phase B root pruning after ordinary updates: no code now; see limits.
+- Mutation fragility: moved to independent checks. In scratch copies under `mktemp -d`,
+  dropping the `NAVIGATE_BACK` reuse (`levelView = next`) fails 2 checks: identical level
+  views after an unchanged Back, and an initial camera capture after that Back reaching the
+  shared history entry. The old Back check no longer catches this mutation, because the
+  classification now compares structurally. Dropping the mode-crossing branch fails 3 checks:
+  the old one, a graph-less review route undo, and a redo into Changes dropping an ordinary
+  route. Dropping the Back-trail filter (2), the graph-less fallback (1), the identical-input
+  short-circuit (1) or the route-set gate (1) is also caught.
+
+Docs: ADR 0009 has "review remediation" implementation notes: Back-trail pruning, the graph-less
+route fallback, the short-circuits and the `priorEligibleIds` classification rule.
+`STABLE_GRAPH_INTERACTIONS.md` has the Back-trail pruning rule and the no-op clear with
+nothing selected. `EXPLORATION_TABS.md`, `ARCHITECTURE.md` and `TESTING.md` (37 unit / 51
+browser checks) are updated.
+
+Verification (exact commands and outcomes):
+- `node scripts/test-explorer-journeys.mjs`: PASS, 37 checks (was 28).
+- `for t in scripts/test-*.mjs; do node "$t" >/dev/null && echo "PASS $t" || echo "FAIL $t"; done`:
+  PASS, all 11 suites.
+- `cd frontend && npx tsc -b --force && npm run build`: PASS; existing Vite chunk-size
+  advisory.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar`: PASS.
+- `JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH python3 scripts/verify_git_review_pipeline.py`:
+  PASS, 41/41, zero page errors, source and Git index SHA-256 unchanged
+  (`build/git-review/run-octxcam3`). Screenshots `02-changes-preserved-layout.png` and
+  `04-first-tab-restored.png` inspected: Hub inspected in Changes with layout preserved;
+  first tab restored with Back enabled and multi-selection intact.
+- `BACKEND=http://127.0.0.1:8095 APP=http://127.0.0.1:8095 DEBUG=http://127.0.0.1:9333 OUT=<scratch>/evidence node scripts/verify-explorer-journeys.mjs <scratch copy of test-fixtures/microservice-java>`
+  run after the git-review pipeline finished, against the packaged jar (isolated data dir,
+  model URL on closed port 9, headless snap Chromium): PASS, 51/51, zero page/console
+  errors, fixture SHA-256 unchanged, no model requests in the backend log. The first run of
+  the tightened script was 50/51 (the vacuous step described above). After the script fix,
+  a fresh isolated run passed. `journeys-desktop.png` and `journeys-mobile.png` inspected:
+  package inspected after the double-click arrangement, Undo and Redo enabled; 375 px
+  Details pane with no overflow. They were copied with `report.json` into
+  `docs/evidence/selection-outside-undo/`.
+- `git diff --check`: PASS.
+
+Not run:
+- `python3 scripts/verify_stable_graph_pipeline.py acceptance`: not run. It is known broken
+  by ADR 0007 (it stops at `revealClasses`, clicking the removed Class/Method switcher), and
+  the reviewer confirmed that it fails on base `24a5fa6` as well. Porting it is a separate
+  task.
+- Backend tests and live-model checks: skipped, frontend-only change.
+
+Limits: the breadcrumb's current-node button on a narrow layout (map pane) switches to
+Details. That is a pane-only change, so it is recorded like a tap on the Details mobile tab.
+Pruning the Back trail can leave two adjacent identical entries (for example p1, p1 after
+dropping the p2 between them). Back then steps to the same subject once; `revalidateSelection`
+behaves the same way. Phase B needs a prune path after ordinary `UPDATE`s too, not only undo/redo (for example an App-level
+check of `outgoingStackRootId` against `projected.nodes`, or a prune hook passed to
+`update`), so that a stack root removed by collapse or scope removal is cleared.
+
+## Step 12 phase A: selection outside undo history (2026-09-24)
+
+Bounded R6 criterion ([ADR 0009](docs/adr/0009-selection-outside-undo-history.md)):
+inspecting, choosing an occurrence, multi-selecting and clearing selection never create an
+undo entry or discard redo. Undo/redo walk exploration edits only and keep the current
+selection. They drop an inspected card, an inspected route or multi-selected cards only when
+those were drawn before the step and are not after it. This is the groundwork for the
+outgoing relation stack (`docs/OUTGOING_STACK.md`, phase B, not started).
+
+- `explorerJourney.ts`: an `UPDATE` that changes only selection fields (`inspected*`, the
+  Back trail, `multiIds`) replaces `present` and nothing else. Tree reveal, search reset and
+  mobile pane count as part of the gesture only when they arrive together with a selection
+  change; on their own they stay recorded. `UNDO`/`REDO` carry the current selection into the
+  restored entry. The double-click `collapse` flag and its gesture-window bookkeeping are
+  removed: a double-click is now one arrangement entry, and undoing it keeps the card
+  inspected.
+- `revalidateJourney.ts`: `pruneRestoredSelection` compares what the map draws before and
+  after the step, using App's `graphFor` so children of expanded cards count. It shares the
+  mode-boundary rules with `revalidateJourneyState` through the extracted
+  `revalidateSelection`, so undo across a Changes toggle drops review route identities and
+  their Back entries.
+- `explorerViewState.ts`: `NAVIGATE_BACK` keeps the existing level view when reconciliation
+  leaves it identical. A Back that only changes the subject is therefore a selection change
+  with no undo entry. A Back that drops ineligible cards is still recorded; otherwise undoing
+  it would be a no-op step, since selection is carried.
+- `App.tsx`: `select`, `inspectEdge` and `clearSelection` each issue one update, so the whole
+  gesture is classified together. The redundant separate `revealInTree` calls are removed,
+  and the tree reveal is folded into the inspect update. Undo/redo buttons and keys pass
+  `graphFor`. Behavior is otherwise unchanged; "View classes" on the inspected card still
+  deselects it, as before.
+- Docs: `STABLE_GRAPH_INTERACTIONS.md` §Exploration tabs and its Escape paragraph,
+  `EXPLORATION_TABS.md`, `ARCHITECTURE.md` (undo history) and `TESTING.md` are updated. ADR
+  0009 has implementation notes.
+
+Verification (exact commands and outcomes):
+- `node scripts/test-explorer-journeys.mjs`: PASS, 28 checks. Selection-restoration
+  assertions were rewritten to the new contract. New checks cover a click sequence with no
+  entries and redo kept, a click gesture with tree/search/pane companions, undo after inspect
+  reverting the prior edit, undo removing the inspected card/route/multi-selected card
+  (pruned, no Back push, not resurrected by redo), selection that was never on the map kept,
+  graph-aware pruning of expanded children, undo across a Changes toggle, mixed edits,
+  Back with and without a map change, clone copying selection, and the double-click undo. The
+  new suite was red on the old reducer before implementation.
+- `for t in scripts/test-*.mjs; do node "$t"; done`: PASS, all 11 suites.
+- `cd frontend && npx tsc -b --force && npm run build`: PASS; existing Vite chunk-size
+  advisory.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar`: PASS.
+- `JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH python3 scripts/verify_git_review_pipeline.py`:
+  PASS, 41/41, zero page errors, source and index unchanged, no model requests
+  (`build/git-review/run-u7he6nmf`, final jar). Its undo/redo Changes-toggle checks pass
+  unmodified. Screenshots `02-changes-preserved-layout` and `04-first-tab-restored` were
+  inspected and retained in `docs/evidence/selection-outside-undo/`.
+- `BACKEND=http://127.0.0.1:8095 APP=http://127.0.0.1:8095 DEBUG=http://127.0.0.1:9333 OUT=<scratch>/evidence node scripts/verify-explorer-journeys.mjs <scratch copy of test-fixtures/microservice-java>`
+  against the packaged jar (isolated data dir, model URL on a closed port, headless
+  Chromium): PASS, 50/50, zero page/console errors, fixture SHA-256 unchanged, no model
+  requests. The script's selection-undo checks were rewritten: clicks leave undo empty,
+  selection keeps redo, redo removing the selected card prunes it, undo does not resurrect
+  it. A new double-click check confirms one undo reverts the arrangement and keeps the
+  inspection. The desktop and 375 px screenshots were inspected and retained in
+  `docs/evidence/selection-outside-undo/` with the report.
+- `git diff --check`: PASS.
+
+Not run:
+- `python3 scripts/verify_stable_graph_pipeline.py acceptance` was run and stopped in its
+  first scenario at `revealClasses` (`TypeError ... reading 'click'`). This is the known
+  pre-existing breakage recorded below: the legacy harness still clicks the Class/Method
+  level switcher removed by ADR 0007 (36 call sites). It reached no assertion, so none of its
+  assertions could be checked against this change. Porting that harness to the package-only
+  view is a separate task and a prerequisite for phase B's browser acceptance.
+- Backend tests and live-model checks were skipped: this is a frontend-only state change.
+
+Limits: when a selection gesture moves only the selection, it does not record its companion
+tree reveal, search reset or mobile pane. A later undo therefore restores those three from
+the restored entry, while the selection itself stays current.
 
 ## Direct edge selection uses black (2026-09-24)
 
