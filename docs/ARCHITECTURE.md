@@ -147,6 +147,14 @@ from the navigation pane or inspector): only `GraphCanvas` consumes a `restoreVe
 counter, via its own effect, to resync Cytoscape's live positions/camera to the restored
 tab state. Ordinary inspection and filtering preserve the mounted canvas untouched.
 
+The outgoing relation stack (`docs/OUTGOING_STACK.md`) follows the same layering. The pure helper
+`outgoingStack.ts` walks the tab graph's relationship facts at the root's granularity and maps the
+result onto the cards and routes the canvas draws. The journey keeps its pinned
+root outside history like selection (carried and pruned on undo/redo) and also prunes it in the
+reducer when an ordinary update or recapture stops drawing it. App computes the stack from the
+projection, and `GraphCanvas` only applies classes and draws layer badges on its direction overlay.
+It never moves cards or the camera.
+
 Renderer inputs must not alias saved state: Cytoscape retains and mutates coordinates
 passed to `add()`, so `GraphCanvas` copies positions at that boundary. Parser graph data,
 explanation responses, project documents, settings and backend jobs stay outside history.

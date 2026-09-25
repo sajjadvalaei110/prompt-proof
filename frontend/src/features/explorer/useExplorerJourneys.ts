@@ -1,11 +1,14 @@
 import { SetStateAction, useReducer, useRef } from 'react';
 import { ExplorerAction, ExplorerViewState, explorerViewReducer } from './explorerViewState';
-import { Journey, JourneyAction, initJourneys, journeysReducer, newJourney } from './explorerJourney';
+import { GraphFor, Journey, JourneyAction, initJourneys, journeysReducer, newJourney } from './explorerJourney';
 
 export function flushExplorerCamera() { window.dispatchEvent(new Event('atlas:flush-camera')); }
 
-export function useExplorerJourneys(initialView?: ExplorerViewState) {
+/** `graphFor` returns the graph a journey renders; updates use it to end an outgoing stack whose
+ * root they took off the map (see journeysReducer's UPDATE). It is read at dispatch time. */
+export function useExplorerJourneys(initialView?: ExplorerViewState, graphFor?: GraphFor) {
   const [state, dispatch] = useReducer(journeysReducer, initialView, view => initJourneys(view ? newJourney(view) : undefined));
+  const graphForRef = useRef(graphFor); graphForRef.current = graphFor;
   const active = state.tabs.find(t => t.id === state.activeId)!;
   const counter = useRef(0), group = useRef<number | null>(null);
   // All synchronous updates caused by one UI action form one undo step (scope + membership,
@@ -16,7 +19,7 @@ export function useExplorerJourneys(initialView?: ExplorerViewState) {
       group.current = ++counter.current;
       queueMicrotask(() => { group.current = null; });
     }
-    dispatch({ type: 'UPDATE', id: active.id, group: group.current, update: fn });
+    dispatch({ type: 'UPDATE', id: active.id, group: group.current, update: fn, graphFor: graphForRef.current });
   }
   function set<K extends keyof Journey>(key: K, value: SetStateAction<Journey[K]>) {
     update(j => {
@@ -40,7 +43,7 @@ export function useExplorerJourneys(initialView?: ExplorerViewState) {
   // own fresh group number keeps it from merging into any transaction currently in progress, and a
   // stale tab ID is a safe no-op (the reducer's UPDATE case only touches a matching `t.id`).
   function updateTab(id: number, fn: (j: Journey) => Journey) {
-    dispatch({ type: 'UPDATE', id, group: ++counter.current, update: fn });
+    dispatch({ type: 'UPDATE', id, group: ++counter.current, update: fn, graphFor: graphForRef.current });
   }
   function dispatchView(action: ExplorerAction, initialCamera = false) {
     if (action.type === 'RESET') {

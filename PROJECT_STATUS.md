@@ -1,7 +1,10 @@
 # Project status
-Last updated: 2026-09-24
+Last updated: 2026-09-25
 Active milestone: R6 — Developer comprehension redesign (in progress)
-Current revision: step 12 phase A review remediation, on top of selection outside undo
+Current revision: step 12 phase B follow-ups (fact-level stack traversal at the root's granularity,
+root look for the whole root set), on top of
+step 12 phase B, the outgoing relation stack (docs/OUTGOING_STACK.md), on top of
+step 12 phase A review remediation, on top of selection outside undo
 history (step 12 phase A, ADR 0009), on top of
 selected-edge moving dashes and directional margins, with
 view-only map controls excluded from undo/redo with stronger zoom steps,
@@ -13,6 +16,243 @@ toggle with a git-style diff code viewer, exploration tabs with per-tab undo/red
 and selection controls, the R6 change-edges slice (one line per direction,
 directional selection emphasis, file-grouped evidence), in-place card details
 (expand packages/classes) and resizable cards; Step 6A remains unstarted
+
+## Step 12 phase B follow-ups: fact-level stack traversal and expanded-root look (2026-09-25)
+
+Two follow-ups to the outgoing stack. Both were built test-first.
+
+1. **Traversal over facts at the root's granularity (user decision).** The bug: with packages A -> B
+   -> C, a stack rooted at class P in an expanded A showed C at layer 2 only because another class
+   in the collapsed B calls into C. The old helper walked the drawn aggregated routes, so a
+   collapsed card acted as a hub. The same happened with method roots. Now:
+   - `outgoingStack({ graph, cards, routes, rootId, kind, direction })` walks the tab graph's raw
+     edges. Each endpoint maps to its owner at the root's granularity (`ownerAt`: package, type or
+     method/constructor). A method root ignores class-level facts and facts that target a class.
+   - The walk skips null targets, filtered kinds, REMOVED facts, entity self-loops, and entities
+     with no drawn card.
+   - A card's layer is the minimum BFS distance over the entities it represents: its own entity,
+     or the members it contains when collapsed.
+   - The root set and the root's containers never get a layer.
+   - Cards inside a layered expanded box are covered (`coveredIds`: lit, no badge).
+   - A drawn route is a chain route only if one of its `occurrenceIds` is a walked step between
+     chain entities.
+   - Rules are in the helper's doc comment and `docs/OUTGOING_STACK.md` §Traversal. That section
+     supersedes "only the routes currently drawn" and "Out of scope: collapsed internals".
+   - Consequence: for a package root, expanding a downstream package no longer changes layers. The
+     reached package's box carries the badge and its children are covered.
+2. **Expanded-root look** (`docs/OUTGOING_STACK_REVIEW.md` P2). `GraphCanvas.tsx` gives every
+   layer-0 card `stack-root`, not only the pinned root. The pressed toggle stays on the root only.
+   Note: the brief described this fix and its browser checks as already present in the working
+   tree, but the tree was clean at `04cd34e` when this work started. The fix, its browser checks,
+   this entry and the untracked review doc (copied from the reviewer's scratch copy) were
+   (re)written here. During the session the working tree was also reverted once by an outside
+   process, with no reflog or stash entry; the work was re-applied from saved patches.
+
+What changed:
+- `frontend/src/features/explorer/outgoingStack.ts`: the new signature and rules. It reuses
+  `ownerAt`/`isType` from `graphModel.ts`, is pure, and runs in O(nodes + edges) with memoized
+  owners and representatives.
+- `App.tsx`: the stack `useMemo` passes `graph` and `kind` (deps `[graph, projected, stackRootId,
+  kind]`).
+- `GraphCanvas.tsx`: in the stack branch, `stack-root` goes on the whole root set and covered cards
+  count as chain (unmuted). No layout, fit, position or camera call was added. Journey state and
+  pruning are unchanged.
+- `scripts/test-outgoing-stack.mjs`: rewritten over hand-computable fact graphs (23 checks). It
+  compiles scopeModel + graphModel + outgoingStack, following the journeys test pattern.
+- `scripts/verify-outgoing-stack-ui.mjs`:
+  - The in-page drawn-route BFS oracle is replaced by an independent Node-side oracle over
+    `/api/snapshots/<id>/graph`. It does not import product code.
+  - The old expansion checks are rewritten to the new rule: layers identical, badge on the
+    services box, children covered.
+  - New expanded-root checks (root package plus a nested type's methods).
+  - A fourth CLI argument: a generated plain-source chain fixture.
+- Docs: `OUTGOING_STACK.md` (Purpose, Traversal, Visual treatment, Out of scope, Verification, two
+  implementation notes), `STABLE_GRAPH_INTERACTIONS.md` §Outgoing relation stack,
+  `ARCHITECTURE.md` §5, `TESTING.md` (23 stack checks, 55 browser checks), and
+  `OUTGOING_STACK_REVIEW.md` (Resolution section).
+
+Analyzer check (before writing the browser fixture): the chain fixture was analyzed on a probe
+backend (port 8097, no browser) and `/api/snapshots/<id>/graph` was inspected. It has CALLS
+`P.m()->Q.q()`, `Q.q2()->T.t()` and `S.s()->U.u()`. It also has CONSTRUCTS method->class
+(`P.m()->Q`, `Q.q2()->T`, `S.s()->U`) and DEPENDS_ON class->class (`P->Q`, `Q->T`, `S->U`). A
+method root ignores the latter two by rule, and they do not change the class-level result. The
+fixture needed no adaptation. Packages have no parent package, and there are no constructor nodes.
+
+Verification (exact commands and outcomes):
+- Red: `node scripts/test-outgoing-stack.mjs` against the old helper failed at once (`cards.map is
+  not a function`, interface change). A scratch shim that adapted the new call shape to the old
+  helper then failed 9 of 23 checks, including the user's scenario (class root P reached C) and
+  the method-root case.
+- Green: `node scripts/test-outgoing-stack.mjs`: PASS, 23 checks.
+- Mutation checks in a scratch copy, each caught by the suite: walking through entities without
+  a drawn card, a layer on root containers, last instead of min, walking REMOVED, no covered
+  cards, a method root walking classes, ignoring the kind filter. Two mutations survived, and both
+  are equivalent: requiring only the chain-route source, and walking self-loops. A reached source's
+  step always reaches its target unless the target has no card, and then no route to it can be
+  drawn.
+- `for t in scripts/test-*.mjs; do node "$t" >/dev/null && echo "PASS $t" || echo "FAIL $t"; done`:
+  PASS, all 12 suites (journeys still 46; `test-explorer-journeys.mjs` unchanged).
+- `cd frontend && npx tsc -b --force && npm run build`: PASS; existing Vite chunk-size advisory.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar`: PASS. The jar's `index.html`
+  references the new bundle (it contains `coveredIds`).
+- Stack browser check. Fresh isolated setup: packaged jar on 8095 with its own data dir, model URL
+  on closed port 9, headless snap Chromium on 9333. The setup script is the phase B one plus a
+  generated `chainfix` directory:
+  - app.a `P.m()` calls `new app.b.Q().q()`
+  - app.b `Q.q2()` calls `new app.c.T().t()`, and `S.s()` calls `new app.d.U().u()`
+  - app.c `T.t()`, app.d `U.u()`
+
+  Command: `BACKEND=http://127.0.0.1:8095 APP=http://127.0.0.1:8095 DEBUG=http://127.0.0.1:9333
+  OUT=<run>/evidence node scripts/verify-outgoing-stack-ui.mjs <run>/fixture <run>/gitfix <base
+  oid> <run>/chainfix`. Result: PASS, 55/55 on the first run, zero page/console errors. All three
+  fixtures' SHA-256 (and the Git fixture's `git status`) were unchanged, and the backend log shows
+  no model requests. Screenshots and `report.json` replaced the old set in
+  `docs/evidence/outgoing-stack/`. Inspected:
+  - `01`: controllers root; domain/dtos/services 1, repositories/exceptions 2.
+  - `02`: the layer-2 exceptions card is selected; the root stays pressed.
+  - `03`: the services box is expanded, keeps badge 1, and its two classes are lit with no badge.
+  - `04`: 15% zoom, badges legible.
+  - `06-mobile-map`: 375 px, badge and pressed toggle on the map pane.
+  - `07`: Changes; b 1 through unchanged a->b, c 2 through the added b->c; the root keeps its
+    CHANGED fill.
+  - `08`: controllers, EventController and its 4 methods all have the teal root look and no
+    badges; layers unchanged.
+  - `09`: app.a root; b 1, c 2, d 2.
+  - `10`: class P root inside the app.a box; b 1, c 2; d and the b->d route muted.
+  - `11`: method m root; b 1 only; c and d muted.
+- `node scripts/verify-explorer-journeys.mjs <run>/fixture` in its own fresh isolated setup: PASS,
+  51/51, fixtures unchanged.
+- `git diff --check`: PASS.
+
+Not run:
+- `python3 scripts/verify_stable_graph_pipeline.py baseline|acceptance`: still broken by the ADR
+  0007 level-switcher removal (pre-existing, see phase B).
+- `verify_git_review_pipeline.py`: not rerun. The change does not touch review capture, and the
+  stack's Changes path is covered by the stack browser check.
+
+Limits:
+- If an entity is represented only by the root's container (for example an out-of-scope class in
+  the root's own package), the walk passes through it without a card, so a layer number can be
+  skipped (documented in the helper and the spec).
+- Covered cards get no outline of their own; they are only unmuted.
+- The incoming direction still exists only in the helper.
+
+Lead review of this follow-up: the diff was read (helper, App, GraphCanvas, tests, docs). These
+passed again independently: all 12 node suites (23 stack / 46 journey checks), `tsc -b --force`,
+`npm run build`, `bootJar` and `git diff --check`. A separate fresh isolated
+`verify-outgoing-stack-ui.mjs` run passed 55/55, with all three fixtures unchanged and no model
+requests. `09-package-root.png`, `10-class-root.png` and `11-method-root.png` were inspected and
+match the rule.
+
+## Step 12 phase B: outgoing relation stack (2026-09-24)
+
+Follow-ups (fact-level traversal, expanded-root look, review resolution): see "Step 12 phase B
+follow-ups" above.
+
+Implements `docs/OUTGOING_STACK.md` (now committed, status: implemented). Phase A was not
+reopened. The pure helper and the journey state were built test-first. Both new suites were run
+red before the code existed, or before the reducer changed.
+
+What changed:
+- `frontend/src/features/explorer/outgoingStack.ts` (new, pure): `outgoingStack(cards, routes,
+  rootId, direction)` does a BFS over the drawn, aggregated and filtered routes. The root set is the
+  root plus its visible descendants. REMOVED routes are skipped. It returns layers (first-seen),
+  rootSet, chainEdgeIds, depth and count. `stackSummary` builds the tooltip and inspector line.
+- `explorerJourney.ts`: `Journey.outgoingStackRootId` (null in `newJourney`). It is classified and
+  carried like ADR 0009 selection, so toggling adds no entry and keeps redo, and undo/redo keep it.
+  `UPDATE` and `REVIEW_RECAPTURED` take an optional `graphFor`. Clone copies the root; nothing had
+  to change for that.
+- `revalidateJourney.ts`: `pruneRestoredSelection` drops the root when undo/redo stops drawing it.
+  The mode-switch/recapture revalidation drops a root the target graph lacks. The new
+  `pruneStackRoot` ends the stack after any update that changes display inputs and stops drawing
+  the root: scope removal, collapse, level switch, Changes toggle, recapture. This closes the
+  phase A review's P3 gap inside the reducer, with no App effect.
+- `useExplorerJourneys.ts`: optional `graphFor`, read at dispatch time and attached to updates.
+- `App.tsx`: `useMemo` stack over `projected`. `toggleOutgoingStack` is one selection-class update.
+  Escape is layered: an active stack ends first. GraphCanvas and inspector props were added, and
+  recapture passes `graphFor`.
+- `GraphCanvas.tsx`: a stack emphasis branch (`stack-root` with the inspected look, ordered before
+  the review fills; static `stack-member` cyan outline; `flow-out` chain routes; everything else
+  muted except ancestors). The animation also runs with a stack and no selection. Layer badges go on
+  the direction overlay (top-left, half-overlapping, dashed `HALO.out` in route phase, at least
+  20 px, wider per digit, static under reduced motion, published to `atlas:directionOverlay.badges`).
+  The on-card toggle (selected/hovered/root, `aria-pressed`, summary tooltip) is canvas
+  hit-tested like the other corner squares, including under a route crossing an expanded box. The
+  context-menu item is "Show/Hide outgoing stack". No layout, fit, position or camera call was
+  added.
+- `InspectorPanel.tsx`: "Outgoing stack: N layers · M resources" when the root is inspected.
+  `App.css`: button and summary styles.
+- Docs: implementation notes and accepted deviations in `OUTGOING_STACK.md`, an ADR 0009 note,
+  a stack section and Escape rule in `STABLE_GRAPH_INTERACTIONS.md`, `ARCHITECTURE.md` §5, and
+  `TESTING.md` (46 journey checks, 14 stack checks, 39 stack browser checks).
+
+Decisions and deviations:
+- The root stays outside history through the selection carry and classification, not
+  `TRANSIENT_UPDATE` (the spec's wording). With `TRANSIENT_UPDATE`, a redo after undo pruning
+  would revive a stack whose root had left the map. The handoff delegated this choice; it is
+  recorded in the spec notes.
+- The stack is computed in App rather than GraphCanvas, so the inspector line reuses it.
+  GraphCanvas still only applies classes and badges.
+- Browser acceptance: **user decision** to add the standalone
+  `scripts/verify-outgoing-stack-ui.mjs` instead of extending the broken
+  `verify_stable_graph_pipeline.py acceptance` (it still clicks the ADR 0007-removed level switcher).
+- Found through screenshot inspection and fixed: the first `stack-root` rule came after the
+  Changes fills and painted a CHANGED root teal. It is now grouped with `node.inspected` before the
+  fills, and a browser check asserts the root's fill is unchanged.
+
+Verification (exact commands and outcomes):
+- `node scripts/test-outgoing-stack.mjs`: first run red (module missing), then PASS, 14 checks.
+- `node scripts/test-explorer-journeys.mjs`: the new checks were red first
+  (`outgoingStackRootId` undefined), then PASS, 46 checks (was 37).
+- Mutation checks in scratch copies. Each mutation is caught by its suite: dropping the UPDATE
+  prune, the root carry, the root's selection classification, the undo/redo root prune, the
+  recapture prune, the REMOVED skip, the first-seen rule, or the root-set descendants.
+- `for t in scripts/test-*.mjs; do node "$t" >/dev/null && echo "PASS $t" || echo "FAIL $t"; done`:
+  PASS, all 12 suites (11 + `test-outgoing-stack.mjs`).
+- `cd frontend && npx tsc -b --force && npm run build`: PASS; existing Vite chunk-size advisory.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar`: PASS.
+- `BACKEND=http://127.0.0.1:8095 APP=http://127.0.0.1:8095 DEBUG=http://127.0.0.1:9333 OUT=<run>/evidence node scripts/verify-outgoing-stack-ui.mjs <run>/fixture <run>/gitfix <base oid>`
+  against the packaged jar (isolated data dir, model URL on closed port 9, headless snap
+  Chromium, setup as in the phase A entry). The Git fixture is generated per run: `git init`
+  with packages `app.a`, `app.b`, `app.c`. The base commit has `A.run()` calling `B.go()` and
+  `C.done()`. The working tree has `A.run()` calling only `B.go()` and `B.go()` calling `C.done()`.
+  Result: PASS, 39/39, zero page/console errors, both fixtures' SHA-256 (and `git status`)
+  unchanged, no model requests in the backend log. Earlier runs in this session failed for script
+  reasons that were fixed: the Enter key event lacked `text`, a double tap deselected, and the
+  Escape check counted the ordinary selection emphasis as chain routes. One real product defect
+  was found by screenshot (the root fill, above).
+  Screenshots are in `docs/evidence/outgoing-stack/` with `report.json`. Inspected:
+  `01-stack-active` (badges 1/2 on the top-left corners, the root's pressed toggle beside its
+  details button, cards outside the chain muted), `02-layer-two-selected` (root still pressed, the
+  selected layer-2 card inspected over its badge), `03-chain-card-expanded` (the services box has
+  no badge and its classes are numbered; a child badge overlaps the box header label, which the
+  spec allows), `04-low-zoom` (15%: badges legible and larger than the cards; the root's toggle
+  is hidden with the other corner buttons), `05-badge-and-toggle` (badge and toggle in opposite
+  corners, no overlap), `06-mobile` / `06-mobile-map` (375 px: summary in Details; badges and the
+  pressed toggle on the map pane; no overflow), `07-changes-mode` (C is layer 2 via the green
+  ADDED B -> C only, the REMOVED A -> C is muted, and the CHANGED root keeps its yellow fill).
+  After the last code change (renaming the overlay draw's `_phase` parameter to `phase`, since it
+  is now used; no behavior change), the jar was rebuilt and a fresh isolated run passed 39/39 again.
+  Its screenshots are the committed evidence.
+- `node scripts/verify-explorer-journeys.mjs` (same isolated setup, fresh run): PASS, 51/51,
+  fixture unchanged.
+- `JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH python3 scripts/verify_git_review_pipeline.py`:
+  PASS, 41/41, zero page errors, source and Git index SHA-256 unchanged
+  (`build/git-review/run-31t77zwe`). `03-selected-change-colors-and-dashes.png` inspected: the
+  inspected card keeps its ordinary look and shows the stack toggle only on the selected card.
+- `git diff --check`: PASS.
+
+Not run:
+- `python3 scripts/verify_stable_graph_pipeline.py baseline|acceptance`: still broken at
+  `revealClasses` by the ADR 0007 level-switcher removal (pre-existing, confirmed on `24a5fa6`).
+  Porting it is a separate task (user decision above).
+- Esc layering has no unit harness (App keydown). It is covered only by the browser check.
+
+Limits:
+- Below the corner buttons' minimum on-screen size (14 px), the stack toggle is hidden, including
+  the root's pressed state. The badges, the context menu and Escape still work.
+- At low zoom, badges may overlap neighbouring cards or a box header label (allowed by the spec).
+- The incoming-stack direction exists in the helper only; there is no UI for it.
 
 ## Step 12 phase A: review remediation (2026-09-24)
 

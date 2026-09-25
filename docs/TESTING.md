@@ -38,8 +38,37 @@ undo/redo keep the current selection and prune only cards/routes the restored ma
 longer draws, including across a Changes toggle, and a double-click is one arrangement
 entry, and a Back that leaves the map unchanged or only refreshes eligibility bookkeeping
 adds none; Back-trail pruning, the graph-less route fallback, companion revert on undo and
-the pruning short-circuits), mode continuity, and atomic recapture for open and closed tabs
-(37 checks).
+the pruning short-circuits), mode continuity, and atomic recapture for open and closed tabs,
+plus the outgoing-stack root: toggling adds no entry and keeps redo, undo/redo keep it, undo
+removing the root ends it without a redo revival, scope removal, collapse, level switch, the
+graph-less fallback, mode revalidation and recapture end it, and Clone copies it (46 checks).
+
+`node scripts/test-outgoing-stack.mjs` pins the pure layer computation
+(`docs/OUTGOING_STACK.md` §Traversal) over hand-computable fact graphs: an undrawn root, an empty
+stack, the summary line, the collapsed-hub case (class root P does not reach C through another
+class of B; package root A does), a class chain across a collapsed package, method roots (method
+calls only; class-level and class-target facts ignored), layer = minimum over represented entities,
+the nearest drawn ancestor as representative, entities with no drawn representative, ancestors of
+the root, the kind filter, REMOVED facts, null/unknown endpoints, cycles and self-loops, an
+expanded root, a reached expanded box with covered children, an out-of-scope entity inside a box,
+chain routes via `occurrenceIds`, `direction: 'in'`, and order independence over 20 shuffles
+(23 checks).
+
+`node scripts/verify-outgoing-stack-ui.mjs <microservice-java copy> <git fixture> <base oid> <chain fixture>`
+(BACKEND/APP/DEBUG as below) is the stack's browser acceptance (55 checks). It activates the
+stack from the on-card button, checks badges 1..N and the chain routes against an independent
+Node-side oracle computed from the API graph (written from the spec's rules, not from
+`outgoingStack.ts`), and checks that the root stays pinned while a layer-2 card is selected. It
+expands a chain card (package-level layers unchanged, the box keeps its badge, its children are
+covered), expands the root and a type inside it (every layer-0 card, nested ones included, takes
+the root look and gets no badge), then checks that one Escape ends the stack and a second
+clears the selection. Positions, camera and the redo branch must be unchanged throughout. It
+also covers the context menu, Enter on the focused button, the minimum badge size at low zoom,
+reduced motion and 375 px. In Changes mode on a generated three-package Git fixture it checks
+that the REMOVED route is not walked and that line colors and change fills stay factual. On a
+generated plain-source chain fixture (app.a P -> app.b Q; Q.q2 -> app.c T; app.b S -> app.d U) it
+checks package root app.a (b 1, c 2, d 2), class root P (b 1, c 2, d not reached and the drawn
+b -> d route not lit) and method root m (b 1 only). The fixture recipes are in `PROJECT_STATUS.md`.
 
 `APP=http://127.0.0.1:5198 node scripts/verify-explorer-journeys.mjs /tmp/atlas-journey-fixture`
 exercises a real isolated backend and production frontend in Chromium (51 checks).

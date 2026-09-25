@@ -99,7 +99,8 @@ Wheel/pinch/pan and Fit map remain camera-navigation history.
 **Clear selection**, clicking empty canvas, or Escape clears inspection and selected
 cards without changing scope, geometry or camera, and without adding an undo entry. With
 nothing selected it does nothing (it does not switch the mobile pane either).
-Menus, resize cancellation and modal dialogs handle Escape first. Clicking an
+Menus, resize cancellation and modal dialogs handle Escape first. While an outgoing stack is
+shown, Escape ends the stack first and leaves the selection; the next Escape clears it. Clicking an
 already-inspected resource also deselects it.
 
 ## Story 1 — Inspect without losing my place
@@ -231,6 +232,25 @@ Acceptance:
 - Explicit navigation to Methods followed by Classes restores the Classes page and
   arrangement. Returning from source, settings, or project context also preserves it.
 - Explanation polling updates text and badges without changing membership or layout.
+
+### Outgoing relation stack (2026-09-24)
+
+A card's stack button, shown on the selected and hovered card, or its "Show outgoing stack" menu
+item roots a stack at that card (`docs/OUTGOING_STACK.md`). The walk follows parser relationship
+facts at the root's own granularity (a package root package relations, a class root class
+relations, a method root method calls; user decision 2026-09-25), so a collapsed card never joins
+unrelated relationships of its members. Every drawn card holding something the root reaches gets a
+layer badge at its top-left: the first breadth-first distance of what it holds. REMOVED facts are
+not walked in Changes. Chain routes (drawn routes carrying a chain relationship) get the
+selected-route dashes and cyan underlay with their factual colors, chain cards a static cyan
+outline, cards inside a reached expanded box stay lit without a badge, every card of the root set
+takes the root look, and everything else is muted. The root stays pinned
+while the selection moves, and its button stays pressed with the tooltip "Outgoing stack: N layers
+· M resources", which the inspector repeats for the root. Layers recompute live on filter or scope
+changes; expanding a downstream card does not change them. The stack ends on the button or menu item, on Escape (after menus and
+before clearing selection), or when the root leaves the map (scope removal, collapse, level switch,
+undo, Changes recapture), and it never comes back on its own. Turning it on or off adds no undo
+entry and never moves cards or the camera.
 
 ## Delivery and validation
 

@@ -1,7 +1,7 @@
 import { explorerViewReducer, initExplorerViewState, sameDisplayedLevelView, ExplorerAction, ExplorerViewState } from './explorerViewState';
 import type { AtlasGraph } from './graphModel';
 import { ScopeSelection } from './scopeModel';
-import { pruneRestoredSelection } from './revalidateJourney';
+import { pruneRestoredSelection, pruneStackRoot } from './revalidateJourney';
 /** UI state only. Graph facts, generated results and server operations never enter history. */
 export interface Journey {
   view: ExplorerViewState;
@@ -24,6 +24,9 @@ export interface Journey {
   reviewKey: string | null;
   /** Monotonic bookkeeping used to invalidate review history even after the tab returns to map mode. */
   reviewTouched: boolean;
+  /** Root card of the outgoing relation stack (docs/OUTGOING_STACK.md), or null when no stack is
+   * shown. A pinned pointer like selection: outside undo history and pruned when not drawn. */
+  outgoingStackRootId: string | null;
 }
 export interface JourneyTab {
   id: number;
@@ -43,7 +46,7 @@ export interface ExplorerJourneys {
 }
 export const HISTORY_LIMIT = 200;
 export function newJourney(view = initExplorerViewState()): Journey {
-  return { view, scope: { mode: 'ALL', selectedPackageIds: new Set(), selectedClassIds: new Set() }, kind: 'ALL', tab: 'map', search: '', mobilePane: 'map', source: null, treeOpen: {}, multiIds: [], mapOpen: true, fullscreen: false, navWidth: null, review: false, reviewKey: null, reviewTouched: false };
+  return { view, scope: { mode: 'ALL', selectedPackageIds: new Set(), selectedClassIds: new Set() }, kind: 'ALL', tab: 'map', search: '', mobilePane: 'map', source: null, treeOpen: {}, multiIds: [], mapOpen: true, fullscreen: false, navWidth: null, review: false, reviewKey: null, reviewTouched: false, outgoingStackRootId: null };
 }
 function newTab(id: number, present: Journey): JourneyTab {
   return { id, title: `Explore ${id}`, present, past: [], future: [], group: null, restoreVersion: 0 };
@@ -62,6 +65,7 @@ export function toggleJourneyReview(j: Journey, on: boolean, reviewKey: string |
   if (j.review === on && j.reviewKey === nextKey && (!on || j.reviewTouched)) return j;
   return { ...j, review: on, reviewKey: nextKey, reviewTouched: j.reviewTouched || on };
 }
+export type GraphFor = (j: Journey) => AtlasGraph | null | undefined;
 export type JourneyAction =
   | { type: 'RESET'; view: ExplorerViewState }
   // `present`: the journey a new tab starts from. Omitted, NEW falls back to the very first journey
@@ -73,26 +77,30 @@ export type JourneyAction =
   // `graphFor` returns the graph a journey renders (ordinary or Changes), so selection that the
   // restored map no longer displays can be pruned exactly, children of expanded cards included.
   // Without it, pruning falls back to the view's own record of displayed cards.
-  | { type: 'UNDO' | 'REDO'; graphFor?: (j: Journey) => AtlasGraph | null | undefined }
+  | { type: 'UNDO' | 'REDO'; graphFor?: GraphFor }
   | { type: 'SWITCH' | 'CLOSE'; id: number }
   // Every open and closed tab that ever touched review state under the old comparison is reconciled
   // against the recaptured graph and loses its undo/redo history: display IDs are derived from
   // `comparisonKey`, which is meaningless once the working tree is recaptured, so an old step could
   // never be replayed onto the new graph.
-  | { type: 'REVIEW_RECAPTURED'; reviewKey: string; reviewIds?: string[]; reconcile?: (j: Journey) => Journey }
+  // `graphFor` lets the reconciled tabs end an outgoing stack whose root the new map no longer draws.
+  | { type: 'REVIEW_RECAPTURED'; reviewKey: string; reviewIds?: string[]; reconcile?: (j: Journey) => Journey; graphFor?: GraphFor }
   // View-only controls stay current across undo/redo instead of creating or occupying history
   // entries. Applying the same update to every branch prevents a later semantic undo from
   // incidentally restoring an older fullscreen, minimap or button-zoom value.
   | { type: 'TRANSIENT_UPDATE'; id: number; update: (j: Journey) => Journey }
   // An update that only moves the selection (see isSelectionOnly) replaces `present` without
-  // creating, occupying or merging into an undo entry, and keeps the redo branch.
-  | { type: 'UPDATE'; id: number; group: number; update: (j: Journey) => Journey }
+  // creating, occupying or merging into an undo entry, and keeps the redo branch. An update that
+  // changes what the map draws ends an outgoing stack whose root it no longer draws (`graphFor` as
+  // for UNDO/REDO; without it, the view's own displayed record).
+  | { type: 'UPDATE'; id: number; group: number; update: (j: Journey) => Journey; graphFor?: GraphFor }
   | { type: 'INITIAL_CAMERA'; id: number; action: Extract<ExplorerAction, { type: 'SET_CAMERA' }> };
 
 /**
  * Selection is a pointer, not an exploration edit (ADR 0009): the inspected subject, the inspector's
- * Back trail that inspecting extends, and the multi-selection. Undo/redo carries these from the
- * current present into whatever entry it restores, so history entries' own copies are never read.
+ * Back trail that inspecting extends, and the multi-selection. The outgoing stack's pinned root is
+ * the same kind of pointer. Undo/redo carries these from the current present into whatever entry it
+ * restores, so history entries' own copies are never read.
  */
 const SELECTION_VIEW_KEYS = ['inspectedSubjectId', 'inspectedKind', 'inspectedOccurrenceId', 'inspectedLevel', 'history'] as const;
 /** Presentation that a selection gesture updates alongside the selection itself (App's `select`
@@ -101,13 +109,13 @@ const SELECTION_VIEW_KEYS = ['inspectedSubjectId', 'inspectedKind', 'inspectedOc
 const SELECTION_COMPANION_KEYS: (keyof Journey)[] = ['treeOpen', 'search', 'mobilePane'];
 
 function selectionChanged(a: Journey, b: Journey): boolean {
-  return a.multiIds !== b.multiIds || SELECTION_VIEW_KEYS.some(key => a.view[key] !== b.view[key]);
+  return a.multiIds !== b.multiIds || a.outgoingStackRootId !== b.outgoingStackRootId || SELECTION_VIEW_KEYS.some(key => a.view[key] !== b.view[key]);
 }
 /** True when `next` differs from `prev` in the selection (plus, optionally, its companions) only. */
 function isSelectionOnly(prev: Journey, next: Journey): boolean {
   if (!selectionChanged(prev, next)) return false;
   for (const key of Object.keys(next) as (keyof Journey)[]) {
-    if (key === 'view' || key === 'multiIds' || SELECTION_COMPANION_KEYS.includes(key)) continue;
+    if (key === 'view' || key === 'multiIds' || key === 'outgoingStackRootId' || SELECTION_COMPANION_KEYS.includes(key)) continue;
     if (prev[key] !== next[key]) return false;
   }
   if (prev.view === next.view) return true;
@@ -131,7 +139,7 @@ function carrySelection(target: Journey, from: Journey): Journey {
   if (!selectionChanged(target, from)) return target;
   const view = { ...target.view };
   for (const key of SELECTION_VIEW_KEYS) (view as Record<string, unknown>)[key] = from.view[key];
-  return { ...target, view, multiIds: from.multiIds };
+  return { ...target, view, multiIds: from.multiIds, outgoingStackRootId: from.outgoingStackRootId };
 }
 
 function touchesReview(j: Journey): boolean { return j.reviewTouched; }
@@ -176,7 +184,11 @@ export function journeysReducer(state: ExplorerJourneys, action: JourneyAction):
     return tab ? { ...state, tabs: [...state.tabs, tab], closed: state.closed.slice(0, -1), activeId: tab.id } : state;
   }
   if (action.type === 'REVIEW_RECAPTURED') {
-    const resetTab = (t: JourneyTab) => resetReviewTab(t, action.reviewKey, action.reviewIds, action.reconcile);
+    const resetTab = (t: JourneyTab) => {
+      const next = resetReviewTab(t, action.reviewKey, action.reviewIds, action.reconcile);
+      const present = next === t ? next.present : pruneStackRoot(next.present, t.present, action.graphFor);
+      return present === next.present ? next : { ...next, present };
+    };
     return { ...state, tabs: state.tabs.map(resetTab), closed: state.closed.map(resetTab) };
   }
   const id = 'id' in action ? action.id : state.activeId;
@@ -193,7 +205,7 @@ export function journeysReducer(state: ExplorerJourneys, action: JourneyAction):
       return { ...t, present: apply(t.present), past: t.past.map(apply), future: t.future.map(apply) };
     }
     if (action.type === 'UPDATE') {
-      const present = action.update(t.present);
+      const present = pruneStackRoot(action.update(t.present), t.present, action.graphFor);
       if (present === t.present) return t;
       // `group` is left alone: a later real edit of the same UI action still merges with whatever
       // that action already recorded, and one of a new action still pushes (carrying this selection).

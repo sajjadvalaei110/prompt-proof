@@ -20,6 +20,7 @@ import { startSerialPolling } from './utils/serialPolling';
 import { useExplorerJourneys, flushExplorerCamera } from './features/explorer/useExplorerJourneys';
 import { Journey, newJourney, toggleJourneyReview } from './features/explorer/explorerJourney';
 import { revalidateJourneyState } from './features/explorer/revalidateJourney';
+import { outgoingStack, stackSummary } from './features/explorer/outgoingStack';
 
 const REVIEW_BATCH_SIZE = 12;
 
@@ -46,7 +47,8 @@ export default function App() {
   const [mapGraph,setMapGraph]=useState<AtlasGraph|null>(null),[routes,setRoutes]=useState<any[]>([]),[recent,setRecent]=useState<any[]>([]);
   const [status,setStatus]=useState('Open a project to begin'),[busy,setBusy]=useState(false),[error,setError]=useState('');
   const reviewComparison=useReviewComparison(workspace?.id||null,mapGraph);
-  const journeys=useExplorerJourneys();
+  // Updates end an outgoing stack whose root they take off the map, judged against the graph each journey renders.
+  const journeys=useExplorerJourneys(undefined,j=>j.review?reviewComparison.graph:mapGraph);
   const {active,dispatchView}=journeys;
   const graph = active.present.review && reviewComparison.graph ? reviewComparison.graph : mapGraph;
   const {view:viewState,scope,kind,tab,search,source,mobilePane,navWidth}=active.present;
@@ -195,6 +197,13 @@ export default function App() {
   function handleNodesMoved(moves:{id:string;position:Point;containerId:string|null}[]){dispatchView({type:'NODES_MOVED',level,moves,generation:viewState.generation});}
   const expansionInput=useMemo(()=>({expansions:Object.entries(expansions).map(([id,e])=>({id,ownerId:e.ownerId})),scope}),[expansions,scope]);
   const projected=useMemo(()=>graph?projectDisplayed(graph,level,displayedIds,kind,expansionInput):{nodes:[] as AtlasNode[],edges:[] as AtlasEdge[]},[graph,level,displayedIds,kind,expansionInput]);
+  // The outgoing relation stack: a walk over the tab's parser facts (`graph`, ordinary or Changes) at
+  // the root's granularity, mapped onto the drawn cards and routes and recomputed whenever they, the
+  // filter or the expansions change (docs/OUTGOING_STACK.md). GraphCanvas only applies it.
+  const stackRootId=active.present.outgoingStackRootId;
+  const stack=useMemo(()=>stackRootId&&graph?outgoingStack({graph,cards:projected.nodes,routes:projected.edges,rootId:stackRootId,kind}):null,[graph,projected,stackRootId,kind]);
+  // A pinned pointer like selection: toggling it never occupies undo history (ADR 0009 classification).
+  function toggleOutgoingStack(id:string){journeys.update(j=>({...j,outgoingStackRootId:j.outgoingStackRootId===id?null:id}));}
   // Model positions for every visible card (children of expanded cards included) and the derived box
   // of every expanded card. A child with no stored position yet (it entered scope while its container
   // was open) is placed below its placed siblings, deterministically, until it is first moved.
@@ -369,6 +378,8 @@ export default function App() {
         if(editing)return; // native text-field undo/redo owns the field
         e.preventDefault();undoRedo(e.key.toLowerCase()==='y'||e.shiftKey?'REDO':'UNDO');
       }else if(e.key==='Escape'&&!source){
+        // Escape is layered: an active outgoing stack ends first; the next Escape clears selection.
+        if(active.present.outgoingStackRootId){journeys.update(j=>({...j,outgoingStackRootId:null}));return;}
         if(active.present.fullscreen&&!active.present.view.inspectedSubjectId&&!active.present.multiIds.length)journeys.setTransient('fullscreen',false);
         clearSelection();setSearch('');
       }
@@ -740,7 +751,7 @@ export default function App() {
         // open and recently closed tab that ever touched review, so a closed review tab cannot
         // reopen with the old comparison's scope, selection or parked resources.
         const reviewIds=result.graph.nodes.filter(n=>n.id.startsWith('review-node:')).map(n=>n.id);
-        journeys.command({type:'REVIEW_RECAPTURED',reviewKey:result.reviewKey,reviewIds,reconcile:j=>{
+        journeys.command({type:'REVIEW_RECAPTURED',reviewKey:result.reviewKey,reviewIds,graphFor:j=>j.review?result.graph:mapGraph,reconcile:j=>{
           const target=j.review?result.graph:mapGraph;
           return target?reconcileJourneyGraph(j,target,j.review,result.graph):j;
         }});
@@ -848,7 +859,7 @@ export default function App() {
           </div>
           {scopeEmpty
             ? <div className="scope-empty-state"><h2>No packages or classes selected</h2><p>Check packages or classes in the left tree to define what the graph shows.</p><button className="primary" onClick={resetScope}>Select all</button></div>
-            : <GraphCanvas multiIds={active.present.multiIds} onMultiIdsChange={v=>journeys.set('multiIds',v)} mapOpen={active.present.mapOpen} onMapOpenChange={v=>journeys.setTransient('mapOpen',v)} fullscreen={active.present.fullscreen} onFullscreenChange={v=>journeys.setTransient('fullscreen',v)} onClearSelection={clearSelection} nodes={projected.nodes} edges={projected.edges} positions={geometry.positions} sizes={sizes} containerSizes={containerSizes} onToggleExpand={toggleExpand} onResizeNode={resizeNode} onResizeContainer={resizeContainer} camera={levelGeometry.camera} selectedId={node?.id||edge?.id} onNodeSelect={select} onEdgeSelect={inspectEdge} canRemoveFromScope={n=>isNodeInScope(n,scope,graph)} onRemoveFromScope={removeFromScope} scopeRemovalTargets={nodes=>planScopeRemoval(nodes).removed} onCameraChange={handleCameraChange} onNodeMoved={handleNodeMoved} onNodesMoved={handleNodesMoved} onArrangeAroundResource={id=>{
+            : <GraphCanvas multiIds={active.present.multiIds} onMultiIdsChange={v=>journeys.set('multiIds',v)} mapOpen={active.present.mapOpen} onMapOpenChange={v=>journeys.setTransient('mapOpen',v)} fullscreen={active.present.fullscreen} onFullscreenChange={v=>journeys.setTransient('fullscreen',v)} onClearSelection={clearSelection} nodes={projected.nodes} edges={projected.edges} positions={geometry.positions} sizes={sizes} containerSizes={containerSizes} onToggleExpand={toggleExpand} outgoingStack={stack} outgoingStackRootId={stack?stackRootId:null} onToggleOutgoingStack={toggleOutgoingStack} onResizeNode={resizeNode} onResizeContainer={resizeContainer} camera={levelGeometry.camera} selectedId={node?.id||edge?.id} onNodeSelect={select} onEdgeSelect={inspectEdge} canRemoveFromScope={n=>isNodeInScope(n,scope,graph)} onRemoveFromScope={removeFromScope} scopeRemovalTargets={nodes=>planScopeRemoval(nodes).removed} onCameraChange={handleCameraChange} onNodeMoved={handleNodeMoved} onNodesMoved={handleNodesMoved} onArrangeAroundResource={id=>{
               cancelReclick();
               arrangeAround(id);
               setMobilePane('details');
@@ -856,7 +867,7 @@ export default function App() {
           {!active.present.review&&<div className="graph-legend"><span><i className="line-sample"/>Static dependency</span><span><i className="line-sample uncertain"/>Candidate / unresolved</span><span>Package connections group occurrences by kind and resolution</span></div>}
         </>}
       </section>
-      {tab!=='context'&&<InspectorPanel selectedNode={node} selectedEdge={edge} mapStatus={mapStatus} edgeFilteredOut={edgeFilteredOut} edgeHiddenByExpansion={edgeHiddenByExpansion} selectedOccurrenceId={viewState.inspectedOccurrenceId} onSelectOccurrence={id=>dispatchView({type:'SELECT_OCCURRENCE',occurrenceId:id})} workspaceId={workspace?.id||null} snapshotId={snapshot} graph={graph} routes={routes} revision={revision} onExplanationReady={()=>setRevision(r=>r+1)} onInspectEdge={inspectEdge} onSelect={select} onViewClasses={viewClasses} onViewMethods={viewMethods} onArrangeAroundResource={n=>arrangeAround(n.id)} onSource={(n,type='symbol')=>openSource(n,type)} onClose={clearSelection}/>}
+      {tab!=='context'&&<InspectorPanel selectedNode={node} selectedEdge={edge} mapStatus={mapStatus} edgeFilteredOut={edgeFilteredOut} edgeHiddenByExpansion={edgeHiddenByExpansion} selectedOccurrenceId={viewState.inspectedOccurrenceId} onSelectOccurrence={id=>dispatchView({type:'SELECT_OCCURRENCE',occurrenceId:id})} workspaceId={workspace?.id||null} snapshotId={snapshot} graph={graph} routes={routes} revision={revision} onExplanationReady={()=>setRevision(r=>r+1)} onInspectEdge={inspectEdge} onSelect={select} onViewClasses={viewClasses} onViewMethods={viewMethods} onArrangeAroundResource={n=>arrangeAround(n.id)} onSource={(n,type='symbol')=>openSource(n,type)} onClose={clearSelection} outgoingStackSummary={stack&&node&&node.id===stackRootId?stackSummary(stack):null}/>}
     </main></>}
     <footer className="app-footer">{graph?.metadata?.diagnostics?.warnings?.length>0&&<details className="analysis-warnings"><summary>{graph?.metadata?.diagnostics?.warnings.length} analysis warning(s)</summary><div>{graph?.metadata?.diagnostics?.warnings.map((w:string,i:number)=><p key={i}>{w}</p>)}</div></details>}<span><i className={`status-dot ${graph?'configured':''}`}/>{status}</span>{graph&&<span>{graph.metadata?.unresolvedCount||0} unresolved external targets</span>}{unanalyzedFiles.length>0&&<span className="unanalyzed-files" title={`These files could not be parsed, so the types they declare are missing from the map:\n${unanalyzedFiles.join('\n')}`}>{unanalyzedFiles.length} file(s) not analyzed</span>}<div className="queue-summary">{queue?.activeJobId&&queue.synthesisStatus!=='READY'&&<span className="synthesis-progress"><i aria-hidden="true"/>{queue.synthesisStage || 'Preparing architecture'} · {synthesisElapsed}s · {queue.synthesisCompleted || 0} validated</span>}{!queue?.activeJobId&&queue?.jobStatus==='CANCELLED'&&<span>Explain all cancelled</span>}{queue&&<span>{queue.completed} explained · {queue.pending+queue.inProgress} queued · {queue.failed} failed</span>}{snapshot&&<button className={queue?.activeJobId?'':'primary'} onClick={explainAll}>{queue?.activeJobId?'Stop explain all':'✧ Explain all'}</button>}</div></footer>
     <SettingsScreen isOpen={settings} onClose={()=>setSettings(false)}/>

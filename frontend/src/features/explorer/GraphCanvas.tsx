@@ -10,8 +10,17 @@ import { REVIEW_CHANGE_PALETTE } from '../review/reviewPalette';
 const MIN_CODE_BUTTON_PX = 14;
 /** Below this rendered card width the resize grip is hidden. */
 const MIN_RESIZE_CARD_PX = 60;
-/** The expand/collapse control a card or container shows in its corner. */
-type CornerHit = CornerAction | 'collapse';
+/** The expand/collapse control a card or container shows in its corner, or the outgoing-stack toggle. */
+type CornerHit = CornerAction | 'collapse' | 'stack';
+/** Layer badge height in model units; it never renders smaller than STACK_BADGE_MIN_PX. */
+const STACK_BADGE_SIZE = 30, STACK_BADGE_MIN_PX = 20;
+/** Card-local square of the outgoing-stack toggle: left of the leftmost corner button of a card, or
+ * of the collapse square of an expanded card. Same units as CODE_BUTTON / CONTAINER_BUTTON. */
+function stackButton(data: any): { right: number; top: number; size: number } {
+  if (data.expanded) return { right: CONTAINER_BUTTON.inset + CONTAINER_BUTTON.size + 6, top: CONTAINER_BUTTON.inset, size: CONTAINER_BUTTON.size };
+  const corners = cornerButtons(data);
+  return { right: corners.length ? Math.max(...corners.map(c => c.right + c.size)) + 8 : CODE_BUTTON.right, top: CODE_BUTTON.top, size: CODE_BUTTON.size };
+}
 interface MinimapState { nodes: { id: string; x: number; y: number; w: number; h: number; parent: boolean }[]; box: { x1: number; y1: number; w: number; h: number }; viewport: { x1: number; y1: number; w: number; h: number }; zoom: number }
 /** Cheap field-by-field comparison so a pan/zoom frame that changed nothing real skips its
  * setState (review remediation F-04); an actual camera move still differs on `viewport`/`zoom`. */
@@ -28,6 +37,7 @@ function sameMinimap(a: MinimapState, b: MinimapState): boolean {
   return true;
 }
 import GeminiBadge from '../../components/GeminiBadge';
+import { OutgoingStack, stackSummary } from './outgoingStack';
 
 export interface Point { x: number; y: number }
 
@@ -96,6 +106,12 @@ interface Props {
    * dismiss transient pointer-interaction UI (context menu, edge hover) a restored state can't
    * otherwise account for -- never to reset model/camera state, which already resyncs from props. */
   restoreVersion: number;
+  /** The outgoing relation stack to show (computed by the caller for exactly these nodes/edges), or null. */
+  outgoingStack: OutgoingStack | null;
+  /** The stack's pinned root while a stack is shown. */
+  outgoingStackRootId: string | null;
+  /** The on-card stack button or menu item: start a stack rooted at this card, or end the one it roots. */
+  onToggleOutgoingStack: (id: string) => void;
 }
 
 /**
@@ -109,10 +125,10 @@ interface Props {
  * `cy.fit()` is called only once per level (when `camera` is null) and by the explicit Fit map
  * button -- both are real camera changes the product allows.
  */
-export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, mapOpen, onMapOpenChange: setMapOpen, fullscreen, onFullscreenChange: setFullscreen, onClearSelection, nodes, edges, positions, camera, selectedId, onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, scopeRemovalTargets, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, sizes, containerSizes, onToggleExpand, onResizeNode, onResizeContainer, restoreVersion }: Props) {
+export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, mapOpen, onMapOpenChange: setMapOpen, fullscreen, onFullscreenChange: setFullscreen, onClearSelection, nodes, edges, positions, camera, selectedId, onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, scopeRemovalTargets, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, sizes, containerSizes, onToggleExpand, onResizeNode, onResizeContainer, restoreVersion, outgoingStack, outgoingStackRootId, onToggleOutgoingStack }: Props) {
   const container = useRef<HTMLDivElement>(null), cyRef = useRef<cytoscape.Core | null>(null), menuRef = useRef<HTMLDivElement>(null);
-  const callbacks = useRef({ onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, onToggleExpand, onResizeNode, onResizeContainer, onClearSelection });
-  callbacks.current = { onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, onToggleExpand, onResizeNode, onResizeContainer, onClearSelection };
+  const callbacks = useRef({ onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, onToggleExpand, onResizeNode, onResizeContainer, onClearSelection, onToggleOutgoingStack });
+  callbacks.current = { onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, onToggleExpand, onResizeNode, onResizeContainer, onClearSelection, onToggleOutgoingStack };
   const [mini, setMini] = useState<MinimapState | null>(null);
   const [hover,setHover]=useState<{title:string;description:string;x:number;y:number;ready:boolean}|null>(null);
   // `node` is the card that was right-clicked; null when the menu opened from a marquee.
@@ -130,6 +146,12 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
   const [resizeGrips,setResizeGrips]=useState<{id:string;left:number;top:number;size:number}[]>([]);
   // The card corner square the pointer is over (the canvas owns the pointer; see cornerHit).
   const [hotCorner,setHotCorner]=useState<string|null>(null);
+  // The card under the pointer: it shows the outgoing-stack toggle, like the selected card and the root.
+  const [hoverCard,setHoverCard]=useState<string|null>(null);
+  const stackButtonIds=useMemo(()=>new Set([selectedId,hoverCard,outgoingStackRootId].filter((id):id is string=>!!id&&nodes.some(n=>n.id===id))),[selectedId,hoverCard,outgoingStackRootId,nodes]);
+  // Read by the Cytoscape handlers and the overlay draw, which are bound once at mount.
+  const stackButtonIdsRef=useRef(stackButtonIds); stackButtonIdsRef.current=stackButtonIds;
+  const stackRef=useRef(outgoingStack); stackRef.current=outgoingStack;
   const model = useMemo(() => ({nodes, edges}), [nodes, edges]);
   const currentModel=useRef(model); currentModel.current=model;
   const updateMapRef = useRef<() => void>(() => {});
@@ -169,7 +191,9 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         // An expanded card is a container around its children: no card image, a header label, and a
         // user-resizable minimum box that grows to the right and down from its top-left corner.
         { selector: 'node[?expanded]', style: { 'background-image': 'none', 'background-color': '#f5f8fc', 'border-width': 2, 'border-style': 'dashed', label: 'data(containerLabel)', 'text-valign': 'top', 'text-halign': 'center', 'text-margin-y': CONTAINER_PADDING - 10, 'font-size': 18, 'font-weight': 600, color: '#19334f', 'text-max-width': '2000px', 'text-wrap': 'none', padding: `${CONTAINER_PADDING}px`, 'compound-sizing-wrt-labels': 'exclude', 'min-width': 'data(minW)', 'min-height': 'data(minH)', 'min-width-bias-left': '0%', 'min-width-bias-right': '100%', 'min-height-bias-top': '0%', 'min-height-bias-bottom': '100%' } as any },
-        { selector: 'node.inspected', style: { 'background-color': '#e0f4f3', 'border-color': '#07888c', 'border-width': 2.5 } },
+        // The outgoing stack's root keeps the inspected look. Both sit before the review fills so a
+        // changed resource keeps its factual change color while inspected or rooting a stack.
+        { selector: 'node.inspected, node.stack-root', style: { 'background-color': '#e0f4f3', 'border-color': '#07888c', 'border-width': 2.5 } },
         { selector: 'node.neighbor', style: { 'border-color': '#07888c', 'border-width': 2.5 } },
         // Review change is parser fact carried by the overlay projection. Keep its card fill
         // visible while a changed resource is inspected; the badge in nodeCard carries the exact
@@ -195,6 +219,9 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         { selector: 'node.rel-out', style: { 'outline-color': HALO.out, 'border-color': HALO.out, 'border-style': 'solid' } },
         { selector: 'node.rel-in', style: { 'outline-color': HALO.in, 'border-color': HALO.in, 'border-style': 'dashed' } },
         { selector: 'node.rel-both', style: { 'outline-opacity': 0, 'border-color': '#64748b', 'border-style': 'double', 'border-width': 5 } },
+        // Outgoing stack chain cards: a thin static cyan outline (never the pulsing rel-out halo).
+        // Layer numbers are drawn on the direction overlay.
+        { selector: 'node.stack-member', style: { 'outline-width': 3, 'outline-offset': 2, 'outline-opacity': 1, 'outline-color': HALO.out } },
         // Multi-select and marquee sit last so their purple outline wins over flow emphasis.
         { selector: 'node.multi-selected', style: { 'border-color': '#7955b7', 'border-width': 4, 'overlay-color': '#7955b7', 'overlay-opacity': .1, 'overlay-padding': 8 } },
         { selector: 'node.marquee-candidate', style: { 'border-color': '#7955b7', 'border-width': 3, 'border-style': 'dashed' } },
@@ -216,7 +243,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     container.current.appendChild(directionCanvas);
     const directionContext = directionCanvas.getContext('2d');
     let overlayDraws = 0, directionFrame = 0, queuedPhase = 0, queuedPulse = .5;
-    const drawDirection = (_phase = animationPhase.current, pulse = .5) => {
+    const drawDirection = (phase = animationPhase.current, pulse = .5) => {
       if (!directionContext || !container.current) return;
       const w = container.current.clientWidth, h = container.current.clientHeight;
       const ratio = window.devicePixelRatio || 1;
@@ -245,7 +272,31 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         directionContext.globalAlpha = 1;
         rings.push({nodeId:node.id(),x,y,width,height,leftColor:HALO.in,rightColor:HALO.out});
       });
-      overlayDraws++;cy.scratch('atlas:directionOverlay',{rings,draws:overlayDraws});
+      // Outgoing stack layer badges: a rounded square centered on each layered card's top-left
+      // corner, with a dashed HALO.out border that moves with the route dashes (same phase, same
+      // [8, 5] pattern scaled to the badge). A minimum on-screen size keeps it legible at low zoom.
+      const badges:{nodeId:string;layer:number;x:number;y:number;width:number;height:number}[]=[];
+      const stack=stackRef.current;
+      if(stack) for(const [id,layer] of stack.layers){
+        const node=cy.getElementById(id);
+        if(!node.length||!node.isNode())continue;
+        const bb=node.renderedBoundingBox({includeLabels:false,includeOverlays:false});
+        if(![bb.x1,bb.y1].every(Number.isFinite))continue;
+        const height=Math.max(STACK_BADGE_MIN_PX,STACK_BADGE_SIZE*cy.zoom()),scale=height/STACK_BADGE_SIZE;
+        const digits=String(layer).length,width=height+(digits-1)*height*.5;
+        const x=bb.x1-width/2,y=bb.y1-height/2;
+        if(x>w||y>h||x+width<0||y+height<0)continue;
+        directionContext.beginPath();directionContext.roundRect(x,y,width,height,height*.28);
+        directionContext.fillStyle='#ffffff';directionContext.fill();
+        directionContext.lineWidth=Math.max(1.5,2.5*scale);directionContext.strokeStyle=HALO.out;
+        directionContext.setLineDash([8*scale,5*scale]);directionContext.lineDashOffset=-phase*scale;directionContext.stroke();
+        directionContext.setLineDash([]);directionContext.lineDashOffset=0;
+        directionContext.fillStyle='#075985';directionContext.font=`700 ${Math.round(height*.56)}px Segoe UI, Arial, sans-serif`;
+        directionContext.textAlign='center';directionContext.textBaseline='middle';
+        directionContext.fillText(String(layer),x+width/2,y+height/2+height*.03);
+        badges.push({nodeId:id,layer,x,y,width,height});
+      }
+      overlayDraws++;cy.scratch('atlas:directionOverlay',{rings,badges,draws:overlayDraws});
     };
     const queueDirectionDraw=(phase=animationPhase.current,pulse=.5,_invalidate=false)=>{
       queuedPhase=phase;queuedPulse=pulse;
@@ -274,6 +325,8 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
           const p = n.renderedPosition(), rw = n.renderedWidth(), rh = n.renderedHeight();
           for (const c of cornerButtons(n.data())) corners.push({ id: n.id(), action: c.action, left: p.x + rw / 2 - (c.right + c.size) * zoomNow, top: p.y - rh / 2 + c.top * zoomNow, size: c.size * zoomNow });
         }
+        const stack = stackButton(n.data()), stackSize = stack.size * zoomNow;
+        if (stackSize >= MIN_CODE_BUTTON_PX) corners.push({ id: n.id(), action: 'stack', left: bb.x2 - (stack.right + stack.size) * zoomNow, top: bb.y1 + stack.top * zoomNow, size: stackSize });
         if (bb.w >= MIN_RESIZE_CARD_PX) grips.push({ id: n.id(), left: bb.x2 - gripSize - 2, top: bb.y2 - gripSize - 2, size: gripSize });
       });
       const visibleCorners = corners.filter(onScreen), visibleGrips = grips.filter(onScreen);
@@ -317,6 +370,12 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     const cornerHit = (n: cytoscape.NodeSingular, p: Point | undefined): CornerHit | null => {
       if (!p) return null;
       const inSquare = (right: number, top: number, size: number) => p.x >= right - size && p.x <= right && p.y >= top && p.y <= top + size;
+      // The stack toggle is live only where it is drawn: the selected card, the hovered card, the root.
+      const stack = stackButton(n.data());
+      if (stackButtonIdsRef.current.has(n.id()) && stack.size * cy.zoom() >= MIN_CODE_BUTTON_PX) {
+        const bb = n.boundingBox({ includeLabels: false, includeOverlays: false });
+        if (inSquare(bb.x2 - stack.right, bb.y1 + stack.top, stack.size)) return 'stack';
+      }
       if (n.data('expanded')) {
         if (CONTAINER_BUTTON.size * cy.zoom() < MIN_CODE_BUTTON_PX) return null;
         const bb = n.boundingBox({ includeLabels: false, includeOverlays: false });
@@ -327,7 +386,8 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       return cornerButtons(n.data()).find(b => inSquare(c.x + n.width() / 2 - b.right, c.y - n.height() / 2 + b.top, b.size))?.action ?? null;
     };
     cy.on('mousemove', 'node', e => { const action = cornerHit(e.target, e.position); const key = action ? `${e.target.id()}:${action}` : null; setHotCorner(prev => prev === key ? prev : key); });
-    cy.on('mouseout', 'node', () => setHotCorner(null));
+    cy.on('mouseout', 'node', () => { setHotCorner(null); setHoverCard(null); });
+    cy.on('mouseover', 'node', e => setHoverCard(e.target.id()));
     // Ctrl/Cmd/Shift+click toggles a card in the multi-selection without inspecting it; a plain click inspects.
     const multiKey = (e: cytoscape.EventObject) => { const o = e.originalEvent as MouseEvent | undefined; return !!o && (o.ctrlKey || o.metaKey || o.shiftKey); };
     cy.on('tap', 'node', e => {
@@ -337,6 +397,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       if (!node) return;
       const corner = cornerHit(e.target, e.position);
       if (corner === 'code') { setContextMenu(null); callbacks.current.onViewCode(node); return; }
+      if (corner === 'stack') { setContextMenu(null); callbacks.current.onToggleOutgoingStack(node.id); return; }
       if (corner) { setContextMenu(null); callbacks.current.onToggleExpand(node); return; }
       callbacks.current.onNodeSelect(node);
     });
@@ -461,13 +522,14 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     cy.on('mouseout pan zoom tap',()=>setHover(null));
     cy.on('pan zoom tap',()=>setContextMenu(null));
     // An expanded box's interior is not hit-tested like a card image, so a route drawn across its
-    // collapse square wins the tap over the box. A tap there collapses instead. Ordinary card corners
-    // already win over routes through the node tap above, so a route crossing them still inspects.
+    // collapse or stack square wins the tap over the box. A tap there acts on the box instead. Ordinary
+    // card corners already win over routes through the node tap above, so a route crossing them still inspects.
     cy.on('tap', 'edge', e => {
       const p = e.position;
-      const box = p && cy.nodes('[?expanded]').filter(n => cornerHit(n, p) === 'collapse').first();
+      const boxHit = (n: cytoscape.NodeSingular) => { const hit = p ? cornerHit(n, p) : null; return hit === 'collapse' || hit === 'stack' ? hit : null; };
+      const box = p && cy.nodes('[?expanded]').filter(n => boxHit(n) !== null).first();
       const node = box && box.length ? currentModel.current.nodes.find(m => m.id === box.id()) : undefined;
-      if (node) { setContextMenu(null); callbacks.current.onToggleExpand(node); return; }
+      if (node) { setContextMenu(null); if (boxHit(box as unknown as cytoscape.NodeSingular) === 'stack') callbacks.current.onToggleOutgoingStack(node.id); else callbacks.current.onToggleExpand(node); return; }
       const edge = currentModel.current.edges.find(n => n.id === e.target.id()); if (edge) callbacks.current.onEdgeSelect(edge);
     });
     const canvas=container.current;
@@ -614,8 +676,25 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
   useEffect(() => {
     const cy = cyRef.current; if (!cy) return;
     cy.batch(() => {
-      cy.elements().removeClass('inspected muted neighbor flow-out flow-in rel-out rel-in rel-both').removeStyle(ANIMATED_STYLES);
+      cy.elements().removeClass('inspected muted neighbor flow-out flow-in rel-out rel-in rel-both stack-root stack-member').removeStyle(ANIMATED_STYLES);
       const selected = selectedId ? cy.getElementById(selectedId) : cy.collection();
+      // An outgoing stack replaces the selection's neighborhood emphasis: the chain stays lit (its
+      // routes with the selected-route dashes and cyan underlay), the selection keeps only its
+      // `inspected` look, and everything else is muted except containers of what is emphasized.
+      if (outgoingStack) {
+        // Covered cards sit inside a layered expanded box: part of the chain, but without badge or outline.
+        const chain = cy.nodes().filter(n => outgoingStack.rootSet.has(n.id()) || outgoingStack.layers.has(n.id()) || outgoingStack.coveredIds.has(n.id()));
+        const routes = cy.edges().filter(e => outgoingStack.chainEdgeIds.has(e.id()));
+        // Every layer-0 card takes the root look, so the inside of an expanded root reads as the root
+        // (docs/OUTGOING_STACK_REVIEW.md); the pressed toggle stays on the pinned root card only.
+        chain.filter(n => outgoingStack.rootSet.has(n.id())).addClass('stack-root');
+        chain.filter(n => outgoingStack.layers.has(n.id())).addClass('stack-member');
+        routes.addClass('flow-out');
+        selected.addClass('inspected');
+        const lit = chain.union(routes).union(selected).union(selected.connectedNodes());
+        cy.elements().difference(lit.union(lit.nodes().ancestors())).addClass('muted');
+        return;
+      }
       if (!selected.length) return;
       selected.addClass('inspected');
       // closedNeighborhood() iterates the collection's *nodes*, so for an edge it yields only the
@@ -640,15 +719,15 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       });
     });
     drawDirectionRef.current(undefined,undefined,true);
-  }, [selectedId, nodes, edges]);
+  }, [selectedId, nodes, edges, outgoingStack, outgoingStackRootId]);
 
-  // The moving glow: one requestAnimationFrame loop, only while a displayed resource is inspected and
-  // has related routes. Dash phase moves from source to target; route glow and halos pulse together. The phase
+  // The moving glow: one requestAnimationFrame loop, only while a displayed resource is inspected (or an
+  // outgoing stack is shown, with or without a selection) and has emphasized routes. Dash phase moves from source to target; route glow and halos pulse together. The phase
   // lives in a ref so a re-run caused by a graph poll replacing `edges` does not visibly restart it.
   // Animated values are element style bypasses, removed on every re-run and on unmount so none leak
   // into the next selection. Reduced-motion users keep the static colors without movement.
   useEffect(() => {
-    const cy = cyRef.current; if (!cy || !selectedId) return;
+    const cy = cyRef.current; if (!cy || (!selectedId && !outgoingStack)) return;
     const flowEdges = cy.edges('.flow-out, .flow-in'), halos = cy.nodes('.rel-out, .rel-in');
     if (!flowEdges.length) return;
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
@@ -668,7 +747,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     };
     frame = requestAnimationFrame(tick);
     return () => { cancelAnimationFrame(frame); if (!cy.destroyed()) { cy.batch(() => { flowEdges.removeStyle(ANIMATED_STYLES); halos.removeStyle(ANIMATED_STYLES); }); cy.scratch('atlas:dashPhase', 0); } drawDirectionRef.current(undefined,undefined,true); };
-  }, [selectedId, nodes, edges]);
+  }, [selectedId, nodes, edges, outgoingStack]);
 
   // Camera: restore a saved camera, or perform the one-time initial fit when a level has never had
   // one. Reference-identity change on `camera` is the only trigger -- an in-place membership/filter
@@ -787,6 +866,11 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     {cornerOverlays.map(b=>{
       const n=nodes.find(item=>item.id===b.id);if(!n)return null;
       const hot=hotCorner===`${b.id}:${b.action}`?' hot':'',style={left:b.left,top:b.top,width:b.size,height:b.size,fontSize:Math.max(10,b.size*.5)};
+      if(b.action==='stack'){
+        if(!stackButtonIds.has(b.id))return null;
+        const on=outgoingStackRootId===b.id;
+        return <button key={`${b.id}:stack`} type="button" className={`code-button map-code-button map-stack-button${on?' active':''}${hot}`} style={style} aria-pressed={on} aria-label={on?`Hide outgoing stack of ${n.simpleName}`:`Show outgoing stack of ${n.simpleName}`} title={on&&outgoingStack?stackSummary(outgoingStack):'Show outgoing stack: what this sets in motion, layer by layer'} onClick={event=>{event.stopPropagation();setContextMenu(null);onToggleOutgoingStack(n.id);}}><StackIcon/></button>;
+      }
       if(b.action==='code')return <CodeButton key={`${b.id}:code`} name={n.simpleName} kind={n.kind} className={`map-code-button${hot}`} style={style} onClick={()=>{setContextMenu(null);onViewCode(n);}}/>;
       const collapse=b.action==='collapse',what=n.kind==='PACKAGE'?'types':'methods';
       // Stable key across the details<->collapse flip (WCAG 2.1 SC 2.4.3): `b.action` changes when the
@@ -802,6 +886,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       <div className="graph-context-menu-heading">{menuTitle}</div>
       <button role="menuitem" className="danger" disabled={!removableNodes.length} title={removalTitle} onClick={removeSelectedFromScope}><span aria-hidden="true">−</span> {removalLabel}</button>
       {menuNode&&menuSelected&&selectedNodes.length>1&&<button role="menuitem" onClick={()=>{setMultiIds(ids=>ids.filter(id=>id!==menuNode.id));setContextMenu(null);}}><span aria-hidden="true">○</span> Deselect {menuNode.simpleName}</button>}
+      {menuNode&&<button role="menuitem" aria-pressed={outgoingStackRootId===menuNode.id} onClick={()=>{onToggleOutgoingStack(menuNode.id);setContextMenu(null);}}><span aria-hidden="true">⇶</span> {outgoingStackRootId===menuNode.id?'Hide outgoing stack':'Show outgoing stack'}</button>}
       <button role="menuitem" onClick={()=>{onClearSelection();setContextMenu(null);}}><span aria-hidden="true">✕</span> {selectedNodes.length>1?'Clear selection':'Deselect'}</button>
       <p className="graph-context-menu-hint">Right-click or right-drag over more cards to add them. Drag any selected card to move the group.</p>
     </div>}
@@ -822,6 +907,13 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       </svg>}
     </div>
   </div>;
+}
+
+/** Three stacked, right-pointing layers: the outgoing-stack toggle. */
+function StackIcon() {
+  return <svg viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="4" width="6" height="16" rx="1.5"/><path d="M11 8h4M11 16h4M15 6l3 2-3 2M15 14l3 2-3 2"/><rect x="19" y="5" width="2" height="14" rx="1" fill="currentColor" stroke="none"/>
+  </svg>;
 }
 
 /** Expand (a grid inside a box) or collapse (a box with a minus) glyph for the details button. */

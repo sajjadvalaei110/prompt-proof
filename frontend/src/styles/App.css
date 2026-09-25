@@ -169,6 +169,10 @@ h1 { font-size: 25px; letter-spacing: -.7px; line-height: 1.3; font-weight: 650;
 @media(max-width:760px){.zoom-controls .control-text{display:none}.zoom-controls .control-icon{display:inline}}
 /* Details (expand/collapse) corner buttons share the quick-code button's hit-tested, pointer-less behavior. */
 .map-details-button { color: #426fa3; }
+/* Outgoing-stack toggle: shown on the selected and hovered card, and pressed on the stack root. */
+.map-stack-button { color: #0369a1; }
+.map-stack-button.active { background: #e0f2fe; border-color: #0ea5e9; box-shadow: 0 0 0 2px #0ea5e955; }
+.stack-summary { margin: 6px 0; padding: 6px 10px; border-left: 3px solid #0ea5e9; background: #f0f9ff; color: #075985; font-size: 13px; font-weight: 600; }
 /* Resize grip: a real, keyboard-focusable <button> in a card's bottom-right corner (drag, or focus
    then arrow keys, to resize the card or expanded box). Browser button chrome is reset so it stays
    just the diagonal stripe; the default focus outline is kept for keyboard users. */

@@ -562,4 +562,93 @@ check('undo pruning skips the graph when nothing is selected or the displayed in
   d = update(d, 2, j => ({ ...j, view: viewReduce(j.view, { type: 'INSPECT_EDGE', id: 'aggregate:["p1","p2"]' }) }));
   assert.ok(nodeRun(n) < nodeRun(d), 'route sets are only built when a route is selected or trailed');
 });
+// Outgoing relation stack (docs/OUTGOING_STACK.md): the root is a pinned pointer like selection.
+// It never occupies history and ends when the map stops drawing it, whichever path removed it.
+const stackOn = (s, group, id) => update(s, group, j => ({ ...j, outgoingStackRootId: id }));
+const updateDrawn = (s, group, fn) => reduce(s, { type: 'UPDATE', id: s.activeId, group, update: fn, graphFor });
+const root = s => active(s).present.outgoingStackRootId;
+check('a new journey has no outgoing stack; turning one on and off creates no undo entry and keeps redo', () => {
+  assert.equal(newJourney().outgoingStackRootId, null);
+  let s = initJourneys(mapJourney(['p1', 'p2']));
+  s = moveCard(s, 1, 'p1', { x: 9, y: 9 }); s = moveCard(s, 2, 'p1', { x: 19, y: 19 }); s = undo(s);
+  s = stackOn(s, 3, 'p1');
+  assert.equal(root(s), 'p1');
+  s = stackOn(s, 4, null);
+  assert.equal(root(s), null);
+  assert.equal(active(s).past.length, 1, 'the stack toggle never creates an undo entry');
+  assert.equal(active(s).future.length, 1, 'the stack toggle never discards redo');
+});
+check('undo and redo keep the stack while its root stays drawn; selection moves independently', () => {
+  let s = initJourneys(mapJourney(['p1', 'p2']));
+  s = moveCard(s, 1, 'p2', { x: 400, y: 0 });
+  s = stackOn(s, 2, 'p1'); s = inspect(s, 3, 'p2');
+  s = undo(s);
+  assert.equal(root(s), 'p1', 'undo of an unrelated edit keeps the stack');
+  s = redo(s);
+  assert.equal(root(s), 'p1', 'redo keeps the stack');
+  assert.equal(active(s).present.view.inspectedSubjectId, 'p2', 'the selection is independent of the pinned root');
+});
+check('undo that removes the root ends the stack, and redo does not bring it back', () => {
+  let s = initJourneys(mapJourney(['p1']));
+  s = showOnly(s, 1, ['p1', 'p3']);
+  s = stackOn(s, 2, 'p3');
+  s = undo(s);
+  assert.equal(root(s), null, 'the root left the map with the undone scope edit');
+  s = redo(s);
+  assert.deepEqual(active(s).present.view.levelViews.PACKAGE.displayedIds, ['p1', 'p3']);
+  assert.equal(root(s), null, 'the stack never silently comes back');
+});
+check('a scope removal that drops the root ends the stack; the removal itself stays one undo entry', () => {
+  let s = initJourneys(mapJourney(['p1', 'p2', 'p3']));
+  s = stackOn(s, 1, 'p2');
+  s = updateDrawn(s, 2, j => ({ ...j, view: viewReduce(j.view, { type: 'SCOPE_UPDATED', eligibleIds: ['p1', 'p3'], batchSize: Infinity, placement: placed(['p1', 'p3']) }) }));
+  assert.equal(root(s), null);
+  assert.equal(active(s).past.length, 1, 'the scope edit is recorded, the stack end is not a step of its own');
+  s = undo(s);
+  assert.ok(active(s).present.view.levelViews.PACKAGE.displayedIds.includes('p2'));
+  assert.equal(root(s), null, 'undoing the removal does not restore the stack');
+});
+check('collapsing the container of a root child card ends the stack', () => {
+  let s = initJourneys(mapJourney(['p1', 'p2']));
+  s = update(s, 1, j => ({ ...j, view: viewReduce(j.view, { type: 'EXPAND_RESOURCE', level: 'PACKAGE', id: 'p2', ownerId: null, childPositions: { c2: { x: 1, y: 1 } }, generation: j.view.generation }) }));
+  s = stackOn(s, 2, 'c2');
+  s = updateDrawn(s, 3, j => ({ ...j, view: viewReduce(j.view, { type: 'NODE_MOVED', level: 'PACKAGE', id: 'p1', position: { x: 700, y: 0 }, generation: j.view.generation }) }));
+  assert.equal(root(s), 'c2', 'an edit that leaves the display inputs alone keeps the stack');
+  s = updateDrawn(s, 4, j => ({ ...j, view: viewReduce(j.view, { type: 'COLLAPSE_RESOURCE', level: 'PACKAGE', id: 'p2', position: { x: 0, y: 0 }, generation: j.view.generation }) }));
+  assert.equal(root(s), null);
+});
+check('a level switch ends the stack rather than re-rooting it', () => {
+  let s = initJourneys(mapJourney(['p1', 'p2']));
+  s = stackOn(s, 1, 'p1');
+  s = updateDrawn(s, 2, j => ({ ...j, view: viewReduce(j.view, { type: 'NAVIGATE_LEVEL', level: 'CLASS', eligibleIds: ['c1', 'c2'], batchSize: Infinity, placement: placed(['c1', 'c2']) }) }));
+  assert.equal(root(s), null);
+});
+check('without a graph, an ordinary update prunes the root against the view\'s own displayed record', () => {
+  let s = initJourneys(mapJourney(['p1', 'p2']));
+  s = stackOn(s, 1, 'p2');
+  s = showOnly(s, 2, ['p1']);
+  assert.equal(root(s), null);
+});
+check('a mode switch and a review recapture end a stack whose root the target graph lacks', () => {
+  const j = { ...mapJourney(['p1', 'p2']), outgoingStackRootId: 'p2' };
+  const without = { nodes: fixtureGraph.nodes.filter(n => n.id !== 'p2'), edges: [] };
+  assert.equal(revalidateJourneyState(j, without, true).outgoingStackRootId, null);
+  assert.equal(revalidateJourneyState(j, fixtureGraph, false).outgoingStackRootId, 'p2', 'a root the target still has is kept');
+  let s = initJourneys(mapJourney(['p1', 'p2']));
+  s = update(s, 1, j => ({ ...j, ...toggleJourneyReview(j, true, 'rk1') }));
+  s = stackOn(s, 2, 'p2');
+  s = reduce(s, { type: 'NEW' }); s = stackOn(s, 3, 'p1');
+  s = reduce(s, { type: 'REVIEW_RECAPTURED', reviewKey: 'rk2', graphFor, reconcile: j => ({ ...j, view: viewReduce(j.view, { type: 'SCOPE_UPDATED', eligibleIds: ['p1'], batchSize: Infinity, placement: placed(['p1']) }) }) });
+  assert.equal(s.tabs[0].present.outgoingStackRootId, null, 'the recaptured review tab no longer draws its root');
+  assert.equal(root(s), 'p1', 'a tab that never touched review is left alone');
+});
+check('Clone copies the stack; the copies then change independently', () => {
+  let s = initJourneys(mapJourney(['p1', 'p2']));
+  s = stackOn(s, 1, 'p1');
+  const source = s.activeId;
+  s = reduce(s, { type: 'CLONE' });
+  assert.equal(root(s), 'p1');
+  s = stackOn(s, 2, 'p2');
+  assert.equal(s.tabs.find(t => t.id === source).present.outgoingStackRootId, 'p1');
+});
 console.log(`${count} journey checks passed`);

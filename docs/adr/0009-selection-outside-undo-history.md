@@ -93,3 +93,13 @@ Fullscreen, the Map overview disclosure and the zoom buttons already live outsid
   refreshes it therefore adds no undo entry. `NAVIGATE_BACK` still reuses the level view
   object when nothing at all changed, so identity-based consumers (the initial-camera capture)
   keep matching.
+
+## Implementation notes: outgoing stack root (2026-09-24)
+
+- `Journey.outgoingStackRootId` (docs/OUTGOING_STACK.md) is classified and carried like selection.
+  Changing it adds no entry, `UNDO`/`REDO` carry the current value, and `pruneRestoredSelection`
+  drops it when the root was drawn before the step and is not after.
+- Unlike selection, the root is also pruned after ordinary `UPDATE`s and `REVIEW_RECAPTURED`
+  (`revalidateJourney.pruneStackRoot`, using the action's `graphFor`), because the stack must end
+  whenever its root leaves the map. Selection keeps its pointer semantics and is still pruned only
+  by undo/redo and by mode or recapture revalidation.
