@@ -3,8 +3,12 @@
 Status: implemented (2026-09-24, step 12 phase B), on top of
 [ADR 0009](adr/0009-selection-outside-undo-history.md). Traversal revised 2026-09-25 (user
 decision, see "Traversal" and the implementation notes): the walk follows parser facts at the
-root's granularity, not the drawn routes. See "Implementation notes" at the end for the choices the
-design left open and the accepted deviations.
+root's granularity, not the drawn routes. Extended 2026-09-25 (step 12 phase C, user decisions
+D1–D5, [ADR 0010](adr/0010-candidate-calls-and-overrides.md)): the full journey from a method
+root, with card-hop layers that never skip a number. D1 (candidate calls) was withdrawn the same
+day at the user's request (ADR 0010 amendment "candidate calls reverted"): unresolved calls stay
+UNRESOLVED and are not walked. See "Implementation notes" at the end for the
+choices the design left open and the accepted deviations.
 
 ## Purpose
 
@@ -14,7 +18,8 @@ layer at a time:
 - **Layer 1** is every card holding something the root has a relationship to (calls, depends on,
   injects, and so on).
 - **Layer 2** is every new card holding something that a layer-1 resource has a relationship to.
-- The layers continue until the chain reaches nothing new.
+- The layers continue until the chain reaches nothing new. A step between two things on the same
+  card does not start a new layer, and the badges never skip a number.
 
 "Something" is measured at the root's own granularity (see Traversal): a class root follows
 class-to-class relationships, a method root method-to-method calls. A collapsed card only shows
@@ -36,7 +41,22 @@ calls into C.
   enum, record, ...) class-level relations, a METHOD or CONSTRUCTOR root method-level relations.
   Each raw edge is mapped to its endpoints' owners at that granularity (`ownerAt`). An edge whose
   source or target has no owner there is ignored: for a method root that drops class-level
-  DEPENDS_ON / INJECTS / field edges and `new X()` facts that target the class X.
+  DEPENDS_ON / INJECTS edges and field edges.
+- **Types reached from a method (D2, 2026-09-25):** at method granularity, a CONSTRUCTS, CALLS or
+  USES_TYPE fact whose target is a type itself reaches that type as a **terminal** entity. Examples:
+  `new X()` for a class with no declared constructor, a record's canonical constructor, `X::new`, or
+  a parameter, return or local type. (A CALLS fact to a type came from D1 candidate calls, which
+  were withdrawn; the helper still treats one as terminal, harmlessly.) The type is
+  placed on its card like any entity, but the walk does not continue from it, since a type has no
+  method-level facts. A `new X(..)` that resolves to a declared constructor targets that
+  constructor, which does continue. Other type-targeted kinds (DECLARES_BEAN, for example) are not
+  followed.
+- **Dispatch (D3, 2026-09-25):** at method granularity an OVERRIDES fact (implementation ->
+  overridden method, ADR 0010) is walked **reversed**: a call to an interface or abstract method
+  continues to each in-source implementation as an ordinary step. At class and package
+  granularity OVERRIDES is an ordinary forward fact, and class roots do not follow implementors
+  (reverse IMPLEMENTS): Spring INJECTS already targets the implementation bean, and reverse
+  IMPLEMENTS would fan out for widely implemented interfaces.
 - **Facts walked:** every raw edge with a target, allowed by the current relationship-kind filter,
   and not `reviewChange = "REMOVED"` (a removed call does not exist in the working tree).
   Uncertain facts (`resolution != RESOLVED`) are walked like any other. Entity self-loops are not
@@ -44,12 +64,16 @@ calls into C.
 - **Representative card:** an entity's own card when it is drawn (even as an expanded box), else
   the nearest drawn ancestor on its parent chain (the collapsed card that contains it). An entity
   with no drawn representative (out of scope, not on the page) is not walked through, so the chain
-  stops there.
-- **Algorithm:** breadth-first from the root entity; an entity keeps its first distance. A drawn
-  card's layer is the minimum distance over the entities it represents. The root set (layer 0) is
-  the root card plus every drawn card inside it; root-set cards and the containers of the root never
-  get a layer, though the walk continues through what they represent (so, rarely, a layer number
-  can be skipped).
+  stops there (D5, 2026-09-25: the stack stays a lens over the map). Each distinct such entity that
+  a chain entity leads to is counted as **beyond the map**.
+- **Algorithm (D4, 2026-09-25):** a 0-1 breadth-first search from the root entity. A step between
+  two entities with the same representative card costs 0, and so does a step between the root set
+  and the root's containers, which count as one card. Any other step costs 1: a card hop. A drawn
+  card's raw layer is the minimum distance over the entities it represents, and the raw layers are
+  then ranked densely (1, 2, 3, ...). The badges therefore never skip a number, even when a card is
+  re-entered later by a longer path. The root set (layer 0) is the root card plus every drawn card
+  inside it; root-set cards and the containers of the root never get a layer, though the walk
+  continues through what they represent.
 - **Expanded cards:** a reached card that is an expanded box carries the badge; the drawn cards
   inside it are **covered**: part of the chain (not muted) but without badge or outline. Because the
   walk is at the root's granularity, expanding a downstream card does not change any layer (for a
@@ -73,10 +97,15 @@ calls into C.
     on hover
   - a context-menu item, "Show outgoing stack" / "Hide outgoing stack"
 
-  Both are keyboard reachable.
+  Both are keyboard reachable. The toggle is a focusable button. The menu opens from the keyboard
+  with **Shift+F10** or the **ContextMenu** key, either on a focused corner button of the card or
+  with the page focused and a card selected. It opens at the card, as a right-click on its center
+  would, with focus on its first enabled item. The arrow keys, Home and End move through the items,
+  Escape closes it, and focus returns to the button it was opened from, also after choosing an item
+  (phase B review B1, 2026-09-25).
 - **While active:** the button stays shown in a pressed state **on the root card**, whatever is
-  selected. Its tooltip reads "Outgoing stack: N layers · M resources". The same line appears in
-  the inspector when the root is inspected.
+  selected. Its tooltip reads "Outgoing stack: N layers · M resources", with " · K beyond the map"
+  appended when K > 0 (D5). The same line appears in the inspector when the root is inspected.
 - **Pinned root:** selecting another card (or clearing selection) does not re-root or end the
   stack. The inspector follows the selection. The selected card gets the normal `inspected`
   outline on top of its badge, but not its own neighborhood emphasis.
@@ -127,9 +156,13 @@ These are applied on top of the ADR 0008 palette (`HALO.out` = `#0EA5E9`):
 
 - `node scripts/test-outgoing-stack.mjs` covers:
   - the collapsed-hub case at class, package and method granularity
-  - method roots ignoring class-level and class-target facts
+  - method roots ignoring class-level facts; CONSTRUCTS/CALLS/USES_TYPE to a type as a terminal
+    entity, a declared constructor continuing, field and other type targets ignored
+  - dispatch through reversed OVERRIDES (one and two implementations), no forward OVERRIDES at
+    method level, no implementors for class roots
   - layer = minimum over represented entities; nearest drawn ancestor as representative
-  - entities with no drawn representative; ancestors of the root
+  - card-hop layers without skips (the SubscriptionRepository shape) and dense ranking
+  - entities with no drawn representative and the beyond-the-map count; ancestors of the root
   - cycles and self-loops, an expanded root, a reached expanded box with covered cards
   - removed-fact exclusion, the kind filter, chain routes via `occurrenceIds`
   - `direction: 'in'`, an empty stack, order independence
@@ -181,6 +214,18 @@ These are applied on top of the ADR 0008 palette (`HALO.out` = `#0EA5E9`):
   hit-testable only where it is drawn (selected card, hovered card, root). Below the corner
   buttons' minimum on-screen size it is hidden, including the pressed state on the root. The
   context-menu item stays available at any zoom.
+- **Focus and selection (phase B review, 2026-09-25):**
+  - A toggle that holds keyboard focus stays drawn while it has focus, even after it turns the
+    stack off on a card that is neither selected nor hovered. It stays drawn unpressed, so focus is
+    never dropped to the page (B4).
+  - A right-click adds the card to the multi-selection, so a right-click and "Show outgoing stack"
+    used to leave the root outlined as multi-selected. The menu now removes a card that this very
+    right-click added when its action roots or ends the stack (B6). Closing the menu with Escape
+    or a click elsewhere keeps the right-click selection, as before, so right-clicks can still
+    build a multi-selection. Opening the menu from the keyboard never adds to it.
+  - A tap on an unexpanded card's corner square that a chain route crosses still acts on the card:
+    Cytoscape's default `z-index-compare: auto` draws and hit-tests edges below nodes. The review's
+    B5 did not reproduce.
 - **Root look:** the root takes the `inspected` style as a class of its own (`stack-root`). Like
   inspection, it sits before the Changes fills, so a changed root keeps its factual change color.
 - **Badges:** they are drawn above the cards on the direction overlay: height 30 model units, at least
@@ -191,7 +236,8 @@ These are applied on top of the ADR 0008 palette (`HALO.out` = `#0EA5E9`):
   `verify_stable_graph_pipeline.py acceptance` still clicks the Class/Method switcher that ADR 0007
   removed. The scenario therefore lives in the standalone
   `scripts/verify-outgoing-stack-ui.mjs`, which also covers Changes mode on a small generated Git
-  fixture, the context menu, keyboard activation, low zoom, reduced motion and 375 px.
+  fixture, the context menu, keyboard activation, the keyboard menu path and focus retention,
+  low zoom, reduced motion and 375 px.
 - **Fact-level traversal (user decision, 2026-09-25):** supersedes "Graph: only the routes
   currently drawn on the canvas" and the "Out of scope: ... collapsed internals" bullet. The walk
   follows raw relationship facts at the root's granularity (Traversal). The helper's signature
@@ -204,3 +250,31 @@ These are applied on top of the ADR 0008 palette (`HALO.out` = `#0EA5E9`):
 - **Root look for the whole root set (review follow-up, 2026-09-25):** `stack-root` is applied to
   every layer-0 card, not only the pinned root, so the inside of an expanded root no longer reads
   as muted-but-unmarked (`docs/OUTGOING_STACK_REVIEW.md`).
+- **Full journey from any root (user decisions D1–D5, 2026-09-25, step 12 phase C,
+  [ADR 0010](adr/0010-candidate-calls-and-overrides.md)).** Measured on real analyzer output,
+  method roots missed most of their journey. `EventController.registerParticipant` was empty.
+  - D1 (analyzer): an in-source call the symbol solver cannot resolve becomes an explicit
+    CANDIDATE: to the unique name/arity match, else to the in-source receiver type. A call with no
+    in-source receiver stays UNRESOLVED. **Withdrawn (2026-09-25, user decision, ADR 0010
+    amendment "candidate calls reverted"):** one CANDIDATE among many resolved facts turned a whole
+    route amber, and the map read as mostly yellow. Unresolved calls are back to `CALLS/UNRESOLVED`
+    with no target, so a method root whose only call is unresolvable (the journey fixture's
+    `SignupController.register`) again reaches only its parameter and local types. D2–D5 and the
+    OVERRIDES facts are kept.
+  - D2: CONSTRUCTS, CALLS **and USES_TYPE** to a type count for a method root, as terminal
+    entities (the user chose to include USES_TYPE; the recommendation had left it out).
+  - D3: a new OVERRIDES fact, walked reversed at method granularity, as an ordinary +1 step. Class
+    roots do not follow reverse IMPLEMENTS.
+  - D4: a card-hop distance (0-1 BFS). This supersedes the old "(so, rarely, a layer number can be
+    skipped)" note, which was not rare: `SubscriptionRepository` showed badges 1 and 3.
+  - D5: keep stopping at entities with no drawn card and count them: "· K beyond the map".
+
+  Two choices the decisions left open:
+  - Dense ranking. The 0-1 BFS alone can still skip a number when a card is re-entered by a longer
+    path, so raw layers are ranked densely. This keeps "badges never skip" unconditional.
+  - The beyond-the-map part is shown only when K > 0, so the existing summary line is unchanged
+    for a stack that stays on the map. K counts distinct entities at the root's granularity
+    (including terminal types), reached by a kept fact from a chain entity.
+
+  The helper result gains `beyond`. `stackSummary` takes it, and the tooltip and inspector show
+  it through the same function, so no UI code changed.

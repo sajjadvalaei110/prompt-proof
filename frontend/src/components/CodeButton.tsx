@@ -6,7 +6,7 @@ export function CodeIcon() {
 }
 
 /** Opens the existing read-only source dialog for one class or method without changing inspection. */
-export default function CodeButton({ name, kind, onClick, className = '', style }: { name: string; kind: string; onClick: () => void; className?: string; style?: CSSProperties }) {
+export default function CodeButton({ name, kind, onClick, className = '', style, cardId }: { name: string; kind: string; onClick: () => void; className?: string; style?: CSSProperties; cardId?: string }) {
   const what = kind === 'METHOD' || kind === 'CONSTRUCTOR' ? 'method' : 'class';
-  return <button type="button" className={`code-button ${className}`} style={style} aria-label={`View code for ${name}`} title={`View ${what} code`} onClick={event => { event.stopPropagation(); onClick(); }}><CodeIcon /></button>;
+  return <button type="button" className={`code-button ${className}`} style={style} data-card-id={cardId} aria-label={`View code for ${name}`} title={`View ${what} code`} onClick={event => { event.stopPropagation(); onClick(); }}><CodeIcon /></button>;
 }

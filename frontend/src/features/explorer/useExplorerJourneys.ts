@@ -42,8 +42,10 @@ export function useExplorerJourneys(initialView?: ExplorerViewState, graphFor?: 
   // may no longer be the active one, or may have been closed, by the time the response arrives. Its
   // own fresh group number keeps it from merging into any transaction currently in progress, and a
   // stale tab ID is a safe no-op (the reducer's UPDATE case only touches a matching `t.id`).
-  function updateTab(id: number, fn: (j: Journey) => Journey) {
-    dispatch({ type: 'UPDATE', id, group: ++counter.current, update: fn, graphFor: graphForRef.current });
+  // `graphFor` overrides the render-time lookup: a caller that just received the graph (a loaded
+  // comparison) passes it, because React has not re-rendered with it yet.
+  function updateTab(id: number, fn: (j: Journey) => Journey, graphFor: GraphFor | undefined = graphForRef.current) {
+    dispatch({ type: 'UPDATE', id, group: ++counter.current, update: fn, graphFor });
   }
   function dispatchView(action: ExplorerAction, initialCamera = false) {
     if (action.type === 'RESET') {

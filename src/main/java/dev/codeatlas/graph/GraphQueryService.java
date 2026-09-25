@@ -214,6 +214,7 @@ public class GraphQueryService {
             case INJECTS -> "Spring dependency injection" + (reason != null ? " via " + reason : "");
             case DECLARES_BEAN -> "Factory method produces this bean";
             case HANDLES_ROUTE -> "HTTP endpoint handler";
+            case OVERRIDES -> "Overrides or implements the supertype method; calls to it may dispatch here";
             default -> kind.name() + " relationship";
         };
     }

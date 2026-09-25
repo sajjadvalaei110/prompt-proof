@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import cytoscape from 'cytoscape';
 import { AtlasNode, AtlasEdge, kindSummary, reviewRouteSummary } from './graphModel';
 import { nodeCard, cornerButtons, CODE_BUTTON, MIN_CARD_SIZE, CornerAction, CardSize } from './nodeCard';
@@ -132,7 +132,10 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
   const [mini, setMini] = useState<MinimapState | null>(null);
   const [hover,setHover]=useState<{title:string;description:string;x:number;y:number;ready:boolean}|null>(null);
   // `node` is the card that was right-clicked; null when the menu opened from a marquee.
-  const [contextMenu,setContextMenu]=useState<{node:AtlasNode|null;x:number;y:number}|null>(null);
+  // `addedId`: the card this right-click added to the multi-selection (it was not selected before).
+  const [contextMenu,setContextMenu]=useState<{node:AtlasNode|null;x:number;y:number;addedId?:string|null}|null>(null);
+  // The element focused when the keyboard opened the menu: focus returns there when it closes.
+  const menuOpenerRef=useRef<HTMLElement|null>(null);
   // The one multi-selection every bulk action works on. Right-click, right-drag marquee,
   // Ctrl/Cmd/Shift+click and Ctrl/Cmd/Shift+drag box selection all feed it. Cytoscape's native
   // selection is disabled (`autounselectify`) so there is never a second, action-less selection;
@@ -148,7 +151,10 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
   const [hotCorner,setHotCorner]=useState<string|null>(null);
   // The card under the pointer: it shows the outgoing-stack toggle, like the selected card and the root.
   const [hoverCard,setHoverCard]=useState<string|null>(null);
-  const stackButtonIds=useMemo(()=>new Set([selectedId,hoverCard,outgoingStackRootId].filter((id):id is string=>!!id&&nodes.some(n=>n.id===id))),[selectedId,hoverCard,outgoingStackRootId,nodes]);
+  // The card whose stack toggle holds keyboard focus: it stays drawn after the toggle turns the stack
+  // off, so focus is not dropped to the page (WCAG 2.1 SC 2.4.3).
+  const [focusedStackId,setFocusedStackId]=useState<string|null>(null);
+  const stackButtonIds=useMemo(()=>new Set([selectedId,hoverCard,outgoingStackRootId,focusedStackId].filter((id):id is string=>!!id&&nodes.some(n=>n.id===id))),[selectedId,hoverCard,outgoingStackRootId,focusedStackId,nodes]);
   // Read by the Cytoscape handlers and the overlay draw, which are bound once at mount.
   const stackButtonIdsRef=useRef(stackButtonIds); stackButtonIdsRef.current=stackButtonIds;
   const stackRef=useRef(outgoingStack); stackRef.current=outgoingStack;
@@ -204,11 +210,12 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         { selector: 'node[reviewChange = "MODIFIED"]', style: { 'background-color': REVIEW_CHANGE_PALETTE.MODIFIED.nodeFill, 'border-color': REVIEW_CHANGE_PALETTE.MODIFIED.border } },
         { selector: 'node[reviewChange = "UNKNOWN"]', style: { 'border-color': REVIEW_CHANGE_PALETTE.UNKNOWN.border, 'border-style': 'dashed' } },
         { selector: 'edge', style: { width: 'data(strengthWidth)', 'line-color': ORDINARY_ROUTE.line, 'target-arrow-color': ORDINARY_ROUTE.arrow, 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', label: 'data(label)', 'font-size': 11, color: '#5b6d83', 'text-opacity': .85, 'text-background-color': '#f7f9fc', 'text-background-opacity': 1, 'text-background-padding': '3px', 'text-rotation': 'autorotate', 'text-margin-y': -11, 'arrow-scale': 1.4, 'text-max-width': '88px', 'text-wrap': 'ellipsis' } },
-        { selector: 'edge[resolution != "RESOLVED"]', style: { 'line-color': REVIEW_CHANGE_PALETTE.UNKNOWN.route, 'target-arrow-color': REVIEW_CHANGE_PALETTE.UNKNOWN.arrow, 'line-style': 'dashed' } },
         { selector: 'edge[explanationStatus = "READY"]', style: { color: '#7955b7', 'text-background-color': '#f3eeff', 'text-opacity': 1 } },
-        // Strength lives in data(strengthWidth); emphasis below changes color/glow only, never a fixed
-        // width that would thin a strong route. These rules sit after the resolution rule on purpose:
-        // Cytoscape resolves conflicts by array order, not selector specificity.
+        // Resolution is not drawn on the line (user decision, ADR 0008 amendment 2026-09-25): an
+        // uncertain route looks like every other one; its resolution is in the hover text and the
+        // inspector. Strength lives in data(strengthWidth); emphasis below changes color/glow only,
+        // never a fixed width that would thin a strong route. Cytoscape resolves conflicts by array
+        // order, not selector specificity.
         { selector: '.muted', style: { opacity: .5 } },
         // Selection restores moving dashes without replacing the factual route color.
         { selector: 'edge.flow-out, edge.flow-in', style: { 'line-style': 'dashed', 'line-dash-pattern': [8, 5], 'underlay-padding': 2, 'underlay-opacity': .32, 'z-index': 20, 'text-opacity': 1 } },
@@ -228,7 +235,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         // Review route color is factual state, so it stays visible through selection/flow emphasis.
         { selector: 'edge[reviewChange = "ADDED"]', style: { 'line-color': REVIEW_CHANGE_PALETTE.ADDED.route, 'target-arrow-color': REVIEW_CHANGE_PALETTE.ADDED.arrow, color: '#11643f' } },
         { selector: 'edge[reviewChange = "REMOVED"]', style: { 'line-color': REVIEW_CHANGE_PALETTE.REMOVED.route, 'target-arrow-color': REVIEW_CHANGE_PALETTE.REMOVED.arrow, color: '#a42b2b', 'line-style': 'dashed' } },
-        // Unknown existence is uncertainty, drawn in the amber of an unresolved route but dotted.
+        // Unknown existence (change status, not resolution) is drawn amber and dotted.
         { selector: 'edge[reviewChange = "UNKNOWN"]', style: { 'line-color': REVIEW_CHANGE_PALETTE.UNKNOWN.route, 'target-arrow-color': REVIEW_CHANGE_PALETTE.UNKNOWN.arrow, color: '#805b12', 'line-style': 'dotted' } },
         { selector: 'edge.flow-out', style: { 'underlay-color': HALO.out } },
         { selector: 'edge.flow-in', style: { 'underlay-color': HALO.in } },
@@ -460,10 +467,12 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       (e.originalEvent as Event | undefined)?.preventDefault();
       const node=currentModel.current.nodes.find(n=>n.id===e.target.id());
       if(!node){setContextMenu(null);return;}
+      const addedId=multiRef.current.includes(node.id)?null:node.id;
       setMultiIds(ids=>ids.includes(node.id)?ids:[...ids,node.id]);
       const position=e.renderedPosition || e.target.renderedPosition();
       setHover(null);
-      setContextMenu({node,x:Math.max(8,Math.min(position.x,cy.width()-238)),y:Math.max(8,Math.min(position.y,cy.height()-150))});
+      menuOpenerRef.current=null;
+      setContextMenu({node,addedId,...menuPosition(cy,position)});
     });
     // A plain click on empty canvas clears the multi-selection, like most canvas editors.
     cy.on('tap', e => { if (e.target === cy && !multiKey(e)) callbacks.current.onClearSelection(); });
@@ -510,7 +519,8 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       endMarquee();
       if (!add.length) return;
       setMultiIds(ids => { const merged = [...ids]; for (const id of add) if (!merged.includes(id)) merged.push(id); return merged; });
-      setContextMenu({ node: null, x: Math.max(8, Math.min(release.x, cy.width() - 238)), y: Math.max(8, Math.min(release.y, cy.height() - 150)) });
+      menuOpenerRef.current = null;
+      setContextMenu({ node: null, ...menuPosition(cy, release) });
     });
     cy.on('mouseover', 'edge', e => {
       const edge = currentModel.current.edges.find(n=>n.id===e.target.id()); if(!edge)return;
@@ -560,8 +570,47 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'){event.stopImmediatePropagation();setContextMenu(null);}};
     window.addEventListener('pointerdown',dismiss,true);window.addEventListener('keydown',escape,true);
     menuRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
-    return()=>{window.removeEventListener('pointerdown',dismiss,true);window.removeEventListener('keydown',escape,true);};
+    return()=>{
+      window.removeEventListener('pointerdown',dismiss,true);window.removeEventListener('keydown',escape,true);
+      // A keyboard-opened menu hands focus back to its opener when it closes (Escape or an item),
+      // unless the user already moved focus elsewhere.
+      const opener=menuOpenerRef.current,focused=document.activeElement;
+      if(opener&&opener.isConnected&&(!focused||focused===document.body||menuRef.current?.contains(focused)))opener.focus();
+    };
   },[contextMenu]);
+  // Keyboard path to the card actions menu (docs/OUTGOING_STACK.md §Activation): Shift+F10 or the
+  // ContextMenu key, on a focused corner button (its card) or with the page focused and a card
+  // selected. It opens the same menu at the card, and never adds the card to the multi-selection.
+  const selectedIdRef=useRef(selectedId); selectedIdRef.current=selectedId;
+  useEffect(()=>{
+    const stage=container.current?.parentElement;
+    if(!stage)return;
+    const open=(event:KeyboardEvent)=>{
+      if(event.defaultPrevented||!(event.key==='ContextMenu'||(event.shiftKey&&event.key==='F10')))return;
+      const cy=cyRef.current,focused=document.activeElement as HTMLElement|null;
+      const fromButton=focused&&stage.contains(focused)?focused.closest<HTMLElement>('[data-card-id]')?.dataset.cardId:undefined;
+      const id=fromButton??(!focused||focused===document.body||stage.contains(focused)?selectedIdRef.current:null);
+      const node=id?currentModel.current.nodes.find(n=>n.id===id):undefined;
+      const element=id&&cy?cy.getElementById(id):null;
+      if(!cy||!node||!element||!element.length)return;
+      event.preventDefault();
+      setHover(null);
+      menuOpenerRef.current=fromButton&&focused?focused:null;
+      setContextMenu({node,addedId:null,...menuPosition(cy,element.renderedPosition())});
+    };
+    // The keyboard gesture also raises the browser's own menu on the focused control.
+    const suppress=(event:MouseEvent)=>{if(stage.contains(event.target as Node))event.preventDefault();};
+    window.addEventListener('keydown',open);stage.addEventListener('contextmenu',suppress);
+    return()=>{window.removeEventListener('keydown',open);stage.removeEventListener('contextmenu',suppress);};
+  },[]);
+  function menuKeyDown(event:ReactKeyboardEvent<HTMLDivElement>){
+    const items=[...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role=menuitem]:not(:disabled)')];
+    if(!items.length)return;
+    const at=items.indexOf(document.activeElement as HTMLButtonElement);
+    const next=event.key==='ArrowDown'?(at+1)%items.length:event.key==='ArrowUp'?(at<=0?items.length-1:at-1):event.key==='Home'?0:event.key==='End'?items.length-1:-1;
+    if(next<0)return;
+    event.preventDefault();items[next].focus();
+  }
   useEffect(()=>{
     if(!marquee)return;
     const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'){event.stopImmediatePropagation();cancelMarqueeRef.current();}};
@@ -869,24 +918,27 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       if(b.action==='stack'){
         if(!stackButtonIds.has(b.id))return null;
         const on=outgoingStackRootId===b.id;
-        return <button key={`${b.id}:stack`} type="button" className={`code-button map-code-button map-stack-button${on?' active':''}${hot}`} style={style} aria-pressed={on} aria-label={on?`Hide outgoing stack of ${n.simpleName}`:`Show outgoing stack of ${n.simpleName}`} title={on&&outgoingStack?stackSummary(outgoingStack):'Show outgoing stack: what this sets in motion, layer by layer'} onClick={event=>{event.stopPropagation();setContextMenu(null);onToggleOutgoingStack(n.id);}}><StackIcon/></button>;
+        return <button key={`${b.id}:stack`} type="button" className={`code-button map-code-button map-stack-button${on?' active':''}${hot}`} style={style} aria-pressed={on} aria-label={on?`Hide outgoing stack of ${n.simpleName}`:`Show outgoing stack of ${n.simpleName}`} title={on&&outgoingStack?stackSummary(outgoingStack):'Show outgoing stack: what this sets in motion, layer by layer'} data-card-id={b.id} onFocus={()=>setFocusedStackId(b.id)} onBlur={()=>setFocusedStackId(id=>id===b.id?null:id)} onClick={event=>{event.stopPropagation();setContextMenu(null);onToggleOutgoingStack(n.id);}}><StackIcon/></button>;
       }
-      if(b.action==='code')return <CodeButton key={`${b.id}:code`} name={n.simpleName} kind={n.kind} className={`map-code-button${hot}`} style={style} onClick={()=>{setContextMenu(null);onViewCode(n);}}/>;
+      if(b.action==='code')return <CodeButton key={`${b.id}:code`} cardId={b.id} name={n.simpleName} kind={n.kind} className={`map-code-button${hot}`} style={style} onClick={()=>{setContextMenu(null);onViewCode(n);}}/>;
       const collapse=b.action==='collapse',what=n.kind==='PACKAGE'?'types':'methods';
       // Stable key across the details<->collapse flip (WCAG 2.1 SC 2.4.3): `b.action` changes when the
       // card expands, so keying on it unmounted the very button the user just pressed and focus fell
       // back to document.body, losing their place. It is the same control either way -- only its label
       // and icon change -- so React must reconcile it in place and keep focus on it.
-      return <button key={`${b.id}:details-toggle`} type="button" className={`code-button map-code-button map-details-button${hot}`} style={style} aria-expanded={collapse} aria-label={collapse?`Collapse ${n.simpleName}`:`Show ${what} inside ${n.simpleName}`} title={collapse?'Collapse':`Show ${what} and their relationships`} onClick={event=>{event.stopPropagation();setContextMenu(null);onToggleExpand(n);}}><DetailsIcon expanded={collapse}/></button>;
+      return <button key={`${b.id}:details-toggle`} type="button" data-card-id={b.id} className={`code-button map-code-button map-details-button${hot}`} style={style} aria-expanded={collapse} aria-label={collapse?`Collapse ${n.simpleName}`:`Show ${what} inside ${n.simpleName}`} title={collapse?'Collapse':`Show ${what} and their relationships`} onClick={event=>{event.stopPropagation();setContextMenu(null);onToggleExpand(n);}}><DetailsIcon expanded={collapse}/></button>;
     })}
     {resizeGrips.map(g=>{const n=nodes.find(item=>item.id===g.id);return n?<button key={g.id} type="button" className="map-resize-grip" title={`Resize ${n.simpleName}`} aria-label={`Resize ${n.simpleName}. Use arrow keys, hold Shift for larger steps.`} style={{left:g.left,top:g.top,width:g.size,height:g.size}} onPointerDown={e=>startResize(e,g.id)} onKeyDown={e=>gripKeyDown(e,g.id)}/>:null;})}
     {!nodes.length && <div className="canvas-empty">No symbols in this view. Choose another level or clear the filter.</div>}
     {hover&&<div className="edge-hover" style={{left:hover.x,top:hover.y}}><strong>{hover.ready&&<GeminiBadge/>} {hover.title}</strong><p>{hover.description}</p></div>}
-    {contextMenu&&<div ref={menuRef} className="graph-context-menu" role="menu" aria-label={selectedNodes.length>1?`Actions for ${selectedNodes.length} selected resources`:`Actions for ${menuTitle}`} style={{left:contextMenu.x,top:contextMenu.y}}>
+    {contextMenu&&<div ref={menuRef} className="graph-context-menu" role="menu" onKeyDown={menuKeyDown} aria-label={selectedNodes.length>1?`Actions for ${selectedNodes.length} selected resources`:`Actions for ${menuTitle}`} style={{left:contextMenu.x,top:contextMenu.y}}>
       <div className="graph-context-menu-heading">{menuTitle}</div>
       <button role="menuitem" className="danger" disabled={!removableNodes.length} title={removalTitle} onClick={removeSelectedFromScope}><span aria-hidden="true">−</span> {removalLabel}</button>
       {menuNode&&menuSelected&&selectedNodes.length>1&&<button role="menuitem" onClick={()=>{setMultiIds(ids=>ids.filter(id=>id!==menuNode.id));setContextMenu(null);}}><span aria-hidden="true">○</span> Deselect {menuNode.simpleName}</button>}
-      {menuNode&&<button role="menuitem" aria-pressed={outgoingStackRootId===menuNode.id} onClick={()=>{onToggleOutgoingStack(menuNode.id);setContextMenu(null);}}><span aria-hidden="true">⇶</span> {outgoingStackRootId===menuNode.id?'Hide outgoing stack':'Show outgoing stack'}</button>}
+      {menuNode&&<button role="menuitem" aria-pressed={outgoingStackRootId===menuNode.id} onClick={()=>{
+        // Rooting a stack is not a multi-select action: undo the selection this right-click added.
+        const added=contextMenu.addedId;if(added)setMultiIds(ids=>ids.filter(id=>id!==added));
+        onToggleOutgoingStack(menuNode.id);setContextMenu(null);}}><span aria-hidden="true">⇶</span> {outgoingStackRootId===menuNode.id?'Hide outgoing stack':'Show outgoing stack'}</button>}
       <button role="menuitem" onClick={()=>{onClearSelection();setContextMenu(null);}}><span aria-hidden="true">✕</span> {selectedNodes.length>1?'Clear selection':'Deselect'}</button>
       <p className="graph-context-menu-hint">Right-click or right-drag over more cards to add them. Drag any selected card to move the group.</p>
     </div>}
@@ -907,6 +959,11 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       </svg>}
     </div>
   </div>;
+}
+
+/** Where the card actions menu opens: at the pointer (or the card's center), kept inside the canvas. */
+function menuPosition(cy: cytoscape.Core, position: Point) {
+  return { x: Math.max(8, Math.min(position.x, cy.width() - 238)), y: Math.max(8, Math.min(position.y, cy.height() - 150)) };
 }
 
 /** Three stacked, right-pointing layers: the outgoing-stack toggle. */

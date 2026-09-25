@@ -118,6 +118,7 @@ public class AnalysisService {
                     jdbcTemplate.update("UPDATE jobs SET completed_items = ? WHERE id = ?", parsed, jobId);
                 }
             }
+            linkOverrides(snapshotId);
             jdbcTemplate.update("UPDATE jobs SET completed_items = ? WHERE id = ?", parsed, jobId);
             log.info("Pass 2 complete: relationships extracted");
 
@@ -224,6 +225,7 @@ public class AnalysisService {
                     parserAdapter.addDiagnostic(file.getName() + ": relationship parsing failed; relationships may be incomplete.");
                 }
             }
+            linkOverrides(snapshotId);
             for (File file : declarationFiles) {
                 try {
                     CompilationUnit cu = StaticJavaParser.parse(file);
@@ -252,6 +254,16 @@ public class AnalysisService {
             throw new IllegalArgumentException("Review capture analysis failed (" + e.getClass().getSimpleName() + ").");
         } finally {
             parserAdapter.releaseRunCaches();
+        }
+    }
+
+    /** ADR 0010: OVERRIDES facts need every file's relationship pass first; one transaction. */
+    private void linkOverrides(String snapshotId) {
+        try {
+            fileTransaction.executeWithoutResult(status -> parserAdapter.linkOverrides(snapshotId));
+        } catch (Exception e) {
+            log.warn("OVERRIDES linking failed: {}", e.getMessage());
+            parserAdapter.addDiagnostic("OVERRIDES linking failed (" + e.getMessage() + "); no OVERRIDES facts were added.");
         }
     }
 

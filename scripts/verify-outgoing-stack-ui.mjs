@@ -1,6 +1,6 @@
 // Outgoing relation stack acceptance via Chromium CDP (docs/OUTGOING_STACK.md §Verification).
 // Requires BACKEND, APP and DEBUG (a packaged jar on an isolated data dir, and a headless Chromium).
-//   node scripts/verify-outgoing-stack-ui.mjs <microservice-java copy> <git fixture> <git base oid> <chain fixture>
+//   node scripts/verify-outgoing-stack-ui.mjs <microservice-java copy> <git fixture> <git base oid> <chain fixture> <journey fixture>
 // The Git fixture has packages app.a, app.b and app.c. At the base commit A calls B and C. In the
 // working tree A no longer calls C, and B calls C, so Changes draws a->b unchanged, a->c REMOVED and
 // b->c ADDED. The chain fixture is a plain source directory (no Git) reproducing the "collapsed card
@@ -9,14 +9,20 @@
 //   app.b: class Q { void q() {} void q2() { new app.c.T().t(); } }  class S { void s() { new app.d.U().u(); } }
 //   app.c: class T { void t() {} }    app.d: class U { void u() {} }
 // Root package app.a: b 1, c 2, d 2. Root class P: b 1, c 2 (Q -> T), d not reached. Root method
-// m: b 1 only. All three fixtures are only read. Run recipe (isolated data dir, model URL on a
-// closed port, fixtures generated per run): see the step 12 phase B follow-ups in PROJECT_STATUS.md.
+// m: b 1 only. The journey fixture is a copy of test-fixtures/journey-candidates (step 12 phase C,
+// ADR 0010): SignupController.register's only call has a record-accessor argument, so the solver
+// cannot resolve it and it stays UNRESOLVED (candidate calls were withdrawn, ADR 0010 amendment
+// 2026-09-25 "candidate calls reverted"); that method root reaches only its parameter type.
+// SignupService.register reads a Lombok getter, saves through a library-inherited repository method
+// (both UNRESOLVED), calls the Notifier interface (implemented by MailNotifier, OVERRIDES) and
+// constructs a record. All fixtures are only read. Run recipe (isolated data dir, model URL on a closed port,
+// fixtures copied per run): see the step 12 phase C entry in PROJECT_STATUS.md.
 import fs from 'node:fs/promises';
 const OUT = process.env.OUT || 'build/outgoing-stack';
 await fs.mkdir(OUT, { recursive: true });
 const base = process.env.BACKEND || 'http://127.0.0.1:8095', app = process.env.APP || 'http://127.0.0.1:8095', debug = process.env.DEBUG || 'http://127.0.0.1:9333';
-const [fixture, gitFixture, baseOid, chainFixture] = process.argv.slice(2);
-if (!fixture || !gitFixture || !baseOid || !chainFixture) throw Error('Usage: verify-outgoing-stack-ui.mjs <microservice fixture> <git fixture> <base oid> <chain fixture>');
+const [fixture, gitFixture, baseOid, chainFixture, journeyFixture] = process.argv.slice(2);
+if (!fixture || !gitFixture || !baseOid || !chainFixture || !journeyFixture) throw Error('Usage: verify-outgoing-stack-ui.mjs <microservice fixture> <git fixture> <base oid> <chain fixture> <journey fixture>');
 const pause = ms => new Promise(r => setTimeout(r, ms));
 async function until(fn, label, tries = 150) { for (let i = 0; i < tries; i++) { try { if (await fn()) return; } catch { } await pause(200); } throw Error('Timed out: ' + label); }
 const results = [];
@@ -29,7 +35,7 @@ async function analyze(path) {
   const snapshot = (await api(`/api/workspaces/${ws.id}`)).activeSnapshotId;
   return { snapshot, graph: await api(`/api/snapshots/${snapshot}/graph`) };
 }
-const micro = await analyze(fixture), review = await analyze(gitFixture), chainFix = await analyze(chainFixture);
+const micro = await analyze(fixture), review = await analyze(gitFixture), chainFix = await analyze(chainFixture), journey = await analyze(journeyFixture);
 const pkg = (graph, name) => graph.nodes.find(n => n.kind === 'PACKAGE' && n.qualifiedName === name);
 
 const page = await (await fetch(debug + '/json/new?about:blank', { method: 'PUT' })).json();
@@ -44,7 +50,7 @@ const mouse = (type, p, button = 'left') => cdp('Input.dispatchMouseEvent', { ty
 const click = async p => { await mouse('mouseMoved', p, 'none'); await mouse('mousePressed', p); await mouse('mouseReleased', p); await pause(350); };
 const CY = "document.querySelector('.graph-canvas')._cyreg.cy";
 const key = async (key, extra = {}) => {
-  const codes = { Escape: 27, Enter: 13 };
+  const codes = { Escape: 27, Enter: 13, F10: 121, ContextMenu: 93, ArrowDown: 40 };
   await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key, code: key, windowsVirtualKeyCode: codes[key], ...(key === 'Enter' ? { text: '\r' } : {}), ...extra });
   await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key, code: key, windowsVirtualKeyCode: codes[key] }); await pause(350);
 };
@@ -72,45 +78,60 @@ const same = (a, b) => {
 const unchanged = async (label, before) => { const now = await geometryState(); check(label, same(now, before), { before, now }); };
 // Independent oracle, written from the rules in docs/OUTGOING_STACK.md §Traversal (not from
 // outgoingStack.ts): walk the API graph's raw relationship facts at the root's granularity, then map
-// the reached entities onto the cards Cytoscape draws (each card's parent is its container).
+// the reached entities onto the cards Cytoscape draws (each card's parent is its container). Method
+// roots also reach a type through CONSTRUCTS/CALLS/USES_TYPE (a dead end) and follow OVERRIDES from
+// the overridden method to its implementation. Distances are relaxed until stable (a step inside one
+// card, or into the root's own cards, costs 0, any other step 1), then ranked densely.
 const drawn = () => evaluate(`(()=>{const cy=${CY};return{cards:cy.nodes().map(n=>({id:n.id(),parent:n.parent().length?n.parent().id():null})),routes:cy.edges().map(e=>({id:e.id(),occ:e.data('occurrenceIds')||[]}))}})()`);
 function oracle(graph, view, rootId, kind = 'ALL') {
   const byId = new Map(graph.nodes.map(n => [n.id, n]));
   const cardParent = new Map(view.cards.map(c => [c.id, c.parent]));
   const rootKind = byId.get(rootId).kind;
   const isMethod = n => n.kind === 'METHOD' || n.kind === 'CONSTRUCTOR';
-  const atGranularity = n => rootKind === 'PACKAGE' ? n.kind === 'PACKAGE' : isMethod({ kind: rootKind }) ? isMethod(n) : !['PACKAGE', 'METHOD', 'CONSTRUCTOR', 'FIELD'].includes(n.kind);
+  const isTypeNode = n => !!n && !['PACKAGE', 'METHOD', 'CONSTRUCTOR', 'FIELD'].includes(n.kind);
+  const methodRoot = isMethod({ kind: rootKind });
+  const atGranularity = n => rootKind === 'PACKAGE' ? n.kind === 'PACKAGE' : methodRoot ? isMethod(n) : isTypeNode(n);
   const up = function* (id) { for (let n = byId.get(id), guard = 0; n && guard < 100; n = n.parentId ? byId.get(n.parentId) : undefined, guard++) yield n; };
   const owner = id => { for (const n of up(id)) if (atGranularity(n)) return n.id; return null; };
   const representative = id => { for (const n of up(id)) if (cardParent.has(n.id)) return n.id; return null; };
   const containers = id => { const out = []; for (let c = cardParent.get(id); c; c = cardParent.get(c)) out.push(c); return out; };
   const rootSet = view.cards.map(c => c.id).filter(id => id === rootId || containers(id).includes(rootId));
   const rootContainers = containers(rootId);
-  const steps = new Map(), out = new Map();
+  const cardOf = id => { const r = representative(id); return rootSet.includes(r) || rootContainers.includes(r) ? '#root' : r; };
+  const steps = new Map(), pairs = [];
   for (const e of graph.edges) {
     if (!e.targetId || (kind !== 'ALL' && e.kind !== kind) || e.reviewChange === 'REMOVED') continue;
-    const u = owner(e.sourceId), v = owner(e.targetId);
+    let u = owner(e.sourceId), v = owner(e.targetId);
+    if (methodRoot && !v && ['CONSTRUCTS', 'CALLS', 'USES_TYPE'].includes(e.kind) && isTypeNode(byId.get(e.targetId))) v = e.targetId;
     if (!u || !v) continue;
+    if (methodRoot && e.kind === 'OVERRIDES') [u, v] = [v, u];
     steps.set(e.id, [u, v]);
-    if (u !== v) out.set(u, [...(out.get(u) || []), v]);
+    if (u !== v) pairs.push([u, v]);
   }
-  const dist = new Map([[rootId, 0]]);
-  let frontier = [rootId];
-  while (frontier.length) {
-    const nextFrontier = [];
-    for (const u of frontier) for (const v of out.get(u) || []) if (!dist.has(v) && representative(v)) { dist.set(v, dist.get(u) + 1); nextFrontier.push(v); }
-    frontier = nextFrontier;
+  const dist = new Map([[rootId, 0]]), beyond = new Set();
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const [u, v] of pairs) {
+      if (!dist.has(u)) continue;
+      if (!representative(v)) { beyond.add(v); continue; }
+      const d = dist.get(u) + (cardOf(u) === cardOf(v) ? 0 : 1);
+      if (!dist.has(v) || d < dist.get(v)) { dist.set(v, d); changed = true; }
+    }
   }
-  const layers = {};
+  const raw = {};
   for (const [entity, d] of dist) {
     const card = representative(entity);
-    if (d === 0 || rootSet.includes(card) || rootContainers.includes(card)) continue;
-    layers[card] = Math.min(layers[card] ?? Infinity, d);
+    if (cardOf(entity) === '#root') continue;
+    raw[card] = Math.min(raw[card] ?? Infinity, d);
   }
+  const ranks = [...new Set(Object.values(raw))].sort((a, b) => a - b);
+  const layers = Object.fromEntries(Object.entries(raw).map(([card, d]) => [card, ranks.indexOf(d) + 1]));
   const covered = view.cards.map(c => c.id).filter(id => !(id in layers) && !rootSet.includes(id) && containers(id).some(c => c in layers)).sort();
   const chainRoutes = view.routes.filter(r => r.occ.some(o => steps.has(o) && dist.has(steps.get(o)[0]) && dist.has(steps.get(o)[1]))).map(r => r.id).sort();
-  return { layers, rootSet: rootSet.sort(), covered, chainRoutes };
+  return { layers, rootSet: rootSet.sort(), covered, chainRoutes, beyond: beyond.size };
 }
+// The summary line, written from the spec: "Outgoing stack: N layers · M resources[ · K beyond the map]".
+const summaryOf = (depth, count, beyond) => `Outgoing stack: ${depth} ${depth === 1 ? 'layer' : 'layers'} · ${count} ${count === 1 ? 'resource' : 'resources'}${beyond ? ` · ${beyond} beyond the map` : ''}`;
 // The API graph of the map on screen (ordinary mode only; the Changes checks use literal layers).
 let currentGraph = null;
 const expectedStack = async rootId => oracle(currentGraph, await drawn(), rootId);
@@ -142,13 +163,13 @@ let s = await stackState();
 const oracle1 = await expectedStack(controllers.id), expected = oracle1.layers;
 const depth = Math.max(0, ...Object.values(expected));
 check('activating roots the stack at the card: pressed button with the summary tooltip',
-  s.pressed.length === 1 && s.pressed[0].label === `Hide outgoing stack of ${controllers.simpleName}` && /^Outgoing stack: \d+ layers? · \d+ resources?$/.test(s.pressed[0].title), s.pressed);
+  s.pressed.length === 1 && s.pressed[0].label === `Hide outgoing stack of ${controllers.simpleName}` && /^Outgoing stack: \d+ layers? · \d+ resources?( · \d+ beyond the map)?$/.test(s.pressed[0].title), s.pressed);
 // 2. Badges 1..N.
-check('badges number every reached card by its package-level fact distance (independent oracle)', same(layers(s), expected) && depth >= 2, { drawn: layers(s), expected });
+check('badges number every reached card by its package-level card-hop distance (independent oracle)', same(layers(s), expected) && depth >= 2, { drawn: layers(s), expected });
 check('badges cover every layer 1..N', same([...new Set(s.badges.map(b => b.layer))].sort((a, b) => a - b), Array.from({ length: depth }, (_, i) => i + 1)), s.badges);
 check('the root keeps its inspected look and gets no badge; chain cards get the static outline',
   same(s.roots, [controllers.id]) && !s.badges.some(b => b.id === controllers.id) && same(s.members, Object.keys(expected).sort()), s);
-check('the tooltip counts layers and resources', s.pressed[0].title === `Outgoing stack: ${depth} ${depth === 1 ? 'layer' : 'layers'} · ${Object.keys(expected).length} resources`, s.pressed[0].title);
+check('the tooltip counts layers and resources (and anything beyond the map)', s.pressed[0].title === summaryOf(depth, Object.keys(expected).length, oracle1.beyond), { title: s.pressed[0].title, beyond: oracle1.beyond });
 check('the inspector shows the same summary for the inspected root', s.summary === s.pressed[0].title, s.summary);
 check('cards outside the chain are muted, chain cards are not', await evaluate(`(()=>{const cy=${CY};const chain=new Set(${JSON.stringify([controllers.id, ...Object.keys(expected)])});return cy.nodes().filter(n=>!n.isParent()).every(n=>chain.has(n.id())!==n.hasClass('muted'))})()`));
 check('the chain routes are exactly the drawn routes carrying a chain fact step', same(s.chainRoutes, oracle1.chainRoutes) && oracle1.chainRoutes.length > 0, { drawn: s.chainRoutes, expected: oracle1.chainRoutes });
@@ -220,6 +241,8 @@ check('the context menu offers "Show outgoing stack"', await evaluate(`[...docum
 await click(await evaluate(`(()=>{const b=[...document.querySelectorAll('.graph-context-menu [role=menuitem]')].find(b=>b.textContent.includes('Show outgoing stack'));const r=b.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`));
 s = await stackState();
 check('the context-menu item starts the stack', same(s.roots, [controllers.id]) && s.badges.length > 0);
+check('rooting the stack from the menu leaves no multi-selection behind (the right-click added the card only to open the menu)',
+  !await evaluate(`${CY}.getElementById(${JSON.stringify(controllers.id)}).hasClass('multi-selected')`) && !await evaluate(`!!document.querySelector('.selection-bar')`));
 await evaluate(`${CY}.getElementById(${JSON.stringify(controllers.id)}).emit('cxttap');0`); await pause(350);
 check('the context menu then offers "Hide outgoing stack"', await evaluate(`[...document.querySelectorAll('.graph-context-menu [role=menuitem]')].some(b=>b.textContent.trim()==='⇶ Hide outgoing stack')`));
 await key('Escape'); // closes the menu first
@@ -229,6 +252,61 @@ await tap(controllers.id);
 await evaluate(`document.querySelector('.map-stack-button[aria-label="Show outgoing stack of ${controllers.simpleName}"]').focus()`);
 await key('Enter');
 check('the stack button is keyboard operable (focus + Enter)', (await stackState()).pressed.length === 1);
+
+// Keyboard path to the card menu (phase B review B1): Shift+F10 or the ContextMenu key on a focused
+// corner button opens the same menu at the card; arrows move, Escape returns focus to the button.
+await key('Escape'); await key('Escape'); // stack, then selection
+await tap(controllers.id);
+const showToggle = `.map-stack-button[aria-label="Show outgoing stack of ${controllers.simpleName}"]`;
+const menuState = () => evaluate(`(()=>{const m=document.querySelector('.graph-context-menu');const a=document.activeElement;return{open:!!m,items:m?[...m.querySelectorAll('[role=menuitem]')].map(b=>b.textContent.trim()):[],focus:a===document.body?'BODY':(a.getAttribute('aria-label')||a.textContent.trim()),inMenu:!!m&&m.contains(a),pressed:a.getAttribute('aria-pressed'),rect:m?{x:m.getBoundingClientRect().x,y:m.getBoundingClientRect().y}:null}})()`);
+await evaluate(`document.querySelector(${JSON.stringify(showToggle)}).focus()`);
+await key('F10', { modifiers: 8 });
+let m = await menuState();
+const firstEnabled = await evaluate(`[...document.querySelectorAll('.graph-context-menu [role=menuitem]')].find(b=>!b.disabled)?.textContent.trim()`);
+check('Shift+F10 on a focused corner button opens the card menu with "Show outgoing stack", focus on its first item',
+  m.open && m.items.includes('⇶ Show outgoing stack') && m.inMenu && m.focus === firstEnabled, m);
+const cardAt = await evaluate(`(()=>{const cy=${CY},c=document.querySelector('.graph-canvas').getBoundingClientRect(),p=cy.getElementById(${JSON.stringify(controllers.id)}).renderedPosition();return{x:c.x+Math.max(8,Math.min(p.x,cy.width()-238)),y:c.y+Math.max(8,Math.min(p.y,cy.height()-150))}})()`);
+check('the keyboard-opened menu sits at the card, as a right-click on it would place it', !!m.rect && Math.abs(m.rect.x - cardAt.x) < 2 && Math.abs(m.rect.y - cardAt.y) < 2, { menu: m.rect, card: cardAt });
+check('opening the menu from the keyboard adds nothing to the multi-selection', !await evaluate(`${CY}.nodes('.multi-selected').length`));
+await shot('17-keyboard-menu');
+await key('ArrowDown');
+const afterArrow = await menuState();
+check('ArrowDown moves focus to the next menu item', afterArrow.inMenu && afterArrow.focus !== m.focus, { before: m.focus, after: afterArrow.focus });
+await key('Escape');
+m = await menuState();
+check('Escape closes the keyboard-opened menu and returns focus to the corner button', !m.open && m.focus === `Show outgoing stack of ${controllers.simpleName}`, m);
+check('that Escape closed only the menu: the card stays selected', (await selected()) === controllers.simpleName);
+await key('ContextMenu');
+m = await menuState();
+check('the ContextMenu key opens the same menu', m.open && m.items.includes('⇶ Show outgoing stack') && m.inMenu, m);
+for (let i = 0; i < m.items.length && (await menuState()).focus !== '⇶ Show outgoing stack'; i++) await key('ArrowDown');
+await key('Enter');
+s = await stackState(); m = await menuState();
+check('Enter on "Show outgoing stack" starts the stack from the keyboard menu', same(s.roots, [controllers.id]) && s.badges.length > 0 && !m.open, { roots: s.roots, menu: m.open });
+check('after the menu action focus is back on the card\'s toggle, now pressed', m.focus === `Hide outgoing stack of ${controllers.simpleName}` && m.pressed === 'true', m);
+
+// Keyboard deactivation keeps focus (phase B review B4): the root is neither selected nor hovered.
+await tap(services.id);
+const emptyPoint = await evaluate(`(()=>{const cy=${CY};const c=document.querySelector('.graph-canvas').getBoundingClientRect();for(let y=40;y<c.height-40;y+=20)for(let x=40;x<c.width-40;x+=20){const p={x:(x-cy.pan().x)/cy.zoom(),y:(y-cy.pan().y)/cy.zoom()};if(!cy.elements().some(e=>{const b=e.boundingBox();return p.x>=b.x1-20&&p.x<=b.x2+20&&p.y>=b.y1-20&&p.y<=b.y2+20}))return{x:c.x+x,y:c.y+y}}return null})()`);
+await mouse('mouseMoved', await centerOf(`.map-stack-button[aria-label="Hide outgoing stack of ${controllers.simpleName}"]`), 'none'); await pause(200);
+await mouse('mouseMoved', emptyPoint, 'none'); await pause(400);
+await evaluate(`document.querySelector('.map-stack-button[aria-label="Hide outgoing stack of ${controllers.simpleName}"]').focus()`);
+await key('Enter');
+m = await menuState(); s = await stackState();
+check('keyboard deactivation on an unselected, unhovered root keeps focus on its toggle, now unpressed',
+  !s.roots.length && m.focus === `Show outgoing stack of ${controllers.simpleName}` && m.pressed === 'false', { focus: m.focus, pressed: m.pressed, roots: s.roots });
+await shot('18-keyboard-deactivation-focus');
+await key('Enter'); // on again, from the same focused toggle
+check('the retained toggle turns the stack back on', same((await stackState()).roots, [controllers.id]));
+// The menu's multi-selection actions still act on the set the right-clicks built.
+await evaluate(`${CY}.getElementById(${JSON.stringify(services.id)}).emit('cxttap');0`); await pause(350);
+await key('Escape');
+await evaluate(`${CY}.getElementById(${JSON.stringify(controllers.id)}).emit('cxttap');0`); await pause(350);
+await buttonByText(`○ Deselect ${controllers.simpleName}`);
+check('"Deselect" from the menu removes only that card; the other right-clicked card stays selected',
+  same(await evaluate(`${CY}.nodes('.multi-selected').map(n=>n.id()).sort()`), [services.id]));
+await clickSelector('.selection-bar button:last-child');
+await tap(controllers.id);
 
 // Low zoom legibility (zoom buttons stay outside history).
 await clickSelector('[aria-label="Zoom out"]'); await clickSelector('[aria-label="Zoom out"]');
@@ -309,6 +387,87 @@ check('chain fixture, method root m: b 1 only; c and d are not reached (oracle a
 const bc3 = await routeIds(cb.id, cc.id), bd3 = await routeIds(cb.id, cd.id);
 check('chain fixture, method root m: neither b -> c nor b -> d is a chain route', [...bc3, ...bd3].length === 2 && ![...bc3, ...bd3].some(id => s.chainRoutes.includes(id)) && s.chainRoutes.length > 0 && same(s.chainRoutes, o.chainRoutes), { chain: s.chainRoutes, oracle: o.chainRoutes });
 await shot('11-method-root');
+await endStack();
+
+// Step 12 phase C: the full journey of a controller method (the user's report) on the journey fixture.
+await openMap(journey.snapshot);
+currentGraph = journey.graph;
+const [jApi, jService, jDto, jDomain, jPricing] = ['journey.api', 'journey.service', 'journey.dto', 'journey.domain', 'journey.pricing'].map(n => pkg(journey.graph, n));
+const jNode = q => journey.graph.nodes.find(n => n.qualifiedName === q);
+const [jController, registerMethod, signupService, eventStore, notifier, mailNotifier] = ['journey.api.SignupController', 'journey.api.SignupController.register(String,SignupRequest)', 'journey.service.SignupService', 'journey.service.EventStore', 'journey.service.Notifier', 'journey.service.MailNotifier'].map(jNode);
+check('journey fixture: the controller method\'s call stays UNRESOLVED (no CALLS/CANDIDATE anywhere) and MailNotifier has an OVERRIDES fact',
+  journey.graph.edges.every(e => !(e.kind === 'CALLS' && e.resolution === 'CANDIDATE'))
+  && !journey.graph.edges.some(e => e.sourceId === registerMethod.id && e.targetId === jNode('journey.service.SignupService.register(String,String)').id)
+  && journey.graph.edges.some(e => e.sourceId === jNode('journey.service.MailNotifier.send(String)').id && e.targetId === jNode('journey.service.Notifier.send(String)').id && e.kind === 'OVERRIDES'));
+const journeyLiteral = { [jService.id]: 1, [jDto.id]: 1, [jDomain.id]: 2 };
+// Badges and corner buttons are only drawn for cards on screen, and expansions grow the map: the
+// view-only Fit map control (outside undo) brings every card back into view before reading them.
+const fitMap = async () => { await clickSelector('[aria-label="Fit map"]'); await pause(700); };
+s = await startStack(jApi);
+o = await expectedStack(jApi.id);
+check('journey, package root api: service 1, dto 1, domain 2; pricing is not reached (literal and oracle)', same(layers(s), journeyLiteral) && same(o.layers, journeyLiteral) && s.muted.includes(jPricing.id), { drawn: layers(s), oracle: o.layers });
+check('journey, package root api: chain routes match the oracle', same(s.chainRoutes, o.chainRoutes) && s.chainRoutes.length > 0, { drawn: s.chainRoutes, oracle: o.chainRoutes });
+await shot('12-journey-package-root');
+await endStack();
+await clickSelector(`[aria-label="Show types inside ${jApi.simpleName}"]`);
+await fitMap();
+s = await startStack(jController);
+o = await expectedStack(jController.id);
+check('journey, class root SignupController: service 1, dto 1, domain 2 (literal and oracle)', same(layers(s), journeyLiteral) && same(o.layers, journeyLiteral) && same(s.chainRoutes, o.chainRoutes), { drawn: layers(s), oracle: o.layers });
+await shot('13-journey-class-root');
+await endStack();
+await clickSelector(`[aria-label="Show methods inside ${jController.simpleName}"]`);
+await fitMap();
+s = await startStack(registerMethod);
+o = await expectedStack(registerMethod.id);
+const registerLiteral = { [jDto.id]: 1 };
+check('journey, method root register: only its parameter type, dto 1; the unresolved call is not walked (literal and oracle)', same(layers(s), registerLiteral) && same(o.layers, registerLiteral), { drawn: layers(s), oracle: o.layers });
+check('journey, method root register: chain routes match the oracle; the summary counts 1 layer and 1 resource', same(s.chainRoutes, o.chainRoutes) && s.pressed[0]?.title === summaryOf(1, 1, 0), { drawn: s.chainRoutes, oracle: o.chainRoutes, title: s.pressed[0]?.title });
+await shot('14-journey-method-root');
+await endStack();
+// Dispatch from the service method: the Notifier interface 1 (a resolved call), MailNotifier 2
+// through the reversed OVERRIDES fact; the Receipt record (dto) and the Event local type (domain) 1.
+// The repository is not reached: its library-inherited methods stay UNRESOLVED.
+const serviceRegister = jNode('journey.service.SignupService.register(String,String)');
+// Corner buttons are hidden at low zoom by design: zoom in on a card, as a user would, to use them.
+const zoomTo = async id => { await evaluate(`(()=>{const cy=${CY},n=cy.getElementById(${JSON.stringify(id)});cy.zoom({level:1,renderedPosition:n.renderedPosition()});cy.center(n);return 0})()`); await pause(700); };
+await clickSelector(`[aria-label="Show types inside ${jService.simpleName}"]`);
+await fitMap();
+await zoomTo(signupService.id);
+await clickSelector(`[aria-label="Show methods inside ${signupService.simpleName}"]`);
+await fitMap();
+// Both methods are named register: start this stack by the card id, not the shared label.
+await tap(serviceRegister.id);
+await zoomTo(serviceRegister.id);
+await clickSelector(`.map-stack-button[data-card-id="${serviceRegister.id}"]`);
+await fitMap();
+s = await stackState();
+o = await expectedStack(serviceRegister.id);
+const dispatchLiteral = { [notifier.id]: 1, [jDto.id]: 1, [jDomain.id]: 1, [mailNotifier.id]: 2 };
+check('journey, method root SignupService.register: Notifier/dto/domain 1, MailNotifier 2; EventStore not reached (literal and oracle)', same(layers(s), dispatchLiteral) && same(o.layers, dispatchLiteral) && !(eventStore.id in layers(s)), { drawn: layers(s), oracle: o.layers });
+const dispatchRoute = await routeIds(mailNotifier.id, notifier.id);
+check('journey: the drawn MailNotifier -> Notifier (OVERRIDES) route is a chain route, and all chain routes match the oracle', dispatchRoute.length === 1 && s.chainRoutes.includes(dispatchRoute[0]) && same(s.chainRoutes, o.chainRoutes), { dispatchRoute, drawn: s.chainRoutes, oracle: o.chainRoutes });
+check('journey: badges cover every layer 1..2 with no gap', same([...new Set(s.badges.map(b => b.layer))].sort(), [1, 2]), s.badges);
+await shot('15-journey-dispatch');
+// D5: taking domain off the map ends the chain there; the summary counts what lies beyond it.
+await tap(jDomain.id);
+await evaluate(`${CY}.getElementById(${JSON.stringify(jDomain.id)}).emit('cxttap');0`); await pause(350);
+await click(await evaluate(`(()=>{const b=document.querySelector('.graph-context-menu [role=menuitem].danger');const r=b.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`));
+await until(async () => !(await evaluate(`${CY}.getElementById(${JSON.stringify(jDomain.id)}).length`)), 'domain removed from scope');
+await fitMap();
+await tap(serviceRegister.id);
+s = await stackState();
+o = await expectedStack(serviceRegister.id);
+const beyondLiteral = { [notifier.id]: 1, [jDto.id]: 1, [mailNotifier.id]: 2 };
+check('journey, domain out of scope: the stack stays rooted and layers drop domain (literal and oracle)', same(s.roots, [serviceRegister.id]) && same(layers(s), beyondLiteral) && same(o.layers, beyondLiteral), { drawn: layers(s), oracle: o.layers });
+check('journey, domain out of scope: the oracle counts one entity beyond the map (the Event type)', o.beyond === 1, o.beyond);
+check('journey, domain out of scope: the inspector reads "2 layers · 3 resources · 1 beyond the map"', s.summary === summaryOf(2, 3, 1), s.summary);
+await shot('16-journey-beyond-the-map');
+// Fitted this far out, the corner buttons (and so the pressed toggle) are hidden by design: zoom in
+// on the root, as a user would, to read the toggle's tooltip.
+await evaluate(`(()=>{const cy=${CY},n=cy.getElementById(${JSON.stringify(serviceRegister.id)});cy.zoom({level:1,renderedPosition:n.renderedPosition()});return 0})()`); await pause(700);
+s = await stackState();
+check('journey, domain out of scope: the pressed toggle tooltip reads the same line', s.pressed.length === 1 && s.pressed[0].title === summaryOf(2, 3, 1), s.pressed);
 await endStack();
 
 check('no page or console errors', errors.filter(e => !/custom wheel sensitivity|invalid endpoints/.test(e)).length === 0, errors);

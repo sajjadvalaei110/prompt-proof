@@ -132,7 +132,7 @@ export function childrenOf(graph: AtlasGraph, container: AtlasNode, scope: Scope
   return [];
 }
 
-/** Uncertainty rank: the aggregate's representative resolution is the least certain one present, so a single candidate/unresolved occurrence keeps the whole line visibly uncertain. */
+/** Uncertainty rank: the aggregate's representative resolution is the least certain one present, so a single candidate/unresolved occurrence is never reported as resolved (hover text, inspector). The line itself is not styled by resolution (ADR 0008 amendment, 2026-09-25). */
 const RESOLUTION_RANK: Record<string, number> = { RESOLVED: 0, CANDIDATE: 1, UNRESOLVED: 2 };
 const worseResolution = (a: string, b: string) => ((RESOLUTION_RANK[b] ?? 2) > (RESOLUTION_RANK[a] ?? 2) ? b : a);
 

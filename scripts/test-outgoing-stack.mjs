@@ -64,13 +64,16 @@ check('empty stack: a drawn root with no outgoing fact has zero layers, no cover
   assert.deepEqual(sorted(stack.rootSet), ['P']);
   assert.deepEqual(sorted(stack.coveredIds), []);
   assert.deepEqual(sorted(stack.chainEdgeIds), []);
-  assert.equal(stack.depth, 0); assert.equal(stack.count, 0);
+  assert.equal(stack.depth, 0); assert.equal(stack.count, 0); assert.equal(stack.beyond, 0);
 });
 
 check('the summary line counts layers and resources, singular for 1', () => {
   assert.equal(stackSummary({ depth: 2, count: 3 }), 'Outgoing stack: 2 layers · 3 resources');
   assert.equal(stackSummary({ depth: 1, count: 1 }), 'Outgoing stack: 1 layer · 1 resource');
   assert.equal(stackSummary({ depth: 0, count: 0 }), 'Outgoing stack: 0 layers · 0 resources');
+  assert.equal(stackSummary({ depth: 2, count: 3, beyond: 0 }), 'Outgoing stack: 2 layers · 3 resources', 'no beyond part when nothing is off the map');
+  assert.equal(stackSummary({ depth: 2, count: 3, beyond: 4 }), 'Outgoing stack: 2 layers · 3 resources · 4 beyond the map');
+  assert.equal(stackSummary({ depth: 1, count: 1, beyond: 1 }), 'Outgoing stack: 1 layer · 1 resource · 1 beyond the map');
 });
 
 // --- the user's scenario -----------------------------------------------------------------------
@@ -106,9 +109,9 @@ check('package root over the same facts reaches D too (every B relation counts a
 });
 
 // --- method root -------------------------------------------------------------------------------
-check('method root M walks method-level facts only: q2 -> t is unreachable, class-level and class-target facts are ignored', () => {
+check('method root M walks method-level facts: q2 -> t is unreachable, class-level facts are ignored, a class target is terminal', () => {
   const PT = fact('pt', 'P', 'T', { kind: 'DEPENDS_ON' });          // class -> class: no method owner
-  const NEWQ = fact('newq', 'P.m', 'Q', { kind: 'CONSTRUCTS' });     // targets the class Q itself
+  const NEWQ = fact('newq', 'P.m', 'Q', { kind: 'CONSTRUCTS' });     // targets the class Q itself: Q is reached, on the B card too
   const routes = [route('P.m', 'B', ['pq', 'newq']), route('B', 'C', ['qt']), route('B', 'D', ['su']), route('P', 'C', ['pt'])];
   const stack = run(graphOf([PQ, QT, SU, PT, NEWQ]), methodPage, routes, 'P.m');
   assert.deepEqual(layersOf(stack), { B: 1 });
@@ -126,6 +129,124 @@ check('method root: a method chain M -> q -> t does reach C; a sibling method ca
   assert.deepEqual(layersOf(stack), { B: 1, C: 2, 'P.m2': 1 });
   assert.deepEqual(sorted(stack.chainEdgeIds), ['B>C', 'P.m>B', 'P.m>P.m2']);
   assert.equal(stack.depth, 2); assert.equal(stack.count, 3);
+});
+
+// --- type-targeted facts from a method root (D2, 2026-09-25) ---------------------------------------
+check('method root: CONSTRUCTS to a type reaches the type as a terminal entity; its own facts are not walked', () => {
+  // P.m -> new T (T in C). T.t -> U.u exists, and T depends on U, but a type reached at method
+  // granularity has no method-level outgoing facts, so D is not reached.
+  const edges = [fact('newt', 'P.m', 'T', { kind: 'CONSTRUCTS' }), fact('tu', 'T.t', 'U.u'), fact('tdu', 'T', 'U', { kind: 'DEPENDS_ON' })];
+  const stack = run(graphOf(edges), methodPage, [route('P.m', 'C', ['newt']), route('C', 'D', ['tu', 'tdu'])], 'P.m');
+  assert.deepEqual(layersOf(stack), { C: 1 });
+  assert.deepEqual(sorted(stack.chainEdgeIds), ['P.m>C']);
+  assert.equal(stack.beyond, 0);
+});
+
+check('method root: CONSTRUCTS to a declared constructor keeps walking from the constructor', () => {
+  const nodes = [...NODES, { id: 'T.T', kind: 'CONSTRUCTOR', simpleName: 'T', parentId: 'T' }];
+  const edges = [fact('newt', 'P.m', 'T.T', { kind: 'CONSTRUCTS' }), fact('tu', 'T.T', 'U.u')];
+  const stack = outgoingStack({ graph: { nodes, edges }, cards: methodPage, routes: [route('P.m', 'C', ['newt']), route('C', 'D', ['tu'])], rootId: 'P.m', kind: 'ALL', direction: 'out' });
+  assert.deepEqual(layersOf(stack), { C: 1, D: 2 });
+});
+
+check('method root: a CANDIDATE call to a type is terminal; USES_TYPE to a type is followed; field and other type targets are not', () => {
+  const nodes = [...NODES, { id: 'U.f', kind: 'FIELD', simpleName: 'f', parentId: 'U' }, pkg('E'), cls('W', 'E')];
+  const edges = [
+    fact('cq', 'P.m', 'Q', { resolution: 'CANDIDATE' }),        // e.g. a Lombok getter on Q
+    fact('qt', 'Q.q', 'T.t'),                                     // Q's methods are not walked from the type
+    fact('usesT', 'P.m', 'T', { kind: 'USES_TYPE' }),            // a parameter type
+    fact('readF', 'P.m', 'U.f', { kind: 'READS_FIELD' }),        // not a type target
+    fact('beanW', 'P.m', 'W', { kind: 'DECLARES_BEAN' }),        // only CONSTRUCTS, CALLS and USES_TYPE reach a type
+  ];
+  const cards = [...methodPage, card('E', 'PACKAGE')];
+  const stack = run({ nodes, edges }, cards, [route('P.m', 'B', ['cq']), route('P.m', 'C', ['usesT']), route('B', 'C', ['qt'])], 'P.m');
+  assert.deepEqual(layersOf(stack), { B: 1, C: 1 });
+  assert.deepEqual(sorted(stack.chainEdgeIds), ['P.m>B', 'P.m>C'], 'B -> C carries Q.q -> T.t, which the walk never takes');
+  const callsOnly = run({ nodes, edges }, cards, [], 'P.m', { kind: 'CALLS' });
+  assert.deepEqual(layersOf(callsOnly), { B: 1 }, 'the kind filter applies to type targets too');
+});
+
+check('class and package roots are unchanged by the type-target rule', () => {
+  const edges = [fact('newt', 'P.m', 'T', { kind: 'CONSTRUCTS' })];
+  assert.deepEqual(layersOf(run(graphOf(edges), classPage, [route('P', 'C', ['newt'])], 'P')), { C: 1 });
+  assert.deepEqual(layersOf(run(graphOf(edges), packagePage, [route('A', 'C', ['newt'])], 'A')), { C: 1 });
+});
+
+// --- dispatch through OVERRIDES (D3, 2026-09-25) ---------------------------------------------------
+// Interface I (in C) declares I.run; K1 (in D) and K2 (in E) implement it: OVERRIDES K1.run -> I.run.
+const DISPATCH_NODES = [...NODES, cls('I', 'C'), mth('I.run', 'I'), cls('K1', 'D'), mth('K1.run', 'K1'), pkg('E'), cls('K2', 'E'), mth('K2.run', 'K2'), pkg('F'), cls('V', 'F'), mth('V.v', 'V')];
+const dispatchPage = [...methodPage, card('E', 'PACKAGE'), card('F', 'PACKAGE')];
+const CALL_I = fact('pi', 'P.m', 'I.run'), OV1 = fact('ov1', 'K1.run', 'I.run', { kind: 'OVERRIDES' }), OV2 = fact('ov2', 'K2.run', 'I.run', { kind: 'OVERRIDES' });
+
+check('method root: a call to an interface method continues to its one implementation at the next layer', () => {
+  const edges = [CALL_I, OV1, fact('k1v', 'K1.run', 'V.v')];
+  const routes = [route('P.m', 'C', ['pi']), route('D', 'C', ['ov1']), route('D', 'F', ['k1v'])];
+  const stack = run({ nodes: DISPATCH_NODES, edges }, dispatchPage, routes, 'P.m');
+  assert.deepEqual(layersOf(stack), { C: 1, D: 2, F: 3 });
+  assert.deepEqual(sorted(stack.chainEdgeIds), ['D>C', 'D>F', 'P.m>C'], 'the drawn OVERRIDES route joins two chain entities');
+});
+
+check('method root: two implementations are both reached at the same layer', () => {
+  const stack = run({ nodes: DISPATCH_NODES, edges: [CALL_I, OV1, OV2] }, dispatchPage, [], 'P.m');
+  assert.deepEqual(layersOf(stack), { C: 1, D: 2, E: 2 });
+});
+
+check('OVERRIDES is not walked forward at method level, and class roots do not follow implementors', () => {
+  const k1Page = [card('A', 'PACKAGE'), card('C', 'PACKAGE'), card('D', 'PACKAGE'), card('K1', 'CLASS', 'D'), card('K1.run', 'METHOD', 'K1'), card('E', 'PACKAGE')];
+  assert.deepEqual(layersOf(run({ nodes: DISPATCH_NODES, edges: [OV1, OV2] }, k1Page, [], 'K1.run')), {}, 'an implementation does not set its interface method in motion');
+  const classRoot = run({ nodes: DISPATCH_NODES, edges: [fact('pid', 'P', 'I', { kind: 'DEPENDS_ON' }), OV1, OV2] }, [...classPage, card('E', 'PACKAGE')], [], 'P');
+  assert.deepEqual(layersOf(classRoot), { C: 1 }, 'class level: OVERRIDES K1 -> I is an outgoing fact of K1, not of I');
+  assert.deepEqual(layersOf(run({ nodes: DISPATCH_NODES, edges: [OV1] }, [card('C', 'PACKAGE'), card('D', 'PACKAGE')], [], 'D')), { C: 1 }, 'package level: an ordinary D -> C fact');
+});
+
+// --- layer numbering (D4, 2026-09-25) --------------------------------------------------------------
+check('a step between two entities on the same card costs nothing, so badges never skip (the SubscriptionRepository shape)', () => {
+  // Class root R (package G) -> Sub (domain) -> Ev (domain, same collapsed card) -> Dto (dtos).
+  const nodes = [pkg('G'), cls('R', 'G'), pkg('domain'), cls('Sub', 'domain'), cls('Ev', 'domain'), pkg('dtos'), cls('Dto', 'dtos')];
+  const edges = [fact('rs', 'R', 'Sub', { kind: 'USES_TYPE' }), fact('se', 'Sub', 'Ev', { kind: 'DEPENDS_ON' }), fact('ed', 'Ev', 'Dto', { kind: 'DEPENDS_ON' })];
+  const cards = [card('G', 'PACKAGE'), card('R', 'CLASS', 'G'), card('domain', 'PACKAGE'), card('dtos', 'PACKAGE')];
+  const stack = outgoingStack({ graph: { nodes, edges }, cards, routes: [route('R', 'domain', ['rs']), route('domain', 'dtos', ['ed'])], rootId: 'R', kind: 'ALL', direction: 'out' });
+  assert.deepEqual(layersOf(stack), { domain: 1, dtos: 2 }, 'was domain 1, dtos 3');
+  assert.deepEqual(sorted(stack.chainEdgeIds), ['R>domain', 'domain>dtos']);
+  assert.equal(stack.depth, 2);
+});
+
+check('layers are ranked densely when a card is re-entered later by a longer path', () => {
+  // Class root P: P -> Q (B, 1); P -> T (C, 1) -> U (D, 2) -> S (B again, 3) -> X (E, 4).
+  // B keeps its minimum 1; the distances 1, 2, 4 become the badges 1, 2, 3.
+  const nodes = [...NODES, pkg('E'), cls('X', 'E')];
+  const edges = [fact('pq', 'P', 'Q', { kind: 'DEPENDS_ON' }), fact('pt', 'P', 'T', { kind: 'DEPENDS_ON' }), fact('tu', 'T', 'U', { kind: 'DEPENDS_ON' }), fact('us', 'U', 'S', { kind: 'DEPENDS_ON' }), fact('sx', 'S', 'X', { kind: 'DEPENDS_ON' })];
+  const cards = [...classPage, card('E', 'PACKAGE')];
+  const stack = outgoingStack({ graph: { nodes, edges }, cards, routes: [], rootId: 'P', kind: 'ALL', direction: 'out' });
+  assert.deepEqual(layersOf(stack), { B: 1, C: 1, D: 2, E: 3 });
+  assert.equal(stack.depth, 3); assert.equal(stack.count, 4);
+});
+
+check('free steps inside one card compete with card hops: a longer path through one card ranks before a shorter hop chain', () => {
+  // Class root P (A); B..F collapsed. P -> Q1 (B) -> Q2 (B) -> Q3 (B) -> T (C): two free steps inside B.
+  // P -> U (D) -> V (E) -> W (F). Card hops: B 1, D 1, C 2, E 2, F 3. Counting every step
+  // (plain BFS) would give C 4, after F.
+  const nodes = [pkg('A'), cls('P', 'A'), pkg('B'), cls('Q1', 'B'), cls('Q2', 'B'), cls('Q3', 'B'), pkg('C'), cls('T', 'C'),
+    pkg('D'), cls('U', 'D'), pkg('E'), cls('V', 'E'), pkg('F'), cls('W', 'F')];
+  const dep = (id, s, t) => fact(id, s, t, { kind: 'DEPENDS_ON' });
+  const edges = [dep('p1', 'P', 'Q1'), dep('12', 'Q1', 'Q2'), dep('23', 'Q2', 'Q3'), dep('3t', 'Q3', 'T'), dep('pu', 'P', 'U'), dep('uv', 'U', 'V'), dep('vw', 'V', 'W')];
+  const cards = [card('A', 'PACKAGE'), card('P', 'CLASS', 'A'), ...['B', 'C', 'D', 'E', 'F'].map(id => card(id, 'PACKAGE'))];
+  const stack = outgoingStack({ graph: { nodes, edges }, cards, routes: [], rootId: 'P', kind: 'ALL', direction: 'out' });
+  assert.deepEqual(layersOf(stack), { B: 1, C: 2, D: 1, E: 2, F: 3 }, 'plain BFS gives B 1, D 1, E 2, F 3, C 4');
+  assert.equal(stack.depth, 3); assert.equal(stack.count, 5);
+});
+
+// --- beyond the map (D5, 2026-09-25) ---------------------------------------------------------------
+check('entities reached but not drawn are counted once each as beyond the map; the chain still stops there', () => {
+  // E is not on the page. P.m calls X.x (twice) and X.y and constructs X; X.x -> T.t is not walked.
+  const nodes = [...NODES, pkg('E'), cls('X', 'E'), mth('X.x', 'X'), mth('X.y', 'X')];
+  const edges = [fact('px', 'P.m', 'X.x'), fact('px2', 'P.m', 'X.x'), fact('py', 'P.m', 'X.y'), fact('newx', 'P.m', 'X', { kind: 'CONSTRUCTS' }), fact('xt', 'X.x', 'T.t'), PQ];
+  const stack = outgoingStack({ graph: { nodes, edges }, cards: methodPage, routes: [route('P.m', 'B', ['pq'])], rootId: 'P.m', kind: 'ALL', direction: 'out' });
+  assert.deepEqual(layersOf(stack), { B: 1 });
+  assert.equal(stack.beyond, 3, 'X.x, X.y and the type X: three distinct entities');
+  assert.equal(run(graphOf([PQ]), methodPage, [], 'P.m').beyond, 0);
+  const filtered = outgoingStack({ graph: { nodes, edges }, cards: methodPage, routes: [], rootId: 'P.m', kind: 'CONSTRUCTS', direction: 'out' });
+  assert.equal(filtered.beyond, 1, 'only facts the kind filter keeps count');
 });
 
 // --- representatives ---------------------------------------------------------------------------
@@ -155,16 +276,18 @@ check('an entity with no drawn representative stops the chain', () => {
   const stack = outgoingStack({ graph: { nodes, edges }, cards: classPage, routes: [], rootId: 'P', kind: 'ALL', direction: 'out' });
   assert.deepEqual(layersOf(stack), {});
   assert.equal(stack.depth, 0);
+  assert.equal(stack.beyond, 1, 'X is reached but has no card: it is counted as beyond the map (D5)');
 });
 
-check('ancestors of the root never get a layer, but the walk continues through the entities they represent', () => {
-  // P2 is in A but not drawn (out of scope), so A's box represents it. P -> P2 -> Q reaches B at 2.
+check('ancestors of the root never get a layer; the walk continues through them at no cost, so no layer is skipped', () => {
+  // P2 is in A but not drawn (out of scope), so A's box represents it. P -> P2 -> Q: stepping into the
+  // root's own container is not a card hop (D4, 2026-09-25; B was layer 2 before), so B is layer 1.
   const nodes = [...NODES, cls('P2', 'A'), mth('P2.x', 'P2')];
   const edges = [fact('pp2', 'P.m', 'P2.x'), fact('p2q', 'P2.x', 'Q.q')];
   const stack = outgoingStack({ graph: { nodes, edges }, cards: classPage, routes: [route('A', 'B', ['p2q'])], rootId: 'P', kind: 'ALL', direction: 'out' });
-  assert.deepEqual(layersOf(stack), { B: 2 }, 'the A box gets no layer 1; B keeps its true distance');
+  assert.deepEqual(layersOf(stack), { B: 1 }, 'the A box gets no layer; B is the first card hop');
   assert.deepEqual(sorted(stack.chainEdgeIds), ['A>B']);
-  assert.equal(stack.depth, 2); assert.equal(stack.count, 1);
+  assert.equal(stack.depth, 1); assert.equal(stack.count, 1);
 });
 
 // --- filters -----------------------------------------------------------------------------------

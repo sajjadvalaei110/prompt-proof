@@ -13,7 +13,7 @@
       "pass": true
     },
     {
-      "label": "badges number every reached card by its package-level fact distance (independent oracle)",
+      "label": "badges number every reached card by its package-level card-hop distance (independent oracle)",
       "pass": true
     },
     {
@@ -25,7 +25,7 @@
       "pass": true
     },
     {
-      "label": "the tooltip counts layers and resources",
+      "label": "the tooltip counts layers and resources (and anything beyond the map)",
       "pass": true
     },
     {
@@ -141,6 +141,10 @@
       "pass": true
     },
     {
+      "label": "rooting the stack from the menu leaves no multi-selection behind (the right-click added the card only to open the menu)",
+      "pass": true
+    },
+    {
       "label": "the context menu then offers \"Hide outgoing stack\"",
       "pass": true
     },
@@ -150,6 +154,54 @@
     },
     {
       "label": "the stack button is keyboard operable (focus + Enter)",
+      "pass": true
+    },
+    {
+      "label": "Shift+F10 on a focused corner button opens the card menu with \"Show outgoing stack\", focus on its first item",
+      "pass": true
+    },
+    {
+      "label": "the keyboard-opened menu sits at the card, as a right-click on it would place it",
+      "pass": true
+    },
+    {
+      "label": "opening the menu from the keyboard adds nothing to the multi-selection",
+      "pass": true
+    },
+    {
+      "label": "ArrowDown moves focus to the next menu item",
+      "pass": true
+    },
+    {
+      "label": "Escape closes the keyboard-opened menu and returns focus to the corner button",
+      "pass": true
+    },
+    {
+      "label": "that Escape closed only the menu: the card stays selected",
+      "pass": true
+    },
+    {
+      "label": "the ContextMenu key opens the same menu",
+      "pass": true
+    },
+    {
+      "label": "Enter on \"Show outgoing stack\" starts the stack from the keyboard menu",
+      "pass": true
+    },
+    {
+      "label": "after the menu action focus is back on the card's toggle, now pressed",
+      "pass": true
+    },
+    {
+      "label": "keyboard deactivation on an unselected, unhovered root keeps focus on its toggle, now unpressed",
+      "pass": true
+    },
+    {
+      "label": "the retained toggle turns the stack back on",
+      "pass": true
+    },
+    {
+      "label": "\"Deselect\" from the menu removes only that card; the other right-clicked card stays selected",
       "pass": true
     },
     {
@@ -214,6 +266,58 @@
     },
     {
       "label": "chain fixture, method root m: neither b -> c nor b -> d is a chain route",
+      "pass": true
+    },
+    {
+      "label": "journey fixture: the analyzer gives the controller method a CANDIDATE call and MailNotifier an OVERRIDES fact",
+      "pass": true
+    },
+    {
+      "label": "journey, package root api: service 1, dto 1, domain 2; pricing is not reached (literal and oracle)",
+      "pass": true
+    },
+    {
+      "label": "journey, package root api: chain routes match the oracle",
+      "pass": true
+    },
+    {
+      "label": "journey, class root SignupController: service 1, dto 1, domain 2 (literal and oracle)",
+      "pass": true
+    },
+    {
+      "label": "journey, method root register: no longer empty; service 1, dto 1, domain 2 (literal and oracle)",
+      "pass": true
+    },
+    {
+      "label": "journey, method root register: chain routes match the oracle; the summary counts 2 layers and 3 resources",
+      "pass": true
+    },
+    {
+      "label": "journey, method root with service expanded: SignupService 1, dto 1, EventStore/Notifier/domain 2, MailNotifier 3 (literal and oracle)",
+      "pass": true
+    },
+    {
+      "label": "journey: the drawn MailNotifier -> Notifier (OVERRIDES) route is a chain route, and all chain routes match the oracle",
+      "pass": true
+    },
+    {
+      "label": "journey: badges cover every layer 1..3 with no gap",
+      "pass": true
+    },
+    {
+      "label": "journey, domain out of scope: the stack stays rooted and layers drop domain (literal and oracle)",
+      "pass": true
+    },
+    {
+      "label": "journey, domain out of scope: the oracle counts one entity beyond the map (the Event type)",
+      "pass": true
+    },
+    {
+      "label": "journey, domain out of scope: the inspector reads \"3 layers · 5 resources · 1 beyond the map\"",
+      "pass": true
+    },
+    {
+      "label": "journey, domain out of scope: the pressed toggle tooltip reads the same line",
       "pass": true
     },
     {

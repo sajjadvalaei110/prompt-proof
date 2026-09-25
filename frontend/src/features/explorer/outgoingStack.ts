@@ -30,16 +30,25 @@ export interface OutgoingStack {
   depth: number;
   /** Number of layered cards; the root set is not counted. */
   count: number;
+  /** Distinct entities a chain entity leads to that have no drawn card (so the chain stops there). */
+  beyond: number;
 }
 
-/** The line shown on the root's button tooltip and in its inspector: "Outgoing stack: N layers · M resources". */
-export function stackSummary(stack: Pick<OutgoingStack, 'depth' | 'count'>): string {
-  return `Outgoing stack: ${stack.depth} ${stack.depth === 1 ? 'layer' : 'layers'} · ${stack.count} ${stack.count === 1 ? 'resource' : 'resources'}`;
+/** The line shown on the root's button tooltip and in its inspector:
+ * "Outgoing stack: N layers · M resources", plus " · K beyond the map" when K > 0. */
+export function stackSummary(stack: Pick<OutgoingStack, 'depth' | 'count'> & { beyond?: number }): string {
+  const beyond = stack.beyond ? ` · ${stack.beyond} beyond the map` : '';
+  return `Outgoing stack: ${stack.depth} ${stack.depth === 1 ? 'layer' : 'layers'} · ${stack.count} ${stack.count === 1 ? 'resource' : 'resources'}${beyond}`;
 }
 
 /** The granularity a root walks at: its own kind (a field is never a card, so it has none). */
 const granularityOf = (root: AtlasNode): Level | null =>
   root.kind === 'PACKAGE' ? 'PACKAGE' : root.kind === 'METHOD' || root.kind === 'CONSTRUCTOR' ? 'METHOD' : isType(root) ? 'CLASS' : null;
+
+/** Facts from a method that reach a type itself (not one of its methods) at method granularity. */
+const TYPE_TARGET_KINDS = new Set(['CONSTRUCTS', 'CALLS', 'USES_TYPE']);
+/** The whole root set and the root's containers are one card for the walk's step cost. */
+const ROOT_CARD = '\u0000root';
 
 /**
  * The outgoing relation stack (docs/OUTGOING_STACK.md §Traversal). The walk runs over parser
@@ -52,23 +61,33 @@ const granularityOf = (root: AtlasNode): Level | null =>
  *    target is null, the kind filter excludes it (`kind !== 'ALL' && kind !== edge.kind`), or it is
  *    `reviewChange === 'REMOVED'`. Both endpoints map to their owner at the granularity
  *    (`ownerAt`); an edge with an endpoint that has no owner is dropped (so a method root ignores
- *    class-level facts and facts that target a class). An entity self-loop (u === v) is not walked.
- * 2. An entity's representative card is its own card when drawn (even as an expanded box), else the
+ *    class-level facts). An entity self-loop (u === v) is not walked.
+ * 2. Method granularity only:
+ *    - a CONSTRUCTS, CALLS or USES_TYPE fact whose target is a type itself reaches that type as a
+ *      terminal entity: it is placed like any entity, but has no outgoing steps, since a type has
+ *      no method-level facts;
+ *    - an OVERRIDES fact (implementation -> overridden method) is walked reversed, from the
+ *      overridden method to its implementation (dispatch).
+ *    At class and package granularity OVERRIDES is an ordinary forward fact.
+ * 3. An entity's representative card is its own card when drawn (even as an expanded box), else the
  *    nearest drawn ancestor on its parentId chain (the collapsed card that contains it). An entity
- *    with no drawn representative (out of scope, not on the page) is not walked through.
- * 3. The root entity is the root card. The root set (layer 0) is the root card plus every drawn
+ *    with no drawn representative (out of scope, not on the page) is not walked through; each
+ *    distinct such entity reached by a kept step from a chain entity counts in `beyond`.
+ * 4. The root entity is the root card. The root set (layer 0) is the root card plus every drawn
  *    card inside it.
- * 4. Breadth-first from the root entity; an entity's distance is the first one it is reached at.
- *    A drawn card's layer is the minimum distance over the entities it represents. Cards in the
- *    root set and ancestors of the root card never get a layer, though the walk continues through
- *    the entities they represent (so layers can skip a number in that rare case).
- * 5. Drawn cards inside a layered expanded box are covered (`coveredIds`).
- * 6. A drawn route is a chain route iff one of its `occurrenceIds` is a kept edge whose mapped
+ * 5. Distances come from a 0-1 BFS from the root entity. A step costs 0 when both entities have the
+ *    same representative card, counting the root set and the root's containers as one card, and 1
+ *    otherwise: a card hop. A drawn card's raw layer is the minimum distance over the entities it
+ *    represents. Cards in the root set and containers of the root never get a layer. The raw layers
+ *    are then ranked densely (1, 2, 3, ...), so a badge number is never skipped even when a card
+ *    is re-entered later by a longer path.
+ * 6. Drawn cards inside a layered expanded box are covered (`coveredIds`).
+ * 7. A drawn route is a chain route iff one of its `occurrenceIds` is a kept edge whose mapped
  *    source and target entities are both in the chain (the root entity or reached). A self-loop of
  *    a chain entity counts here, so routes inside an expanded root stay lit.
- * 7. `depth` is the maximum card layer and `count` the number of layered cards. Returns null when
+ * 8. `depth` is the maximum card layer and `count` the number of layered cards. Returns null when
  *    the root card is not drawn (or is not a package, type or method). `direction: 'in'` reverses
- *    every mapped edge.
+ *    every mapped step.
  *
  * Pure; O(nodes + edges) with memoized owner and representative lookups.
  */
@@ -106,36 +125,50 @@ export function outgoingStack({ graph, cards, routes, rootId, kind, direction = 
     for (const p of path) reps.set(p, found);
     return found;
   };
+  const cardKey = (entity: string) => { const c = repOf(entity); return c && (rootSet.has(c) || rootAncestors.has(c)) ? ROOT_CARD : c; };
 
   // Kept fact steps by raw edge id, oriented for the walk.
   const steps = new Map<string, [string, string]>();
   const next = new Map<string, string[]>();
   for (const e of graph.edges) {
     if (!e.targetId || (kind !== 'ALL' && kind !== e.kind) || e.reviewChange === 'REMOVED') continue;
-    const s = ownerOf(e.sourceId), t = ownerOf(e.targetId);
+    const s = ownerOf(e.sourceId);
+    let t = ownerOf(e.targetId);
+    if (!t && level === 'METHOD' && TYPE_TARGET_KINDS.has(e.kind)) { const target = all.get(e.targetId); if (target && isType(target)) t = target.id; }
     if (!s || !t) continue;
-    const [u, v] = direction === 'out' ? [s, t] : [t, s];
+    const [from, to] = level === 'METHOD' && e.kind === 'OVERRIDES' ? [t, s] : [s, t];
+    const [u, v] = direction === 'out' ? [from, to] : [to, from];
     steps.set(e.id, [u, v]);
     if (u === v) continue;
     const list = next.get(u); if (list) list.push(v); else next.set(u, [v]);
   }
 
+  // 0-1 BFS: a deque as a front stack plus a back queue; stale entries are skipped on pop.
   const distance = new Map<string, number>([[rootId, 0]]);
-  for (let frontier = [rootId], d = 1; frontier.length; d++) {
-    const reached: string[] = [];
-    for (const u of frontier) for (const v of next.get(u) || []) {
-      if (distance.has(v) || !repOf(v)) continue;
-      distance.set(v, d); reached.push(v);
+  const beyond = new Set<string>();
+  const front: [string, number][] = [], back: [string, number][] = [[rootId, 0]];
+  let head = 0;
+  while (front.length || head < back.length) {
+    const [u, d] = front.length ? front.pop()! : back[head++];
+    if (d > distance.get(u)!) continue;
+    for (const v of next.get(u) || []) {
+      if (!repOf(v)) { beyond.add(v); continue; }
+      const dv = d + (cardKey(u) === cardKey(v) ? 0 : 1);
+      const known = distance.get(v);
+      if (known !== undefined && known <= dv) continue;
+      distance.set(v, dv);
+      (dv === d ? front : back).push([v, dv]);
     }
-    frontier = reached;
   }
 
-  const layers = new Map<string, number>();
+  const raw = new Map<string, number>();
   for (const [entity, d] of distance) {
     const card = repOf(entity);
-    if (!card || d === 0 || rootSet.has(card) || rootAncestors.has(card)) continue;
-    if (!layers.has(card) || d < layers.get(card)!) layers.set(card, d);
+    if (!card || cardKey(entity) === ROOT_CARD) continue;
+    if (!raw.has(card) || d < raw.get(card)!) raw.set(card, d);
   }
+  const rank = new Map([...new Set(raw.values())].sort((a, b) => a - b).map((d, i) => [d, i + 1]));
+  const layers = new Map([...raw].map(([card, d]) => [card, rank.get(d)!]));
   const coveredIds = new Set<string>();
   for (const id of displayed) {
     if (layers.has(id) || rootSet.has(id)) continue;
@@ -143,7 +176,5 @@ export function outgoingStack({ graph, cards, routes, rootId, kind, direction = 
   }
   const chainStep = (edgeId: string) => { const step = steps.get(edgeId); return !!step && distance.has(step[0]) && distance.has(step[1]); };
   const chainEdgeIds = new Set(routes.filter(r => (r.occurrenceIds || []).some(chainStep)).map(r => r.id));
-  let depth = 0;
-  for (const d of layers.values()) depth = Math.max(depth, d);
-  return { layers, rootSet, coveredIds, chainEdgeIds, depth, count: layers.size };
+  return { layers, rootSet, coveredIds, chainEdgeIds, depth: rank.size, count: layers.size, beyond: beyond.size };
 }

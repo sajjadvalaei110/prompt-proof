@@ -740,7 +740,8 @@ export default function App() {
         // The comparison request is asynchronous. Capture the camera immediately before applying
         // the mode flag, rather than relying on the camera value from when the user clicked Changes.
         flushExplorerCamera();
-        journeys.updateTab(tabId,j=>prepareReviewToggle(j,true,result.reviewKey,result.graph));
+        // The render-time graph lookup has no comparison yet: prune the stack root against this one.
+        journeys.updateTab(tabId,j=>prepareReviewToggle(j,true,result.reviewKey,result.graph),j=>j.review?result.graph:mapGraph);
       }
     });
   }
@@ -864,7 +865,7 @@ export default function App() {
               arrangeAround(id);
               setMobilePane('details');
             }} onViewCode={n=>openSource(n,'symbol')} restoreVersion={active.restoreVersion}/>}
-          {!active.present.review&&<div className="graph-legend"><span><i className="line-sample"/>Static dependency</span><span><i className="line-sample uncertain"/>Candidate / unresolved</span><span>Package connections group occurrences by kind and resolution</span></div>}
+          {!active.present.review&&<div className="graph-legend"><span><i className="line-sample"/>Static dependency</span><span>Hover a line for its kinds and resolution</span></div>}
         </>}
       </section>
       {tab!=='context'&&<InspectorPanel selectedNode={node} selectedEdge={edge} mapStatus={mapStatus} edgeFilteredOut={edgeFilteredOut} edgeHiddenByExpansion={edgeHiddenByExpansion} selectedOccurrenceId={viewState.inspectedOccurrenceId} onSelectOccurrence={id=>dispatchView({type:'SELECT_OCCURRENCE',occurrenceId:id})} workspaceId={workspace?.id||null} snapshotId={snapshot} graph={graph} routes={routes} revision={revision} onExplanationReady={()=>setRevision(r=>r+1)} onInspectEdge={inspectEdge} onSelect={select} onViewClasses={viewClasses} onViewMethods={viewMethods} onArrangeAroundResource={n=>arrangeAround(n.id)} onSource={(n,type='symbol')=>openSource(n,type)} onClose={clearSelection} outgoingStackSummary={stack&&node&&node.id===stackRootId?stackSummary(stack):null}/>}

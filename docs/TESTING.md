@@ -41,7 +41,11 @@ adds none; Back-trail pruning, the graph-less route fallback, companion revert o
 the pruning short-circuits), mode continuity, and atomic recapture for open and closed tabs,
 plus the outgoing-stack root: toggling adds no entry and keeps redo, undo/redo keep it, undo
 removing the root ends it without a redo revival, scope removal, collapse, level switch, the
-graph-less fallback, mode revalidation and recapture end it, and Clone copies it (46 checks).
+graph-less fallback, mode revalidation and recapture end it, and Clone copies it. The phase B
+review fixes add: dragging an expanded child never reprojects the map (a `graphFor` spy) and keeps
+the root; entering Changes keeps a drawn child root with a layout-derived position when the review
+graph is known; and `useExplorerJourneys.updateTab`, run under a synchronous React stand-in, prunes
+with an explicit `graphFor` rather than the render-time one (49 checks).
 
 `node scripts/test-outgoing-stack.mjs` pins the pure layer computation
 (`docs/OUTGOING_STACK.md` §Traversal) over hand-computable fact graphs: an undrawn root, an empty
@@ -51,11 +55,17 @@ calls only; class-level and class-target facts ignored), layer = minimum over re
 the nearest drawn ancestor as representative, entities with no drawn representative, ancestors of
 the root, the kind filter, REMOVED facts, null/unknown endpoints, cycles and self-loops, an
 expanded root, a reached expanded box with covered children, an out-of-scope entity inside a box,
-chain routes via `occurrenceIds`, `direction: 'in'`, and order independence over 20 shuffles
-(23 checks).
+chain routes via `occurrenceIds`, `direction: 'in'`, and order independence over 20 shuffles.
+Step 12 phase C adds: a method root reaching a type through CONSTRUCTS, a CALLS fact to a type or
+USES_TYPE as a terminal entity (the hand-built graphs still use CANDIDATE facts, which the analyzer
+no longer emits since the 2026-09-25 revert; the helper walks any resolution alike) (a declared constructor continues; field and DECLARES_BEAN targets
+do not count); dispatch through reversed OVERRIDES to one and two implementations, with no forward
+walk and no implementors for class roots; card-hop layers without skips (the SubscriptionRepository
+shape) and dense ranking; and the beyond-the-map count and summary. A competing-path check (a longer
+path through one card against a hop chain) pins the 0-1 BFS: plain BFS fails it (34 checks).
 
-`node scripts/verify-outgoing-stack-ui.mjs <microservice-java copy> <git fixture> <base oid> <chain fixture>`
-(BACKEND/APP/DEBUG as below) is the stack's browser acceptance (55 checks). It activates the
+`node scripts/verify-outgoing-stack-ui.mjs <microservice-java copy> <git fixture> <base oid> <chain fixture> <journey fixture>`
+(BACKEND/APP/DEBUG as below) is the stack's browser acceptance (81 checks). It activates the
 stack from the on-card button, checks badges 1..N and the chain routes against an independent
 Node-side oracle computed from the API graph (written from the spec's rules, not from
 `outgoingStack.ts`), and checks that the root stays pinned while a layer-2 card is selected. It
@@ -63,12 +73,41 @@ expands a chain card (package-level layers unchanged, the box keeps its badge, i
 covered), expands the root and a type inside it (every layer-0 card, nested ones included, takes
 the root look and gets no badge), then checks that one Escape ends the stack and a second
 clears the selection. Positions, camera and the redo branch must be unchanged throughout. It
-also covers the context menu, Enter on the focused button, the minimum badge size at low zoom,
+also covers the context menu (a menu-only right-click leaves no multi-selection; Deselect still acts
+on the right-click set), Enter on the focused button, the keyboard menu path (Shift+F10 and the
+ContextMenu key at the card, arrows, Escape returning focus, Enter on the item), focus kept on a
+toggle that turns the stack off, the minimum badge size at low zoom,
 reduced motion and 375 px. In Changes mode on a generated three-package Git fixture it checks
 that the REMOVED route is not walked and that line colors and change fills stay factual. On a
 generated plain-source chain fixture (app.a P -> app.b Q; Q.q2 -> app.c T; app.b S -> app.d U) it
 checks package root app.a (b 1, c 2, d 2), class root P (b 1, c 2, d not reached and the drawn
-b -> d route not lit) and method root m (b 1 only). The fixture recipes are in `PROJECT_STATUS.md`.
+b -> d route not lit) and method root m (b 1 only). On a copy of `test-fixtures/journey-candidates`
+(step 12 phase C) it checks that the controller method's call stays UNRESOLVED with no CALLS/CANDIDATE
+anywhere (candidate calls reverted, ADR 0010 amendment 2026-09-25) and that the OVERRIDES fact
+exists, and the journeys of package root api and class root SignupController (service 1, dto 1,
+domain 2) and method root `SignupController.register` (dto 1 only: its call is unresolved) against
+literal expectations and the oracle. From method root `SignupService.register` (service and
+SignupService expanded) it checks Notifier/dto/domain 1 and MailNotifier 2 through dispatch, with
+EventStore not reached; after domain leaves scope, it checks "2 layers · 3 resources · 1 beyond the
+map" in the inspector and the tooltip. The fixture recipes are in `PROJECT_STATUS.md`.
+
+`UnresolvedCallsAndOverridesTest` (backend, `test-fixtures/journey-candidates`; was
+`CandidateCallsAndOverridesTest`) pins ADR 0010 after its 2026-09-25 "candidate calls reverted"
+amendment: every call the solver cannot resolve (record-accessor arguments, supertype matches,
+private methods, ambiguous overloads, record accessors, Lombok members, library-inherited methods)
+stays `CALLS/UNRESOLVED` with no target and the reason "Static target unavailable in indexed
+source"; no CALLS/CANDIDATE exists; a resolved interface call keeps its target; a solver-resolved
+JDK call on an in-source receiver (`error.getMessage()`) stays UNRESOLVED; and OVERRIDES for one
+and two implementations, excluding other-arity overloads and static hiding (14 tests).
+
+`OverridesAndUnresolvedCallEdgeCasesTest` (backend, sources in a temp dir; was
+`CandidateAndOverrideEdgeCasesTest`) pins the ADR 0010 amendments: no OVERRIDES to a
+package-private method from another package (same package and protected still override); no
+OVERRIDES between same-named parameter types from different packages or when only one side
+resolves in source; the same type imported or qualified still overrides. The former candidate
+sources (implicit calls in anonymous and local class bodies, `Outer.this.work(..)`/`work(..)` from
+a member class, a shadowed implicit call) now pin that each call stays UNRESOLVED with no target,
+and no CALLS/CANDIDATE exists (11 tests).
 
 `APP=http://127.0.0.1:5198 node scripts/verify-explorer-journeys.mjs /tmp/atlas-journey-fixture`
 exercises a real isolated backend and production frontend in Chromium (51 checks).

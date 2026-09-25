@@ -1,4 +1,4 @@
-import { explorerViewReducer, ExplorerViewState } from './explorerViewState';
+import { explorerViewReducer, ExplorerViewState, type ExpansionState } from './explorerViewState';
 import { aggregateRouteEndpoints, projectDisplayed, type AtlasGraph } from './graphModel';
 import type { Journey } from './explorerJourney';
 
@@ -100,7 +100,18 @@ function displayedMap(j: Journey, graph: AtlasGraph | null | undefined, withRout
 function sameDisplayInputs(a: Journey, b: Journey): boolean {
   if (a.review !== b.review || a.scope !== b.scope || a.view.activeLevel !== b.view.activeLevel) return false;
   const x = a.view.levelViews[a.view.activeLevel], y = b.view.levelViews[b.view.activeLevel];
-  return x.displayedIds === y.displayedIds && x.expansions === y.expansions;
+  return x.displayedIds === y.displayedIds && sameExpansionMembership(x.expansions, y.expansions);
+}
+
+/**
+ * Expansions compared by what they draw: the expanded IDs and their owners. Moving a card inside
+ * an expanded box only rewrites its stored child position (a new `expansions` object), which never
+ * takes a card off the map, so it must not cost a full reprojection while a stack is shown.
+ */
+function sameExpansionMembership(x: Record<string, ExpansionState>, y: Record<string, ExpansionState>): boolean {
+  if (x === y) return true;
+  const keys = Object.keys(x);
+  return keys.length === Object.keys(y).length && keys.every(id => id in y && y[id].ownerId === x[id].ownerId);
 }
 
 function clearInspection(view: ExplorerViewState): ExplorerViewState {

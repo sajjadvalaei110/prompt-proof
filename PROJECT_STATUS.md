@@ -1,7 +1,12 @@
 # Project status
 Last updated: 2026-09-25
 Active milestone: R6 — Developer comprehension redesign (in progress)
-Current revision: step 12 phase B follow-ups (fact-level stack traversal at the root's granularity,
+Current revision: step 12 phases B/C review fixes (analyzer visibility and lexical-receiver rules,
+ADR 0010 amendment; keyboard card menu and stack focus retention), on top of
+step 12 phase C (full outgoing journey from any root: candidate calls and
+OVERRIDES facts, ADR 0010; type targets, dispatch, card-hop layers and the beyond-the-map count in
+the stack), on top of
+step 12 phase B follow-ups (fact-level stack traversal at the root's granularity,
 root look for the whole root set), on top of
 step 12 phase B, the outgoing relation stack (docs/OUTGOING_STACK.md), on top of
 step 12 phase A review remediation, on top of selection outside undo
@@ -16,6 +21,357 @@ toggle with a git-style diff code viewer, exploration tabs with per-tab undo/red
 and selection controls, the R6 change-edges slice (one line per direction,
 directional selection emphasis, file-grouped evidence), in-place card details
 (expand packages/classes) and resizable cards; Step 6A remains unstarted
+
+## Step 12 phases B/C review fixes (2026-09-25)
+
+The findings of `/home/sajjad/prompts/step12/phase-b-review-report.md` (B1–B6) and
+`/home/sajjad/prompts/step12/phase-c-review-report.md` (C1–C6) are resolved, following
+`/home/sajjad/prompts/step12/phase-bc-review-fixes-handoff.md`. The rejected candidates stayed
+rejected. Before any code, the user answered F1–F3, choosing the recommended option each time:
+- **F1:** no OVERRIDES when a parameter type resolves on one side only.
+- **F2:** implicit calls inside anonymous or local class bodies are never queued.
+- **F3:** implicit calls in member classes look through the enclosing types, innermost first.
+
+The answers are recorded in the ADR 0010 amendment. The work is built on `0e131a8`, on branch
+`worktree-step12-bc-review-fixes`: `057c71f` analyzer, `c08856d` helper test, `ef7a32e`
+journeys, `2b5c5aa` canvas, plus this docs commit. Each finding was reproduced red before its fix.
+
+Finding → fix → test:
+- **C1** (package-private OVERRIDES across packages).
+  - Fix: `MethodFacts` records `packagePrivate` and `packageName` (interface members count as
+    public); the post-pass skips a package-private overridden method from another package.
+  - Tests: `CandidateAndOverrideEdgeCasesTest.aPackagePrivateMethodIsNotOverriddenFromAnotherPackage`
+    (red, then green); the same-package and protected cases still override.
+- **C2** (simple-name erasure).
+  - Fix: a parameter's identity is `#<id>` of the in-source type `resolveType` finds, else its
+    erased name. F1: the two forms never match.
+  - Tests: `differentInSourceTypesWithOneSimpleNameAreAnOverload` and
+    `aParameterResolvedOnOneSideOnlyIsNotAnOverride` (both red, then green);
+    `theSameInSourceTypeOverridesWhetherImportedOrQualified` (green before and after).
+- **C3** (anonymous-class call on the outer type).
+  - Fix: `inAnonymousOrLocalClass`; a scope-less call inside such a body is never queued (F2).
+  - Tests: the anonymous probe and a local-class variant (both red, then green); both calls stay
+    UNRESOLVED.
+- **C4** (nest access).
+  - Fix: `PendingCall` carries the caller type and, for implicit calls, the lexically enclosing
+    types. A private method matches when it is declared by the receiver type and the caller shares
+    its nest host. `lexicalReceiver` picks the innermost enclosing type with a method of that name
+    (JLS 15.12.1), never looking past a type with library supertypes, a record, an enum or an
+    `Object` method name.
+  - Tests: `anExplicitOuterThisCallReachesThePrivateOuterMethod` (red: CANDIDATE to type `Outer`
+    plus UNRESOLVED; then green: both CANDIDATE to `Outer.work(String)`);
+    `theInnermostTypeDeclaringTheNameWins`. `aPrivateMethodMatchesOnlyFromItsOwnType` stays green.
+- **C5** (helper passes plain BFS).
+  - Fix: a competing-path check in `scripts/test-outgoing-stack.mjs` (33 → 34), expecting
+    `{B:1, D:1, C:2, E:2, F:3}`.
+- **C6** (no negative test for a solver-resolved JDK call).
+  - Fix: `journey.pricing.PricingError` plus `Checkout.describe`, added with `git add -f`.
+  - Test: `CandidateCallsAndOverridesTest.aSolverResolvedJdkCallOnAnInSourceReceiverStaysUnresolved`
+    (15 → 16). It passed on the unfixed code, as expected for a test gap; its red is mutation 7
+    below.
+- **B1** (no keyboard path to the context menu).
+  - Fix: Shift+F10 or the ContextMenu key opens the same menu at the card, either on a focused
+    corner button (`data-card-id`) or with a card selected and the page focused. The browser's own
+    menu is suppressed inside the stage. The menu gains ArrowUp/Down/Home/End (it had none), and
+    closing it, by Escape or by an item, returns focus to the opener. The keyboard path adds
+    nothing to `multiIds`.
+  - Red on the pre-fix jar: Shift+F10 and ContextMenu opened nothing (`b-repro` probe, and the new
+    suite's first B1 check).
+- **B2** (drag reprojection).
+  - Fix: `sameDisplayInputs` compares expansions by membership (IDs, `ownerId`).
+  - Test: a `graphFor` spy in `test-explorer-journeys.mjs`, red with `1 !== 0`, then green; a
+    collapse still revalidates.
+- **B3** (async Changes graphFor).
+  - Fix: `updateTab(id, fn, graphFor?)`; `toggleChanges` passes `j=>j.review?result.graph:mapGraph`.
+  - Tests: a reducer check (null graph drops the derived child root, the review graph keeps it),
+    and `useExplorerJourneys` run under a synchronous React stand-in. The latter is red against the
+    pre-fix hook ("the load result's graph decides the prune"), then green. As the report says, the
+    UI-level race is CONFIRMED only through the reducer; no browser reproduction was attempted,
+    since the timing makes it flaky.
+- **B4** (focus loss on keyboard deactivation).
+  - Fix: `focusedStackId` (onFocus/onBlur) keeps the focused toggle in `stackButtonIds`.
+  - Red: the probe showed focus on `BODY` after Enter (root unselected, pointer parked on empty
+    canvas). Green: focus stays on the toggle, `aria-pressed="false"`.
+- **B5** (edge tap over a collapsed card's corner): **not reproduced.** The probe placed the
+  infra card's details button exactly on the midpoint of a `flow-out` chain route (the click point
+  inside the route's box) and clicked it. The card expanded and no edge was inspected. Cause:
+  Cytoscape's default `z-index-compare: auto` draws and hit-tests edges below nodes, so the
+  route's `z-index: 20` never lifts it over a card. No change.
+- **B6** (menu-only right-click left the card in `multiIds`).
+  - Reproduced: after a right-click and "Show outgoing stack", controllers stayed `multi-selected`.
+  - Fix: `cxttap` records `addedId` when the card was not already selected, and the menu's stack
+    item removes it. Escape or click-away still keeps the right-click selection (documented
+    behavior).
+  - A new check confirms "Deselect" still acts on the right-click set.
+
+Mutations (in scratch copies or with the source restored, and not committed):
+- Phase C **mutation 5** (every step costs 1), `bash $JOB/tmp/mutation5.sh`: now **caught**; the new
+  check fails with `C: 4` for `C: 2`.
+- Phase C **mutation 7** (drop `!solved`), `bash $JOB/tmp/mutation7.sh` against
+  `CandidateCallsAndOverridesTest`: now **caught**; 16 tests, 1 failed
+  (`aSolverResolvedJdkCallOnAnInSourceReceiverStaysUnresolved`). The source was restored and
+  checked.
+
+Probe re-measure: a probe backend on 8097, the same fixture copies as phase C (hashed unchanged),
+0 model requests.
+- microservice-java: 22 unresolved, 14 CALLS CANDIDATE, 0 OVERRIDES.
+- online-book-store: 221 unresolved, 26 CALLS CANDIDATE, 29 OVERRIDES.
+
+There is **no delta**. Every edge and unresolved entry is identical by (source, target, kind,
+resolution), and every measured journey is identical (`measure.mjs` output diff empty). Neither
+project has a cross-package package-private override, a same-named parameter type pair, a pending
+implicit call in an anonymous or local class, or a pending call to a private outer member.
+
+Checks:
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew test --tests "dev.codeatlas.analysis.CandidateAndOverrideEdgeCasesTest" --tests "dev.codeatlas.analysis.CandidateCallsAndOverridesTest"`:
+  red first (26 tests, 6 failed, each for its finding's reason), then PASS 26/26.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew test`: PASS, 20 classes, 150 tests,
+  0 failures (139 + 10 + 1). Rerun after the Javadoc edits: PASS.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew constrainedMemoryTest --no-daemon`:
+  PASS, `BoundedExplanationScaleTest` 1/1 (137 s).
+- `for t in scripts/test-*.mjs; do node "$t" >/dev/null && echo "PASS $t" || echo "FAIL $t"; done`:
+  PASS, all 12 suites (outgoing-stack 34, journeys 49).
+- `cd frontend && npx tsc -b --force && npm run build`: PASS, with the existing Vite chunk-size
+  advisory.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar`: PASS
+  (`build/libs/code-atlas-0.1.0-SNAPSHOT.jar`).
+- **Stack browser check.** Same setup and 5-argument command as phase C: jar on 8095 with its own
+  data dir, model URL `http://127.0.0.1:9/v1`, headless snap Chromium on 9333 with its profile
+  under `~/snap/chromium/common/`, fixtures copied and hashed.
+  - On the pre-fix jar, the extended script failed the B6 check and the first B1 check, as
+    expected.
+  - On the fixed jar, two fresh runs: PASS **81/81** (68 + 13). All four fixtures were unchanged,
+    with 0 model requests and zero page/console errors.
+- `node scripts/verify-explorer-journeys.mjs <run>/fixture`, in its own fresh isolated run: PASS
+  51/51, fixtures unchanged, 0 model requests.
+- `JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH python3 scripts/verify_git_review_pipeline.py ~/snap/chromium/common/atlas-git-review-bc-fixes`:
+  PASS 41/41, 0 page errors, source tree and index unchanged.
+- `git diff --check`: PASS.
+
+Screenshots: `docs/evidence/outgoing-stack/` was replaced from the last fresh run (`01`–`18`).
+Inspected:
+- `01`: controllers root; domain/dtos/services 1, exceptions/repositories 2; "2 layers · 5
+  resources" (unchanged).
+- `16`: pricing now lists 7 types (`PricingError`); still "3 layers · 5 resources · 1 beyond the
+  map".
+- `17` (new): the keyboard-opened menu at the controllers card, focus ring on "Show outgoing
+  stack", no multi-selection outline.
+- `18` (new): services selected; the controllers toggle keeps its focus ring, unpressed, with no
+  badges. Controllers' indigo outline is the selection's incoming halo (ADR 0008), not a
+  multi-selection.
+
+Not run:
+- `verify_stable_graph_pipeline.py`: still broken by the ADR 0007 level switcher (known; a user
+  decision).
+- `verify_hierarchical_pipeline.py` and `verify_change_edges_pipeline.py`: the fixes touch neither
+  the explanation pipeline nor change-edge aggregation, and the analyzer produced identical facts
+  on both probe projects.
+- The browser oracle was not extended for C5: the helper check pins it with literal values, and a
+  browser copy would duplicate it.
+
+Deviations:
+- The menu had no arrow-key handling, although the handoff assumed it existed. ArrowUp/Down/Home/End
+  were added as part of B1.
+- The B3 fix is covered at the hook level (a React stand-in), not in the browser.
+- Commits live on the worktree branch; `git merge --ff-only worktree-step12-bc-review-fixes` on
+  master lands them unchanged.
+
+Limits:
+- The lexical lookup can still pick an outer method when a member class's own members are
+  generated (Lombok) and all its supertypes are in source.
+- Shift+F10 with the page focused opens the menu only for the selected card, not for an arbitrary
+  card.
+
+## Step 12 phase C: full outgoing journey from any selected resource (2026-09-25)
+
+The outgoing stack missed most of a method root's journey. `EventController.registerParticipant`
+was **empty** on microservice-java. The handoff (`/home/sajjad/prompts/step12/phase-c-full-journey-handoff.md`)
+diagnosed five causes (R1–R5). The user answered D1–D5 before any code was written:
+- **D1:** candidate calls, recorded in ADR 0010.
+- **D2:** CONSTRUCTS, CALLS **and USES_TYPE** to a type count for a method root, as terminal
+  entities. The user included USES_TYPE; the recommendation had left it out.
+- **D3:** OVERRIDES facts, dispatch as a +1 step, no reverse IMPLEMENTS for class roots.
+- **D4:** card-hop layers that never skip.
+- **D5:** stop at entities with no drawn card and count them as "beyond the map".
+
+Built test-first in three slices, on branch `worktree-step12-phase-c`: `7c2ffc5` analyzer, `1b70f09`
+helper, `ab82065` browser acceptance, plus this docs commit.
+
+What changed:
+- **Analyzer (`JavaParserAdapter`, ADR 0010).** `parseRelationships` records, per file and only
+  once the file succeeds, each type's in-source supertypes, its methods (erased simple parameter
+  types, static/private) and each CALLS occurrence whose symbol resolution **threw** and whose
+  receiver type is in source. The new post-pass `linkDispatchAndCandidateCalls` runs in one
+  transaction after all files, in both `runAnalysis` and `runReviewAnalysis`. It:
+  - upgrades such an occurrence to CANDIDATE, targeting the unique name/arity signature on the
+    receiver type or its in-source supertypes (nearest declaration wins), else the receiver type
+    (a generated member, a record accessor, a library-inherited method, or ambiguous overloads);
+  - leaves a call on the calling type itself without a unique match UNRESOLVED;
+  - leaves a call the solver resolved to a JDK method (`exception.getMessage()`) UNRESOLVED;
+  - emits OVERRIDES / RESOLVED from each non-static, non-private method to every in-source
+    supertype method with the same name and erased parameters. The evidence is the method name.
+
+  `RelationshipKind` and the frontend union gain `OVERRIDES`. There is no migration (the column is
+  free text). `GraphQueryService` gives it a hover summary.
+- **Helper (`outgoingStack.ts`).**
+  - At method granularity, CONSTRUCTS/CALLS/USES_TYPE to a type reach that type as a terminal
+    entity, and OVERRIDES is walked reversed.
+  - Distances come from a 0-1 BFS: a step inside one card, or between the root set and the root's
+    containers, is free. Raw card layers are then ranked densely.
+  - `beyond` counts distinct reached entities with no card.
+  - `stackSummary` appends " · K beyond the map" when K > 0, so the tooltip and inspector pick it
+    up with no UI change. No layout, fit or camera call was added.
+- **Tests.**
+  - `CandidateCallsAndOverridesTest` is new, over the new `test-fixtures/journey-candidates` (15
+    tests).
+  - `scripts/test-outgoing-stack.mjs` goes from 23 to 33 checks. Two existing checks changed by
+    decision:
+    - "ancestors of the root…": B goes from layer 2 to layer 1 (D4);
+    - "method root M walks method-level facts…": renamed; the CONSTRUCTS-to-Q fact is now followed
+      but lands on the same B card, so the layers are unchanged.
+  - `scripts/verify-outgoing-stack-ui.mjs` goes from 55 to 68 checks. It takes a fifth argument (a
+    copy of the journey fixture), and its independent oracle follows the new rules (fixpoint
+    relaxation, not a deque).
+- **Docs.** ADR 0010; `OUTGOING_STACK.md` (status line, Purpose, Traversal, Activation tooltip,
+  Verification, the user-decision note; the obsolete "layers can skip" text is removed);
+  `STABLE_GRAPH_INTERACTIONS.md` §Outgoing relation stack; `ARCHITECTURE.md` §5; `TESTING.md`;
+  the `JavaParserAdapter` Javadoc.
+
+Before/after journeys. This uses the handoff's §3 harness, which roots the stack at each method
+with its package and class expanded (at each type with its package expanded) and every other
+package collapsed. Before: the handoff's measurement at `3f1e091`. After: this build, probe backend
+on 8097 (isolated data dir, model URL on closed port 9, fixture copies hashed unchanged, 0 model
+requests). Package names are relative to `com.kipper.eventsmicroservice` /
+`com.shashirajraja.onlinebookstore`.
+
+| Root | Before | After |
+|---|---|---|
+| `EventController.registerParticipant(String,SubscriptionRequestDTO)` | (empty) | 1: dtos, services · 2: domain, exceptions, repositories |
+| `EventService.getAllEvents()` | (empty) | 1: domain, repositories |
+| `EventService.createEvent(EventRequestDTO)` | 1: domain | 1: domain, dtos, repositories |
+| `RestExceptionHandler.eventNotFoundHandler(..)` / `eventFullErrorHandler(..)` | (empty) | 1: exceptions, infra.RestErrorMessage |
+| `RestExceptionHandler.runtimeErrorHandler(..)` | (empty) | 1: infra.RestErrorMessage |
+| `EventService.registerParticipant(String,String)` | 1: repositories, exceptions, EmailServiceClient, isEventFull, domain | 1: domain, dtos, exceptions, repositories, EmailServiceClient, isEventFull |
+| `CustomerController.addToCart(int,Model)` (online-book-store) | 1: service, entity | 1: entity, service · 2: dao |
+| type `repositories.SubscriptionRepository` | 1: domain, 3: dtos | 1: domain · 2: dtos |
+| type `controllers.EventController` | good | 1: domain, dtos, services · 2: exceptions, repositories |
+
+Fact counts on the probe:
+- microservice-java: 36 → 22 unresolved relationships, 14 CALLS CANDIDATE.
+- online-book-store: 247 → 221 unresolved, 26 CALLS CANDIDATE, 29 OVERRIDES.
+
+An audit of the candidate list found:
+- 24 of the 26 online-book-store candidates target a Spring Data repository interface as the
+  receiver type. The other 2 are unique name/arity method matches, each checked against the
+  source: `CustomerData.setPassword(String)`, and the implicit-this `viewBooks(Model)` from
+  `CustomerController.customerHome(Model)` (its Spring `Model` argument cannot be typed).
+- `exception.getMessage()`, `ResponseEntity.*`, `LocalDateTime.now()` and
+  `SpringApplication.run` stay UNRESOLVED.
+
+Checks (the worktree's `frontend/node_modules` were installed with `npm ci --prefer-offline`):
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew test --tests "dev.codeatlas.analysis.CandidateCallsAndOverridesTest"`:
+  red first (12 of 14 failing, for the expected reasons), then PASS 14/14.
+- **Pre-review fix.** While writing the Codex review prompt, a gap turned up: a supertype's
+  `private` method counted toward the name/arity match, so a subtype's unresolvable call could
+  become a wrong unique CANDIDATE to it. A new test, `aPrivateMethodMatchesOnlyFromItsOwnType`,
+  adds `journey.pricing.Coupon` / `SeasonalCoupon` to the fixture. It was red (wrong CANDIDATE
+  `SeasonalCoupon.use -> Coupon.apply(String)`), then PASS 15/15 after `MethodFacts.privateMethod`
+  and the "own type only" rule. The rest was then rerun:
+  - `bootJar`;
+  - the probe: microservice-java and online-book-store counts and every measured journey identical
+    to the first measurement;
+  - a fresh stack browser run: PASS 68/68, fixtures unchanged, 0 model requests; evidence replaced;
+    `16` re-inspected, now showing pricing's 6 types;
+  - the full `./gradlew test`, below.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew test`: PASS, 19 classes, 138 tests,
+  0 failures, both after the analyzer slice and on a rerun before the docs commit. After the
+  pre-review fix: PASS, 19 classes, 139 tests, 0 failures. No pinned
+  count changed (`LargeProjectBenchmarkTest`, `RelationshipExtractionTest` and the rest pass
+  untouched).
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew constrainedMemoryTest --no-daemon`:
+  PASS, `BoundedExplanationScaleTest` 1/1 (2 min 23 s).
+- `node scripts/test-outgoing-stack.mjs`: red first (`beyond` undefined), then PASS 33/33.
+- `for t in scripts/test-*.mjs; do node "$t" >/dev/null && echo "PASS $t" || echo "FAIL $t"; done`:
+  PASS, all 12 suites (journeys 46, unchanged).
+- `cd frontend && npx tsc -b --force && npm run build`: PASS; the existing Vite chunk-size advisory.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar`: PASS
+  (`build/libs/code-atlas-0.1.0-SNAPSHOT.jar`).
+- **Stack browser check.** Setup: jar on 8095 with its own data dir, model URL
+  `http://127.0.0.1:9/v1`, headless snap Chromium on 9333. The profile lives under
+  `~/snap/chromium/common/`, because snap Chromium cannot write under the hidden `~/.claude`.
+  Fixtures are copied and hashed per run: the microservice copy, the generated Git fixture, the
+  generated chain fixture and a copy of `test-fixtures/journey-candidates`.
+
+  Command: `BACKEND=http://127.0.0.1:8095 APP=http://127.0.0.1:8095 DEBUG=http://127.0.0.1:9333
+  OUT=<run>/evidence node scripts/verify-outgoing-stack-ui.mjs <run>/fixture <run>/gitfix <base oid>
+  <run>/chainfix <run>/journeyfix`.
+
+  Two earlier runs failed in the new journey section, for test reasons:
+  1. 59 checks passed, then a missing "Show types inside journey.service" button stopped the run.
+     The expansions had pushed cards off screen, and `GraphCanvas` draws badges and corner buttons
+     only on screen, by design.
+  2. 66/67. At the fitted 32% zoom the corner buttons, including the pressed toggle, are hidden by
+     design, so its tooltip could not be read. The inspector already read the expected line.
+
+  The script now clicks the view-only Fit map control after each expansion and zooms in on the
+  root before reading the tooltip. Final fresh run: **PASS 68/68**, zero page/console errors. All
+  four fixtures were unchanged (hashes and `git status`), and 0 model requests appear in the
+  backend log.
+
+  Screenshots in `docs/evidence/outgoing-stack/` (replaced), inspected:
+  - `01`: controllers root; domain/dtos/services 1, exceptions/repositories 2.
+  - `07`: Changes; b 1, c 2.
+  - `11`: method m; b 1 only.
+  - `12`: package root journey.api; dto 1, service 1, domain 2, pricing muted.
+  - `13`: class root SignupController; the same layers.
+  - `14`: method root `register`; the same layers, candidate routes dashed, inspector "2 layers ·
+    3 resources".
+  - `15`: service expanded; SignupService 1, EventStore/Notifier 2, MailNotifier 3, Formatter
+    muted, "3 layers · 6 resources".
+  - `16`: domain out of scope; the inspector reads "Outgoing stack: 3 layers · 5 resources · 1
+    beyond the map".
+- `node scripts/verify-explorer-journeys.mjs <run>/fixture`, in its own fresh isolated run: PASS
+  51/51, fixtures unchanged. Not rerun after the pre-review fix: that fix only removes private
+  supertype methods from candidate matching, and the microservice fixture this suite uses produced
+  identical facts and journeys on the probe.
+- `JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH
+  python3 scripts/verify_git_review_pipeline.py ~/snap/chromium/common/atlas-git-review-phase-c`:
+  PASS 41/41, source tree and index unchanged, no model requests. The run dir is outside the hidden
+  worktree path for snap Chromium. `03-selected-change-colors-and-dashes.png` inspected (change
+  fills, halos and dashed selected routes as in ADR 0008).
+- `git diff --check`: PASS.
+
+Not run:
+- `python3 scripts/verify_stable_graph_pipeline.py baseline|acceptance`: still broken by the ADR
+  0007 level-switcher removal (known; a user decision).
+- `verify_hierarchical_pipeline.py` and `verify_change_edges_pipeline.py`: not rerun. The change
+  adds relationship facts but touches neither the explanation pipeline nor the change-edge
+  aggregation. The git-review pipeline, which compares facts across snapshots, was run.
+
+Deviations and choices the decisions left open:
+- **Dense ranking** on top of the 0-1 BFS. The 0-1 BFS alone can still skip a number when a card
+  is re-entered later by a longer path; a helper check pins this.
+- **The beyond-the-map part appears only when K > 0.** K counts distinct entities at the root's
+  granularity, including terminal types.
+- **Candidates only where the solver threw.** A call the symbol solver resolved to a JDK method
+  stays UNRESOLVED, even on an in-source receiver. The handoff lists such calls as external.
+- **OVERRIDES targets every matching in-source ancestor**, not only the nearest, so dispatch from
+  any overridden declaration reaches every override in one step.
+- **The browser acceptance uses a copy of the committed fixture** (the fifth argument) rather than
+  a generated one.
+- **Commits live on the worktree branch `worktree-step12-phase-c`.** The session's isolation
+  policy forbids committing to or merging into master itself. `git merge --ff-only
+  worktree-step12-phase-c` on master lands them unchanged.
+
+Limits:
+- Erasure by simple name gives no OVERRIDES fact for a generic supertype parameter (`save(T)`
+  against `save(Book)`), and could in theory match two different types with the same simple name.
+- Unresolved method references (`foo::bar`) are not upgraded.
+- Field initializers and initializer blocks remain owned by the type (R6), so a method root never
+  sees them.
+- DECLARES_BEAN (method to type) is not followed by a method root. D2 named only CONSTRUCTS, CALLS
+  and USES_TYPE.
+- Badges and corner buttons are drawn only for on-screen cards (unchanged).
 
 ## Step 12 phase B follow-ups: fact-level stack traversal and expanded-root look (2026-09-25)
 

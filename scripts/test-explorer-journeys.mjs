@@ -642,6 +642,58 @@ check('a mode switch and a review recapture end a stack whose root the target gr
   assert.equal(s.tabs[0].present.outgoingStackRootId, null, 'the recaptured review tab no longer draws its root');
   assert.equal(root(s), 'p1', 'a tab that never touched review is left alone');
 });
+check('dragging an expanded child with a stack active never reprojects the map and keeps the root', () => {
+  let s = initJourneys(mapJourney(['p1', 'p2']));
+  s = update(s, 1, j => ({ ...j, view: viewReduce(j.view, { type: 'EXPAND_RESOURCE', level: 'PACKAGE', id: 'p2', ownerId: null, childPositions: { c2: { x: 1, y: 1 } }, generation: j.view.generation }) }));
+  s = stackOn(s, 2, 'c2');
+  let calls = 0;
+  const spy = j => { calls++; return graphFor(j); };
+  const before = active(s).present.view.levelViews.PACKAGE.expansions;
+  s = reduce(s, { type: 'UPDATE', id: s.activeId, group: 3, graphFor: spy, update: j => ({ ...j, view: viewReduce(j.view, { type: 'NODE_MOVED', level: 'PACKAGE', id: 'c2', containerId: 'p2', position: { x: 40, y: 60 }, generation: j.view.generation }) }) });
+  assert.notStrictEqual(active(s).present.view.levelViews.PACKAGE.expansions, before, 'the move did store the child position');
+  assert.deepEqual(active(s).present.view.levelViews.PACKAGE.expansions.p2.childPositions.c2, { x: 40, y: 60 });
+  assert.equal(calls, 0, 'a card move changes no membership, so the stack root is not revalidated');
+  assert.equal(root(s), 'c2');
+  s = reduce(s, { type: 'UPDATE', id: s.activeId, group: 4, graphFor: spy, update: j => ({ ...j, view: viewReduce(j.view, { type: 'COLLAPSE_RESOURCE', level: 'PACKAGE', id: 'p2', position: { x: 0, y: 0 }, generation: j.view.generation }) }) });
+  assert.equal(calls, 1, 'an expansion change still revalidates');
+  assert.equal(root(s), null);
+});
+// Package p expanded with a stored position for c1 only; c2 is drawn by layout (derived position).
+const derivedGraph = { nodes: [
+  { id: 'p', kind: 'PACKAGE', simpleName: 'p' }, { id: 'q', kind: 'PACKAGE', simpleName: 'q' },
+  { id: 'c1', kind: 'CLASS', simpleName: 'C1', parentId: 'p' }, { id: 'c2', kind: 'CLASS', simpleName: 'C2', parentId: 'p' },
+], edges: [] };
+const derivedChildRoot = () => {
+  let s = initJourneys(mapJourney(['p', 'q']));
+  s = update(s, 1, j => ({ ...j, view: viewReduce(j.view, { type: 'EXPAND_RESOURCE', level: 'PACKAGE', id: 'p', ownerId: null, childPositions: { c1: { x: 1, y: 1 } }, generation: j.view.generation }) }));
+  return stackOn(s, 2, 'c2');
+};
+const enterChanges = j => ({ ...j, ...toggleJourneyReview(j, true, 'rk1') });
+check('entering Changes keeps a drawn child root that has no stored position when the review graph is known', () => {
+  const lost = reduce(derivedChildRoot(), { type: 'UPDATE', id: 1, group: 3, update: enterChanges, graphFor: () => null });
+  assert.equal(root(lost), null, 'without the graph the fallback misses the derived child: the defect the explicit graph avoids');
+  const kept = reduce(derivedChildRoot(), { type: 'UPDATE', id: 1, group: 3, update: enterChanges, graphFor: j => j.review ? derivedGraph : null });
+  assert.equal(root(kept), 'c2');
+});
+// useExplorerJourneys under a synchronous stand-in for React: one render whose reducer state starts
+// from `seed`, and a dispatch that runs the real reducer at once.
+const hook = await import('data:text/javascript;base64,' + Buffer.from(`${compiled}
+let __state; export const current = () => __state; export const seed = { state: null };
+const useReducer = (reducer, arg, init) => { __state = seed.state ?? init(arg); return [__state, a => { __state = reducer(__state, a); }]; };
+const useRef = value => ({ current: value });
+${ts.transpileModule(fs.readFileSync(new URL('../frontend/src/features/explorer/useExplorerJourneys.ts', import.meta.url), 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
+}).outputText.replace(/import \{[^}]*\} from ['"][^'"]+['"];?\n?/g, '')}`).toString('base64'));
+check('the async Changes load: updateTab prunes with the explicit graph, not the one read at the last render', () => {
+  hook.seed.state = derivedChildRoot();
+  // The render before the comparison loaded: its lookup has no review graph yet.
+  const journeys = hook.useExplorerJourneys(undefined, () => null);
+  journeys.updateTab(1, enterChanges, j => j.review ? derivedGraph : null);
+  const tab = hook.current().tabs.find(t => t.id === 1);
+  assert.equal(tab.present.review, true);
+  assert.equal(tab.present.outgoingStackRootId, 'c2', 'the load result\'s graph decides the prune');
+  hook.seed.state = null;
+});
 check('Clone copies the stack; the copies then change independently', () => {
   let s = initJourneys(mapJourney(['p1', 'p2']));
   s = stackOn(s, 1, 'p1');

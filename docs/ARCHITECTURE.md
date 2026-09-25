@@ -149,7 +149,10 @@ tab state. Ordinary inspection and filtering preserve the mounted canvas untouch
 
 The outgoing relation stack (`docs/OUTGOING_STACK.md`) follows the same layering. The pure helper
 `outgoingStack.ts` walks the tab graph's relationship facts at the root's granularity and maps the
-result onto the cards and routes the canvas draws. The journey keeps its pinned
+result onto the cards and routes the canvas draws. The walk is a 0-1 BFS with card-hop costs. Method
+roots also reach type targets as dead ends and follow parser OVERRIDES facts reversed (dispatch). It
+counts reached entities with no card as "beyond the map". The analyzer supplies the CANDIDATE calls
+and OVERRIDES facts this relies on (ADR 0010). The journey keeps its pinned
 root outside history like selection (carried and pruned on undo/redo) and also prunes it in the
 reducer when an ordinary update or recapture stops drawing it. App computes the stack from the
 projection, and `GraphCanvas` only applies classes and draws layer badges on its direction overlay.
@@ -240,7 +243,7 @@ can stale dependent results; newly available unrelated prose does not.
 The active React `InspectorPanel` implements all inspector types. Graph statuses
 refresh through the graph API; Cytoscape updates card/edge display data without
 recreating the canvas or resetting its viewport. Shared sparkle styling is purely
-a READY marker and preserves relationship resolution styling.
+a READY marker. Routes are not styled by resolution (ADR 0008 amendment, 2026-09-25).
 
 Architecture preparation never constructs a complete inventory String or purpose
 Map. It retains one page/fan-in/class batch, persists validated work immediately,

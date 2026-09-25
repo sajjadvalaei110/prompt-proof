@@ -71,3 +71,23 @@ including in Changes mode, to avoid confusing selection with an added relation.
 This temporary direct-inspection override takes precedence over review colors;
 deselection restores the factual colors. Selecting a resource still preserves
 its attached edges' factual colors and uses directional margins.
+
+### Amendment (2026-09-25): uncertain routes drawn like every other route
+
+User decision. The rule `edge[resolution != "RESOLVED"]` drew a route amber and dashed whenever
+any one of its occurrences was CANDIDATE or UNRESOLVED (an aggregated route takes the least-certain
+resolution present). With many aggregated occurrences per route, most of the map turned amber and
+the colour stopped telling the reader anything. The rule is deleted, so every route uses the
+ordinary line colour and pattern whatever its resolution, and the "Candidate / unresolved" legend
+sample is removed. The legend line "Package connections group occurrences by kind and resolution"
+was also inaccurate (routes group by ordered endpoints only, whatever their kind or resolution), and
+is replaced by "Hover a line for its kinds and resolution".
+
+This trades AGENTS.md's "keep uncertainty visible" on the line itself for readability. Uncertainty
+stays visible where the reader looks for detail: the route hover lists every resolution present
+(for example "resolved + candidate"), the edge inspector shows each occurrence's resolution and
+reason, and unresolved calls are listed in the method inspector. Route aggregation is unchanged
+(the aggregate still reports the least-certain resolution). The Changes-mode `reviewChange` route
+colours (ADDED green, REMOVED red dashed, UNKNOWN amber dotted) are change status, not resolution,
+and are kept, as are the selection dashes. This supersedes "Unknown and unresolved routes retain
+their uncertainty styling" above for unresolved routes only.
