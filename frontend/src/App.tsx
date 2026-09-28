@@ -357,6 +357,7 @@ export default function App() {
   }
   // Undo/redo prune selection against the graph each restored journey actually renders.
   function undoRedo(type:'UNDO'|'REDO'){
+    expandQueueRef.current=null;
     // A Changes journey without its comparison graph falls back to the view's own displayed record.
     journeys.command({type,graphFor:j=>j.review?reviewComparison.graph:mapGraph});
   }
@@ -416,9 +417,9 @@ export default function App() {
     }
     inspectNode(n,'details');
   }
-  function inspectNode(n:AtlasNode,pane:string){
+  function inspectNode(n:AtlasNode,pane:string,group?:number){
     cancelReclick();
-    journeys.update(j=>({...j,view:explorerViewReducer(j.view,{type:'INSPECT_NODE',id:n.id}),treeOpen:revealedTree(j.treeOpen,n),search:'',mobilePane:pane}));
+    journeys.update(j=>({...j,view:explorerViewReducer(j.view,{type:'INSPECT_NODE',id:n.id}),treeOpen:revealedTree(j.treeOpen,n),search:'',mobilePane:pane}),group);
   }
   function inspectEdge(e:AtlasEdge){
     cancelReclick();
@@ -439,42 +440,57 @@ export default function App() {
   }
   function viewClasses(n:AtlasNode){revealChildren(n);}
   function viewMethods(n:AtlasNode){revealChildren(n);}
+  // Several expansions cannot be dispatched in one handler: toggleExpand's box math reads the current
+  // `expansions`/`geometry`, which are still stale mid-handler. The queue therefore drives one card per
+  // render -- dispatch, wait for the expansion to land (the effect below), dispatch the next -- and
+  // joins every dispatch to one explicit history group, so the whole queue is a single undo step.
+  // `strict` (a reveal) drops the queue when a card cannot be toggled; otherwise that card is skipped.
+  // A dropped queue never resumes: `inFlight` must reach its target state on the very next change.
+  interface ExpandQueue{pending:string[];inFlight:string|null;action:'expand'|'collapse';strict:boolean;group:number;then?:(group:number)=>void}
+  const expandQueueRef=useRef<ExpandQueue|null>(null);
+  function startExpandQueue(q:Omit<ExpandQueue,'inFlight'|'group'>){
+    const queue={...q,inFlight:null,group:journeys.beginGroup()};
+    expandQueueRef.current=queue;
+    advanceExpandQueue(queue);
+  }
+  function advanceExpandQueue(q:ExpandQueue){
+    if(!graph){expandQueueRef.current=null;return;}
+    const all=new Map(graph.nodes.map(item=>[item.id,item]));
+    while(q.pending.length){
+      const [id,...rest]=q.pending;q.pending=rest;
+      const n=all.get(id);
+      if(n&&!!expansions[id]===(q.action==='expand'))continue;
+      if(n&&toggleExpand(n,q.group)){q.inFlight=id;return;}
+      if(q.strict){expandQueueRef.current=null;return;}
+    }
+    expandQueueRef.current=null;
+    q.then?.(q.group);
+  }
+  useEffect(()=>{
+    const q=expandQueueRef.current;
+    if(!q||!q.inFlight)return;
+    if(!!expansions[q.inFlight]!==(q.action==='expand')){expandQueueRef.current=null;return;}
+    q.inFlight=null;
+    advanceExpandQueue(q);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[expansions]);
+  // Another tab, journey, snapshot or history step invalidates whatever the queue was working toward.
+  useEffect(()=>{expandQueueRef.current=null;},[active.id,graph]);
+  useEffect(()=>{if(tab!=='map')expandQueueRef.current=null;},[tab]);
   // Reveal a node buried under expand-in-place ancestors (an HTTP route handler, a deep link) by
-  // expanding each ancestor in turn, then selecting the target. Each expansion must actually land
-  // in state before the next one is computed -- toggleExpand's own box math reads the current
-  // `expansions`/`geometry`, which are still stale mid-handler -- so this drives one remaining
-  // ancestor per render via the effect below instead of dispatching the whole chain at once.
-  const pendingRevealRef=useRef<{remaining:string[];selectId:string}|null>(null);
-  function expandToReveal(n:AtlasNode){
+  // expanding each ancestor in turn, then inspecting the target -- and, for an entry point, rooting
+  // the outgoing stack on it. Inspecting, never `select`: re-selecting the inspected card deselects.
+  function expandToReveal(n:AtlasNode,opts:{stack?:boolean}={}){
     if(!graph)return;
     const all=new Map(graph.nodes.map(item=>[item.id,item]));
     const chain:string[]=[];
     for(let p=n.parentId?all.get(n.parentId):undefined;p;p=p.parentId?all.get(p.parentId):undefined)chain.unshift(p.id);
-    const remaining=chain.filter(id=>!expansions[id]);
-    setTab('map');
-    if(!remaining.length){select(n);return;}
-    setMobilePane('map');
-    pendingRevealRef.current={remaining,selectId:n.id};
-    const first=all.get(remaining[0]);
-    if(first)toggleExpand(first);
+    setTab('map');setMobilePane('map');
+    startExpandQueue({pending:chain,action:'expand',strict:true,then:group=>{
+      inspectNode(n,'details',group);
+      if(opts.stack)journeys.update(j=>j.outgoingStackRootId===n.id?j:{...j,outgoingStackRootId:n.id},group);
+    }});
   }
-  useEffect(()=>{
-    const pending=pendingRevealRef.current;
-    if(!pending||!graph)return;
-    const all=new Map(graph.nodes.map(item=>[item.id,item]));
-    const [doneId,...rest]=pending.remaining;
-    if(!expansions[doneId])return;
-    if(!rest.length){
-      pendingRevealRef.current=null;
-      const target=all.get(pending.selectId);
-      if(target)select(target);
-      return;
-    }
-    pendingRevealRef.current={remaining:rest,selectId:pending.selectId};
-    const next=all.get(rest[0]);
-    if(next)toggleExpand(next);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[expansions]);
   // Step 5 (Appendix B): the dedicated focused-arrangement command, wired to canvas double-click
   // (GraphCanvas's dbltap handler) and the inspector's keyboard/touch-accessible "Arrange around
   // this resource" action -- never to a single click, level navigation, or inspection. Uses exactly
@@ -554,20 +570,36 @@ export default function App() {
   // Details: expand a package/type card in place into a box of its children laid out from the card's
   // top-left corner, or collapse an expanded one back to a card at the box's top-left corner. Several
   // cards (and cards inside expanded cards) can be expanded at once; neighbors make room either way.
-  function toggleExpand(n:AtlasNode){
-    if(!graph)return;
+  // Returns whether it dispatched: a card that is not drawn, or has nothing in scope to show, is left
+  // alone. `group` joins the dispatch to a sequential expand queue's single undo step.
+  function toggleExpand(target:AtlasNode,group?:number):boolean{
+    // Always work on the drawn card: only it carries the expanded box it sits in (`containerId`).
+    const n=projected.nodes.find(k=>k.id===target.id);
+    if(!graph||!n)return false;
     const size=cardSizeOf(n);
     if(expansions[n.id]){
       const before=boxOf(n),after={x1:before.x1,y1:before.y1,x2:before.x1+size.width,y2:before.y1+size.height};
-      dispatchView({type:'COLLAPSE_RESOURCE',level,id:n.id,position:{x:before.x1+size.width/2,y:before.y1+size.height/2},moves:makeRoom(n,before,after),generation:viewState.generation});
-      return;
+      dispatchView({type:'COLLAPSE_RESOURCE',level,id:n.id,position:{x:before.x1+size.width/2,y:before.y1+size.height/2},moves:makeRoom(n,before,after),generation:viewState.generation},false,group);
+      return true;
     }
     const before=boxOf(n),children=childrenOf(graph,n,scope).map(c=>({id:c.id,...cardSizeOf(c)}));
     // Nothing in scope to show: an empty box would only hide the card.
-    if(!children.length)return;
+    if(!children.length)return false;
     const childPositions=layoutChildren({x:before.x1,y:before.y1},children);
     const after=containerBox(children.map(c=>boxOfCard({...c,...childPositions[c.id]})),null)||before;
-    dispatchView({type:'EXPAND_RESOURCE',level,id:n.id,ownerId:n.containerId??null,childPositions,moves:makeRoom(n,before,after),generation:viewState.generation});
+    dispatchView({type:'EXPAND_RESOURCE',level,id:n.id,ownerId:n.containerId??null,childPositions,moves:makeRoom(n,before,after),generation:viewState.generation},false,group);
+    return true;
+  }
+  // Right-click Expand/Collapse on one card or a whole selection: one queued undo step. Cards already
+  // in the requested state are skipped; collapsing drops a target whose expanded ancestor is also
+  // being collapsed, since that ancestor's collapse already takes it off the map.
+  function toggleExpandMany(targets:AtlasNode[],action:'expand'|'collapse'){
+    if(!graph)return;
+    const all=new Map(graph.nodes.map(item=>[item.id,item]));
+    const ids=new Set(targets.map(t=>t.id));
+    const covered=(n:AtlasNode)=>{for(let p=n.parentId?all.get(n.parentId):undefined;p;p=p.parentId?all.get(p.parentId):undefined)if(ids.has(p.id))return true;return false;};
+    const queued=action==='collapse'?targets.filter(t=>!covered(t)):targets;
+    startExpandQueue({pending:queued.map(t=>t.id),action,strict:false});
   }
   // A finished resize keeps the card's top-left corner and, like expanding, makes room around it.
   function resizeNode(id:string,size:CardSize,position:Point,containerId:string|null){
@@ -860,7 +892,7 @@ export default function App() {
           </div>
           {scopeEmpty
             ? <div className="scope-empty-state"><h2>No packages or classes selected</h2><p>Check packages or classes in the left tree to define what the graph shows.</p><button className="primary" onClick={resetScope}>Select all</button></div>
-            : <GraphCanvas multiIds={active.present.multiIds} onMultiIdsChange={v=>journeys.set('multiIds',v)} mapOpen={active.present.mapOpen} onMapOpenChange={v=>journeys.setTransient('mapOpen',v)} fullscreen={active.present.fullscreen} onFullscreenChange={v=>journeys.setTransient('fullscreen',v)} onClearSelection={clearSelection} nodes={projected.nodes} edges={projected.edges} positions={geometry.positions} sizes={sizes} containerSizes={containerSizes} onToggleExpand={toggleExpand} outgoingStack={stack} outgoingStackRootId={stack?stackRootId:null} onToggleOutgoingStack={toggleOutgoingStack} onResizeNode={resizeNode} onResizeContainer={resizeContainer} camera={levelGeometry.camera} selectedId={node?.id||edge?.id} onNodeSelect={select} onEdgeSelect={inspectEdge} canRemoveFromScope={n=>isNodeInScope(n,scope,graph)} onRemoveFromScope={removeFromScope} scopeRemovalTargets={nodes=>planScopeRemoval(nodes).removed} onCameraChange={handleCameraChange} onNodeMoved={handleNodeMoved} onNodesMoved={handleNodesMoved} onArrangeAroundResource={id=>{
+            : <GraphCanvas multiIds={active.present.multiIds} onMultiIdsChange={v=>journeys.set('multiIds',v)} mapOpen={active.present.mapOpen} onMapOpenChange={v=>journeys.setTransient('mapOpen',v)} fullscreen={active.present.fullscreen} onFullscreenChange={v=>journeys.setTransient('fullscreen',v)} onClearSelection={clearSelection} nodes={projected.nodes} edges={projected.edges} positions={geometry.positions} sizes={sizes} containerSizes={containerSizes} onToggleExpand={toggleExpand} onToggleExpandMany={toggleExpandMany} outgoingStack={stack} outgoingStackRootId={stack?stackRootId:null} onToggleOutgoingStack={toggleOutgoingStack} onResizeNode={resizeNode} onResizeContainer={resizeContainer} camera={levelGeometry.camera} selectedId={node?.id||edge?.id} onNodeSelect={select} onEdgeSelect={inspectEdge} canRemoveFromScope={n=>isNodeInScope(n,scope,graph)} onRemoveFromScope={removeFromScope} scopeRemovalTargets={nodes=>planScopeRemoval(nodes).removed} onCameraChange={handleCameraChange} onNodeMoved={handleNodeMoved} onNodesMoved={handleNodesMoved} onArrangeAroundResource={id=>{
               cancelReclick();
               arrangeAround(id);
               setMobilePane('details');

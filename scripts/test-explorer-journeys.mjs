@@ -703,4 +703,23 @@ check('Clone copies the stack; the copies then change independently', () => {
   s = stackOn(s, 2, 'p2');
   assert.equal(s.tabs.find(t => t.id === source).present.outgoingStackRootId, 'p1');
 });
+check('step 13: a sequential expand queue shares one explicit group, so its renders form one undo step', () => {
+  let s = { ...initJourneys(mapJourney(['p1', 'p2', 'p3'])) };
+  const start = active(s).past.length;
+  // Two queue steps dispatched on separate renders with the same explicit group, then the
+  // selection-only completion (inspect + stack root) with that group too.
+  s = moveCard(s, 7, 'p1', { x: 10, y: 10 });
+  s = moveCard(s, 7, 'p2', { x: 400, y: 10 });
+  s = update(s, 7, j => ({ ...j, view: viewReduce(j.view, { type: 'INSPECT_NODE', id: 'p2' }), outgoingStackRootId: 'p2' }));
+  assert.equal(active(s).past.length, start + 1, 'the whole queue is one undo step');
+  s = undo(s);
+  assert.equal(active(s).past.length, start);
+  assert.equal(active(s).present.outgoingStackRootId, 'p2', 'undo leaves the selection-like stack root alone');
+  // Another update between two queue renders starts its own step, and the queue's next render
+  // (same explicit group, but no longer the tab's last group) starts yet another.
+  s = moveCard(s, 8, 'p1', { x: 20, y: 20 });
+  s = moveCard(s, 9, 'p3', { x: 30, y: 30 });
+  s = moveCard(s, 8, 'p2', { x: 40, y: 40 });
+  assert.equal(active(s).past.length, start + 3);
+});
 console.log(`${count} journey checks passed`);
