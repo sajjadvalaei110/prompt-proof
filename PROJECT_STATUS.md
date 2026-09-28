@@ -110,6 +110,16 @@ Checks (this entry's tree):
     selection halos (outgoing solid, incoming dashed, WCAG 2.1 SC 1.4.1). `AGENTS.md` does not
     require one, and the user chose colour. A dashed incoming outline would be a small follow-up.
   - `data-testid="outgoing-stack-summary"` keeps its name for both directions, to avoid churn.
+- Codex review (`/home/sajjad/prompts/incoming-stack/review-report.md`, brief
+  `ultrareview-codex.md`): SHIP WITH FIXES, with no P0–P2 findings. The reviewer's own isolated
+  run reproduced 108/108, 53 and 41 checks, and the gradle, build and tsc results. Two P3 doc
+  findings were verified against the tree and fixed in `175b120`:
+  - D-1: `OUTGOING_STACK.md` called the stack state a `TRANSIENT_UPDATE`; it is a selection-only
+    `UPDATE`.
+  - D-2: `ARCHITECTURE.md` still credited CANDIDATE calls.
+
+  The same fix removed a related stale "calls candidate members of" phrase in
+  `STABLE_GRAPH_INTERACTIONS.md` that the report missed.
 - Not run:
   - `verify_stable_graph_pipeline.py`, `verify_hierarchical_pipeline.py`,
     `verify_change_edges_pipeline.py`, `verify_git_review_pipeline.py`: no stack coverage, and this
