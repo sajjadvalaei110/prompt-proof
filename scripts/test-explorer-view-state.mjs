@@ -15,7 +15,7 @@ const stripLocalImport = (src, name) => src.replace(new RegExp(`import \\{[^}]*\
 const placementModule = compile('../frontend/src/features/explorer/graphPlacement.ts');
 const viewStateModule = stripLocalImport(stripLocalImport(compile('../frontend/src/features/explorer/explorerViewState.ts'), 'graphModel'), 'graphPlacement');
 const compiled = placementModule + '\n' + viewStateModule;
-const { explorerViewReducer, initExplorerViewState, nearestHiddenAncestor } = await import('data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'));
+const { explorerViewReducer, initExplorerViewState, nearestHiddenAncestor, collapseTargets } = await import('data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'));
 
 let passCount = 0;
 function check(label, fn) { fn(); passCount++; }
@@ -958,6 +958,19 @@ check('a scope edit that trims a hidden box keeps it hidden', () => {
   s = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: ['p0', 'p1'], batchSize: Infinity, expansionChildren: { p0: ['c1'] } });
   assert.equal(s.levelViews.PACKAGE.expansions.p0.hidden, true);
   assert.deepEqual(Object.keys(s.levelViews.PACKAGE.expansions.p0.childPositions), ['c1']);
+});
+
+// Merge of step 13 into step 14: the card menu's "Collapse N selected" drops a target only when
+// another target's collapse takes it off the map, which follows drawn containment (containerId),
+// not the graph parent. A nested type is drawn in its package's box next to its outer class, so
+// collapsing the outer class leaves it on the map and it must stay a target.
+check('collapseTargets drops only targets drawn inside another target', () => {
+  // p holds C and its nested type N side by side; m sits in C; q is hidden inside p and holds r.
+  const containerOf = { p: null, C: 'p', N: 'p', m: 'C', q: 'p', r: 'q', s: null };
+  assert.deepEqual(collapseTargets(['C', 'N'], containerOf), ['C', 'N'], 'a nested type is not inside its outer class box');
+  assert.deepEqual(collapseTargets(['p', 'C', 'N'], containerOf), ['p'], 'the package collapse takes both off the map');
+  assert.deepEqual(collapseTargets(['r', 'p'], containerOf), ['p'], 'through a hidden box in between');
+  assert.deepEqual(collapseTargets(['C', 's'], containerOf), ['C', 's'], 'unrelated targets both stay, in order');
 });
 
 console.log(`PASS: ${passCount} explorerViewState reducer checks (inspection/membership separation, append-only scope growth, show more, back navigation, reset, Step 3 geometry/camera, Step 4 inactive-level scope reconciliation and Back precedence, Step 5 focused arrangement, Step 5 review remediation A1/B1)`);

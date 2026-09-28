@@ -257,6 +257,25 @@ export function nearestHiddenAncestor(expansions: Record<string, ExpansionState>
   return null;
 }
 
+/**
+ * The card menu's Collapse on several cards: the targets left after dropping every one drawn inside
+ * another target (`containerOf`, the projection's `containerId`), since that target's collapse already
+ * takes it off the map. Drawn containment, not the graph parent: a nested type is drawn in its
+ * package's box beside its outer class, so collapsing the outer class leaves it on the map.
+ */
+export function collapseTargets(ids: string[], containerOf: Record<string, string | null | undefined>): string[] {
+  const targets = new Set(ids);
+  const inside = (id: string) => {
+    const seen = new Set<string>([id]);
+    for (let c = containerOf[id]; c && !seen.has(c); c = containerOf[c]) {
+      if (targets.has(c)) return true;
+      seen.add(c);
+    }
+    return false;
+  };
+  return ids.filter(id => !inside(id));
+}
+
 /** Removes `id`'s expansion and every expansion nested inside it. */
 function withoutExpansionTree(expansions: Record<string, ExpansionState>, id: string): Record<string, ExpansionState> {
   const drop = new Set([id]);

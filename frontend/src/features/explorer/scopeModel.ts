@@ -27,6 +27,19 @@ export interface PackageHierarchyNode {
   children: PackageHierarchyNode[];
 }
 
+/** Collapsing a tree branch closes every package inside it too, so reopening it shows its inner
+ * packages collapsed. Explicit `false` also overrides the single-child chain's default-open. */
+export function collapseBranch(treeOpen: Record<string, boolean>, branch: PackageHierarchyNode): Record<string, boolean> {
+  const next = { ...treeOpen };
+  const visit = (b: PackageHierarchyNode) => { next[b.qualifiedName] = false; b.children.forEach(visit); };
+  visit(branch);
+  return next;
+}
+/** Every branch of the tree explicitly closed. */
+export function collapseAll(hierarchy: PackageHierarchyNode[]): Record<string, boolean> {
+  return hierarchy.reduce((open, branch) => collapseBranch(open, branch), {} as Record<string, boolean>);
+}
+
 export const wholeSystemScope = (): ScopeSelection => ({ mode: 'ALL', selectedPackageIds: new Set(), selectedClassIds: new Set() });
 export const emptyScope = (): ScopeSelection => ({ mode: 'CUSTOM', selectedPackageIds: new Set(), selectedClassIds: new Set() });
 

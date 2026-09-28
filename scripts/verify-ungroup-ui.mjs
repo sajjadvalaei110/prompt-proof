@@ -55,7 +55,10 @@ const drag = async (from, to) => {
 };
 const key = async k => { const codes = { Escape: 27, ContextMenu: 93 }; await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: k, code: k, windowsVirtualKeyCode: codes[k] }); await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: k, code: k, windowsVirtualKeyCode: codes[k] }); await pause(350); };
 const CY = "document.querySelector('.graph-canvas')._cyreg.cy";
-const centerOf = selector => evaluate(`(()=>{const b=document.querySelector(${JSON.stringify(selector)});if(!b)throw Error('Missing '+${JSON.stringify(selector)});const r=b.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`);
+// A tree row can sit below the tree's visible area (step 13's tree toolbar and "Recently viewed" take
+// room), where a click at its centre lands on whatever covers it: scroll navigation rows into view.
+// Canvas overlays are never scrolled.
+const centerOf = selector => evaluate(`(()=>{const b=document.querySelector(${JSON.stringify(selector)});if(!b)throw Error('Missing '+${JSON.stringify(selector)});if(b.closest('.navigation'))b.scrollIntoView({block:'nearest'});const r=b.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`);
 const exists = selector => evaluate(`!!document.querySelector(${JSON.stringify(selector)})`);
 const rectOf = selector => evaluate(`(()=>{const b=document.querySelector(${JSON.stringify(selector)});if(!b)return null;const r=b.getBoundingClientRect();return{left:r.left,right:r.right,top:r.top,bottom:r.bottom}})()`);
 const clickSelector = async selector => { await until(() => exists(selector), 'visible ' + selector, 25); await click(await centerOf(selector)); };

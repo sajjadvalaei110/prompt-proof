@@ -56,6 +56,8 @@ Selection dimming does not make a relationship filtered out.
 | Toggle Changes | Switch review styling and retained-source inspection for the current map | Preserve the current scope, surviving card positions, expansion and sizes; do not restore a separate mode's old arrangement | Preserved |
 | Details (⊞) on a package or class card | Expand the card in place into a box of its in-scope types or its methods; routes resolve to the deepest visible card | Cards right of / below the card shift by the box's growth (cascading through enclosing boxes), clamped against any sibling that did not itself shift on that axis so it is never crossed; others preserved | Preserved |
 | Collapse (⊟) an expanded card | Return to a card at the box's top-left corner, closing nested expansions | Cards right of / below the box shift back by the shrink, with the same clamp as expand (review remediation F-01: an earlier per-card rule could pull a shifted sibling across one that stayed put) | Preserved |
+| Card menu (right-click) Expand / Collapse / View source | Expand or collapse the card; with the card in a multi-selection, every selected card that can make the same change. View source opens the read-only source of the clicked card | Same as Details / Collapse for each card, applied one card after another; the whole action is **one** undo step | Preserved |
+| Entry points → Explore | Switch to the Code map, expand the handler's ancestors, inspect the handler and root its outgoing stack. A handler outside the current scope cannot be explored (the row says "Outside scope") | Same as Details for each ancestor; the tab switch and all expansions are **one** undo step (inspection and the stack root are selection, ADR 0009) | Preserved |
 | Resize a card or expanded box (corner grip) | Change its size; a card keeps its top-left corner. Escape or a cancelled gesture reverts to the pre-drag size, dispatching nothing | On release, cards right of / below it shift by the size change, clamped the same way as expand/collapse | Preserved |
 
 Initial placement in a new snapshot or a never-visited abstraction level creates
@@ -129,6 +131,9 @@ Acceptance:
   another element or clearing selection updates emphasis without layout or fitting.
 - Tree labels and checkboxes have separate hit targets. Labels inspect; checkboxes
   change scope; disclosure controls only expand/collapse the tree.
+  Collapsing a tree branch also collapses every package nested in it, so reopening it
+  shows them closed; **Collapse all** closes the whole tree (disabled while a search
+  forces it open). Each is one undo step.
 - Inspecting a resource outside the current map opens its details without injecting
   it into scope or changing levels. State "Not shown in the current map" where useful.
 
@@ -153,9 +158,13 @@ Acceptance:
   in the inspector or resource action menu. It invokes this same command, not a third
   arrangement mode. Disable it when the resource is absent from the current map.
 - There is no separate class/method level to drill into (ADR 0007): the map is
-  package-only. **View methods**/**View classes** (tree `⌖`, inspector buttons, entry-
-  point route cards, deep links) expand the target's card in place instead of
-  switching levels, then select it.
+  package-only. **View methods**/**View classes** (tree `⌖`, inspector buttons, deep
+  links) expand the target's card in place, opening its collapsed containers first
+  (`graphModel.revealContainers`: the package, then a member's own type; a nested type sits
+  in its package's box, so its outer class is never opened), instead of switching levels,
+  then select it; the whole reveal is one undo step. An already-expanded container,
+  ungrouped ones included, is never toggled, and a step that cannot land ends the reveal. Entry-point
+  route cards reveal the handler method and root its outgoing stack (see the table above).
 
 ## Story 3 — Reorder the map I am actually viewing
 
@@ -288,6 +297,14 @@ inner box inside a hidden one offers "Collapse into X" (the nearest hidden one) 
 which brings X back as a collapsed card centred on its children and moves nothing else. Both are one
 undo step each, and both work in Changes mode. Every method card's sub-line names its class first:
 `OwningClass · last.two.package`.
+
+With step 13's card menu (merged 2026-09-28) the menu items run in this order: Remove from scope,
+Deselect X (in a multi-selection), the two stack items, Expand/Collapse, Ungroup X (an expanded,
+visible box), Collapse into X (anything inside a hidden box), View source, Deselect/Clear. The
+menu's Collapse never targets a hidden box (a hidden box is neither drawn nor selectable, and its
+way back is Collapse into). Every collapse, the ⊟ square, the menu's Collapse and Collapse into,
+goes through `collapseInJourney`, so cards drawn inside leave the multi-selection in the same undo
+entry. The menu never opens on a hidden box, from the pointer or the keyboard.
 
 ## Delivery and validation
 

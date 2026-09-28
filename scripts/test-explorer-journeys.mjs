@@ -803,4 +803,51 @@ check('a collapse the reducer rejects leaves the journey untouched, multi-select
   const j = { ...mapJourney(['p1', 'p2']), multiIds: ['c2'] };
   assert.equal(collapseInJourney(j, { type: 'COLLAPSE_RESOURCE', level: 'PACKAGE', id: 'p2', position: { x: 0, y: 0 }, generation: j.view.generation }, drawn), j);
 });
+check('step 13: a sequential expand queue shares one explicit group, so its renders form one undo step', () => {
+  let s = { ...initJourneys(mapJourney(['p1', 'p2', 'p3'])) };
+  const start = active(s).past.length;
+  // Two queue steps dispatched on separate renders with the same explicit group, then the
+  // selection-only completion (inspect + stack root) with that group too.
+  s = moveCard(s, 7, 'p1', { x: 10, y: 10 });
+  s = moveCard(s, 7, 'p2', { x: 400, y: 10 });
+  s = update(s, 7, j => ({ ...j, view: viewReduce(j.view, { type: 'INSPECT_NODE', id: 'p2' }), relationStack: { rootId: 'p2', direction: 'out' } }));
+  assert.equal(active(s).past.length, start + 1, 'the whole queue is one undo step');
+  s = undo(s);
+  assert.equal(active(s).past.length, start);
+  assert.deepEqual(active(s).present.relationStack, { rootId: 'p2', direction: 'out' }, 'undo leaves the selection-like stack root alone');
+  // Another update between two queue renders starts its own step, and the queue's next render
+  // (same explicit group, but no longer the tab's last group) starts yet another.
+  s = moveCard(s, 8, 'p1', { x: 20, y: 20 });
+  s = moveCard(s, 9, 'p3', { x: 30, y: 30 });
+  s = moveCard(s, 8, 'p2', { x: 40, y: 40 });
+  assert.equal(active(s).past.length, start + 3);
+});
+// Step 13 review: the hook itself, not just the reducer. A queue dispatches on separate renders, so
+// each dispatch comes after the microtask that closes the ordinary group; only the explicit group
+// from beginGroup() keeps them one undo step. (The reducer check above cannot catch a hook that
+// ignores the explicit group.) One hook instance stands for every render: the stand-in's useRef is
+// not persistent, while React's is, and a render changes nothing else the hook reads here.
+{
+  hook.seed.state = initJourneys(mapJourney(['p1', 'p2', 'p3']));
+  const journeys = hook.useExplorerJourneys(undefined, () => fixtureGraph);
+  const past = () => active(hook.current()).past.length;
+  const nextRender = () => Promise.resolve();
+  const start = past();
+  const move = (id, x) => j => ({ ...j, view: viewReduce(j.view, { type: 'NODE_MOVED', level: 'PACKAGE', id, position: { x, y: 0 }, generation: j.view.generation }) });
+  const group = journeys.beginGroup();
+  journeys.update(move('p1', 11), group);
+  await nextRender();
+  journeys.update(move('p2', 22), group);
+  await nextRender();
+  journeys.dispatchView({ type: 'NODE_MOVED', level: 'PACKAGE', id: 'p3', position: { x: 33, y: 0 }, generation: active(hook.current()).present.view.generation }, false, group);
+  assert.equal(past(), start + 1, 'three renders sharing beginGroup() are one undo step');
+  await nextRender();
+  // Without an explicit group, the same pattern is one step per render.
+  journeys.update(move('p1', 44));
+  await nextRender();
+  journeys.update(move('p2', 55));
+  assert.equal(past(), start + 3, 'ordinary updates on separate renders stay separate steps');
+  hook.seed.state = null;
+  count++; console.log('PASS step 13 review: the hook joins explicit-group updates across renders');
+}
 console.log(`${count} journey checks passed`);

@@ -106,6 +106,10 @@ calls into C.
     On any other card it starts a fresh outgoing stack there.
   - context-menu items, "Show outgoing stack" / "Hide outgoing stack" and (since 2026-09-28)
     "Show incoming stack" / "Hide incoming stack"
+  - **Entry points → Explore** (step 13): reveals the route's handler method on the Code map,
+    inspects it and roots an **outgoing** stack on it (sets `relationStack` to
+    `{ rootId: handler, direction: 'out' }`, never toggles or cycles it; an incoming stack or a stack
+    on another root is replaced)
 
   Both are keyboard reachable. The toggle is a focusable button. The menu opens from the keyboard
   with **Shift+F10** or the **ContextMenu** key, either on a focused corner button of the card or

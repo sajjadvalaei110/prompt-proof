@@ -4,7 +4,7 @@ import { apiClient } from './api/client';
 import GraphCanvas from './features/explorer/GraphCanvas';
 import { AtlasGraph, AtlasNode, AtlasEdge, Level, isType, ownerAt, getEligibleIds, rankEligibleIds, projectDisplayed, childrenOf, revealContainers } from './features/explorer/graphModel';
 import { ScopeSelection, wholeSystemScope, scopeToLabel, isNodeInScope, isClassInScope, togglePackages, toggleClass } from './features/explorer/scopeModel';
-import { explorerViewReducer, initExplorerViewState, nearestHiddenAncestor, ExplorerViewState, ExplorerAction, PlacementDims, Point, Camera, CardMoves } from './features/explorer/explorerViewState';
+import { explorerViewReducer, initExplorerViewState, nearestHiddenAncestor, collapseTargets, ExplorerViewState, ExplorerAction, PlacementDims, Point, Camera, CardMoves } from './features/explorer/explorerViewState';
 import { arrangeDisplayed, ArrangeEdge, DisplayedCard } from './features/explorer/focusedArrangement';
 import { nodeCard, defaultCardSize, CardSize } from './features/explorer/nodeCard';
 import { Box, RoomCard, boxOfCard, containerBox, layoutChildren, roomMoves } from './features/explorer/expansionLayout';
@@ -362,6 +362,7 @@ export default function App() {
   }
   // Undo/redo prune selection against the graph each restored journey actually renders.
   function undoRedo(type:'UNDO'|'REDO'){
+    expandQueueRef.current=null;
     // A Changes journey without its comparison graph falls back to the view's own displayed record.
     journeys.command({type,graphFor:j=>j.review?reviewComparison.graph:mapGraph});
   }
@@ -421,9 +422,9 @@ export default function App() {
     }
     inspectNode(n,'details');
   }
-  function inspectNode(n:AtlasNode,pane:string){
+  function inspectNode(n:AtlasNode,pane:string,group?:number){
     cancelReclick();
-    journeys.update(j=>({...j,view:explorerViewReducer(j.view,{type:'INSPECT_NODE',id:n.id}),treeOpen:revealedTree(j.treeOpen,n),search:'',mobilePane:pane}));
+    journeys.update(j=>({...j,view:explorerViewReducer(j.view,{type:'INSPECT_NODE',id:n.id}),treeOpen:revealedTree(j.treeOpen,n),search:'',mobilePane:pane}),group);
   }
   function inspectEdge(e:AtlasEdge){
     cancelReclick();
@@ -433,55 +434,77 @@ export default function App() {
   // "View classes"/"View methods" (the tree's ⌖ button, the inspector's buttons) used to switch
   // the whole map to a different abstraction level (Step 4, Story 6/H3). Class/Method level view
   // is gone; digging in now always happens by expanding the card itself in place, so these ensure
-  // the target is expanded (never collapse an already-expanded one, hidden included) and select it.
-  // A class whose package is collapsed opens the package first (revealContainers), one step per render.
+  // the target is expanded (never collapse an already-expanded one, hidden included: the queue skips
+  // any card already in `expansions`) and select it. A target inside collapsed cards opens its
+  // containers first (graphModel.revealContainers: the package, then a member's own type -- never a
+  // nested type's outer class), through the expand queue; the tab switch and every expansion are one
+  // undo step.
   function revealChildren(n:AtlasNode){
     if(!graph)return;
-    const chain=[...revealContainers(n,new Map(graph.nodes.map(k=>[k.id,k]))),n].filter(c=>!expansions[c.id]);
+    const chain=[...revealContainers(n,new Map(graph.nodes.map(item=>[item.id,item]))).map(c=>c.id),n.id];
+    const group=journeys.beginGroup();
     // Same toggle as a click when nothing opens: an already-inspected card deselects (clearSelection shows the map pane).
-    if(!chain.length&&viewState.inspectedKind==='NODE'&&viewState.inspectedSubjectId===n.id)select(n);else inspectNode(n,'map');
-    setTab('map');
-    if(chain.length)revealStep(chain.map(c=>c.id),null);
+    if(chain.every(id=>expansions[id])&&viewState.inspectedKind==='NODE'&&viewState.inspectedSubjectId===n.id)select(n);else inspectNode(n,'map',group);
+    journeys.update(j=>j.tab==='map'?j:{...j,tab:'map'},group);
+    startExpandQueue({pending:chain,action:'expand',strict:true},group);
   }
   function viewClasses(n:AtlasNode){revealChildren(n);}
   function viewMethods(n:AtlasNode){revealChildren(n);}
-  // Reveal a node buried under expand-in-place containers (an HTTP route handler, a deep link) by
-  // expanding each of them in turn (revealContainers), then selecting the target. Each expansion must
-  // actually land in state before the next one is computed -- toggleExpand's own box math reads the
-  // current `expansions`/`geometry`, which are still stale mid-handler -- so this drives one remaining
-  // container per render via the effect below instead of dispatching the whole chain at once.
-  const pendingRevealRef=useRef<{remaining:string[];selectId:string|null}|null>(null);
-  function expandToReveal(n:AtlasNode){
-    if(!graph)return;
-    const remaining=revealContainers(n,new Map(graph.nodes.map(item=>[item.id,item]))).filter(c=>!expansions[c.id]).map(c=>c.id);
-    setTab('map');
-    if(!remaining.length){select(n);return;}
-    setMobilePane('map');
-    revealStep(remaining,n.id);
+  // Several expansions cannot be dispatched in one handler: toggleExpand's box math reads the current
+  // `expansions`/`geometry`, which are still stale mid-handler. The queue therefore drives one card per
+  // render -- dispatch, wait for the expansion to land (the effect below), dispatch the next -- and
+  // joins every dispatch to one explicit history group, so the whole queue is a single undo step.
+  // `strict` (a reveal) drops the queue when a card cannot be toggled (not drawn, nothing in scope, or
+  // the reducer would reject it: toggleExpand checks), so a reveal ends instead of hanging; otherwise
+  // that card is skipped.
+  // A dropped queue never resumes: `inFlight` must reach its target state on the very next change.
+  interface ExpandQueue{pending:string[];inFlight:string|null;action:'expand'|'collapse';strict:boolean;group:number;then?:(group:number)=>void;onDrop?:()=>void}
+  const expandQueueRef=useRef<ExpandQueue|null>(null);
+  function startExpandQueue(q:Omit<ExpandQueue,'inFlight'|'group'>,group=journeys.beginGroup()){
+    const queue={...q,inFlight:null,group};
+    expandQueueRef.current=queue;
+    advanceExpandQueue(queue);
   }
-  // Opens the first remaining container and waits for it. A step that cannot land (its card is not
-  // drawn, nothing inside is in scope, the reducer rejects it) ends the reveal instead of waiting
-  // forever, and the target is still selected.
-  function revealStep(remaining:string[],selectId:string|null){
-    const next=graph?.nodes.find(k=>k.id===remaining[0]);
-    pendingRevealRef.current={remaining,selectId};
-    if(next&&toggleExpand(next))return;
-    pendingRevealRef.current=null;
-    const target=selectId?graph?.nodes.find(k=>k.id===selectId):undefined;
-    if(target)select(target);
+  function advanceExpandQueue(q:ExpandQueue){
+    if(!graph){expandQueueRef.current=null;return;}
+    const all=new Map(graph.nodes.map(item=>[item.id,item]));
+    while(q.pending.length){
+      const [id,...rest]=q.pending;q.pending=rest;
+      const n=all.get(id);
+      if(n&&!!expansions[id]===(q.action==='expand'))continue;
+      if(n&&toggleExpand(n,q.group)){q.inFlight=id;return;}
+      if(q.strict){expandQueueRef.current=null;q.onDrop?.();return;}
+    }
+    expandQueueRef.current=null;
+    q.then?.(q.group);
   }
   useEffect(()=>{
-    const pending=pendingRevealRef.current;
-    if(!pending||!graph)return;
-    const [doneId,...rest]=pending.remaining;
-    // The expansions changed without this step landing (another edit, a tab switch): the reveal is over.
-    if(!expansions[doneId]){pendingRevealRef.current=null;return;}
-    if(rest.length){revealStep(rest,pending.selectId);return;}
-    pendingRevealRef.current=null;
-    const target=pending.selectId?graph.nodes.find(k=>k.id===pending.selectId):undefined;
-    if(target)select(target);
+    const q=expandQueueRef.current;
+    if(!q||!q.inFlight)return;
+    if(!!expansions[q.inFlight]!==(q.action==='expand')){expandQueueRef.current=null;if(q.strict)q.onDrop?.();return;}
+    q.inFlight=null;
+    advanceExpandQueue(q);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[expansions]);
+  // Another tab, journey, snapshot or history step invalidates whatever the queue was working toward.
+  useEffect(()=>{expandQueueRef.current=null;},[active.id,graph]);
+  useEffect(()=>{if(tab!=='map')expandQueueRef.current=null;},[tab]);
+  // Reveal a node buried under expand-in-place containers (an HTTP route handler) by expanding each of
+  // them in turn (revealContainers), then inspecting the target -- and, for an entry point, rooting
+  // an outgoing relation stack on it (explicitly 'out', whatever stack was shown). Inspecting, never
+  // `select`: re-selecting the inspected card deselects.
+  // An ancestor that cannot open (not drawn, e.g. beyond the displayed page) still inspects the target.
+  function expandToReveal(n:AtlasNode,opts:{stack?:boolean}={}){
+    if(!graph)return;
+    const chain=revealContainers(n,new Map(graph.nodes.map(item=>[item.id,item]))).map(c=>c.id);
+    // The switch to the map joins the queue's group: undoing the reveal also returns to where it began.
+    const group=journeys.beginGroup();
+    journeys.update(j=>j.tab==='map'&&j.mobilePane==='map'?j:{...j,tab:'map',mobilePane:'map'},group);
+    startExpandQueue({pending:chain,action:'expand',strict:true,then:group=>{
+      inspectNode(n,'details',group);
+      if(opts.stack)journeys.update(j=>j.relationStack?.rootId===n.id&&j.relationStack.direction==='out'?j:{...j,relationStack:{rootId:n.id,direction:'out'}},group);
+    },onDrop:()=>inspectNode(n,'details')},group);
+  }
   // Step 5 (Appendix B): the dedicated focused-arrangement command, wired to canvas double-click
   // (GraphCanvas's dbltap handler) and the inspector's keyboard/touch-accessible "Arrange around
   // this resource" action -- never to a single click, level navigation, or inspection. Uses exactly
@@ -513,14 +536,18 @@ export default function App() {
   // top-left corner, or collapse an expanded one back to a card at the box's top-left corner. Several
   // cards (and cards inside expanded cards) can be expanded at once; neighbors make room either way.
   // The card is resolved as drawn: the tree, inspector and reveal chain pass a graph node, which has
-  // no `containerId`. A card that is not drawn is left alone. Returns whether the change lands.
-  function toggleExpand(target:AtlasNode):boolean{
+  // no `containerId`. A card that is not drawn is left alone. Returns whether the change lands
+  // (checked with the pure reducer, so a queue never waits on a dispatch that changes nothing).
+  // `group` joins the dispatch to a sequential expand queue's single undo step.
+  function toggleExpand(target:AtlasNode,group?:number):boolean{
     const n=projected.nodes.find(k=>k.id===target.id);
     if(!graph||!n)return false;
     const size=cardSizeOf(n);
     if(expansions[n.id]){
       const before=boxOf(n),after={x1:before.x1,y1:before.y1,x2:before.x1+size.width,y2:before.y1+size.height};
-      collapse({type:'COLLAPSE_RESOURCE',level,id:n.id,position:{x:before.x1+size.width/2,y:before.y1+size.height/2},moves:makeRoom(n,before,after),generation:viewState.generation});
+      const action:Extract<ExplorerAction,{type:'COLLAPSE_RESOURCE'}>={type:'COLLAPSE_RESOURCE',level,id:n.id,position:{x:before.x1+size.width/2,y:before.y1+size.height/2},moves:makeRoom(n,before,after),generation:viewState.generation};
+      if(explorerViewReducer(viewState,action)===viewState)return false;
+      collapse(action,group);
       return true;
     }
     const before=boxOf(n),children=childrenOf(graph,n,scope).map(c=>({id:c.id,...cardSizeOf(c)}));
@@ -531,12 +558,13 @@ export default function App() {
     const action:ExplorerAction={type:'EXPAND_RESOURCE',level,id:n.id,ownerId:n.containerId??null,childPositions,moves:makeRoom(n,before,after),generation:viewState.generation};
     // The same state the dispatch applies to, so a reveal chain learns now whether to wait for it.
     if(explorerViewReducer(viewState,action)===viewState)return false;
-    dispatchView(action);
+    dispatchView(action,false,group);
     return true;
   }
   // Collapsing takes the cards drawn inside the card off the map, so they leave the multi-selection
-  // in the same update (collapseInJourney): one undo entry.
-  function collapse(action:Extract<ExplorerAction,{type:'COLLAPSE_RESOURCE'}>){journeys.update(j=>collapseInJourney(j,action,projected.nodes));}
+  // in the same update (collapseInJourney): one undo entry. Every collapse goes through here: the ⊟
+  // square, the card menu's Collapse (through the expand queue, with its group) and Collapse into.
+  function collapse(action:Extract<ExplorerAction,{type:'COLLAPSE_RESOURCE'}>,group?:number){journeys.update(j=>collapseInJourney(j,action,projected.nodes),group);}
   // Ungroup (ADR 0011): the box is hidden and its children stay where they are as free cards, one undo
   // entry. The hidden card is no longer on the map, so it leaves the selection in the same update (a
   // stack rooted at it is ended by the journey's own display check).
@@ -559,6 +587,16 @@ export default function App() {
   function collapseInto(x:AtlasNode){
     const b=boxOf(x);
     collapse({type:'COLLAPSE_RESOURCE',level,id:x.id,position:{x:(b.x1+b.x2)/2,y:(b.y1+b.y2)/2},generation:viewState.generation});
+  }
+  // Right-click Expand/Collapse on one card or a whole selection: one queued undo step. Cards already
+  // in the requested state are skipped; collapsing drops a target drawn inside another target, since
+  // that target's collapse already takes it off the map (collapseTargets: drawn containment, so a
+  // nested type beside its outer class in the package box is still collapsed).
+  function toggleExpandMany(targets:AtlasNode[],action:'expand'|'collapse'){
+    if(!graph)return;
+    const ids=targets.map(t=>t.id);
+    const queued=action==='collapse'?collapseTargets(ids,Object.fromEntries(projected.nodes.map(k=>[k.id,k.containerId??null]))):ids;
+    startExpandQueue({pending:queued,action,strict:false});
   }
   // A finished resize keeps the card's top-left corner and, like expanding, makes room around it.
   function resizeNode(id:string,size:CardSize,position:Point,containerId:string|null){
@@ -834,13 +872,17 @@ export default function App() {
       <div className="journey-history" aria-label="Tab history"><button disabled={!viewState.inspectedSubjectId&&!active.present.multiIds.length} onClick={clearSelection} title="Clear inspection and selected cards (Escape)">Clear selection</button><button disabled={!active.past.length} title="Undo last exploration action (Ctrl/Cmd Z). Up to 200 actions per tab." onClick={()=>undoRedo('UNDO')}>↶ Undo</button><button disabled={!active.future.length} title="Redo (Ctrl/Cmd Shift Z or Ctrl Y)" onClick={()=>undoRedo('REDO')}>↷ Redo</button></div>
     </div><nav className="mobile-tabs">{['explorer','map','details'].map(p=><button className={mobilePane===p?'active':''} key={p} onClick={()=>setMobilePane(p)}>{p}</button>)}</nav><main id={panelId} role="tabpanel" aria-labelledby={journeyTabId(active.id)} key={active.id} className={`app-main pane-${mobilePane}`}>
       <aside className="navigation" ref={navRef} style={navWidth!=null?{['--nav-width' as any]:`${navWidth}px`}:undefined}><nav className="workspace-nav"><button className={tab==='map'?'active':''} onClick={openCodeMap}>▦ <span>Code map</span></button><button className={tab==='routes'?'active':''} onClick={()=>{setTab('routes');setMobilePane('map');}}>▷ <span>Entry points</span><small>{routes.length}</small></button><button className={tab==='context'?'active':''} onClick={()=>{setTab('context');setMobilePane('map');}}>▤ <span>Project context</span></button></nav>
-        <NavigationPane treeOpen={active.present.treeOpen} onTreeOpen={(id,open)=>journeys.set('treeOpen',values=>({...values,[id]:open}))} graph={graph} scope={scope} selectedNode={node} search={search} onScopeChange={handleScopeChange} onSelect={select} onViewClasses={viewClasses} onViewMethods={viewMethods}/>
+        <NavigationPane treeOpen={active.present.treeOpen} onTreeChange={update=>journeys.set('treeOpen',update)} graph={graph} scope={scope} selectedNode={node} search={search} onScopeChange={handleScopeChange} onSelect={select} onViewClasses={viewClasses} onViewMethods={viewMethods}/>
         {recentHistory.length>0&&<div className="recent-symbols"><h3>Recently viewed</h3>{recentHistory.map(h=>{const n=graph.nodes.find(x=>x.id===h.subjectId);return n?<button key={h.subjectId} onClick={()=>select(n)}>◷ {n.simpleName}</button>:null;})}</div>}
         <div className="workspace-summary"><strong>{name}</strong><span>{active.present.review?'Base + changes overlay':`${typeCount} types across ${packages.length} packages`}</span><button className="text-button" disabled={busy} onClick={()=>analyze()}>↻ Re-analyze source</button></div>
       </aside>
       <div className="nav-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize navigation panel. Use arrow keys, hold Shift for larger steps, Home to reset." tabIndex={0} aria-valuenow={Math.round(navWidth??currentNavWidth())} aria-valuemin={NAV_MIN} aria-valuemax={Math.round(navMax())} onPointerDown={startNavResize} onKeyDown={navResizeKeyDown} onDoubleClick={()=>{if(justDraggedNavRef.current){justDraggedNavRef.current=false;return;}resetNavWidth();}} />
       <section className="workspace-content">
-        {tab==='context'&&workspace?<ProjectDocuments key={workspace.id} workspaceId={workspace.id} onChanged={()=>setRevision(r=>r+1)}/>:tab==='routes'?<section className="entry-view"><div className="page-heading"><div><h1>Start with a request</h1><p>Follow an HTTP entry point into its handler and dependencies.</p></div></div>{routes.length?routes.map(r=>{const handler=graph.nodes.find(n=>n.id===r.symbol_version_id);return <button className="route-card" key={r.id} onClick={()=>{if(handler)(handler.kind==='PACKAGE'?viewClasses:expandToReveal)(handler);}}><span className="tag">{r.http_method}</span><strong>{r.path}</strong><span>{handler?.simpleName||r.handler_qualified}</span><span>Explore ↗</span></button>;}):<div className="empty-state"><h2>No HTTP routes found</h2><p>Explore packages and classes to find this application's entry points.</p><button onClick={openCodeMap}>Open code map</button></div>}</section>:<>
+        {tab==='context'&&workspace?<ProjectDocuments key={workspace.id} workspaceId={workspace.id} onChanged={()=>setRevision(r=>r+1)}/>:tab==='routes'?<section className="entry-view"><div className="page-heading"><div><h1>Start with a request</h1><p>Follow an HTTP entry point into its handler and dependencies.</p></div></div>{routes.length?routes.map(r=>{const handler=graph.nodes.find(n=>n.id===r.symbol_version_id);
+          // Explore reveals the handler on the Code map and roots its outgoing stack there. A handler
+          // outside the current scope has no card to reveal, so the row says so instead.
+          const outside=!!handler&&!isNodeInScope(handler,scope,graph);
+          return <button className="route-card" key={r.id} disabled={!handler||outside} title={outside?'Handler is outside the current scope':!handler?'Handler not found in this snapshot':'Show the handler and its outgoing stack on the Code map'} onClick={()=>{if(handler)handler.kind==='PACKAGE'?viewClasses(handler):expandToReveal(handler,{stack:true});}}><span className="tag">{r.http_method}</span><strong>{r.path}</strong><span>{handler?.simpleName||r.handler_qualified}</span><span>{!handler?'Handler not found':outside?'Outside scope':'Explore ↗'}</span></button>;}):<div className="empty-state"><h2>No HTTP routes found</h2><p>Explore packages and classes to find this application's entry points.</p><button onClick={openCodeMap}>Open code map</button></div>}</section>:<>
           <div className={`map-heading${headingCollapsed?' collapsed':''}`} onWheel={onHeadingWheel}>
           <div className="map-heading-collapsible" inert={headingCollapsed} aria-hidden={headingCollapsed}><div className="breadcrumbs"><button onClick={openCodeMap}>{scopeCrumb}</button><span>/</span><span className="breadcrumb-level">{levelWord}</span>{node&&<><span>/</span><button onClick={()=>inspectNode(node,'details')}>{node.simpleName}</button></>}</div><div className="page-heading"><div><h1>{node?node.simpleName:'Understand the whole system'}</h1><p>{node?'Follow the relationships around this part of the codebase.':`${typeCount} types across ${packages.length} packages. Choose a starting point.`}</p></div><button onClick={()=>{const entry=viewState.history[viewState.history.length-1];if(entry)dispatchView({type:'NAVIGATE_BACK',eligibleIds:eligibleFor(entry.level),preserveReviewOnly:!active.present.review,reviewOnlyIds:active.present.review?undefined:reviewOnly(parkedIdsFor(entry.level)||[]),parkedIds:parkedIdsFor(entry.level)});}} disabled={!viewState.history.length}>← Back</button></div></div>
           <div className="graph-toolbar"><select aria-label="Relationship kind" value={kind} onChange={e=>setKind(e.target.value)}><option value="ALL">All dependencies</option>{[...new Set(graph.edges.map(e=>e.kind))].sort().map(k=><option key={k} value={k}>{k.toLowerCase().replaceAll('_',' ')}</option>)}</select>
@@ -851,7 +893,7 @@ export default function App() {
           </div>
           {scopeEmpty
             ? <div className="scope-empty-state"><h2>No packages or classes selected</h2><p>Check packages or classes in the left tree to define what the graph shows.</p><button className="primary" onClick={resetScope}>Select all</button></div>
-            : <GraphCanvas multiIds={active.present.multiIds} onMultiIdsChange={v=>journeys.set('multiIds',v)} mapOpen={active.present.mapOpen} onMapOpenChange={v=>journeys.setTransient('mapOpen',v)} fullscreen={active.present.fullscreen} onFullscreenChange={v=>journeys.setTransient('fullscreen',v)} onClearSelection={clearSelection} nodes={projected.nodes} edges={projected.edges} positions={geometry.positions} sizes={sizes} containerSizes={containerSizes} onToggleExpand={toggleExpand} onUngroup={ungroup} hiddenAncestorOf={hiddenAncestorOf} onCollapseInto={collapseInto} outgoingStack={stack} stackRoot={stack&&relationStack?relationStack:null} onCycleStack={cycleStack} onToggleStack={toggleStack} onResizeNode={resizeNode} onResizeContainer={resizeContainer} camera={levelGeometry.camera} selectedId={node?.id||edge?.id} onNodeSelect={select} onEdgeSelect={inspectEdge} canRemoveFromScope={n=>isNodeInScope(n,scope,graph)} onRemoveFromScope={removeFromScope} scopeRemovalTargets={nodes=>planScopeRemoval(nodes).removed} onCameraChange={handleCameraChange} onNodeMoved={handleNodeMoved} onNodesMoved={handleNodesMoved} onArrangeAroundResource={id=>{
+            : <GraphCanvas multiIds={active.present.multiIds} onMultiIdsChange={v=>journeys.set('multiIds',v)} mapOpen={active.present.mapOpen} onMapOpenChange={v=>journeys.setTransient('mapOpen',v)} fullscreen={active.present.fullscreen} onFullscreenChange={v=>journeys.setTransient('fullscreen',v)} onClearSelection={clearSelection} nodes={projected.nodes} edges={projected.edges} positions={geometry.positions} sizes={sizes} containerSizes={containerSizes} onToggleExpand={toggleExpand} onToggleExpandMany={toggleExpandMany} onUngroup={ungroup} hiddenAncestorOf={hiddenAncestorOf} onCollapseInto={collapseInto} outgoingStack={stack} stackRoot={stack&&relationStack?relationStack:null} onCycleStack={cycleStack} onToggleStack={toggleStack} onResizeNode={resizeNode} onResizeContainer={resizeContainer} camera={levelGeometry.camera} selectedId={node?.id||edge?.id} onNodeSelect={select} onEdgeSelect={inspectEdge} canRemoveFromScope={n=>isNodeInScope(n,scope,graph)} onRemoveFromScope={removeFromScope} scopeRemovalTargets={nodes=>planScopeRemoval(nodes).removed} onCameraChange={handleCameraChange} onNodeMoved={handleNodeMoved} onNodesMoved={handleNodesMoved} onArrangeAroundResource={id=>{
               cancelReclick();
               arrangeAround(id);
               setMobilePane('details');

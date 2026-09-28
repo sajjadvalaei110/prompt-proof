@@ -66,6 +66,16 @@ export function cornerButtons(node: AtlasNode): { action: CornerAction; right: n
   if (hasDetailsButton(node)) out.push({ action: 'details', right, top: CODE_BUTTON.top, size: CODE_BUTTON.size });
   return out;
 }
+/** The kind glyph in a card's (and a tree row's) top-left badge: a folder for packages, otherwise
+ * an IntelliJ-style letter. The badge tint stays the role colour, so the letter alone carries the kind. */
+const KIND_LETTERS: Record<string, string> = { CLASS: 'C', INTERFACE: 'I', ENUM: 'E', RECORD: 'R', ANNOTATION: '@', METHOD: 'm', CONSTRUCTOR: 'c', FIELD: 'f' };
+export function kindIcon(kind: string): { folder: true } | { folder: false; letter: string } {
+  if (kind === 'PACKAGE') return { folder: true };
+  return { folder: false, letter: KIND_LETTERS[kind] ?? 'C' };
+}
+/** The same folder outline the scope tree draws, in the 16-unit box it was drawn for. */
+export const FOLDER_PATH = 'M1.8 4.3c0-.72.58-1.3 1.3-1.3h2.85l1.2 1.4h5.75c.72 0 1.3.58 1.3 1.3v5.7c0 .72-.58 1.3-1.3 1.3H3.1c-.72 0-1.3-.58-1.3-1.3V4.3z';
+
 export interface CardSize { width: number; height: number }
 /** The card's size when the user has not resized it. */
 export function defaultCardSize(node: AtlasNode): CardSize {
@@ -115,6 +125,10 @@ export function nodeCard(node: AtlasNode, size?: CardSize) {
   const name=pkg?node.simpleName.split('.').pop()!:node.simpleName;
   const role=node.roles?.[0]?.toLowerCase().replaceAll('_',' ') || node.kind.toLowerCase();
   const color=pkg?'#426fa3':node.roles?.includes('SERVICE')?'#16888a':node.roles?.includes('REPOSITORY')?'#596cba':'#398bb3';
+  const icon=kindIcon(node.kind);
+  const kindGlyph=icon.folder
+    ?`<path transform="translate(5 5) scale(1.25)" d="${FOLDER_PATH}" stroke="${color}" stroke-width="1.2" stroke-linejoin="round" fill="none"/>`
+    :`<text x="15" y="20.5" text-anchor="middle" font-size="16" font-weight="700" fill="${color}">${xml(icon.letter)}</text>`;
   const subtitle=pkg?`${node.memberCount||0} types`:role;
   const inner=width-32;
   const nameLines=wrapText(name,NAME_SIZE,inner,2);
@@ -134,6 +148,6 @@ export function nodeCard(node: AtlasNode, size?: CardSize) {
   const placeLine=method&&node.ownerName?[node.ownerName,pkgTail].filter(Boolean).join(' · '):pkgTail||node.qualifiedName||'';
   const lower=pkg?(fits(156+reviewOffset)?`<text x="16" y="${156+reviewOffset}" font-size="13" fill="#7c8ea3">${xml(fitText(node.qualifiedName||node.simpleName,13,inner))}</text>`:'')+rows.map((n,i)=>`<rect x="16" y="${rowStart+i*36}" width="${inner}" height="28" rx="5" fill="#edf3f8"/><text x="26" y="${189+reviewOffset+i*36}" font-size="14" fill="#4c647f">${xml(fitText(n,14,inner-20))}</text>`).join(''):
     (fits(142+reviewOffset)?`<line x1="16" y1="${142+reviewOffset}" x2="${width-16}" y2="${142+reviewOffset}" stroke="#e5edf3"/>`:'')+(fits(166+reviewOffset)?`<text x="16" y="${166+reviewOffset}" font-size="14" fill="#74859a">${xml(fitText(placeLine,14,inner))}</text>`:'')+(!method&&fits(190+reviewOffset)?`<text x="16" y="${190+reviewOffset}" font-size="15" fill="#48637c">${node.memberCount||0} methods</text>`:'');
-  const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><g font-family="Segoe UI, Arial, sans-serif"><g transform="translate(16 16) scale(1.2)"><rect width="30" height="30" rx="7" fill="${color}14"/><g stroke="${color}" stroke-width="1.5" fill="none"><path d="M8 7l7-4 7 4v9l-7 4-7-4zM8 7l7 4 7-4M15 11v9"/></g></g><text x="62" y="40" font-size="15" fill="#6c8097">${xml(fitText(subtitle,15,(ready?sparkleX:codeLeft)-62-8))}</text>${review}${nameSvg}${lower}${sparkle}</g></svg>`;
+  const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><g font-family="Segoe UI, Arial, sans-serif"><g transform="translate(16 16) scale(1.2)"><rect width="30" height="30" rx="7" fill="${color}14"/>${kindGlyph}</g><text x="62" y="40" font-size="15" fill="#6c8097">${xml(fitText(subtitle,15,(ready?sparkleX:codeLeft)-62-8))}</text>${review}${nameSvg}${lower}${sparkle}</g></svg>`;
   return { image: 'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg), width,height };
 }

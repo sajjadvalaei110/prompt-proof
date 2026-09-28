@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import cytoscape from 'cytoscape';
 import { AtlasNode, AtlasEdge, kindSummary, reviewRouteSummary } from './graphModel';
-import { nodeCard, cornerButtons, CODE_BUTTON, MIN_CARD_SIZE, CornerAction, CardSize } from './nodeCard';
+import { nodeCard, cornerButtons, hasCodeButton, hasDetailsButton, CODE_BUTTON, MIN_CARD_SIZE, CornerAction, CardSize } from './nodeCard';
 import { CONTAINER_BUTTON, CONTAINER_PADDING } from './expansionLayout';
 import CodeButton from '../../components/CodeButton';
 import { REVIEW_CHANGE_PALETTE } from '../review/reviewPalette';
@@ -96,6 +96,8 @@ interface Props {
   containerSizes: Record<string, CardSize>;
   /** The details button on a package/type card (expand), or the collapse button on an expanded one. */
   onToggleExpand: (node: AtlasNode) => void;
+  /** The context menu's Expand/Collapse: every target in one undo step (App queues them). */
+  onToggleExpandMany: (nodes: AtlasNode[], action: 'expand' | 'collapse') => void;
   /** Ungroup (ADR 0011): hide an expanded card's box, leaving its children as free cards. */
   onUngroup: (node: AtlasNode) => void;
   /** The nearest ungrouped card this card sits inside, or null; the menu offers to collapse into it. */
@@ -138,7 +140,7 @@ interface Props {
  * `cy.fit()` is called only once per level (when `camera` is null) and by the explicit Fit map
  * button -- both are real camera changes the product allows.
  */
-export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, mapOpen, onMapOpenChange: setMapOpen, fullscreen, onFullscreenChange: setFullscreen, onClearSelection, nodes, edges, positions, camera, selectedId, onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, scopeRemovalTargets, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, sizes, containerSizes, onToggleExpand, onUngroup, hiddenAncestorOf, onCollapseInto, onResizeNode, onResizeContainer, restoreVersion, outgoingStack, stackRoot, onCycleStack, onToggleStack }: Props) {
+export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, mapOpen, onMapOpenChange: setMapOpen, fullscreen, onFullscreenChange: setFullscreen, onClearSelection, nodes, edges, positions, camera, selectedId, onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, scopeRemovalTargets, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, sizes, containerSizes, onToggleExpand, onToggleExpandMany, onUngroup, hiddenAncestorOf, onCollapseInto, onResizeNode, onResizeContainer, restoreVersion, outgoingStack, stackRoot, onCycleStack, onToggleStack }: Props) {
   const container = useRef<HTMLDivElement>(null), cyRef = useRef<cytoscape.Core | null>(null), menuRef = useRef<HTMLDivElement>(null);
   const callbacks = useRef({ onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, onToggleExpand, onUngroup, onResizeNode, onResizeContainer, onClearSelection, onCycleStack });
   callbacks.current = { onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, onToggleExpand, onUngroup, onResizeNode, onResizeContainer, onClearSelection, onCycleStack };
@@ -147,6 +149,9 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
   // `node` is the card that was right-clicked; null when the menu opened from a marquee.
   // `addedId`: the card this right-click added to the multi-selection (it was not selected before).
   const [contextMenu,setContextMenu]=useState<{node:AtlasNode|null;x:number;y:number;addedId?:string|null}|null>(null);
+  // menuPosition only reserves a fixed height; once the menu is drawn, lift it so its real height
+  // (which grows with the card's actions) stays inside the stage.
+  const [menuTop,setMenuTop]=useState<number|null>(null);
   // The element focused when the keyboard opened the menu: focus returns there when it closes.
   const menuOpenerRef=useRef<HTMLElement|null>(null);
   // The one multi-selection every bulk action works on. Right-click, right-drag marquee,
@@ -600,6 +605,12 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     setContextMenu(null);setHover(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[restoreVersion]);
+  useLayoutEffect(()=>{
+    const menu=menuRef.current,stage=menu?.offsetParent as HTMLElement|null;
+    if(!contextMenu||!menu||!stage){setMenuTop(null);return;}
+    const limit=stage.clientHeight-menu.offsetHeight-8;
+    setMenuTop(contextMenu.y>limit?Math.max(8,limit):null);
+  },[contextMenu]);
   useEffect(()=>{
     if(!contextMenu)return;
     const dismiss=(event:PointerEvent)=>{if(!menuRef.current?.contains(event.target as Node))setContextMenu(null);};
@@ -954,6 +965,16 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
   const menuNode=contextMenu?.node||null;
   const menuSelected=menuNode?selectedNodes.some(n=>n.id===menuNode.id):false;
   const menuHiddenAncestor=menuNode?hiddenAncestorOf(menuNode):null;
+  // Expand/Collapse follows the right-clicked card's state and, when it is part of a multi-selection,
+  // applies to every selected card that can make the same change.
+  const menuGroup=menuNode&&menuSelected&&selectedNodes.length>1;
+  const menuExpand:'expand'|'collapse'=menuNode?.expanded?'collapse':'expand';
+  // A hidden (ungrouped) box is never a target: it has no card to collapse (its way back is "Collapse
+  // into", step 14), and it is never drawn, so it is not in the selection either.
+  const canToggle=(n:AtlasNode)=>!n.hiddenBox&&(menuExpand==='collapse'?!!n.expanded:!n.expanded&&hasDetailsButton(n));
+  const expandTargets=menuNode&&canToggle(menuNode)?(menuGroup?selectedNodes.filter(canToggle):[menuNode]):[];
+  // A single-card action is not a multi-select action: undo the selection this right-click added.
+  function menuSingle(action:()=>void){const added=contextMenu?.addedId;if(added)setMultiIds(ids=>ids.filter(id=>id!==added));action();setContextMenu(null);}
   const menuTitle=selectedNodes.length>1?`${selectedNodes.length} resources selected`:(menuNode||selectedNodes[0])?.simpleName||'Selection';
   return <div className={`graph-stage${fullscreen?' fullscreen':''}`}>
     <div ref={container} className="graph-canvas" aria-label="Dependency graph" />
@@ -980,21 +1001,19 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     {resizeGrips.map(g=>{const n=nodes.find(item=>item.id===g.id);return n?<button key={g.id} type="button" className="map-resize-grip" title={`Resize ${n.simpleName}`} aria-label={`Resize ${n.simpleName}. Use arrow keys, hold Shift for larger steps.`} style={{left:g.left,top:g.top,width:g.size,height:g.size}} onPointerDown={e=>startResize(e,g.id)} onKeyDown={e=>gripKeyDown(e,g.id)}/>:null;})}
     {!nodes.length && <div className="canvas-empty">No symbols in this view. Choose another level or clear the filter.</div>}
     {hover&&<div className="edge-hover" style={{left:hover.x,top:hover.y}}><strong>{hover.ready&&<GeminiBadge/>} {hover.title}</strong><p>{hover.description}</p></div>}
-    {contextMenu&&<div ref={menuRef} className="graph-context-menu" role="menu" onKeyDown={menuKeyDown} aria-label={selectedNodes.length>1?`Actions for ${selectedNodes.length} selected resources`:`Actions for ${menuTitle}`} style={{left:contextMenu.x,top:contextMenu.y}}>
+    {contextMenu&&<div ref={menuRef} className="graph-context-menu" role="menu" onKeyDown={menuKeyDown} aria-label={selectedNodes.length>1?`Actions for ${selectedNodes.length} selected resources`:`Actions for ${menuTitle}`} style={{left:contextMenu.x,top:menuTop??contextMenu.y}}>
       <div className="graph-context-menu-heading">{menuTitle}</div>
       <button role="menuitem" className="danger" disabled={!removableNodes.length} title={removalTitle} onClick={removeSelectedFromScope}><span aria-hidden="true">−</span> {removalLabel}</button>
       {menuNode&&menuSelected&&selectedNodes.length>1&&<button role="menuitem" onClick={()=>{setMultiIds(ids=>ids.filter(id=>id!==menuNode.id));setContextMenu(null);}}><span aria-hidden="true">○</span> Deselect {menuNode.simpleName}</button>}
       {menuNode&&(['out','in'] as const).map(direction=>{
         const on=stackRootId===menuNode.id&&stackDirection===direction,name=direction==='in'?'incoming':'outgoing';
-        return <button key={direction} role="menuitem" aria-pressed={on} onClick={()=>{
-          // Rooting a stack is not a multi-select action: undo the selection this right-click added.
-          const added=contextMenu.addedId;if(added)setMultiIds(ids=>ids.filter(id=>id!==added));
-          onToggleStack(menuNode.id,direction);setContextMenu(null);}}><span aria-hidden="true">{direction==='in'?'⇇':'⇶'}</span> {on?`Hide ${name} stack`:`Show ${name} stack`}</button>;})}
+        // Rooting a stack is not a multi-select action: menuSingle undoes the selection this right-click added.
+        return <button key={direction} role="menuitem" aria-pressed={on} onClick={()=>menuSingle(()=>onToggleStack(menuNode.id,direction))}><span aria-hidden="true">{direction==='in'?'⇇':'⇶'}</span> {on?`Hide ${name} stack`:`Show ${name} stack`}</button>;})}
+      {expandTargets.length>0&&<button role="menuitem" onClick={()=>{if(menuGroup){onToggleExpandMany(expandTargets,menuExpand);setContextMenu(null);}else menuSingle(()=>onToggleExpandMany(expandTargets,menuExpand));}}><span aria-hidden="true">{menuExpand==='expand'?'⊞':'⊟'}</span> {menuExpand==='expand'?'Expand':'Collapse'}{expandTargets.length>1?` ${expandTargets.length} selected`:''}</button>}
       {menuNode&&menuNode.expanded&&!menuNode.hiddenBox&&<button role="menuitem" onClick={()=>{setContextMenu(null);onUngroup(menuNode);}}><span aria-hidden="true">⬚</span> Ungroup {menuNode.simpleName}</button>}
-      {menuHiddenAncestor&&<button role="menuitem" onClick={()=>{
-        // Like a stack, collapsing is not a multi-select action: undo the selection this right-click added.
-        const added=contextMenu.addedId;if(added)setMultiIds(ids=>ids.filter(id=>id!==added));
-        setContextMenu(null);onCollapseInto(menuHiddenAncestor);}}><span aria-hidden="true">⊟</span> Collapse into {menuHiddenAncestor.simpleName}</button>}
+      {/* Distinct from Collapse above: it brings back the nearest ungrouped box this card sits in. */}
+      {menuHiddenAncestor&&<button role="menuitem" onClick={()=>menuSingle(()=>onCollapseInto(menuHiddenAncestor))}><span aria-hidden="true">⊟</span> Collapse into {menuHiddenAncestor.simpleName}</button>}
+      {menuNode&&hasCodeButton(menuNode)&&<button role="menuitem" onClick={()=>menuSingle(()=>onViewCode(menuNode))}><span aria-hidden="true">{'</>'}</span> View source</button>}
       <button role="menuitem" onClick={()=>{onClearSelection();setContextMenu(null);}}><span aria-hidden="true">✕</span> {selectedNodes.length>1?'Clear selection':'Deselect'}</button>
       <p className="graph-context-menu-hint">Right-click or right-drag over more cards to add them. Drag any selected card to move the group.</p>
     </div>}

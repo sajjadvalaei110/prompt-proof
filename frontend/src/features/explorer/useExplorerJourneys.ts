@@ -14,7 +14,14 @@ export function useExplorerJourneys(initialView?: ExplorerViewState, graphFor?: 
   // All synchronous updates caused by one UI action form one undo step (scope + membership,
   // drill-down + inspection, source + pane). Each later event starts a new transaction. An update
   // that only moves the selection never becomes a step at all (ADR 0009, see journeysReducer).
-  function update(fn: (j: Journey) => Journey) {
+  // `explicitGroup` (from beginGroup) joins updates dispatched across several renders into one undo
+  // step: a sequential expand queue expands one card per render, since each expansion's geometry
+  // reads the previous one's result. Any other update in between still starts its own step.
+  function update(fn: (j: Journey) => Journey, explicitGroup?: number) {
+    if (explicitGroup !== undefined) {
+      dispatch({ type: 'UPDATE', id: active.id, group: explicitGroup, update: fn, graphFor: graphForRef.current });
+      return;
+    }
     if (group.current === null) {
       group.current = ++counter.current;
       queueMicrotask(() => { group.current = null; });
@@ -47,7 +54,8 @@ export function useExplorerJourneys(initialView?: ExplorerViewState, graphFor?: 
   function updateTab(id: number, fn: (j: Journey) => Journey, graphFor: GraphFor | undefined = graphForRef.current) {
     dispatch({ type: 'UPDATE', id, group: ++counter.current, update: fn, graphFor });
   }
-  function dispatchView(action: ExplorerAction, initialCamera = false) {
+  function beginGroup() { return ++counter.current; }
+  function dispatchView(action: ExplorerAction, initialCamera = false, explicitGroup?: number) {
     if (action.type === 'RESET') {
       dispatch({ type: 'RESET', view: explorerViewReducer(active.present.view, action) });
     } else if (initialCamera && action.type === 'SET_CAMERA') {
@@ -55,12 +63,12 @@ export function useExplorerJourneys(initialView?: ExplorerViewState, graphFor?: 
     } else update(j => {
       const view = explorerViewReducer(j.view, action);
       return view === j.view ? j : { ...j, view };
-    });
+    }, explicitGroup);
   }
   function command(action: Exclude<JourneyAction, { type: 'UPDATE' | 'INITIAL_CAMERA' | 'RESET' }>) {
     flushExplorerCamera();
     group.current = null;
     dispatch(action);
   }
-  return { state, active, set, setTransient, setTransientCamera, update, updateTab, dispatchView, command, reset: (view: Journey['view']) => dispatch({ type: 'RESET', view }) };
+  return { state, active, set, setTransient, setTransientCamera, update, updateTab, dispatchView, beginGroup, command, reset: (view: Journey['view']) => dispatch({ type: 'RESET', view }) };
 }

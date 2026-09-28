@@ -103,3 +103,7 @@ the `?selectedSymbol=` deep link now open the containers from `graphModel.reveal
 package, then, for a method or constructor, its own type. A nested type sits in its package box,
 so its outer class is never opened. Each expansion resolves the card as drawn, and a step that
 cannot land ends the reveal instead of waiting.
+Since the merge with step 13 (2026-09-28) these steps run through step 13's sequential expand
+queue, one mechanism with one undo step. The queue skips a container that is already expanded,
+hidden or not, and a strict queue ends when `toggleExpand` reports that a step cannot land. The
+deep link still builds its initial view directly.

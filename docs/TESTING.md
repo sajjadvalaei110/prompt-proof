@@ -54,7 +54,12 @@ with an explicit `graphFor` rather than the render-time one. The incoming stack 
 the button cycle (outgoing -> incoming -> off on the root, outgoing on another card) and the menu's
 direct toggles as pure functions; a direction switch adds no entry and keeps redo, and undo/redo
 carry the direction; an incoming root is pruned like an outgoing one; and Clone copies the
-direction (53 checks then; 59 after step 14 and its review remediation).
+direction (53 checks then). Step 13 adds that a sequential expand queue's renders sharing one
+explicit history group form one undo step, and that the hook joins explicit-group updates across
+renders (55 checks on step 13). Step 14 and its review remediation add six: ungroup is one undo
+step, ends a stack rooted at the hidden card, and redo drops a carried selection of it; collapsing
+(expanded or ungrouped) prunes the multi-selection in one undo entry; a rejected collapse leaves
+the journey untouched (61 checks after merging step 13 into step 14).
 
 `node scripts/test-outgoing-stack.mjs` pins the pure layer computation
 (`docs/OUTGOING_STACK.md` §Traversal) over hand-computable fact graphs: an undrawn root, an empty
@@ -125,6 +130,10 @@ The review remediation (2026-09-28) adds:
   (outgoing-stack);
 - the top-level card past a hidden box moving by the width change (expansion-layout), and the
   focus's own stored position (focused-arrangement).
+
+The merge with step 13 (2026-09-28) adds `collapseTargets` (view-state, 74 checks): the card menu's
+"Collapse N selected" drops a target only when it is drawn inside another target, so a nested type
+beside its expanded outer class in the package box is still collapsed.
 
 `node scripts/verify-outgoing-stack-ui.mjs <microservice-java copy> <git fixture> <base oid> <chain fixture> <journey fixture>`
 (BACKEND/APP/DEBUG as below) is the stack's browser acceptance (108 checks). It activates the
