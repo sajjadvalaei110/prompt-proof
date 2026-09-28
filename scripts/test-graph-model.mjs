@@ -354,3 +354,20 @@ console.log('PASS: review overlay keeps one line per ordered pair and change sta
   assert.deepEqual(collapseAll(tree),{'com':false,'com.acme':false,'com.acme.api':false,'com.acme.core':false,'org':false});
   console.log('PASS: tree collapse cascades to nested packages');
 }
+
+// Step 13 review (P3, rejected): the card menu counts "Expand N selected" with hasDetailsButton
+// (detailCount > 0) while the queue expands only what childrenOf returns. Pin that, for every drawn
+// expandable card under whole-system and custom scopes, the two agree.
+{
+  const tree={nodes:[{id:'p1',kind:'PACKAGE',simpleName:'api'},{id:'p2',kind:'PACKAGE',simpleName:'svc'},{id:'p3',kind:'PACKAGE',simpleName:'empty'},
+    {id:'a',kind:'CLASS',simpleName:'A',parentId:'p1'},{id:'an',kind:'CLASS',simpleName:'Inner',parentId:'a'},{id:'b',kind:'INTERFACE',simpleName:'B',parentId:'p2'},{id:'c',kind:'ENUM',simpleName:'C',parentId:'p2'},
+    {id:'a1',kind:'METHOD',simpleName:'run',parentId:'a'},{id:'b1',kind:'METHOD',simpleName:'go',parentId:'b'}],edges:[]};
+  for (const scope of [ALL,custom(['p1']),custom([],['b']),custom([],['an']),custom([],[])]) {
+    const shown=['p1','p2','p3'].filter(id=>scope.mode==='ALL'||getPackageCheckState(tree.nodes.find(n=>n.id===id),scope,tree)!=='unchecked');
+    const view=projectDisplayed(tree,'PACKAGE',shown,'ALL',{expansions:shown.map(id=>({id,ownerId:null})),scope});
+    for (const card of view.nodes.filter(n=>n.kind!=='METHOD')) {
+      assert.equal((card.detailCount||0)>0,childrenOf(tree,card,scope).length>0,`menu count and expansion agree for ${card.id} in ${JSON.stringify([...scope.selectedPackageIds,...scope.selectedClassIds])}`);
+    }
+  }
+  console.log('PASS: the card menu expand count matches what expanding shows, under any scope');
+}

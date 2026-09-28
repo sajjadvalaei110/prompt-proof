@@ -107,6 +107,20 @@ Not run:
   the card menu, the scope tree's disclosure/toolbar, the route cards or the card icon (grepped).
   Their level-switcher scenarios are also known broken.
 
+Codex ultrareview (`/home/sajjad/prompts/step13/review-report.md`): verdict SHIP, one P3 finding.
+The report lists 5 mutations as caught; they were not re-run here.
+- **P3 "Expand N selected" overcounts a package whose types are all out of scope: rejected after
+  verification.** The report says `hasDetailsButton` ignores scope. That's wrong: the canvas cards
+  come from `projectDisplayed(..., expansionInput)`, whose `decorate` computes a package's
+  `detailCount` from the same in-scope types that `childrenOf` returns (`graphModel.ts`, already
+  pinned at `test-graph-model.mjs` "detailCount … custom scope"). The scenario also can't occur,
+  because a package whose types are all out of scope is unchecked and therefore not drawn.
+  - Added an invariant check to `scripts/test-graph-model.mjs`: for every drawn card under
+    whole-system and four custom scopes, `detailCount > 0` iff `childrenOf` is non-empty.
+  - Mutation: dropping the scope filter from `decorate` turns the suite red. The file was restored
+    and `git diff` is clean.
+  - `node scripts/test-graph-model.mjs`: PASS.
+
 Limits: a queue step whose dispatch the reducer ignores (a stale generation) stays in flight until
 the next expansion change, which then drops it; no case of this was observed.
 
