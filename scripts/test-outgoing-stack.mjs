@@ -392,6 +392,60 @@ check("direction 'in' walks the same facts reversed", () => {
   assert.deepEqual(sorted(stack.chainEdgeIds), ['A>B', 'B>T']);
 });
 
+// --- incoming stack (2026-09-28): the exact mirror, wired to the second press of the card button ---
+const tPage = [card('A', 'PACKAGE'), card('P', 'CLASS', 'A'), card('B', 'PACKAGE'), card('C', 'PACKAGE'), card('T', 'CLASS', 'C'), card('D', 'PACKAGE')];
+check("incoming summary line names the direction", () => {
+  assert.equal(stackSummary({ depth: 2, count: 3 }, 'in'), 'Incoming stack: 2 layers · 3 resources');
+  assert.equal(stackSummary({ depth: 1, count: 1, beyond: 1 }, 'in'), 'Incoming stack: 1 layer · 1 resource · 1 beyond the map');
+  assert.equal(stackSummary({ depth: 1, count: 1 }, 'out'), 'Outgoing stack: 1 layer · 1 resource');
+});
+check('incoming, class root T: the collapsed B card is not a hub -- only S calls into T, and nothing leads to S', () => {
+  const routes = [route('P', 'B', ['pq']), route('B', 'T', ['st'])];
+  const stack = run(graphOf([PQ, ST]), tPage, routes, 'T', { direction: 'in' });
+  assert.deepEqual(layersOf(stack), { B: 1 }, 'P -> Q.q reaches B, but Q never leads into T, so A stays off the chain');
+  assert.deepEqual(sorted(stack.chainEdgeIds), ['B>T'], 'the drawn P -> B route carries only P -> Q, not a chain step');
+  assert.deepEqual(sorted(stack.rootSet), ['T']);
+});
+check('incoming, package root C: the package-level walk gives B 1 and A 2', () => {
+  const stack = run(graphOf([PQ, ST]), packagePage, [route('A', 'B', ['pq']), route('B', 'C', ['st'])], 'C', { direction: 'in' });
+  assert.deepEqual(layersOf(stack), { A: 2, B: 1 });
+  assert.deepEqual(sorted(stack.chainEdgeIds), ['A>B', 'B>C']);
+  assert.equal(stack.depth, 2); assert.equal(stack.count, 2);
+});
+check('incoming, method root: an implementation is reached through the overridden method from its callers; a sibling implementation is not', () => {
+  // K1.run <- I.run (reversed dispatch) <- P.m (calls I.run). K2.run also overrides I.run, but it is
+  // not a caller of K1.run, so E stays off the chain.
+  const page = [card('A', 'PACKAGE'), card('P', 'CLASS', 'A'), card('P.m', 'METHOD', 'P'), card('C', 'PACKAGE'), card('D', 'PACKAGE'), card('K1', 'CLASS', 'D'), card('K1.run', 'METHOD', 'K1'), card('E', 'PACKAGE')];
+  const routes = [route('P.m', 'C', ['pi']), route('K1.run', 'C', ['ov1']), route('E', 'C', ['ov2'])];
+  const stack = run({ nodes: DISPATCH_NODES, edges: [CALL_I, OV1, OV2] }, page, routes, 'K1.run', { direction: 'in' });
+  assert.deepEqual(layersOf(stack), { C: 1, 'P.m': 2 });
+  assert.deepEqual(sorted(stack.rootSet), ['K1.run']);
+  assert.deepEqual(sorted(stack.chainEdgeIds), ['K1.run>C', 'P.m>C'], 'the K2 OVERRIDES route joins no two chain entities');
+});
+check('incoming, method root: constructing or using the type is not a call of the method, and no terminal type appears', () => {
+  const page = [card('A', 'PACKAGE'), card('P', 'CLASS', 'A'), card('P.m', 'METHOD', 'P'), card('P.m2', 'METHOD', 'P'), card('B', 'PACKAGE'), card('Q', 'CLASS', 'B'), card('Q.q', 'METHOD', 'Q')];
+  const edges = [PQ, fact('m2newq', 'P.m2', 'Q', { kind: 'CONSTRUCTS' }), fact('m2usesq', 'P.m2', 'Q', { kind: 'USES_TYPE' })];
+  const stack = run(graphOf(edges), page, [route('P.m', 'Q.q', ['pq']), route('P.m2', 'Q', ['m2newq', 'm2usesq'])], 'Q.q', { direction: 'in' });
+  assert.deepEqual(layersOf(stack), { 'P.m': 1 });
+  assert.deepEqual(sorted(stack.chainEdgeIds), ['P.m>Q.q']);
+  assert.equal(stack.beyond, 0);
+});
+check('incoming, interface root: the exact mirror reaches implementors (reverse IMPLEMENTS) and dependents at layer 1', () => {
+  const edges = [fact('k1i', 'K1', 'I', { kind: 'IMPLEMENTS' }), fact('k2i', 'K2', 'I', { kind: 'IMPLEMENTS' }), fact('pid', 'P', 'I', { kind: 'DEPENDS_ON' })];
+  const page = [card('A', 'PACKAGE'), card('P', 'CLASS', 'A'), card('C', 'PACKAGE'), card('I', 'CLASS', 'C'), card('D', 'PACKAGE'), card('E', 'PACKAGE')];
+  const graph = { nodes: DISPATCH_NODES, edges };
+  assert.deepEqual(layersOf(run(graph, page, [], 'I', { direction: 'in' })), { D: 1, E: 1, P: 1 });
+  assert.deepEqual(layersOf(run(graph, page, [], 'I')), {}, 'the outgoing stack of I is empty: implementors are not followed forward');
+  assert.deepEqual(layersOf(run(graph, page, [], 'I', { direction: 'in', kind: 'IMPLEMENTS' })), { D: 1, E: 1 }, 'the kind filter applies');
+});
+check('incoming: callers with no drawn card count as beyond the map and stop the chain', () => {
+  const nodes = [...NODES, pkg('E'), cls('X', 'E'), mth('X.x', 'X'), cls('Y', 'E'), mth('Y.y', 'Y')];
+  const edges = [ST, fact('xt', 'X.x', 'T.t'), fact('yx', 'Y.y', 'X.x')];
+  const stack = run({ nodes, edges }, tPage, [route('B', 'T', ['st'])], 'T', { direction: 'in' });
+  assert.deepEqual(layersOf(stack), { B: 1 });
+  assert.equal(stack.beyond, 1, 'X is off the map; Y, which only calls X, is never reached');
+});
+
 check('the result does not depend on the order of nodes, facts, cards or routes', () => {
   const edges = [PQ, QT, SU, ST, fact('qp', 'Q.q', 'P.m')];
   const routes = [route('P', 'B', ['pq']), route('B', 'C', ['qt', 'st']), route('B', 'D', ['su']), route('B', 'P', ['qp'])];

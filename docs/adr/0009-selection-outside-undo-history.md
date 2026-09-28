@@ -97,6 +97,9 @@ Fullscreen, the Map overview disclosure and the zoom buttons already live outsid
 ## Implementation notes: outgoing stack root (2026-09-24)
 
 - `Journey.outgoingStackRootId` (docs/OUTGOING_STACK.md) is classified and carried like selection.
+  (2026-09-28: it became `Journey.relationStack: { rootId, direction } | null` for the incoming
+  stack. It is one value with the same classification, so a direction switch adds no entry and
+  undo/redo carry the direction.)
   Changing it adds no entry, `UNDO`/`REDO` carry the current value, and `pruneRestoredSelection`
   drops it when the root was drawn before the step and is not after.
 - Unlike selection, the root is also pruned after ordinary `UPDATE`s and `REVIEW_RECAPTURED`

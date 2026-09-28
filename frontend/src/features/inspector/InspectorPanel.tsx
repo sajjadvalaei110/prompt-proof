@@ -13,14 +13,14 @@ import { startSerialPolling } from '../../utils/serialPolling';
  * never drawn regardless of filter. */
 interface Props { selectedNode: AtlasNode | null; selectedEdge: AtlasEdge | null; mapStatus?: 'OUT_OF_SCOPE' | 'IN_SCOPE_NOT_DISPLAYED' | 'DISPLAYED' | null; edgeFilteredOut?: boolean; edgeHiddenByExpansion?: boolean; selectedOccurrenceId?: string | null; onSelectOccurrence?: (id: string | null) => void; workspaceId: string | null; snapshotId: string | null; graph: AtlasGraph; routes: any[]; revision: number; onSelect: (node: AtlasNode) => void; onViewClasses: (node: AtlasNode) => void; onViewMethods: (node: AtlasNode) => void; onArrangeAroundResource: (node: AtlasNode) => void; onSource: (node: SourceSubject, type?:string) => void; onClose: () => void; onInspectEdge: (edge:AtlasEdge) => void; onExplanationReady: () => void;
   /** "Outgoing stack: N layers · M resources" while the inspected card is the stack root. */
-  outgoingStackSummary?: string | null }
+  outgoingStackSummary?: string | null; stackDirection?: 'out' | 'in' }
 /** "calls 1 of 3", "injects 1 of 1" -- occurrence options numbered within their own kind, aligned with occurrenceIds. */
 function occurrenceLabels(edge: AtlasEdge): string[] {
   const kinds = edge.occurrenceKinds || edge.occurrenceIds!.map(() => edge.kind), totals = new Map<string, number>(), seen = new Map<string, number>();
   kinds.forEach(k => totals.set(k, (totals.get(k) || 0) + 1));
   return kinds.map(k => { const n = (seen.get(k) || 0) + 1; seen.set(k, n); return `${k.toLowerCase().replaceAll('_', ' ')} ${n} of ${totals.get(k)}`; });
 }
-export default function InspectorPanel({selectedNode: node, selectedEdge: edge, mapStatus, edgeFilteredOut, edgeHiddenByExpansion, selectedOccurrenceId, onSelectOccurrence, workspaceId, snapshotId, graph, routes, revision, onSelect, onViewClasses, onViewMethods, onArrangeAroundResource, onSource, onClose, onInspectEdge, onExplanationReady, outgoingStackSummary}: Props) {
+export default function InspectorPanel({selectedNode: node, selectedEdge: edge, mapStatus, edgeFilteredOut, edgeHiddenByExpansion, selectedOccurrenceId, onSelectOccurrence, workspaceId, snapshotId, graph, routes, revision, onSelect, onViewClasses, onViewMethods, onArrangeAroundResource, onSource, onClose, onInspectEdge, onExplanationReady, outgoingStackSummary, stackDirection}: Props) {
   const [rawExplanation,setExplanation]=useState<any>(null), [loadedSubject,setLoadedSubject]=useState<string|null>(null), [evidence,setEvidence]=useState<any[]>([]), [error,setError]=useState(''), [requesting,setRequesting]=useState(false), [requestRevision,setRequestRevision]=useState(0);
   const requestedSubject=useRef<string|null>(null);
   const type=edge?'relationship':'symbol';
@@ -87,7 +87,7 @@ export default function InspectorPanel({selectedNode: node, selectedEdge: edge, 
     <div className="subject-heading"><span className="subject-icon">{node?.kind==='METHOD'?'ƒ':edge?'↗':'◇'}</span><div><h2>{edge?`${find(edge.sourceId)?.simpleName||'Unknown source'} → ${find(edge.targetId)?.simpleName||edge.descriptiveLabel||'Unresolved target'}`:node?.simpleName}</h2><p>{node?.qualifiedName||(edge&&kindSummary(edge))}</p></div></div>
     {node&&mapStatus==='OUT_OF_SCOPE'&&<p className="notice">Outside current scope.</p>}
     {node&&mapStatus==='IN_SCOPE_NOT_DISPLAYED'&&<p className="notice">In scope, not currently displayed.</p>}
-    {node&&outgoingStackSummary&&<p className="stack-summary" data-testid="outgoing-stack-summary">{outgoingStackSummary}</p>}
+    {node&&outgoingStackSummary&&<p className={`stack-summary${stackDirection==='in'?' incoming':''}`} data-testid="outgoing-stack-summary">{outgoingStackSummary}</p>}
     {edge&&edgeFilteredOut&&<p className="notice">Not shown with the current relationship filter.</p>}
     {edge&&edgeHiddenByExpansion&&<p className="notice">Not drawn right now: an endpoint is expanded, so these relationships are shown on the cards inside it. Collapse it to see this line again.</p>}
     {node&&<button className="full-width arrange-action" disabled={mapStatus!=='DISPLAYED'} title={mapStatus!=='DISPLAYED'?'Resource is not in current map view':undefined} onClick={()=>onArrangeAroundResource(node)}><span aria-hidden="true">☵</span> Arrange around this resource</button>}

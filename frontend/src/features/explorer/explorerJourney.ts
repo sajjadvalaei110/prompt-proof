@@ -2,6 +2,8 @@ import { explorerViewReducer, initExplorerViewState, sameDisplayedLevelView, Exp
 import type { AtlasGraph } from './graphModel';
 import { ScopeSelection } from './scopeModel';
 import { pruneRestoredSelection, pruneStackRoot } from './revalidateJourney';
+import type { StackDirection } from './outgoingStack';
+export interface RelationStackRoot { rootId: string; direction: StackDirection }
 /** UI state only. Graph facts, generated results and server operations never enter history. */
 export interface Journey {
   view: ExplorerViewState;
@@ -24,9 +26,10 @@ export interface Journey {
   reviewKey: string | null;
   /** Monotonic bookkeeping used to invalidate review history even after the tab returns to map mode. */
   reviewTouched: boolean;
-  /** Root card of the outgoing relation stack (docs/OUTGOING_STACK.md), or null when no stack is
-   * shown. A pinned pointer like selection: outside undo history and pruned when not drawn. */
-  outgoingStackRootId: string | null;
+  /** Root card and direction of the relation stack (docs/OUTGOING_STACK.md), or null when no stack
+   * is shown. A pinned pointer like selection: outside undo history and pruned when not drawn. One
+   * value, so switching direction on the same root is a selection-only change like re-rooting. */
+  relationStack: RelationStackRoot | null;
 }
 export interface JourneyTab {
   id: number;
@@ -45,8 +48,18 @@ export interface ExplorerJourneys {
   initial: Journey;
 }
 export const HISTORY_LIMIT = 200;
+/** The card's stack button (docs/OUTGOING_STACK.md): on the root it cycles outgoing -> incoming ->
+ * off; on any other card it starts a fresh outgoing stack there. */
+export function cycleRelationStack(current: RelationStackRoot | null, id: string): RelationStackRoot | null {
+  if (current?.rootId !== id) return { rootId: id, direction: 'out' };
+  return current.direction === 'out' ? { rootId: id, direction: 'in' } : null;
+}
+/** A context-menu item: show this direction rooted at the card, or end it when it is the one shown. */
+export function toggleRelationStack(current: RelationStackRoot | null, id: string, direction: StackDirection): RelationStackRoot | null {
+  return current?.rootId === id && current.direction === direction ? null : { rootId: id, direction };
+}
 export function newJourney(view = initExplorerViewState()): Journey {
-  return { view, scope: { mode: 'ALL', selectedPackageIds: new Set(), selectedClassIds: new Set() }, kind: 'ALL', tab: 'map', search: '', mobilePane: 'map', source: null, treeOpen: {}, multiIds: [], mapOpen: true, fullscreen: false, navWidth: null, review: false, reviewKey: null, reviewTouched: false, outgoingStackRootId: null };
+  return { view, scope: { mode: 'ALL', selectedPackageIds: new Set(), selectedClassIds: new Set() }, kind: 'ALL', tab: 'map', search: '', mobilePane: 'map', source: null, treeOpen: {}, multiIds: [], mapOpen: true, fullscreen: false, navWidth: null, review: false, reviewKey: null, reviewTouched: false, relationStack: null };
 }
 function newTab(id: number, present: Journey): JourneyTab {
   return { id, title: `Explore ${id}`, present, past: [], future: [], group: null, restoreVersion: 0 };
@@ -98,7 +111,7 @@ export type JourneyAction =
 
 /**
  * Selection is a pointer, not an exploration edit (ADR 0009): the inspected subject, the inspector's
- * Back trail that inspecting extends, and the multi-selection. The outgoing stack's pinned root is
+ * Back trail that inspecting extends, and the multi-selection. The relation stack's pinned root (and direction) is
  * the same kind of pointer. Undo/redo carries these from the current present into whatever entry it
  * restores, so history entries' own copies are never read.
  */
@@ -109,13 +122,13 @@ const SELECTION_VIEW_KEYS = ['inspectedSubjectId', 'inspectedKind', 'inspectedOc
 const SELECTION_COMPANION_KEYS: (keyof Journey)[] = ['treeOpen', 'search', 'mobilePane'];
 
 function selectionChanged(a: Journey, b: Journey): boolean {
-  return a.multiIds !== b.multiIds || a.outgoingStackRootId !== b.outgoingStackRootId || SELECTION_VIEW_KEYS.some(key => a.view[key] !== b.view[key]);
+  return a.multiIds !== b.multiIds || a.relationStack !== b.relationStack || SELECTION_VIEW_KEYS.some(key => a.view[key] !== b.view[key]);
 }
 /** True when `next` differs from `prev` in the selection (plus, optionally, its companions) only. */
 function isSelectionOnly(prev: Journey, next: Journey): boolean {
   if (!selectionChanged(prev, next)) return false;
   for (const key of Object.keys(next) as (keyof Journey)[]) {
-    if (key === 'view' || key === 'multiIds' || key === 'outgoingStackRootId' || SELECTION_COMPANION_KEYS.includes(key)) continue;
+    if (key === 'view' || key === 'multiIds' || key === 'relationStack' || SELECTION_COMPANION_KEYS.includes(key)) continue;
     if (prev[key] !== next[key]) return false;
   }
   if (prev.view === next.view) return true;
@@ -139,7 +152,7 @@ function carrySelection(target: Journey, from: Journey): Journey {
   if (!selectionChanged(target, from)) return target;
   const view = { ...target.view };
   for (const key of SELECTION_VIEW_KEYS) (view as Record<string, unknown>)[key] = from.view[key];
-  return { ...target, view, multiIds: from.multiIds, outgoingStackRootId: from.outgoingStackRootId };
+  return { ...target, view, multiIds: from.multiIds, relationStack: from.relationStack };
 }
 
 function touchesReview(j: Journey): boolean { return j.reviewTouched; }

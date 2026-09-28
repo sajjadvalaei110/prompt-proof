@@ -1,7 +1,9 @@
 # Project status
-Last updated: 2026-09-25
+Last updated: 2026-09-28
 Active milestone: R6 — Developer comprehension redesign (in progress)
-Current revision: step 12 follow-up (candidate calls reverted, uniform route colour, Changes-mode
+Current revision: incoming relation stack (the stack button's second press, docs/OUTGOING_STACK.md
+"Incoming stack"), on top of
+step 12 follow-up (candidate calls reverted, uniform route colour, Changes-mode
 source-root fix), on top of
 step 12 phases B/C review fixes (analyzer visibility and lexical-receiver rules,
 ADR 0010 amendment; keyboard card menu and stack focus retention), on top of
@@ -23,6 +25,85 @@ toggle with a git-style diff code viewer, exploration tabs with per-tab undo/red
 and selection controls, the R6 change-edges slice (one line per direction,
 directional selection emphasis, file-grouped evidence), in-place card details
 (expand packages/classes) and resizable cards; Step 6A remains unstarted
+
+## Incoming relation stack (2026-09-28)
+
+User request: the mirror of the outgoing stack (a BFS over incoming edges), on the same button:
+first press outgoing, second press incoming, third press off. The incoming stack uses the
+incoming-selection color (`HALO.in`, `#6366F1`). Six decisions came out of a grilling round, all
+recommendations accepted, and are recorded in `docs/OUTGOING_STACK.md` §"Incoming stack":
+- another card's button starts outgoing there
+- the menu has two direct items
+- Escape ends either direction
+- purple is used for the badges, outlines, route underlay and pressed button, while the root stays
+  teal
+- the incoming stack is an exact mirror, so an interface root reaches its implementors
+- the wording is "Incoming stack: N layers · M resources"
+
+No ADR: `docs/BUILD.md` does not mention an incoming stack, and the outgoing spec had listed it as
+anticipated future work.
+
+- **State.** `Journey.outgoingStackRootId` became `relationStack: { rootId, direction } | null`,
+  one value, so the ADR 0009 selection-only classification, the undo/redo carry, pruning and Clone
+  all cover the direction unchanged. `cycleRelationStack` (button) and `toggleRelationStack`
+  (menu) are pure transitions in `explorerJourney.ts`.
+- **Traversal.** `outgoingStack.ts` is unchanged apart from `StackDirection` and
+  `stackSummary(stack, direction)`. `direction: 'in'` already reversed every kept step.
+- **UI.**
+  - `GraphCanvas`: the three-state button (aria-label names the next action, `data-stack-direction`)
+    and two menu items (⇶ / ⇇).
+  - Incoming styling: `stack-member stack-in` outlines, `flow-in` chain routes and indigo badges on
+    the overlay (the overlay scratch now records each badge's color).
+  - CSS: `.map-stack-button.active.incoming` and `.stack-summary.incoming`.
+- **Tests.**
+  - `test-explorer-journeys.mjs`: 49 → 53 checks. New: cycle and menu transitions; a direction
+    switch adds no entry, keeps redo, and survives undo/redo; incoming pruning; Clone copies the
+    direction.
+  - `test-outgoing-stack.mjs`: 34 → 41 checks. New: the summary prefix; the collapsed-hub mirror at
+    class and package level; reversed dispatch; no terminal types for a method root; an interface
+    root reaching implementors; beyond the map.
+  - `verify-outgoing-stack-ui.mjs`: 81 → 108 checks. The oracle takes a direction. The outgoing
+    label, tooltip and focus expectations were updated for the three states. The B4 keyboard
+    scenario now goes outgoing → incoming (focus kept) → off. The new incoming scenarios are
+    described in `docs/TESTING.md`.
+- **Docs.** `OUTGOING_STACK.md`, `STABLE_GRAPH_INTERACTIONS.md`, `ARCHITECTURE.md` §5, `TESTING.md`,
+  and an ADR 0009 note on the field rename.
+
+Checks (this entry's tree):
+- `for t in scripts/test-*.mjs; do node "$t" >/dev/null && echo "PASS $t" || echo "FAIL $t"; done`:
+  12/12 PASS.
+- `cd frontend && npx tsc -b --force && npm run build`: PASS.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar`: PASS.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew test`: PASS, 21 classes, 150 tests, 0
+  failures. No backend source changed.
+- `git diff --check`: clean.
+- Browser: the `isolated4.sh` harness copied to the session scratchpad, pointed at this checkout
+  (jar on 8095 with its own data dir, model URL `http://127.0.0.1:9/v1`, snap Chromium on 9333,
+  fixtures copied and hashed). Command: `BACKEND=http://127.0.0.1:8095 APP=http://127.0.0.1:8095
+  DEBUG=http://127.0.0.1:9333 OUT=<run>/evidence node scripts/verify-outgoing-stack-ui.mjs
+  <run>/fixture <run>/gitfix <base oid> <run>/chainfix <run>/journeyfix`.
+  - Result: 108/108 PASS (run `run-Ydw7`). `stop` reported all four fixtures unchanged, 0 model
+    requests and the ports free.
+  - Two earlier runs failed in the new chain-fixture checks, for test reasons. Card app.d sat under
+    the inspector panel, so the button clicks missed. After centring it, a and b were off screen,
+    so their badges were not drawn (by design). The script now centres the root, then fits the map
+    (view-only) before reading badges.
+- Evidence:
+  - `docs/evidence/incoming-stack/in-01..04` were inspected:
+    - dtos root: controllers, services and domain are 1, repositories 2. Indigo badges, outlines,
+      routes, pressed button and inspector line; the root stays teal.
+    - The layer-1 selection keeps the root.
+    - Chain package root app.d: b 1, and the a box 2 with its children covered.
+    - Class root U: b 1 only, a muted.
+  - `docs/evidence/outgoing-stack/` was refreshed from the same run. 01 (the outgoing stack still
+    cyan) and 17 (the menu with both "Show outgoing stack" and "Show incoming stack") were
+    inspected.
+- Not run:
+  - `verify_stable_graph_pipeline.py`, `verify_hierarchical_pipeline.py`,
+    `verify_change_edges_pipeline.py`, `verify_git_review_pipeline.py`: no stack coverage, and this
+    change touches only the stack's state, UI and styles.
+  - `verify-explorer-journeys.mjs`: it does not reference the stack field or button.
+  - `constrainedMemoryTest`: backend untouched.
 
 ## Step 12 follow-up: candidate calls reverted, uniform route colour, Changes-mode edge fix (2026-09-25)
 

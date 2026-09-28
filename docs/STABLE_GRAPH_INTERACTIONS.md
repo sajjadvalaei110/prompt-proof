@@ -99,8 +99,8 @@ Wheel/pinch/pan and Fit map remain camera-navigation history.
 **Clear selection**, clicking empty canvas, or Escape clears inspection and selected
 cards without changing scope, geometry or camera, and without adding an undo entry. With
 nothing selected it does nothing (it does not switch the mobile pane either).
-Menus, resize cancellation and modal dialogs handle Escape first. While an outgoing stack is
-shown, Escape ends the stack first and leaves the selection; the next Escape clears it. Clicking an
+Menus, resize cancellation and modal dialogs handle Escape first. While a relation stack
+(outgoing or incoming) is shown, Escape ends the stack first and leaves the selection; the next Escape clears it. Clicking an
 already-inspected resource also deselects it.
 
 ## Story 1 — Inspect without losing my place
@@ -257,8 +257,16 @@ before clearing selection), or when the root leaves the map (scope removal, coll
 undo, Changes recapture), and it never comes back on its own. Turning it on or off adds no undo
 entry and never moves cards or the camera.
 
+Incoming stack (2026-09-28): the root's button has three states, outgoing, then incoming, then off;
+another card's button always starts outgoing there. The card menu offers "Show/Hide outgoing stack"
+and "Show/Hide incoming stack" directly. The incoming stack is the exact mirror over reversed facts
+(so an interface root reaches its implementors, and a method is reached from the callers of the
+method it overrides). It uses the same badges, outlines, route dashes and muting, in the incoming
+halo's indigo instead of cyan; the root keeps its teal look. Its line reads "Incoming stack: N
+layers · M resources". Switching direction adds no undo entry, and Escape ends either direction.
+
 Keyboard: the stack toggle is a focusable button (Enter or Space), and it keeps focus when it
-turns the stack off, even on a card that is no longer selected or hovered. Shift+F10 or the
+changes state or turns the stack off, even on a card that is no longer selected or hovered. Shift+F10 or the
 ContextMenu key opens the card menu, either on a focused corner button or with a card selected
 and the page focused. The menu opens at the card with focus on its first item; the arrow keys,
 Home and End move through it, and Escape or an action returns focus to where it was opened. A
