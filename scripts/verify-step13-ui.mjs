@@ -158,6 +158,8 @@ check('Explore switches to the Code map', await evaluate(`!!document.querySelect
 check('Explore reveals the handler method card', handler && (await drawnIds()).includes(handler.id), route);
 check('Explore inspects the handler', (await evaluate(`document.querySelector('.inspector .subject-heading h2')?.textContent||''`)).includes(route.handler));
 check('Explore roots the outgoing stack on the handler', handler && (await evaluate(`${CY}.nodes('.stack-root').map(n=>n.id())`)).includes(handler.id));
+const stackSummaryText = () => evaluate(`document.querySelector('[data-testid=outgoing-stack-summary]')?.textContent||''`);
+check('...and that stack is outgoing', /^Outgoing stack:/.test(await stackSummaryText()), await stackSummaryText());
 await shot('10-entry-explore-stack');
 await undo();
 check('one Undo reverts every ancestor expansion of the reveal and returns to Entry points', !(await evaluate(`!!document.querySelector('.graph-canvas')`)) && await evaluate(`!!document.querySelector('.route-card')`));
@@ -182,10 +184,17 @@ const exploreFirstRoute = async label => {
 await exploreFirstRoute('entry points again');
 await pause(600);
 check('precondition: after one Explore the handler is inspected', (await inspectedTitle()).includes(route.handler));
+// Flip the handler's stack to incoming from its card menu: Explore must root an outgoing stack
+// explicitly, not toggle or cycle whatever stack the handler already has.
+await rightClick(handler.id);
+await menuClick('Show incoming stack');
+await pause(400);
+check('setup: the handler now shows its incoming stack', /^Incoming stack:/.test(await stackSummaryText()), await stackSummaryText());
 await exploreFirstRoute('entry points, second Explore');
 await pause(600);
 check('a second Explore keeps the handler inspected', (await inspectedTitle()).includes(route.handler));
 check('...and keeps its stack rooted', handler && (await evaluate(`${CY}.nodes('.stack-root').map(n=>n.id())`)).includes(handler.id));
+check('...and Explore turned the incoming stack back to outgoing', /^Outgoing stack:/.test(await stackSummaryText()), await stackSummaryText());
 
 // View methods from the tree on a class inside a collapsed package opens the package and the
 // class in place, inspects the class, and is one undo step.

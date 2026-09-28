@@ -189,9 +189,28 @@ Verification:
   13's `02-package-menu` and `10-entry-explore-stack`. The menu shows both stack items, then
   Expand, then Deselect. The Explore stack reads "Outgoing stack: 1 layer · 2 resources".
 - Not run: backend `./gradlew test` (no backend change on either side) and the Python
-  `verify_*_pipeline.py` suites. Evidence images under `docs/evidence/` were not regenerated.
-- Not covered by a browser check: Explore while an incoming stack is shown on the handler (it
-  replaces it with outgoing). The logic is the one-line explicit set above.
+  `verify_*_pipeline.py` suites.
+
+Lead review of the merge, run independently of the merge run above:
+- Checked by reading: merge parents `2732813` + `639ed08`; no conflict markers; no remaining
+  `outgoingStackRootId`/`onToggleOutgoingStack` in `frontend/src` or `scripts`. `relationStack` is
+  still classified as selection (`explorerJourney.ts` `selectionChanged`/`isSelectionOnly`), so
+  Explore stays one undo step.
+- Gap closed: `verify-step13-ui.mjs` had no check on the stack's direction. Three checks were added:
+  1. the first Explore's stack is outgoing (inspector summary `^Outgoing stack:`);
+  2. setup: the handler's card menu "Show incoming stack" gives `^Incoming stack:`;
+  3. the second Explore turns it back to outgoing.
+- `npx tsc -b --force`: PASS. All 12 `scripts/test-*.mjs`: PASS (journeys 55). `./gradlew bootJar`:
+  up to date with the merged source.
+- Fresh isolated run (jar on 8098, closed model port 9, headless Chromium on 9336):
+  `verify-step13-ui.mjs` **41/41**; `verify-explorer-journeys.mjs` **51/51**;
+  `verify-outgoing-stack-ui.mjs` **108/108**. The fixture hash was unchanged, there were 0
+  `chat/completions`, both processes were stopped by PID, and the ports were free.
+- Evidence regenerated from this run: `docs/evidence/step13/` and
+  `docs/evidence/outgoing-stack/`, with the incoming `in-*` images and report copy in
+  `docs/evidence/incoming-stack/` following main's layout. Inspected `step13/02-package-menu`
+  (Remove, both stack items, Expand, Deselect, all inside the stage) and
+  `outgoing-stack/17-keyboard-menu` (the same items on the keyboard path).
 
 ## Incoming relation stack (2026-09-28)
 

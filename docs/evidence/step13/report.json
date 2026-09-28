@@ -109,6 +109,10 @@
       "pass": true
     },
     {
+      "label": "...and that stack is outgoing",
+      "pass": true
+    },
+    {
       "label": "one Undo reverts every ancestor expansion of the reveal and returns to Entry points",
       "pass": true
     },
@@ -125,11 +129,19 @@
       "pass": true
     },
     {
+      "label": "setup: the handler now shows its incoming stack",
+      "pass": true
+    },
+    {
       "label": "a second Explore keeps the handler inspected",
       "pass": true
     },
     {
       "label": "...and keeps its stack rooted",
+      "pass": true
+    },
+    {
+      "label": "...and Explore turned the incoming stack back to outgoing",
       "pass": true
     },
     {
