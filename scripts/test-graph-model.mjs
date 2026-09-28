@@ -11,7 +11,7 @@ const stripLocalImport=(src,name)=>src.replace(new RegExp(`import \\{[^}]*\\} fr
 const scopeCompiled=stripLocalImport(compile('../frontend/src/features/explorer/scopeModel.ts'),'graphModel');
 const graphCompiled=stripLocalImport(compile('../frontend/src/features/explorer/graphModel.ts'),'scopeModel');
 const combined=scopeCompiled+'\n'+graphCompiled;
-const {projectGraph,projectDisplayed,childrenOf,wholeSystemScope,emptyScope,isClassInScope,getPackageCheckState,getPackageGroupCheckState,buildPackageHierarchy,togglePackages,togglePackage,toggleClass,scopeToLabel,EXPLANATION_RANK,explanationRank,dominantOccurrenceIndex,kindSummary,sortedKindCounts,routeReviewChange}=await import('data:text/javascript;base64,'+Buffer.from(combined).toString('base64'));
+const {projectGraph,projectDisplayed,childrenOf,wholeSystemScope,emptyScope,isClassInScope,getPackageCheckState,getPackageGroupCheckState,buildPackageHierarchy,togglePackages,togglePackage,toggleClass,scopeToLabel,EXPLANATION_RANK,explanationRank,dominantOccurrenceIndex,kindSummary,sortedKindCounts,routeReviewChange,collapseBranch,collapseAll}=await import('data:text/javascript;base64,'+Buffer.from(combined).toString('base64'));
 
 const nodes=[{id:'p1',kind:'PACKAGE',simpleName:'api'},{id:'p2',kind:'PACKAGE',simpleName:'service'}, {id:'a',kind:'CLASS',simpleName:'Controller',parentId:'p1'}, {id:'b',kind:'INTERFACE',simpleName:'Worker',parentId:'p2'}, {id:'a1',kind:'METHOD',simpleName:'handle',parentId:'a'}, {id:'b1',kind:'METHOD',simpleName:'work',parentId:'b'}, {id:'b2',kind:'METHOD',simpleName:'audit',parentId:'b'}];
 const edges=[{id:'e1',sourceId:'a1',targetId:'b1',kind:'CALLS',resolution:'RESOLVED'},{id:'e2',sourceId:'a1',targetId:'b1',kind:'CALLS',resolution:'RESOLVED'},{id:'e3',sourceId:'a',targetId:'b',kind:'INJECTS',resolution:'CANDIDATE'},{id:'e4',sourceId:'b1',targetId:'b2',kind:'CALLS',resolution:'RESOLVED'},{id:'e5',sourceId:'a1',targetId:null,kind:'CALLS',resolution:'UNRESOLVED'}];
@@ -342,3 +342,32 @@ assert.equal(twoUnchanged.length,1,'occurrences sharing a status still merge int
 assert.equal(twoUnchanged[0].occurrenceIds.length,2);
 assert.equal(projectDisplayed(graph,'CLASS',['a','b'],'ALL').edges[0].reviewChange,undefined,'the ordinary map carries no review status');
 console.log('PASS: review overlay keeps one line per ordered pair and change status');
+
+// Step 13: collapsing a tree branch closes every nested package; collapse-all closes them all.
+{
+  const leaf=q=>({name:q.split('.').pop(),qualifiedName:q,packageIds:[],children:[]});
+  const tree=[{name:'com',qualifiedName:'com',packageIds:[],children:[{name:'acme',qualifiedName:'com.acme',packageIds:[],children:[leaf('com.acme.api'),leaf('com.acme.core')]}]},leaf('org')];
+  const opened={'com':true,'com.acme':true,'com.acme.api':true,'org':true};
+  const closed=collapseBranch(opened,tree[0].children[0]);
+  assert.deepEqual(closed,{'com':true,'com.acme':false,'com.acme.api':false,'com.acme.core':false,'org':true},'nested packages close with their parent; siblings keep their state');
+  assert.equal(opened['com.acme.api'],true,'input is not mutated');
+  assert.deepEqual(collapseAll(tree),{'com':false,'com.acme':false,'com.acme.api':false,'com.acme.core':false,'org':false});
+  console.log('PASS: tree collapse cascades to nested packages');
+}
+
+// Step 13 review (P3, rejected): the card menu counts "Expand N selected" with hasDetailsButton
+// (detailCount > 0) while the queue expands only what childrenOf returns. Pin that, for every drawn
+// expandable card under whole-system and custom scopes, the two agree.
+{
+  const tree={nodes:[{id:'p1',kind:'PACKAGE',simpleName:'api'},{id:'p2',kind:'PACKAGE',simpleName:'svc'},{id:'p3',kind:'PACKAGE',simpleName:'empty'},
+    {id:'a',kind:'CLASS',simpleName:'A',parentId:'p1'},{id:'an',kind:'CLASS',simpleName:'Inner',parentId:'a'},{id:'b',kind:'INTERFACE',simpleName:'B',parentId:'p2'},{id:'c',kind:'ENUM',simpleName:'C',parentId:'p2'},
+    {id:'a1',kind:'METHOD',simpleName:'run',parentId:'a'},{id:'b1',kind:'METHOD',simpleName:'go',parentId:'b'}],edges:[]};
+  for (const scope of [ALL,custom(['p1']),custom([],['b']),custom([],['an']),custom([],[])]) {
+    const shown=['p1','p2','p3'].filter(id=>scope.mode==='ALL'||getPackageCheckState(tree.nodes.find(n=>n.id===id),scope,tree)!=='unchecked');
+    const view=projectDisplayed(tree,'PACKAGE',shown,'ALL',{expansions:shown.map(id=>({id,ownerId:null})),scope});
+    for (const card of view.nodes.filter(n=>n.kind!=='METHOD')) {
+      assert.equal((card.detailCount||0)>0,childrenOf(tree,card,scope).length>0,`menu count and expansion agree for ${card.id} in ${JSON.stringify([...scope.selectedPackageIds,...scope.selectedClassIds])}`);
+    }
+  }
+  console.log('PASS: the card menu expand count matches what expanding shows, under any scope');
+}

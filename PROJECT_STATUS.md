@@ -1,8 +1,10 @@
 # Project status
 Last updated: 2026-09-28
 Active milestone: R6 — Developer comprehension redesign (in progress)
-Current revision: incoming relation stack (the stack button's second press, docs/OUTGOING_STACK.md
-"Incoming stack"), on top of
+Current revision: step 13 (card menu Expand/Collapse + View source, cascading tree collapse,
+Entry points Explore → outgoing stack, kind icons) merged with main's
+incoming relation stack (the stack button's second press, docs/OUTGOING_STACK.md
+"Incoming stack"), both on top of
 step 12 follow-up (candidate calls reverted, uniform route colour, Changes-mode
 source-root fix), on top of
 step 12 phases B/C review fixes (analyzer visibility and lexical-receiver rules,
@@ -25,6 +27,190 @@ toggle with a git-style diff code viewer, exploration tabs with per-tab undo/red
 and selection controls, the R6 change-edges slice (one line per direction,
 directional selection emphasis, file-grouped evidence), in-place card details
 (expand packages/classes) and resizable cards; Step 6A remains unstarted
+
+## Step 13: card menu, tree collapse, entry-point stack, kind icons (2026-09-28)
+
+Source: `~/prompts/step13/simple.txt`, four items. The design was settled in a grilling round;
+"detail view" in item 1 means the read-only source viewer, since the card's "details" button
+already expands it. One commit per item. No ADR: the reveal becoming one undo step refines the
+undo contract (docs/STABLE_GRAPH_INTERACTIONS.md, updated) rather than departing from it.
+
+1. **Card menu** (`GraphCanvas.tsx`): Expand/Collapse follows the right-clicked card's state and
+   applies to every selected card that can make the same change; View source opens the clicked
+   card's source (not on packages, which have no range). The menu is lifted to its measured height,
+   so the taller menu stays inside the stage (it was clipped at the bottom before this fix).
+   - Shared seam: `useExplorerJourneys.beginGroup()` plus an optional explicit group on
+     `update`/`dispatchView`, and an App-level sequential expand queue (one card per render, since
+     each expansion's geometry reads the previous result). The queue is one undo step. A strict
+     queue (a reveal) is dropped when a card cannot be toggled and never resumes; the queue is
+     also cleared on undo/redo, tab/journey switch and graph change.
+   - `toggleExpand` now acts on the drawn card (so a nested reveal records the box it sits in) and
+     returns whether it dispatched.
+2. **Scope tree**: collapsing a branch closes every nested package (`scopeModel.collapseBranch`);
+   **Collapse all** (`collapseAll`) closes the tree and is disabled while a search forces it open.
+   Each is one `treeOpen` edit, so one undo step.
+3. **Entry points → Explore**: switches to the Code map, expands the handler's ancestors, inspects
+   the handler (`inspectNode`, never `select`, so a second Explore does not deselect) and roots
+   its outgoing stack. The tab switch and expansions are one undo step; inspection and the stack
+   root are selection (ADR 0009). A handler outside the current scope is disabled with
+   "Outside scope"; a route whose handler is missing says "Handler not found". An ancestor that
+   cannot open still inspects the handler. Undoing Explore takes the handler's card off the map,
+   so its stack ends with it (checked in the browser).
+   - Follow-up (review): tree `⌖` / inspector View classes/methods on a card inside collapsed
+     cards opened nothing once `toggleExpand` began requiring a drawn card (before, it recorded an
+     expansion for an undrawn card that never showed). It now opens the ancestors and the card
+     through the same queue, and the whole reveal is one undo step.
+4. **Kind icons**: the cube is replaced by a folder (packages) or an IntelliJ-style letter
+   (C I E R @ m c f). The badge keeps the role tint (service/repository/default), so the role cue
+   survives; the tree's type rows use the same letters.
+
+Verification (all run in this session):
+- `cd frontend && npm ci && npx tsc -b --force && npm run build`: PASS; the existing Vite
+  chunk-size advisory.
+- `for t in test-graph-model test-explorer-view-state test-graph-placement test-focused-arrangement
+  test-explorer-journeys test-node-card test-source-evidence test-review-model test-outgoing-stack
+  test-expansion-layout test-file-diff test-review-placement; do node scripts/$t.mjs; done`: PASS,
+  all 12 (journeys 50, including the new explicit-group check; graph-model gains the tree-collapse
+  cases; node-card gains the kind-icon cases).
+- `./gradlew bootJar`: PASS.
+- Browser, packaged jar on 8095 with an isolated data dir, model URL `http://127.0.0.1:9/v1`,
+  headless snap Chromium on 9333, fixtures copied under the session scratchpad:
+  - new `node scripts/verify-step13-ui.mjs <microservice copy>`: **PASS 36/36** on the final
+    build, zero page/console errors. Earlier runs failed:
+    - for script reasons: a missing CDP preamble, then a duplicate one; the tree walk assumed
+      `com.kipper` was absent; the handler was looked up by a name that two methods share; and the
+      Entry points tab click, which is its own undo step, was miscounted
+    - for product defects, both fixed: switching to the map tab was a separate undo step from the
+      reveal, and the taller card menu was clipped at the bottom of the stage (now lifted to its
+      measured height and checked)
+  - `node scripts/verify-explorer-journeys.mjs <microservice copy>` (APP=8095): PASS 51/51.
+  - `node scripts/verify-outgoing-stack-ui.mjs <microservice copy> <gitfix> <base oid> <chainfix>
+    <journey-candidates copy>` (fixtures generated per the step 12 phase B/C recipe): PASS 81/81.
+  - The microservice copy's SHA-256 was unchanged and the backend log shows 0 model requests.
+- Screenshots in `docs/evidence/step13/`, inspected: `01` folder icons on package cards; `02`
+  package menu with Expand, no View source, fully inside the stage; `03` C and I letters in an
+  expanded package; `04` View source dialog for EventService; `05` two packages expanded from one
+  menu action; `07`/`08` cascade and Collapse all; `09`/`11` Entry points, all controller rows
+  "Outside scope" once controllers leave the scope; `10` Explore landing with the handler
+  inspected and its stack rooted (1 layer, 2 resources); `12` tree View methods opening the
+  collapsed controllers package and EventController in place.
+
+- `CHROMIUM=/snap/bin/chromium python3 scripts/verify_hierarchical_pipeline.py` (run twice): FAIL
+  at `verify-hierarchical-ui.mjs:88`, clicking the removed `.segmented button` "Classes" level
+  control. This is the known pre-existing breakage recorded in the package-only view entry. The
+  card-menu scenarios before it passed on this build: open, reopen, outside-click dismiss, and
+  Remove from scope through the menu's first item.
+
+Not run:
+- `./gradlew test`: no backend change.
+- `verify_stable_graph_pipeline.py` (drives `verify-stable-graph-ui.mjs`, which uses the card
+  menu): known broken on the removed level switcher, as above.
+- `verify_change_edges_pipeline.py`, `verify_git_review_pipeline.py`: their UI scripts don't use
+  the card menu, the scope tree's disclosure/toolbar, the route cards or the card icon (grepped).
+  Their level-switcher scenarios are also known broken.
+
+Codex ultrareview (`/home/sajjad/prompts/step13/review-report.md`): verdict SHIP, one P3 finding.
+The report lists 5 mutations as caught. Each was re-run in a private `git archive` copy (the
+checkout was never mutated):
+- **M1 (the hook ignores the explicit group): NOT caught, contrary to the report.** The
+  step-13 journeys check drives `journeysReducer` directly, so it never calls the hook's `update`.
+  Added "step 13 review: the hook joins explicit-group updates across renders" to
+  `scripts/test-explorer-journeys.mjs`. It uses the existing synchronous React stand-in, with
+  microtask boundaries standing for renders. Result: PASS 51/51 clean; under M1 it fails with
+  "three renders sharing beginGroup() are one undo step".
+- **M2 (`collapseBranch` without recursion): caught** by `test-graph-model.mjs` ("nested packages
+  close with their parent").
+- M3–M5 were run with `verify-step13-ui.mjs`. Each got its own jar, built from the mutated copy
+  (port 8096, snap Chromium on 9334, model URL on closed port 9). A clean control run of the
+  unmutated copy passed first (36/36).
+- **M3 (Explore's completion calls `select` instead of `inspectNode`): NOT caught, contrary to the
+  report** (36/36 under the mutation). The "second Explore" check was vacuous: after the undo
+  sequence before it, the handler was no longer inspected, so `select` just inspected it. The
+  script now Explores, asserts the precondition that the handler is inspected, Explores the same
+  row again, and waits past the 250 ms reclick window. It then checks that the handler is still
+  inspected and still the stack root. Under M3: FAIL "a second Explore keeps the handler
+  inspected" (37/38).
+- **M4 (menu height clamp disabled): caught.** FAIL "the taller menu stays inside the map stage"
+  (37/38). The report's literal `setMenuTop(null)` doesn't compile (`limit` unused, TS6133), so
+  the mutation used was `setMenuTop(limit<-1e9?limit:null)`.
+- **M5 (`toggleExpand` looks up `graph.nodes` instead of the drawn cards): caught.** The first
+  Explore never draws the handler (no `containerId`, so `ownerId: null`), and the run fails at
+  "Timed out: stack rooted" after 23 passing checks.
+- Clean control with the strengthened script: `verify-step13-ui.mjs` **PASS 38/38**.
+  `node scripts/test-explorer-journeys.mjs`: PASS 51. All 12 `scripts/test-*.mjs`: PASS.
+- **P3 "Expand N selected" overcounts a package whose types are all out of scope: rejected after
+  verification.** The report says `hasDetailsButton` ignores scope. That's wrong: the canvas cards
+  come from `projectDisplayed(..., expansionInput)`, whose `decorate` computes a package's
+  `detailCount` from the same in-scope types that `childrenOf` returns (`graphModel.ts`, already
+  pinned at `test-graph-model.mjs` "detailCount … custom scope"). The scenario also can't occur,
+  because a package whose types are all out of scope is unchecked and therefore not drawn.
+  - Added an invariant check to `scripts/test-graph-model.mjs`: for every drawn card under
+    whole-system and four custom scopes, `detailCount > 0` iff `childrenOf` is non-empty.
+  - Mutation: dropping the scope filter from `decorate` turns the suite red. The file was restored
+    and `git diff` is clean.
+  - `node scripts/test-graph-model.mjs`: PASS.
+
+Limits: a queue step whose dispatch the reducer ignores (a stale generation) stays in flight until
+the next expansion change, which then drops it; no case of this was observed.
+
+### Merge of main (incoming stack) into step13 (2026-09-28)
+
+`git merge origin/main` (639ed08, PR #1 incoming relation stack) into `step13`, a merge and not a
+rebase. Conflicts were in `App.tsx`, `GraphCanvas.tsx`, `docs/OUTGOING_STACK.md` and this file.
+- The card menu keeps main's two stack items ("Show/Hide outgoing stack", "Show/Hide incoming
+  stack", `onToggleStack(id, direction)`). Each one now runs through step 13's `menuSingle`, which
+  does the right-click `addedId` cleanup that main had inlined, so the cleanup happens once.
+  Expand/Collapse and View source follow them.
+- GraphCanvas takes main's `stackRoot`/`onCycleStack`/`onToggleStack` plus step 13's
+  `onToggleExpandMany`. App passes `onToggleExpandMany={toggleExpandMany}` alongside main's props.
+- Entry points → Explore used to set `outgoingStackRootId`. It now sets main's
+  `relationStack: { rootId, direction: 'out' }` explicitly, so it replaces an incoming stack or a
+  stack on another root, and it is a no-op only when that exact outgoing stack is already shown.
+- The step 13 journey check in `scripts/test-explorer-journeys.mjs` used the removed
+  `outgoingStackRootId` field and was moved to `relationStack`.
+- `docs/OUTGOING_STACK.md` "Activation and lifetime" keeps main's three-state button and both menu
+  items, and adds the Explore bullet using `relationStack` terms.
+
+Verification:
+- `cd frontend && npx tsc -b --force && npm run build`: PASS (node_modules was present, so `npm ci`
+  was not run).
+- `for t in scripts/test-*.mjs; do node "$t" …; done`: all 12 PASS. `test-explorer-journeys.mjs`
+  reports 55 checks.
+- `./gradlew bootJar -q`: PASS.
+- Browser suites ran against an isolated jar on 8097 (closed model port 9) and headless Chromium on
+  9335:
+  - `verify-step13-ui.mjs`: **38/38**
+  - `verify-explorer-journeys.mjs`: **51/51**
+  - `verify-outgoing-stack-ui.mjs` (microservice copy, generated git fixture, chain fixture, fresh
+    `journey-candidates` copy): **108/108**, the same count as main's report
+  - The microservice fixture's hash was unchanged afterwards. Both processes were stopped by their
+    saved PIDs, and ports 8097 and 9335 were free.
+- Screenshots inspected: the stack suite's `17-keyboard-menu` and `in-01-incoming-stack`, and step
+  13's `02-package-menu` and `10-entry-explore-stack`. The menu shows both stack items, then
+  Expand, then Deselect. The Explore stack reads "Outgoing stack: 1 layer · 2 resources".
+- Not run: backend `./gradlew test` (no backend change on either side) and the Python
+  `verify_*_pipeline.py` suites.
+
+Lead review of the merge, run independently of the merge run above:
+- Checked by reading: merge parents `2732813` + `639ed08`; no conflict markers; no remaining
+  `outgoingStackRootId`/`onToggleOutgoingStack` in `frontend/src` or `scripts`. `relationStack` is
+  still classified as selection (`explorerJourney.ts` `selectionChanged`/`isSelectionOnly`), so
+  Explore stays one undo step.
+- Gap closed: `verify-step13-ui.mjs` had no check on the stack's direction. Three checks were added:
+  1. the first Explore's stack is outgoing (inspector summary `^Outgoing stack:`);
+  2. setup: the handler's card menu "Show incoming stack" gives `^Incoming stack:`;
+  3. the second Explore turns it back to outgoing.
+- `npx tsc -b --force`: PASS. All 12 `scripts/test-*.mjs`: PASS (journeys 55). `./gradlew bootJar`:
+  up to date with the merged source.
+- Fresh isolated run (jar on 8098, closed model port 9, headless Chromium on 9336):
+  `verify-step13-ui.mjs` **41/41**; `verify-explorer-journeys.mjs` **51/51**;
+  `verify-outgoing-stack-ui.mjs` **108/108**. The fixture hash was unchanged, there were 0
+  `chat/completions`, both processes were stopped by PID, and the ports were free.
+- Evidence regenerated from this run: `docs/evidence/step13/` and
+  `docs/evidence/outgoing-stack/`, with the incoming `in-*` images and report copy in
+  `docs/evidence/incoming-stack/` following main's layout. Inspected `step13/02-package-menu`
+  (Remove, both stack items, Expand, Deselect, all inside the stage) and
+  `outgoing-stack/17-keyboard-menu` (the same items on the keyboard path).
 
 ## Incoming relation stack (2026-09-28)
 

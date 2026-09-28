@@ -56,3 +56,23 @@ console.log('nodeCard tests: PASS');
   assert.equal(hasDetailsButton({kind:'CLASS',memberCount:1,detailCount:0}),false,'a class holding only a nested type has nothing to expand into');
   console.log('nodeCard resize/corner tests: PASS');
 }
+
+// Step 13: the top-left badge names the kind -- a folder for packages, a distinct letter otherwise.
+{
+  const {kindIcon}=await import('data:text/javascript;base64,'+Buffer.from(compiled).toString('base64'));
+  const letters={CLASS:'C',INTERFACE:'I',ENUM:'E',RECORD:'R',ANNOTATION:'@',METHOD:'m',CONSTRUCTOR:'c',FIELD:'f'};
+  assert.equal(new Set(Object.values(letters)).size,Object.keys(letters).length,'kind letters are distinct');
+  assert.deepEqual(kindIcon('PACKAGE'),{folder:true});
+  for(const [kind,letter] of Object.entries(letters)){
+    assert.deepEqual(kindIcon(kind),{folder:false,letter},kind);
+    const svg=decodeURIComponent(nodeCard({id:kind,kind,simpleName:'Thing'}).image);
+    assert.ok(svg.includes(`font-weight="700" fill="#398bb3">${letter==='@'?'@':letter}</text>`),`${kind} card draws its letter`);
+    assert.ok(!svg.includes('M8 7l7-4 7 4'),`${kind} card no longer draws the cube`);
+  }
+  const pkg=decodeURIComponent(nodeCard({id:'p',kind:'PACKAGE',simpleName:'com.acme'}).image);
+  assert.ok(pkg.includes('M1.8 4.3')&&!pkg.includes('M8 7l7-4 7 4'),'package card draws the folder');
+  // The role tint survives: a service keeps its teal badge whatever its kind letter.
+  const svc=decodeURIComponent(nodeCard({id:'s',kind:'INTERFACE',simpleName:'Svc',roles:['SERVICE']}).image);
+  assert.ok(svc.includes('fill="#16888a">I</text>'),'service interface: teal I');
+}
+console.log('node card: kind icons ok');

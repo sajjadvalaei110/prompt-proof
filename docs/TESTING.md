@@ -54,7 +54,8 @@ with an explicit `graphFor` rather than the render-time one. The incoming stack 
 the button cycle (outgoing -> incoming -> off on the root, outgoing on another card) and the menu's
 direct toggles as pure functions; a direction switch adds no entry and keeps redo, and undo/redo
 carry the direction; an incoming root is pruned like an outgoing one; and Clone copies the
-direction (53 checks).
+direction. Step 13 adds that a sequential expand queue's renders sharing one explicit history
+group form one undo step, and that the hook joins explicit-group updates across renders (55 checks).
 
 `node scripts/test-outgoing-stack.mjs` pins the pure layer computation
 (`docs/OUTGOING_STACK.md` §Traversal) over hand-computable fact graphs: an undrawn root, an empty

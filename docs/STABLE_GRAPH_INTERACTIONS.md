@@ -56,6 +56,8 @@ Selection dimming does not make a relationship filtered out.
 | Toggle Changes | Switch review styling and retained-source inspection for the current map | Preserve the current scope, surviving card positions, expansion and sizes; do not restore a separate mode's old arrangement | Preserved |
 | Details (⊞) on a package or class card | Expand the card in place into a box of its in-scope types or its methods; routes resolve to the deepest visible card | Cards right of / below the card shift by the box's growth (cascading through enclosing boxes), clamped against any sibling that did not itself shift on that axis so it is never crossed; others preserved | Preserved |
 | Collapse (⊟) an expanded card | Return to a card at the box's top-left corner, closing nested expansions | Cards right of / below the box shift back by the shrink, with the same clamp as expand (review remediation F-01: an earlier per-card rule could pull a shifted sibling across one that stayed put) | Preserved |
+| Card menu (right-click) Expand / Collapse / View source | Expand or collapse the card; with the card in a multi-selection, every selected card that can make the same change. View source opens the read-only source of the clicked card | Same as Details / Collapse for each card, applied one card after another; the whole action is **one** undo step | Preserved |
+| Entry points → Explore | Switch to the Code map, expand the handler's ancestors, inspect the handler and root its outgoing stack. A handler outside the current scope cannot be explored (the row says "Outside scope") | Same as Details for each ancestor; the tab switch and all expansions are **one** undo step (inspection and the stack root are selection, ADR 0009) | Preserved |
 | Resize a card or expanded box (corner grip) | Change its size; a card keeps its top-left corner. Escape or a cancelled gesture reverts to the pre-drag size, dispatching nothing | On release, cards right of / below it shift by the size change, clamped the same way as expand/collapse | Preserved |
 
 Initial placement in a new snapshot or a never-visited abstraction level creates
@@ -129,6 +131,9 @@ Acceptance:
   another element or clearing selection updates emphasis without layout or fitting.
 - Tree labels and checkboxes have separate hit targets. Labels inspect; checkboxes
   change scope; disclosure controls only expand/collapse the tree.
+  Collapsing a tree branch also collapses every package nested in it, so reopening it
+  shows them closed; **Collapse all** closes the whole tree (disabled while a search
+  forces it open). Each is one undo step.
 - Inspecting a resource outside the current map opens its details without injecting
   it into scope or changing levels. State "Not shown in the current map" where useful.
 
@@ -153,9 +158,10 @@ Acceptance:
   in the inspector or resource action menu. It invokes this same command, not a third
   arrangement mode. Disable it when the resource is absent from the current map.
 - There is no separate class/method level to drill into (ADR 0007): the map is
-  package-only. **View methods**/**View classes** (tree `⌖`, inspector buttons, entry-
-  point route cards, deep links) expand the target's card in place instead of
-  switching levels, then select it.
+  package-only. **View methods**/**View classes** (tree `⌖`, inspector buttons, deep
+  links) expand the target's card in place, opening any collapsed ancestor first, instead
+  of switching levels, then select it; the whole reveal is one undo step. Entry-point
+  route cards reveal the handler method and root its outgoing stack (see the table above).
 
 ## Story 3 — Reorder the map I am actually viewing
 
