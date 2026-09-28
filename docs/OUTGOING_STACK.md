@@ -1,6 +1,8 @@
-# Outgoing relation stack
+# Outgoing relation stack (and its incoming mirror)
 
-Status: implemented (2026-09-24, step 12 phase B), on top of
+Status: implemented (2026-09-24, step 12 phase B). The **incoming stack** was added 2026-09-28 (user
+decisions, see "Incoming stack" below): the same button's second press shows the exact mirror in
+the incoming color. Phase B built on top of
 [ADR 0009](adr/0009-selection-outside-undo-history.md). Traversal revised 2026-09-25 (user
 decision, see "Traversal" and the implementation notes): the walk follows parser facts at the
 root's granularity, not the drawn routes. Extended 2026-09-25 (step 12 phase C, user decisions
@@ -94,8 +96,10 @@ calls into C.
 
 - **Entry points:**
   - an on-card overlay button next to the details/expand toggle, shown on the selected card and
-    on hover
-  - a context-menu item, "Show outgoing stack" / "Hide outgoing stack"
+    on hover. Since 2026-09-28 it has three states on the root: off -> outgoing -> incoming -> off.
+    On any other card it starts a fresh outgoing stack there.
+  - context-menu items, "Show outgoing stack" / "Hide outgoing stack" and (since 2026-09-28)
+    "Show incoming stack" / "Hide incoming stack"
 
   Both are keyboard reachable. The toggle is a focusable button. The menu opens from the keyboard
   with **Shift+F10** or the **ContextMenu** key, either on a focused corner button of the card or
@@ -106,22 +110,30 @@ calls into C.
 - **While active:** the button stays shown in a pressed state **on the root card**, whatever is
   selected. Its tooltip reads "Outgoing stack: N layers · M resources", with " · K beyond the map"
   appended when K > 0 (D5). The same line appears in the inspector when the root is inspected.
+  Since 2026-09-28 the tooltip also says what the next press does: " (click for incoming)" or
+  " (click to hide)". The inspector line has no such suffix.
 - **Pinned root:** selecting another card (or clearing selection) does not re-root or end the
   stack. The inspector follows the selection. The selected card gets the normal `inspected`
   outline on top of its badge, but not its own neighborhood emphasis.
 - **Ends only when:**
-  - the button (or menu item) is pressed again
+  - the button (or menu item) is pressed again. Since 2026-09-28 the root's button needs two more
+    presses (outgoing -> incoming -> off), and a menu item ends only its own direction.
   - **Esc** is pressed. Esc is layered: open menus and resize cancellation take it first, then the
     stack. A second Esc performs today's clear-selection/fullscreen behavior.
   - the root card is no longer displayed: removed from scope, its container collapsed, a level
     switch, undo, or a Changes recapture. The stack never silently re-roots to a container.
-- **State:** `outgoingStackRootId: string | null` on the per-tab `Journey`. It is **outside undo
-  history** (a `TRANSIENT_UPDATE`, like `fullscreen`). Clone tab copies it, and
-  `revalidateJourney.ts` prunes it.
+- **State:** `outgoingStackRootId: string | null` on the per-tab `Journey`. Since 2026-09-28 this is
+  `relationStack: { rootId, direction: 'out' | 'in' } | null`, one value, so switching direction on
+  the same root is a selection-only change like re-rooting. It is **outside undo
+  history** as a selection-only `UPDATE` (no history entry, redo kept), carried and pruned on
+  undo/redo like selection (ADR 0009); see the implementation note "Outside undo history (accepted
+  deviation ...)" below. Clone tab copies it, and `revalidateJourney.ts` prunes it.
 
 ## Visual treatment
 
-These are applied on top of the ADR 0008 palette (`HALO.out` = `#0EA5E9`):
+These are applied on top of the ADR 0008 palette (`HALO.out` = `#0EA5E9`). An incoming stack
+(2026-09-28) uses `HALO.in` = `#6366F1` instead wherever `HALO.out` appears below, and its chain
+routes take `flow-in` instead of `flow-out` (see "Incoming stack", decision 4):
 
 - **Replaces the selection emphasis** while active: no `flow-in` / `rel-in` / `rel-both`. The root
   keeps its `inspected` look.
@@ -146,11 +158,53 @@ These are applied on top of the ADR 0008 palette (`HALO.out` = `#0EA5E9`):
 
 ## Out of scope
 
-- An incoming stack (the mirror image). The helper should take a direction parameter so this is
-  cheap later, but no UI is added for it.
+- ~~An incoming stack (the mirror image).~~ Added 2026-09-28, see "Incoming stack".
 - Reordering, arranging or fitting the map to the chain.
 - Traversing through filtered kinds or cards out of scope or off the page. (Collapsed internals
   *are* walked since 2026-09-25: the walk runs over facts, see Traversal.)
+
+## Incoming stack (2026-09-28)
+
+User request: "exact thing we have on outgoing stack but for incoming edges bfs", on the same
+button, colored like the incoming halo when a resource is selected. Decisions from the grilling
+round, all recommendations accepted:
+
+1. **Button cycle.** On the root the button goes outgoing -> incoming -> off. On any other card,
+   including while an incoming stack is shown elsewhere, it starts a fresh outgoing stack there,
+   as the phase B re-root did. The aria-label names what a press does: "Show outgoing stack of X",
+   then "Show incoming stack of X", then "Hide incoming stack of X". `aria-pressed` is true in both
+   active states.
+2. **Context menu.** Two direct items, "Show/Hide outgoing stack" (⇶) and "Show/Hide incoming
+   stack" (⇇). Each roots its own direction on the card, or ends the stack when that direction is
+   the one shown. Neither item cycles. The keyboard path and the right-click multi-selection cleanup
+   (B1, B6) apply to both.
+3. **Escape** ends the stack whatever its direction, with the same layering: menus and resize first,
+   then the stack, then the selection.
+4. **Color.** The incoming stack uses `HALO.in` (`#6366F1`) where the outgoing one uses `HALO.out`:
+   the badge border (and a dark indigo number), the static chain-card outline (`stack-member
+   stack-in`), the chain-route underlay (chain routes take `flow-in` instead of `flow-out`), the
+   pressed button (`.map-stack-button.active.incoming`) and the inspector line
+   (`.stack-summary.incoming`). The root keeps its teal `inspected` / `stack-root` look. Routes keep
+   their factual line color, arrow and source-to-target dash motion, so in an incoming stack the
+   dashes flow toward the root.
+5. **Exact mirror.** `outgoingStack({ direction: 'in' })` reverses every step the outgoing walk
+   keeps (Traversal, after the method-level rules), with the same granularity, representatives,
+   0-1 BFS, dense ranking, covered cards, chain routes and beyond-the-map count. Consequences:
+   - A type root reaches its implementors and subclasses (reverse IMPLEMENTS/EXTENDS). The outgoing
+     stack deliberately does not follow implementors from a class root; the incoming one does,
+     because "who depends on this interface" includes its implementations.
+   - At method level, reversed dispatch gives `Impl.run` <- `Iface.run` <- the callers of
+     `Iface.run`. A sibling implementation of `Iface.run` is not reached.
+   - A method root's incoming stack never shows terminal types. Constructing or using a type is
+     not a call of one of its methods.
+   - "Beyond the map" counts callers or dependents with no drawn card, where the chain stops.
+6. **Wording.** "Incoming stack: N layers · M resources", plus " · K beyond the map" when K > 0, in
+   the tooltip and the inspector (`stackSummary(stack, 'in')`).
+
+Implementation: `relationStack` on the `Journey` (see State). `cycleRelationStack` and
+`toggleRelationStack` in `explorerJourney.ts` are the pure button and menu transitions. App computes
+the stack with the root's direction, and `GraphCanvas` colors it by direction. The traversal code
+did not change: `direction: 'in'` existed since phase B.
 
 ## Verification
 
@@ -166,6 +220,10 @@ These are applied on top of the ADR 0008 palette (`HALO.out` = `#0EA5E9`):
   - cycles and self-loops, an expanded root, a reached expanded box with covered cards
   - removed-fact exclusion, the kind filter, chain routes via `occurrenceIds`
   - `direction: 'in'`, an empty stack, order independence
+  - incoming (2026-09-28): the summary prefix, the collapsed-hub mirror at class and package level,
+    reversed dispatch (impl <- interface method <- callers, no sibling implementation), no terminal
+    types for a method root, an interface root reaching implementors (and an empty outgoing stack
+    for it), beyond the map
 - Journey tests cover the transient root, clone copying, pruning on removal, and Esc layering (at
   the App level, if testable).
 - `cd frontend && npx tsc -b --force && npm run build`

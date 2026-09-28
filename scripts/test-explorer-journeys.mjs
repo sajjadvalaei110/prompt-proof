@@ -8,7 +8,7 @@ const compile = name => ts.transpileModule(fs.readFileSync(new URL(`../frontend/
 }).outputText.replace(/import \{[^}]*\} from ['"]\.\/[^'"]+['"];?\n?/g, '');
 const compiled = ['graphPlacement', 'scopeModel', 'graphModel', 'explorerViewState', 'explorerJourney', 'revalidateJourney'].map(name => name === 'explorerViewState'
   ? compile(name).replaceAll('HISTORY_LIMIT', 'NAVIGATION_HISTORY_LIMIT') : compile(name)).join('\n');
-const { initJourneys, journeysReducer: reduce, explorerViewReducer: viewReduce, HISTORY_LIMIT, newJourney, toggleJourneyReview, initExplorerViewState, revalidateJourneyState } = await import('data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'));
+const { initJourneys, journeysReducer: reduce, explorerViewReducer: viewReduce, HISTORY_LIMIT, newJourney, toggleJourneyReview, cycleRelationStack, toggleRelationStack, initExplorerViewState, revalidateJourneyState } = await import('data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'));
 let count = 0;
 const check = (name, fn) => { fn(); count++; console.log('PASS', name); };
 const active = s => s.tabs.find(t => t.id === s.activeId);
@@ -562,13 +562,52 @@ check('undo pruning skips the graph when nothing is selected or the displayed in
   d = update(d, 2, j => ({ ...j, view: viewReduce(j.view, { type: 'INSPECT_EDGE', id: 'aggregate:["p1","p2"]' }) }));
   assert.ok(nodeRun(n) < nodeRun(d), 'route sets are only built when a route is selected or trailed');
 });
-// Outgoing relation stack (docs/OUTGOING_STACK.md): the root is a pinned pointer like selection.
-// It never occupies history and ends when the map stops drawing it, whichever path removed it.
-const stackOn = (s, group, id) => update(s, group, j => ({ ...j, outgoingStackRootId: id }));
+// Relation stack (docs/OUTGOING_STACK.md): the root and direction are one pinned pointer like
+// selection. It never occupies history and ends when the map stops drawing it, whichever path removed it.
+const stackOn = (s, group, id, direction = 'out') => update(s, group, j => ({ ...j, relationStack: id ? { rootId: id, direction } : null }));
 const updateDrawn = (s, group, fn) => reduce(s, { type: 'UPDATE', id: s.activeId, group, update: fn, graphFor });
-const root = s => active(s).present.outgoingStackRootId;
-check('a new journey has no outgoing stack; turning one on and off creates no undo entry and keeps redo', () => {
-  assert.equal(newJourney().outgoingStackRootId, null);
+const rootOf = j => j.relationStack?.rootId ?? null;
+const root = s => rootOf(active(s).present);
+const direction = s => active(s).present.relationStack?.direction ?? null;
+check('the stack button cycles outgoing -> incoming -> off on the root and starts outgoing elsewhere', () => {
+  let rs = cycleRelationStack(null, 'a');
+  assert.deepEqual(rs, { rootId: 'a', direction: 'out' });
+  rs = cycleRelationStack(rs, 'a');
+  assert.deepEqual(rs, { rootId: 'a', direction: 'in' });
+  assert.equal(cycleRelationStack(rs, 'a'), null);
+  assert.deepEqual(cycleRelationStack(rs, 'b'), { rootId: 'b', direction: 'out' }, 'another card starts a fresh cycle, even from incoming');
+  assert.deepEqual(cycleRelationStack({ rootId: 'a', direction: 'out' }, 'b'), { rootId: 'b', direction: 'out' });
+});
+check('a menu item roots its own direction directly, or ends it when it is the one shown', () => {
+  assert.deepEqual(toggleRelationStack(null, 'a', 'in'), { rootId: 'a', direction: 'in' }, 'incoming straight from off');
+  assert.deepEqual(toggleRelationStack({ rootId: 'a', direction: 'out' }, 'a', 'in'), { rootId: 'a', direction: 'in' });
+  assert.equal(toggleRelationStack({ rootId: 'a', direction: 'in' }, 'a', 'in'), null);
+  assert.equal(toggleRelationStack({ rootId: 'a', direction: 'out' }, 'a', 'out'), null);
+  assert.deepEqual(toggleRelationStack({ rootId: 'a', direction: 'in' }, 'b', 'in'), { rootId: 'b', direction: 'in' });
+});
+check('switching direction on the same root creates no undo entry, keeps redo, and survives undo/redo', () => {
+  let s = initJourneys(mapJourney(['p1', 'p2']));
+  s = moveCard(s, 1, 'p2', { x: 400, y: 0 }); s = moveCard(s, 2, 'p2', { x: 500, y: 0 }); s = undo(s);
+  s = update(s, 3, j => ({ ...j, relationStack: cycleRelationStack(j.relationStack, 'p1') }));
+  s = update(s, 4, j => ({ ...j, relationStack: cycleRelationStack(j.relationStack, 'p1') }));
+  assert.equal(direction(s), 'in');
+  assert.equal(active(s).past.length, 1, 'neither press is an undo entry');
+  assert.equal(active(s).future.length, 1, 'neither press discards redo');
+  s = redo(s);
+  assert.deepEqual(active(s).present.relationStack, { rootId: 'p1', direction: 'in' }, 'redo carries the current direction');
+  s = undo(s); s = undo(s);
+  assert.deepEqual(active(s).present.relationStack, { rootId: 'p1', direction: 'in' }, 'undo carries the current direction');
+  s = update(s, 5, j => ({ ...j, relationStack: cycleRelationStack(j.relationStack, 'p1') }));
+  assert.equal(root(s), null, 'the third press ends the stack');
+});
+check('an incoming stack ends when its root leaves the map, like an outgoing one', () => {
+  let s = initJourneys(mapJourney(['p1', 'p2']));
+  s = stackOn(s, 1, 'p2', 'in');
+  s = showOnly(s, 2, ['p1']);
+  assert.equal(active(s).present.relationStack, null);
+});
+check('a new journey has no relation stack; turning one on and off creates no undo entry and keeps redo', () => {
+  assert.equal(newJourney().relationStack, null);
   let s = initJourneys(mapJourney(['p1', 'p2']));
   s = moveCard(s, 1, 'p1', { x: 9, y: 9 }); s = moveCard(s, 2, 'p1', { x: 19, y: 19 }); s = undo(s);
   s = stackOn(s, 3, 'p1');
@@ -630,16 +669,16 @@ check('without a graph, an ordinary update prunes the root against the view\'s o
   assert.equal(root(s), null);
 });
 check('a mode switch and a review recapture end a stack whose root the target graph lacks', () => {
-  const j = { ...mapJourney(['p1', 'p2']), outgoingStackRootId: 'p2' };
+  const j = { ...mapJourney(['p1', 'p2']), relationStack: { rootId: 'p2', direction: 'in' } };
   const without = { nodes: fixtureGraph.nodes.filter(n => n.id !== 'p2'), edges: [] };
-  assert.equal(revalidateJourneyState(j, without, true).outgoingStackRootId, null);
-  assert.equal(revalidateJourneyState(j, fixtureGraph, false).outgoingStackRootId, 'p2', 'a root the target still has is kept');
+  assert.equal(revalidateJourneyState(j, without, true).relationStack, null);
+  assert.deepEqual(revalidateJourneyState(j, fixtureGraph, false).relationStack, { rootId: 'p2', direction: 'in' }, 'a root the target still has is kept, with its direction');
   let s = initJourneys(mapJourney(['p1', 'p2']));
   s = update(s, 1, j => ({ ...j, ...toggleJourneyReview(j, true, 'rk1') }));
   s = stackOn(s, 2, 'p2');
   s = reduce(s, { type: 'NEW' }); s = stackOn(s, 3, 'p1');
   s = reduce(s, { type: 'REVIEW_RECAPTURED', reviewKey: 'rk2', graphFor, reconcile: j => ({ ...j, view: viewReduce(j.view, { type: 'SCOPE_UPDATED', eligibleIds: ['p1'], batchSize: Infinity, placement: placed(['p1']) }) }) });
-  assert.equal(s.tabs[0].present.outgoingStackRootId, null, 'the recaptured review tab no longer draws its root');
+  assert.equal(rootOf(s.tabs[0].present), null, 'the recaptured review tab no longer draws its root');
   assert.equal(root(s), 'p1', 'a tab that never touched review is left alone');
 });
 check('dragging an expanded child with a stack active never reprojects the map and keeps the root', () => {
@@ -691,16 +730,16 @@ check('the async Changes load: updateTab prunes with the explicit graph, not the
   journeys.updateTab(1, enterChanges, j => j.review ? derivedGraph : null);
   const tab = hook.current().tabs.find(t => t.id === 1);
   assert.equal(tab.present.review, true);
-  assert.equal(tab.present.outgoingStackRootId, 'c2', 'the load result\'s graph decides the prune');
+  assert.equal(rootOf(tab.present), 'c2', 'the load result\'s graph decides the prune');
   hook.seed.state = null;
 });
-check('Clone copies the stack; the copies then change independently', () => {
+check('Clone copies the stack and its direction; the copies then change independently', () => {
   let s = initJourneys(mapJourney(['p1', 'p2']));
-  s = stackOn(s, 1, 'p1');
+  s = stackOn(s, 1, 'p1', 'in');
   const source = s.activeId;
   s = reduce(s, { type: 'CLONE' });
-  assert.equal(root(s), 'p1');
+  assert.deepEqual(active(s).present.relationStack, { rootId: 'p1', direction: 'in' });
   s = stackOn(s, 2, 'p2');
-  assert.equal(s.tabs.find(t => t.id === source).present.outgoingStackRootId, 'p1');
+  assert.deepEqual(s.tabs.find(t => t.id === source).present.relationStack, { rootId: 'p1', direction: 'in' });
 });
 console.log(`${count} journey checks passed`);

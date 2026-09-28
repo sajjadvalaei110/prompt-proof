@@ -50,7 +50,11 @@ graph-less fallback, mode revalidation and recapture end it, and Clone copies it
 review fixes add: dragging an expanded child never reprojects the map (a `graphFor` spy) and keeps
 the root; entering Changes keeps a drawn child root with a layout-derived position when the review
 graph is known; and `useExplorerJourneys.updateTab`, run under a synchronous React stand-in, prunes
-with an explicit `graphFor` rather than the render-time one (49 checks).
+with an explicit `graphFor` rather than the render-time one. The incoming stack (2026-09-28) adds:
+the button cycle (outgoing -> incoming -> off on the root, outgoing on another card) and the menu's
+direct toggles as pure functions; a direction switch adds no entry and keeps redo, and undo/redo
+carry the direction; an incoming root is pruned like an outgoing one; and Clone copies the
+direction (53 checks).
 
 `node scripts/test-outgoing-stack.mjs` pins the pure layer computation
 (`docs/OUTGOING_STACK.md` §Traversal) over hand-computable fact graphs: an undrawn root, an empty
@@ -67,10 +71,14 @@ no longer emits since the 2026-09-25 revert; the helper walks any resolution ali
 do not count); dispatch through reversed OVERRIDES to one and two implementations, with no forward
 walk and no implementors for class roots; card-hop layers without skips (the SubscriptionRepository
 shape) and dense ranking; and the beyond-the-map count and summary. A competing-path check (a longer
-path through one card against a hop chain) pins the 0-1 BFS: plain BFS fails it (34 checks).
+path through one card against a hop chain) pins the 0-1 BFS: plain BFS fails it. The incoming
+stack (2026-09-28) adds the "Incoming stack:" summary; the collapsed-hub mirror at class and package
+level; reversed dispatch (impl <- interface method <- callers, no sibling implementation); no
+terminal types for a method root; an interface root reaching its implementors through reverse
+IMPLEMENTS; and beyond the map (41 checks).
 
 `node scripts/verify-outgoing-stack-ui.mjs <microservice-java copy> <git fixture> <base oid> <chain fixture> <journey fixture>`
-(BACKEND/APP/DEBUG as below) is the stack's browser acceptance (81 checks). It activates the
+(BACKEND/APP/DEBUG as below) is the stack's browser acceptance (108 checks). It activates the
 stack from the on-card button, checks badges 1..N and the chain routes against an independent
 Node-side oracle computed from the API graph (written from the spec's rules, not from
 `outgoingStack.ts`), and checks that the root stays pinned while a layer-2 card is selected. It
@@ -81,12 +89,22 @@ clears the selection. Positions, camera and the redo branch must be unchanged th
 also covers the context menu (a menu-only right-click leaves no multi-selection; Deselect still acts
 on the right-click set), Enter on the focused button, the keyboard menu path (Shift+F10 and the
 ContextMenu key at the card, arrows, Escape returning focus, Enter on the item), focus kept on a
-toggle that turns the stack off, the minimum badge size at low zoom,
+toggle that changes state or turns the stack off (outgoing -> incoming -> off), the minimum
+badge size at low zoom,
 reduced motion and 375 px. In Changes mode on a generated three-package Git fixture it checks
 that the REMOVED route is not walked and that line colors and change fills stay factual. On a
 generated plain-source chain fixture (app.a P -> app.b Q; Q.q2 -> app.c T; app.b S -> app.d U) it
 checks package root app.a (b 1, c 2, d 2), class root P (b 1, c 2, d not reached and the drawn
-b -> d route not lit) and method root m (b 1 only). On a copy of `test-fixtures/journey-candidates`
+b -> d route not lit) and method root m (b 1 only). The incoming stack (2026-09-28) adds, on the
+microservice map: the drawn package with the deepest incoming stack (chosen by the oracle, run with
+`direction: 'in'`) reached by the root's second press. It then checks the pressed indigo button and
+"Hide incoming stack" label, badges 1..N against the oracle, indigo badges, outlines and route
+underlays with no `flow-out` route, the teal root, the "Incoming stack: ..." tooltip and inspector
+line, muting, no undo entry and unchanged geometry. Selecting a layer-1 card keeps the root, and
+that card's own button starts outgoing there. The third press ends the stack. The menu's direct
+"Show incoming stack" and "Show outgoing stack" items work, and Escape ends an incoming stack. On
+the chain fixture it checks the collapsed-hub mirror: incoming package root app.d gives b 1, a 2,
+and incoming class root U gives b 1 only. On a copy of `test-fixtures/journey-candidates`
 (step 12 phase C) it checks that the controller method's call stays UNRESOLVED with no CALLS/CANDIDATE
 anywhere (candidate calls reverted, ADR 0010 amendment 2026-09-25) and that the OVERRIDES fact
 exists, and the journeys of package root api and class root SignupController (service 1, dto 1,

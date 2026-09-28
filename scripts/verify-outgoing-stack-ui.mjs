@@ -1,4 +1,5 @@
-// Outgoing relation stack acceptance via Chromium CDP (docs/OUTGOING_STACK.md §Verification).
+// Relation stack acceptance (outgoing, and the incoming mirror on the button's second press) via
+// Chromium CDP (docs/OUTGOING_STACK.md §Verification).
 // Requires BACKEND, APP and DEBUG (a packaged jar on an isolated data dir, and a headless Chromium).
 //   node scripts/verify-outgoing-stack-ui.mjs <microservice-java copy> <git fixture> <git base oid> <chain fixture> <journey fixture>
 // The Git fixture has packages app.a, app.b and app.c. At the base commit A calls B and C. In the
@@ -62,9 +63,9 @@ const selected = () => evaluate(`document.querySelector('.inspector .subject-hea
 const redoEnabled = () => evaluate(`!document.querySelector('.journey-history button[title^="Redo"]').disabled`);
 // Layered cards as the overlay drew them, the chain's classes, and the stack button state.
 const stackState = () => evaluate(`(()=>{const cy=${CY},o=cy.scratch('atlas:directionOverlay')||{};const ids=c=>cy.elements(c).map(e=>e.id()).sort();return{
-  badges:(o.badges||[]).map(b=>({id:b.nodeId,layer:b.layer,height:b.height})).sort((a,b)=>a.id.localeCompare(b.id)),
-  roots:ids('.stack-root'),members:ids('.stack-member'),chainRoutes:ids('edge.flow-out'),muted:ids('.muted'),
-  pressed:[...document.querySelectorAll('.map-stack-button[aria-pressed=true]')].map(b=>({label:b.getAttribute('aria-label'),title:b.title})),
+  badges:(o.badges||[]).map(b=>({id:b.nodeId,layer:b.layer,height:b.height,color:b.color})).sort((a,b)=>a.id.localeCompare(b.id)),
+  roots:ids('.stack-root'),members:ids('.stack-member'),incomingMembers:ids('.stack-in'),chainRoutes:ids('edge.flow-out'),inRoutes:ids('edge.flow-in'),muted:ids('.muted'),
+  pressed:[...document.querySelectorAll('.map-stack-button[aria-pressed=true]')].map(b=>({label:b.getAttribute('aria-label'),title:b.title,direction:b.dataset.stackDirection||null,incoming:b.classList.contains('incoming'),color:getComputedStyle(b).borderColor})),
   summary:document.querySelector('[data-testid=outgoing-stack-summary]')?.textContent||null}})()`);
 const layers = s => Object.fromEntries(s.badges.map(b => [b.id, b.layer]));
 const geometryState = () => evaluate(`(()=>{const cy=${CY};return{nodes:cy.nodes().map(n=>({id:n.id(),p:n.position(),w:n.width(),h:n.height()})).sort((a,b)=>a.id.localeCompare(b.id)),camera:{zoom:cy.zoom(),pan:cy.pan()}}})()`);
@@ -83,7 +84,7 @@ const unchanged = async (label, before) => { const now = await geometryState(); 
 // the overridden method to its implementation. Distances are relaxed until stable (a step inside one
 // card, or into the root's own cards, costs 0, any other step 1), then ranked densely.
 const drawn = () => evaluate(`(()=>{const cy=${CY};return{cards:cy.nodes().map(n=>({id:n.id(),parent:n.parent().length?n.parent().id():null})),routes:cy.edges().map(e=>({id:e.id(),occ:e.data('occurrenceIds')||[]}))}})()`);
-function oracle(graph, view, rootId, kind = 'ALL') {
+function oracle(graph, view, rootId, kind = 'ALL', direction = 'out') {
   const byId = new Map(graph.nodes.map(n => [n.id, n]));
   const cardParent = new Map(view.cards.map(c => [c.id, c.parent]));
   const rootKind = byId.get(rootId).kind;
@@ -105,6 +106,8 @@ function oracle(graph, view, rootId, kind = 'ALL') {
     if (methodRoot && !v && ['CONSTRUCTS', 'CALLS', 'USES_TYPE'].includes(e.kind) && isTypeNode(byId.get(e.targetId))) v = e.targetId;
     if (!u || !v) continue;
     if (methodRoot && e.kind === 'OVERRIDES') [u, v] = [v, u];
+    // The incoming stack is the exact mirror: every step above, reversed.
+    if (direction === 'in') [u, v] = [v, u];
     steps.set(e.id, [u, v]);
     if (u !== v) pairs.push([u, v]);
   }
@@ -130,11 +133,14 @@ function oracle(graph, view, rootId, kind = 'ALL') {
   const chainRoutes = view.routes.filter(r => r.occ.some(o => steps.has(o) && dist.has(steps.get(o)[0]) && dist.has(steps.get(o)[1]))).map(r => r.id).sort();
   return { layers, rootSet: rootSet.sort(), covered, chainRoutes, beyond: beyond.size };
 }
-// The summary line, written from the spec: "Outgoing stack: N layers · M resources[ · K beyond the map]".
-const summaryOf = (depth, count, beyond) => `Outgoing stack: ${depth} ${depth === 1 ? 'layer' : 'layers'} · ${count} ${count === 1 ? 'resource' : 'resources'}${beyond ? ` · ${beyond} beyond the map` : ''}`;
+// The summary line, written from the spec: "Outgoing stack: N layers · M resources[ · K beyond the map]"
+// ("Incoming stack: ..." for the mirror). The pressed toggle's tooltip appends what its next press does.
+const summaryOf = (depth, count, beyond, direction = 'out') => `${direction === 'in' ? 'Incoming' : 'Outgoing'} stack: ${depth} ${depth === 1 ? 'layer' : 'layers'} · ${count} ${count === 1 ? 'resource' : 'resources'}${beyond ? ` · ${beyond} beyond the map` : ''}`;
 // The API graph of the map on screen (ordinary mode only; the Changes checks use literal layers).
 let currentGraph = null;
-const expectedStack = async rootId => oracle(currentGraph, await drawn(), rootId);
+const expectedStack = async (rootId, direction = 'out') => oracle(currentGraph, await drawn(), rootId, 'ALL', direction);
+const OUT_HINT = ' (click for incoming)', IN_HINT = ' (click to hide)';
+const HALO_IN = 'rgb(99, 102, 241)', HALO_IN_CY = 'rgb(99,102,241)';
 const openMap = async snapshot => {
   await cdp('Page.navigate', { url: `${app}/?snapshotId=${snapshot}` });
   await until(() => evaluate(`!!document.querySelector('.graph-canvas')?._cyreg?.cy && ${CY}.nodes().length>0`), 'map');
@@ -162,15 +168,16 @@ await clickSelector(`.map-stack-button[aria-label="Show outgoing stack of ${cont
 let s = await stackState();
 const oracle1 = await expectedStack(controllers.id), expected = oracle1.layers;
 const depth = Math.max(0, ...Object.values(expected));
-check('activating roots the stack at the card: pressed button with the summary tooltip',
-  s.pressed.length === 1 && s.pressed[0].label === `Hide outgoing stack of ${controllers.simpleName}` && /^Outgoing stack: \d+ layers? · \d+ resources?( · \d+ beyond the map)?$/.test(s.pressed[0].title), s.pressed);
+check('activating roots the stack at the card: pressed button (its next press shows incoming) with the summary tooltip',
+  s.pressed.length === 1 && s.pressed[0].label === `Show incoming stack of ${controllers.simpleName}` && s.pressed[0].direction === 'out' && !s.pressed[0].incoming && /^Outgoing stack: \d+ layers? · \d+ resources?( · \d+ beyond the map)? \(click for incoming\)$/.test(s.pressed[0].title), s.pressed);
 // 2. Badges 1..N.
 check('badges number every reached card by its package-level card-hop distance (independent oracle)', same(layers(s), expected) && depth >= 2, { drawn: layers(s), expected });
 check('badges cover every layer 1..N', same([...new Set(s.badges.map(b => b.layer))].sort((a, b) => a - b), Array.from({ length: depth }, (_, i) => i + 1)), s.badges);
 check('the root keeps its inspected look and gets no badge; chain cards get the static outline',
   same(s.roots, [controllers.id]) && !s.badges.some(b => b.id === controllers.id) && same(s.members, Object.keys(expected).sort()), s);
-check('the tooltip counts layers and resources (and anything beyond the map)', s.pressed[0].title === summaryOf(depth, Object.keys(expected).length, oracle1.beyond), { title: s.pressed[0].title, beyond: oracle1.beyond });
-check('the inspector shows the same summary for the inspected root', s.summary === s.pressed[0].title, s.summary);
+check('the tooltip counts layers and resources (and anything beyond the map)', s.pressed[0].title === summaryOf(depth, Object.keys(expected).length, oracle1.beyond) + OUT_HINT, { title: s.pressed[0].title, beyond: oracle1.beyond });
+check('the inspector shows the same summary for the inspected root', s.summary === summaryOf(depth, Object.keys(expected).length, oracle1.beyond), s.summary);
+check('outgoing: badges and chain outlines are cyan, and no route takes the incoming underlay', s.badges.every(b => b.color === '#0EA5E9') && !s.incomingMembers.length && !s.inRoutes.length, s);
 check('cards outside the chain are muted, chain cards are not', await evaluate(`(()=>{const cy=${CY};const chain=new Set(${JSON.stringify([controllers.id, ...Object.keys(expected)])});return cy.nodes().filter(n=>!n.isParent()).every(n=>chain.has(n.id())!==n.hasClass('muted'))})()`));
 check('the chain routes are exactly the drawn routes carrying a chain fact step', same(s.chainRoutes, oracle1.chainRoutes) && oracle1.chainRoutes.length > 0, { drawn: s.chainRoutes, expected: oracle1.chainRoutes });
 check('every chain route runs between chain cards and moves with the selected-route dashes', s.chainRoutes.length > 0 && await evaluate(`(()=>{const cy=${CY};const chain=new Set(${JSON.stringify([controllers.id, ...Object.keys(expected)])});return cy.edges('.flow-out').every(e=>chain.has(e.source().id())&&chain.has(e.target().id())&&e.style('line-style')==='dashed')})()`));
@@ -214,7 +221,7 @@ const nested = await evaluate(`${CY}.getElementById(${JSON.stringify(controllerT
 check('expanded root: the root set is the root, its types and their methods', rootOracle.rootSet.includes(controllerType.id) && nested.length > 0 && nested.every(id => rootOracle.rootSet.includes(id)), rootOracle.rootSet);
 check('expanded root: every layer-0 card, nested ones included, gets the root look', same(s.roots, rootOracle.rootSet), { roots: s.roots, rootSet: rootOracle.rootSet });
 check('expanded root: layer-0 cards get no badge, no chain outline and are not muted', rootOracle.rootSet.every(id => !s.badges.some(b => b.id === id) && !s.members.includes(id) && !s.muted.includes(id)), s);
-check('expanded root: layers are unchanged and match the oracle; the pressed toggle stays on the root only', same(layers(s), expected) && same(rootOracle.layers, expected) && s.pressed.length === 1 && s.pressed[0].label === `Hide outgoing stack of ${controllers.simpleName}`, { drawn: layers(s), pressed: s.pressed });
+check('expanded root: layers are unchanged and match the oracle; the pressed toggle stays on the root only', same(layers(s), expected) && same(rootOracle.layers, expected) && s.pressed.length === 1 && s.pressed[0].label === `Show incoming stack of ${controllers.simpleName}`, { drawn: layers(s), pressed: s.pressed });
 await shot('08-expanded-root');
 await buttonByText('↶ Undo'); await buttonByText('↶ Undo');
 s = await stackState();
@@ -235,6 +242,74 @@ await unchanged('ending the stack moves no card and keeps the camera', beforeEsc
 await key('Escape');
 check('a second Escape clears the selection', (await selected()) === null);
 
+// Incoming stack (2026-09-28): the root's second press shows the exact mirror in indigo; the third
+// press ends it. The root is the drawn package with the deepest incoming stack (independent oracle).
+const packageCards = (await drawn()).cards.filter(c => micro.graph.nodes.find(n => n.id === c.id)?.kind === 'PACKAGE').map(c => c.id).sort();
+const inRootOracles = await Promise.all(packageCards.map(async id => [id, await expectedStack(id, 'in')]));
+const inDepth = o => Math.max(0, ...Object.values(o.layers));
+const [inRootId, inOracle] = inRootOracles.reduce((best, next) => inDepth(next[1]) > inDepth(best[1]) ? next : best);
+const inRoot = micro.graph.nodes.find(n => n.id === inRootId), inExpected = inOracle.layers, inN = inDepth(inOracle);
+check('setup: some drawn package has an incoming stack at least two layers deep', inN >= 2, { root: inRoot.qualifiedName, layers: inExpected });
+const beforeIncoming = await geometryState();
+await tap(inRoot.id);
+await clickSelector(`.map-stack-button[aria-label="Show outgoing stack of ${inRoot.simpleName}"]`);
+await clickSelector(`.map-stack-button[aria-label="Show incoming stack of ${inRoot.simpleName}"]`);
+s = await stackState();
+check('the second press shows the incoming stack: pressed, indigo, its next press hides it',
+  s.pressed.length === 1 && s.pressed[0].label === `Hide incoming stack of ${inRoot.simpleName}` && s.pressed[0].direction === 'in' && s.pressed[0].incoming && s.pressed[0].color === HALO_IN, s.pressed);
+check('incoming badges number every card that leads to the root by card-hop distance (independent oracle)', same(layers(s), inExpected), { drawn: layers(s), expected: inExpected });
+check('incoming badges cover every layer 1..N', same([...new Set(s.badges.map(b => b.layer))].sort((a, b) => a - b), Array.from({ length: inN }, (_, i) => i + 1)), s.badges);
+check('incoming badges, chain outlines and route underlays are indigo (HALO.in)',
+  s.badges.length > 0 && s.badges.every(b => b.color === '#6366F1') && same(s.incomingMembers, Object.keys(inExpected).sort()) && same(s.members, s.incomingMembers)
+  && await evaluate(`${CY}.nodes('.stack-member').every(n=>n.style('outline-color')===${JSON.stringify(HALO_IN_CY)})`)
+  && await evaluate(`${CY}.edges('.flow-in').every(e=>e.style('underlay-color')===${JSON.stringify(HALO_IN_CY)}&&e.style('line-style')==='dashed')`), s);
+check('incoming chain routes are exactly the drawn routes carrying a reversed chain step; none take the outgoing underlay', same(s.inRoutes, inOracle.chainRoutes) && inOracle.chainRoutes.length > 0 && !s.chainRoutes.length, { drawn: s.inRoutes, expected: inOracle.chainRoutes, out: s.chainRoutes });
+check('incoming: the root keeps its teal root look and gets no badge', same(s.roots, inOracle.rootSet) && !s.badges.some(b => b.id === inRoot.id) && await evaluate(`${CY}.getElementById(${JSON.stringify(inRoot.id)}).style('border-color')==='rgb(7,136,140)'`), s.roots);
+check('incoming: the tooltip and inspector read "Incoming stack: ..."', s.pressed[0].title === summaryOf(inN, Object.keys(inExpected).length, inOracle.beyond, 'in') + IN_HINT && s.summary === summaryOf(inN, Object.keys(inExpected).length, inOracle.beyond, 'in'), { title: s.pressed[0].title, summary: s.summary });
+check('incoming: cards outside the chain are muted, chain cards are not', await evaluate(`(()=>{const cy=${CY};const chain=new Set(${JSON.stringify([...inOracle.rootSet, ...Object.keys(inExpected), ...inOracle.covered])});return cy.nodes().filter(n=>!n.isParent()).every(n=>chain.has(n.id())!==n.hasClass('muted'))})()`));
+check('switching to incoming creates no undo entry (redo survives)', await redoEnabled());
+await unchanged('switching to incoming moves no card and keeps the camera', beforeIncoming);
+await shot('in-01-incoming-stack');
+// Selecting a chain card keeps the incoming root; another card's own button starts outgoing there.
+const inLayer1 = s.badges.find(b => b.layer === 1).id, inLayer1Node = micro.graph.nodes.find(n => n.id === inLayer1);
+await tap(inLayer1);
+s = await stackState();
+check('incoming: selecting a layer-1 card keeps the incoming stack pinned to its root', same(layers(s), inExpected) && s.pressed.length === 1 && s.pressed[0].direction === 'in' && s.pressed[0].label.endsWith(inRoot.simpleName), s.pressed);
+await shot('in-02-layer-one-selected');
+await clickSelector(`.map-stack-button[aria-label="Show outgoing stack of ${inLayer1Node.simpleName}"]`);
+s = await stackState();
+check('the button of another card starts a fresh outgoing stack there, even while incoming is shown', same(s.roots, [inLayer1]) && s.pressed.length === 1 && s.pressed[0].direction === 'out' && s.badges.every(b => b.color === '#0EA5E9'), s.pressed);
+// Back to the incoming root: out, in, then the third press ends it.
+await tap(inRoot.id);
+await clickSelector(`.map-stack-button[aria-label="Show outgoing stack of ${inRoot.simpleName}"]`);
+await clickSelector(`.map-stack-button[aria-label="Show incoming stack of ${inRoot.simpleName}"]`);
+check('the cycle reaches incoming again on the root', (await stackState()).pressed[0]?.direction === 'in');
+await clickSelector(`.map-stack-button[aria-label="Hide incoming stack of ${inRoot.simpleName}"]`);
+s = await stackState();
+check('the third press ends the stack: no badges, stack classes or pressed button; the toggle offers outgoing again',
+  !s.badges.length && !s.roots.length && !s.members.length && !s.pressed.length && await evaluate(`!!document.querySelector('.map-stack-button[aria-label="Show outgoing stack of ${inRoot.simpleName}"][aria-pressed=false]')`), s);
+check('the whole cycle created no undo entry (redo survives)', await redoEnabled());
+await unchanged('the whole cycle moved no card and kept the camera', beforeIncoming);
+// The menu offers incoming directly; Escape ends an incoming stack like an outgoing one.
+await evaluate(`${CY}.getElementById(${JSON.stringify(inRoot.id)}).emit('cxttap');0`); await pause(350);
+const menuItems = () => evaluate(`[...document.querySelectorAll('.graph-context-menu [role=menuitem]')].map(b=>b.textContent.trim())`);
+check('the context menu offers both directions directly', (await menuItems()).includes('⇶ Show outgoing stack') && (await menuItems()).includes('⇇ Show incoming stack'), await menuItems());
+await click(await evaluate(`(()=>{const b=[...document.querySelectorAll('.graph-context-menu [role=menuitem]')].find(b=>b.textContent.trim()==='⇇ Show incoming stack');const r=b.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`));
+s = await stackState();
+check('"Show incoming stack" roots the incoming stack straight from off', same(layers(s), inExpected) && s.pressed[0]?.direction === 'in' && !await evaluate(`${CY}.getElementById(${JSON.stringify(inRoot.id)}).hasClass('multi-selected')`), s.pressed);
+await evaluate(`${CY}.getElementById(${JSON.stringify(inRoot.id)}).emit('cxttap');0`); await pause(350);
+check('the menu then offers "Hide incoming stack" and "Show outgoing stack"', (await menuItems()).includes('⇇ Hide incoming stack') && (await menuItems()).includes('⇶ Show outgoing stack'), await menuItems());
+await click(await evaluate(`(()=>{const b=[...document.querySelectorAll('.graph-context-menu [role=menuitem]')].find(b=>b.textContent.trim()==='⇶ Show outgoing stack');const r=b.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`));
+check('"Show outgoing stack" switches the same root to outgoing directly', (await stackState()).pressed[0]?.direction === 'out');
+await evaluate(`${CY}.getElementById(${JSON.stringify(inRoot.id)}).emit('cxttap');0`); await pause(350);
+await click(await evaluate(`(()=>{const b=[...document.querySelectorAll('.graph-context-menu [role=menuitem]')].find(b=>b.textContent.trim()==='⇇ Show incoming stack');const r=b.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`));
+const beforeInEsc = await selected();
+await key('Escape');
+s = await stackState();
+check('Escape ends an incoming stack and keeps the selection', !s.badges.length && !s.roots.length && !s.pressed.length && (await selected()) === beforeInEsc && beforeInEsc !== null, s);
+await key('Escape');
+check('a second Escape clears the selection after an incoming stack', (await selected()) === null);
+
 // Context menu and keyboard entry points.
 await evaluate(`${CY}.getElementById(${JSON.stringify(controllers.id)}).emit('cxttap');0`); await pause(350);
 check('the context menu offers "Show outgoing stack"', await evaluate(`[...document.querySelectorAll('.graph-context-menu [role=menuitem]')].some(b=>b.textContent.trim()==='⇶ Show outgoing stack')`));
@@ -244,7 +319,7 @@ check('the context-menu item starts the stack', same(s.roots, [controllers.id]) 
 check('rooting the stack from the menu leaves no multi-selection behind (the right-click added the card only to open the menu)',
   !await evaluate(`${CY}.getElementById(${JSON.stringify(controllers.id)}).hasClass('multi-selected')`) && !await evaluate(`!!document.querySelector('.selection-bar')`));
 await evaluate(`${CY}.getElementById(${JSON.stringify(controllers.id)}).emit('cxttap');0`); await pause(350);
-check('the context menu then offers "Hide outgoing stack"', await evaluate(`[...document.querySelectorAll('.graph-context-menu [role=menuitem]')].some(b=>b.textContent.trim()==='⇶ Hide outgoing stack')`));
+check('the context menu then offers "Hide outgoing stack" (and "Show incoming stack")', await evaluate(`(()=>{const t=[...document.querySelectorAll('.graph-context-menu [role=menuitem]')].map(b=>b.textContent.trim());return t.includes('⇶ Hide outgoing stack')&&t.includes('⇇ Show incoming stack')})()`));
 await key('Escape'); // closes the menu first
 check('Escape closes an open menu before it ends the stack', (await stackState()).roots.length === 1);
 await key('Escape'); await key('Escape'); // stack, then selection
@@ -283,14 +358,19 @@ for (let i = 0; i < m.items.length && (await menuState()).focus !== '⇶ Show ou
 await key('Enter');
 s = await stackState(); m = await menuState();
 check('Enter on "Show outgoing stack" starts the stack from the keyboard menu', same(s.roots, [controllers.id]) && s.badges.length > 0 && !m.open, { roots: s.roots, menu: m.open });
-check('after the menu action focus is back on the card\'s toggle, now pressed', m.focus === `Hide outgoing stack of ${controllers.simpleName}` && m.pressed === 'true', m);
+check('after the menu action focus is back on the card\'s toggle, now pressed', m.focus === `Show incoming stack of ${controllers.simpleName}` && m.pressed === 'true', m);
 
 // Keyboard deactivation keeps focus (phase B review B4): the root is neither selected nor hovered.
+// The pressed toggle now goes outgoing -> incoming -> off, so it takes two presses.
 await tap(services.id);
 const emptyPoint = await evaluate(`(()=>{const cy=${CY};const c=document.querySelector('.graph-canvas').getBoundingClientRect();for(let y=40;y<c.height-40;y+=20)for(let x=40;x<c.width-40;x+=20){const p={x:(x-cy.pan().x)/cy.zoom(),y:(y-cy.pan().y)/cy.zoom()};if(!cy.elements().some(e=>{const b=e.boundingBox();return p.x>=b.x1-20&&p.x<=b.x2+20&&p.y>=b.y1-20&&p.y<=b.y2+20}))return{x:c.x+x,y:c.y+y}}return null})()`);
-await mouse('mouseMoved', await centerOf(`.map-stack-button[aria-label="Hide outgoing stack of ${controllers.simpleName}"]`), 'none'); await pause(200);
+await mouse('mouseMoved', await centerOf(`.map-stack-button[aria-label="Show incoming stack of ${controllers.simpleName}"]`), 'none'); await pause(200);
 await mouse('mouseMoved', emptyPoint, 'none'); await pause(400);
-await evaluate(`document.querySelector('.map-stack-button[aria-label="Hide outgoing stack of ${controllers.simpleName}"]').focus()`);
+await evaluate(`document.querySelector('.map-stack-button[aria-label="Show incoming stack of ${controllers.simpleName}"]').focus()`);
+await key('Enter');
+m = await menuState(); s = await stackState();
+check('Enter on the focused outgoing toggle switches to incoming and keeps focus on it',
+  same(s.roots, [controllers.id]) && s.pressed[0]?.direction === 'in' && m.focus === `Hide incoming stack of ${controllers.simpleName}` && m.pressed === 'true', { focus: m.focus, pressed: s.pressed });
 await key('Enter');
 m = await menuState(); s = await stackState();
 check('keyboard deactivation on an unselected, unhovered root keeps focus on its toggle, now unpressed',
@@ -388,6 +468,27 @@ const bc3 = await routeIds(cb.id, cc.id), bd3 = await routeIds(cb.id, cd.id);
 check('chain fixture, method root m: neither b -> c nor b -> d is a chain route', [...bc3, ...bd3].length === 2 && ![...bc3, ...bd3].some(id => s.chainRoutes.includes(id)) && s.chainRoutes.length > 0 && same(s.chainRoutes, o.chainRoutes), { chain: s.chainRoutes, oracle: o.chainRoutes });
 await shot('11-method-root');
 await endStack();
+// The incoming mirror of the collapsed-hub case: at package level d <- b <- a, but at class level only
+// S calls into U, and nothing leads to S, so a class root U reaches b and never a.
+const typeU = chainFix.graph.nodes.find(n => n.qualifiedName === 'app.d.U');
+// The map has grown to the right by now: center the root (a view-only camera move) so its corner
+// buttons are not under the inspector panel.
+const centerOn = async id => { await evaluate(`(()=>{const cy=${CY};cy.center(cy.getElementById(${JSON.stringify(id)}));return 0})()`); await pause(700); };
+const startIncoming = async n => { await tap(n.id); await centerOn(n.id); await clickSelector(`.map-stack-button[data-card-id="${n.id}"]`); await clickSelector(`.map-stack-button[data-card-id="${n.id}"]`);
+  // Badges are drawn only on screen: fit the map (view-only) before reading them.
+  await clickSelector('[aria-label="Fit map"]'); await pause(700); return stackState(); };
+s = await startIncoming(cd);
+o = await expectedStack(cd.id, 'in');
+check('chain fixture, incoming package root app.d: b 1, a 2 (package-level mirror; oracle agrees)', s.pressed[0]?.direction === 'in' && same(layers(s), { [cb.id]: 1, [ca.id]: 2 }) && same(o.layers, layers(s)) && same(s.inRoutes, o.chainRoutes), { drawn: layers(s), oracle: o.layers, routes: s.inRoutes, expected: o.chainRoutes });
+await shot('in-03-chain-package-root');
+await endStack();
+await centerOn(cd.id);
+await clickSelector(`[aria-label="Show types inside ${cd.simpleName}"]`);
+s = await startIncoming(typeU);
+o = await expectedStack(typeU.id, 'in');
+check('chain fixture, incoming class root U: b 1 only; a is not reached through the collapsed b card (oracle agrees)', s.pressed[0]?.direction === 'in' && same(layers(s), { [cb.id]: 1 }) && same(o.layers, layers(s)) && same(s.inRoutes, o.chainRoutes), { drawn: layers(s), oracle: o.layers });
+await shot('in-04-chain-class-root');
+await endStack();
 
 // Step 12 phase C: the full journey of a controller method (the user's report) on the journey fixture.
 await openMap(journey.snapshot);
@@ -422,7 +523,7 @@ s = await startStack(registerMethod);
 o = await expectedStack(registerMethod.id);
 const registerLiteral = { [jDto.id]: 1 };
 check('journey, method root register: only its parameter type, dto 1; the unresolved call is not walked (literal and oracle)', same(layers(s), registerLiteral) && same(o.layers, registerLiteral), { drawn: layers(s), oracle: o.layers });
-check('journey, method root register: chain routes match the oracle; the summary counts 1 layer and 1 resource', same(s.chainRoutes, o.chainRoutes) && s.pressed[0]?.title === summaryOf(1, 1, 0), { drawn: s.chainRoutes, oracle: o.chainRoutes, title: s.pressed[0]?.title });
+check('journey, method root register: chain routes match the oracle; the summary counts 1 layer and 1 resource', same(s.chainRoutes, o.chainRoutes) && s.pressed[0]?.title === summaryOf(1, 1, 0) + OUT_HINT, { drawn: s.chainRoutes, oracle: o.chainRoutes, title: s.pressed[0]?.title });
 await shot('14-journey-method-root');
 await endStack();
 // Dispatch from the service method: the Notifier interface 1 (a resolved call), MailNotifier 2
@@ -467,7 +568,7 @@ await shot('16-journey-beyond-the-map');
 // on the root, as a user would, to read the toggle's tooltip.
 await evaluate(`(()=>{const cy=${CY},n=cy.getElementById(${JSON.stringify(serviceRegister.id)});cy.zoom({level:1,renderedPosition:n.renderedPosition()});return 0})()`); await pause(700);
 s = await stackState();
-check('journey, domain out of scope: the pressed toggle tooltip reads the same line', s.pressed.length === 1 && s.pressed[0].title === summaryOf(2, 3, 1), s.pressed);
+check('journey, domain out of scope: the pressed toggle tooltip reads the same line', s.pressed.length === 1 && s.pressed[0].title === summaryOf(2, 3, 1) + OUT_HINT, s.pressed);
 await endStack();
 
 check('no page or console errors', errors.filter(e => !/custom wheel sensitivity|invalid endpoints/.test(e)).length === 0, errors);

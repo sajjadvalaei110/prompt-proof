@@ -147,15 +147,18 @@ from the navigation pane or inspector): only `GraphCanvas` consumes a `restoreVe
 counter, via its own effect, to resync Cytoscape's live positions/camera to the restored
 tab state. Ordinary inspection and filtering preserve the mounted canvas untouched.
 
-The outgoing relation stack (`docs/OUTGOING_STACK.md`) follows the same layering. The pure helper
+The outgoing relation stack and its incoming mirror (`docs/OUTGOING_STACK.md`) follow the same
+layering. The pure helper
 `outgoingStack.ts` walks the tab graph's relationship facts at the root's granularity and maps the
 result onto the cards and routes the canvas draws. The walk is a 0-1 BFS with card-hop costs. Method
 roots also reach type targets as dead ends and follow parser OVERRIDES facts reversed (dispatch). It
-counts reached entities with no card as "beyond the map". The analyzer supplies the CANDIDATE calls
-and OVERRIDES facts this relies on (ADR 0010). The journey keeps its pinned
-root outside history like selection (carried and pruned on undo/redo) and also prunes it in the
+counts reached entities with no card as "beyond the map". The analyzer supplies the OVERRIDES facts
+this relies on (ADR 0010; candidate calls were withdrawn, ADR 0010 amendment, 2026-09-25).
+The journey keeps its pinned
+root and direction (`relationStack`, one value) outside history like selection (carried and pruned on undo/redo) and also prunes it in the
 reducer when an ordinary update or recapture stops drawing it. App computes the stack from the
-projection, and `GraphCanvas` only applies classes and draws layer badges on its direction overlay.
+projection in the root's direction (the incoming stack reverses every step), and `GraphCanvas` only
+applies classes and draws layer badges on its direction overlay, cyan or indigo by direction.
 It never moves cards or the camera.
 
 Renderer inputs must not alias saved state: Cytoscape retains and mutates coordinates

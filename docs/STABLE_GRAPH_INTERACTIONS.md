@@ -99,8 +99,8 @@ Wheel/pinch/pan and Fit map remain camera-navigation history.
 **Clear selection**, clicking empty canvas, or Escape clears inspection and selected
 cards without changing scope, geometry or camera, and without adding an undo entry. With
 nothing selected it does nothing (it does not switch the mobile pane either).
-Menus, resize cancellation and modal dialogs handle Escape first. While an outgoing stack is
-shown, Escape ends the stack first and leaves the selection; the next Escape clears it. Clicking an
+Menus, resize cancellation and modal dialogs handle Escape first. While a relation stack
+(outgoing or incoming) is shown, Escape ends the stack first and leaves the selection; the next Escape clears it. Clicking an
 already-inspected resource also deselects it.
 
 ## Story 1 — Inspect without losing my place
@@ -241,8 +241,8 @@ A card's stack button, shown on the selected and hovered card, or its "Show outg
 item roots a stack at that card (`docs/OUTGOING_STACK.md`). The walk follows parser relationship
 facts at the root's own granularity (a package root package relations, a class root class
 relations, a method root method calls; user decision 2026-09-25), so a collapsed card never joins
-unrelated relationships of its members. A method root also reaches the types it constructs, calls
-candidate members of or uses (as dead ends), and follows a call to an interface or abstract method
+unrelated relationships of its members. A method root also reaches the types it constructs or
+uses (as dead ends), and follows a call to an interface or abstract method
 on to its in-source implementations (step 12 phase C, ADR 0010). Every drawn card holding something
 the root reaches gets a layer badge at its top-left: its card-hop distance, where a step inside one
 card is free, ranked so the numbers never skip. REMOVED facts are not walked in Changes. Chain routes (drawn routes carrying a chain relationship) get the
@@ -251,14 +251,23 @@ outline, cards inside a reached expanded box stay lit without a badge, every car
 takes the root look, and everything else is muted. The root stays pinned
 while the selection moves, and its button stays pressed with the tooltip "Outgoing stack: N layers
 · M resources" (plus "· K beyond the map" when the chain leads to K things with no card on the map,
-where it stops), which the inspector repeats for the root. Layers recompute live on filter or scope
-changes; expanding a downstream card does not change them. The stack ends on the button or menu item, on Escape (after menus and
+where it stops), which the inspector repeats for the root. Since 2026-09-28 the tooltip also appends
+what the next press does (" (click for incoming)" / " (click to hide)"); the inspector line does not. Layers recompute live on filter or scope
+changes; expanding a downstream card does not change them. The stack ends on the button (the root's third press since 2026-09-28) or its menu item, on Escape (after menus and
 before clearing selection), or when the root leaves the map (scope removal, collapse, level switch,
 undo, Changes recapture), and it never comes back on its own. Turning it on or off adds no undo
 entry and never moves cards or the camera.
 
+Incoming stack (2026-09-28): the root's button has three states, outgoing, then incoming, then off;
+another card's button always starts outgoing there. The card menu offers "Show/Hide outgoing stack"
+and "Show/Hide incoming stack" directly. The incoming stack is the exact mirror over reversed facts
+(so an interface root reaches its implementors, and a method is reached from the callers of the
+method it overrides). It uses the same badges, outlines, route dashes and muting, in the incoming
+halo's indigo instead of cyan; the root keeps its teal look. Its line reads "Incoming stack: N
+layers · M resources". Switching direction adds no undo entry, and Escape ends either direction.
+
 Keyboard: the stack toggle is a focusable button (Enter or Space), and it keeps focus when it
-turns the stack off, even on a card that is no longer selected or hovered. Shift+F10 or the
+changes state or turns the stack off, even on a card that is no longer selected or hovered. Shift+F10 or the
 ContextMenu key opens the card menu, either on a focused corner button or with a card selected
 and the page focused. The menu opens at the card with focus on its first item; the arrow keys,
 Home and End move through it, and Escape or an action returns focus to where it was opened. A
