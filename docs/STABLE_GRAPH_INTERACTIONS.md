@@ -251,8 +251,9 @@ outline, cards inside a reached expanded box stay lit without a badge, every car
 takes the root look, and everything else is muted. The root stays pinned
 while the selection moves, and its button stays pressed with the tooltip "Outgoing stack: N layers
 · M resources" (plus "· K beyond the map" when the chain leads to K things with no card on the map,
-where it stops), which the inspector repeats for the root. Layers recompute live on filter or scope
-changes; expanding a downstream card does not change them. The stack ends on the button or menu item, on Escape (after menus and
+where it stops), which the inspector repeats for the root. Since 2026-09-28 the tooltip also appends
+what the next press does (" (click for incoming)" / " (click to hide)"); the inspector line does not. Layers recompute live on filter or scope
+changes; expanding a downstream card does not change them. The stack ends on the button (the root's third press since 2026-09-28) or its menu item, on Escape (after menus and
 before clearing selection), or when the root leaves the map (scope removal, collapse, level switch,
 undo, Changes recapture), and it never comes back on its own. Turning it on or off adds no undo
 entry and never moves cards or the camera.

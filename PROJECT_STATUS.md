@@ -95,9 +95,21 @@ Checks (this entry's tree):
     - The layer-1 selection keeps the root.
     - Chain package root app.d: b 1, and the a box 2 with its children covered.
     - Class root U: b 1 only, a muted.
-  - `docs/evidence/outgoing-stack/` was refreshed from the same run. 01 (the outgoing stack still
-    cyan) and 17 (the menu with both "Show outgoing stack" and "Show incoming stack") were
-    inspected.
+  - `docs/evidence/outgoing-stack/` was refreshed from the same run, and these were inspected:
+    - 01 and 05: the outgoing stack is still cyan, with the pressed cyan toggle.
+    - 07: Changes mode, with cyan badges, change fills kept and the green ADDED route.
+    - 17: the menu offers both "Show outgoing stack" and "Show incoming stack".
+    - 18: after outgoing → incoming → off, the focus ring stays on the unpressed toggle while
+      another card is selected.
+
+    The other outgoing screenshots show scenarios this change did not touch and were not
+    re-inspected.
+- Known limits:
+  - Direction is shown by colour (cyan against indigo), the tooltip, the aria-label and the
+    inspector line. Badges, outlines and the pressed button have no non-colour cue, unlike the
+    selection halos (outgoing solid, incoming dashed, WCAG 2.1 SC 1.4.1). `AGENTS.md` does not
+    require one, and the user chose colour. A dashed incoming outline would be a small follow-up.
+  - `data-testid="outgoing-stack-summary"` keeps its name for both directions, to avoid churn.
 - Not run:
   - `verify_stable_graph_pipeline.py`, `verify_hierarchical_pipeline.py`,
     `verify_change_edges_pipeline.py`, `verify_git_review_pipeline.py`: no stack coverage, and this

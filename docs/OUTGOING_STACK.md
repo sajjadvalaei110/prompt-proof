@@ -116,7 +116,8 @@ calls into C.
   stack. The inspector follows the selection. The selected card gets the normal `inspected`
   outline on top of its badge, but not its own neighborhood emphasis.
 - **Ends only when:**
-  - the button (or menu item) is pressed again
+  - the button (or menu item) is pressed again. Since 2026-09-28 the root's button needs two more
+    presses (outgoing -> incoming -> off), and a menu item ends only its own direction.
   - **Esc** is pressed. Esc is layered: open menus and resize cancellation take it first, then the
     stack. A second Esc performs today's clear-selection/fullscreen behavior.
   - the root card is no longer displayed: removed from scope, its container collapsed, a level
@@ -129,7 +130,9 @@ calls into C.
 
 ## Visual treatment
 
-These are applied on top of the ADR 0008 palette (`HALO.out` = `#0EA5E9`):
+These are applied on top of the ADR 0008 palette (`HALO.out` = `#0EA5E9`). An incoming stack
+(2026-09-28) uses `HALO.in` = `#6366F1` instead wherever `HALO.out` appears below, and its chain
+routes take `flow-in` instead of `flow-out` (see "Incoming stack", decision 4):
 
 - **Replaces the selection emphasis** while active: no `flow-in` / `rel-in` / `rel-both`. The root
   keeps its `inspected` look.
