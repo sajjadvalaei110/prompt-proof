@@ -1,7 +1,9 @@
 # Project status
 Last updated: 2026-09-28
 Active milestone: R6 — Developer comprehension redesign (in progress)
-Current revision: incoming relation stack (the stack button's second press, docs/OUTGOING_STACK.md
+Current revision: step 14 Ungroup (an expanded box's box hidden, its children kept as free cards,
+ADR 0011), on top of
+incoming relation stack (the stack button's second press, docs/OUTGOING_STACK.md
 "Incoming stack"), on top of
 step 12 follow-up (candidate calls reverted, uniform route colour, Changes-mode
 source-root fix), on top of
@@ -25,6 +27,199 @@ toggle with a git-style diff code viewer, exploration tabs with per-tab undo/red
 and selection controls, the R6 change-edges slice (one line per direction,
 directional selection emphasis, file-grouped evidence), in-place card details
 (expand packages/classes) and resizable cards; Step 6A remains unstarted
+
+## Step 14: Ungroup, an expanded box hidden (2026-09-28)
+
+Branch `feat/step14-ungroup`. The user asked for a package to "vanish and give all its classes to
+the higher level", and the same for a class and its methods. The design was settled in a grilling
+session and recorded in ADR 0011: a hidden expansion, not a promotion.
+
+- **Model.** `ExpansionState.hidden` and `UNGROUP_RESOURCE` (explorerViewState), with the pure
+  helper `nearestHiddenAncestor`. `projectDisplayed` flags `hiddenBox`. A hidden card is off the
+  map for undo/redo selection pruning and stack-root pruning (`revalidateJourney`), and
+  `sameExpansionMembership` compares the flag.
+- **Layout.** `expansionLayout.roomMoves` is the make-room cascade moved out of App as a pure
+  function; it looks through hidden boxes and stops at the nearest visible container.
+  `containerBox(..., hidden)` has no padding and ignores a stale minimum.
+  `focusedArrangement.arrangeDisplayed` is App's arrangement moved out as a pure function, with
+  freed cards as individual units.
+- **Stack.** `outgoingStack` gets rule 9: a hidden box's layer goes to its freed cards.
+- **Canvas.** An invisible, inert hidden-box style is declared last. There is an Ungroup corner
+  button and an "Ungroup X" menu item on an expanded box, and "Collapse into X" (nearest hidden
+  ancestor, centred on its children, no make-room) on anything inside one. Hidden boxes are
+  skipped by the minimap, marquee and box-select, and emphasis classes are stripped from them.
+- **Method cards.** They read `OwningClass · last.two.package` (`ownerName` from `decorate`).
+- **Bugs found by the browser run and fixed.**
+  - A collapsed card stayed invisible: Cytoscape `data()` merges, so a stale `hiddenBox` was kept.
+    The flag is now always written.
+  - A hidden box related to the inspected card pulsed a halo: the pulse is a style bypass. Emphasis
+    classes are now stripped from hidden boxes.
+- **Found in review and fixed.**
+  - A hidden card picked outside the canvas (tree "View classes", search, Back) was the canvas
+    selection. It lit nothing and muted every card, and the keyboard menu could open on it and
+    root a stack at an invisible card. Now the canvas treats it as undrawn, the keyboard menu
+    refuses it, and the inspector reports `UNGROUPED`: "Ungrouped on the map", with Arrange
+    disabled.
+  - The stack's layer handoff now runs on raw distances before ranking (`depth` stays
+    `rank.size`), so badge numbers cannot skip.
+- **Deliberate behaviour change.** Double-click arrangement of a visible expanded top-level box
+  moves its stored anchor by the box offset. The old `arrangeAround` stored the box centre. This
+  matches the drag anchor rule and is pinned by a focused-arrangement check where the anchor and
+  the centre differ.
+- **Deviation from the plan.** The plan named `verify_stable_graph_pipeline.py acceptance` for the
+  browser checks. That suite is still broken by the ADR 0007 level switcher (see earlier entries),
+  so a dedicated `scripts/verify_ungroup_pipeline.py` + `verify-ungroup-ui.mjs` was added instead.
+
+Checks (this entry's tree):
+- `for t in scripts/test-*.mjs; do node "$t" >/dev/null && echo "PASS $t" || echo "FAIL $t"; done`:
+  12/12 PASS. New checks:
+  - view-state 73 (7 new);
+  - journeys 56 (3 new);
+  - expansion-layout: 4 new blocks;
+  - focused-arrangement 17 (5 new);
+  - outgoing-stack 43 (2 new);
+  - graph-model: 2 new blocks;
+  - node-card: 1 new block.
+- `cd frontend && npx tsc -b --force && npm run build`: PASS.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar`: PASS.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew test`: PASS, 21 classes, 150 tests, 0
+  failures. No backend source changed.
+- `git diff --check`: clean.
+- `PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH python3 scripts/verify_ungroup_pipeline.py`:
+  28/28 PASS (run `build/ungroup/run-rol33uhc`). Both fixture copies hashed unchanged, model URL on
+  a closed port. Earlier runs failed on the two app bugs above and on three test-side issues:
+  - the centre measured with halo-inclusive bounding boxes;
+  - a card left over the restored package;
+  - the ellipsized label expectation.
+- `verify-outgoing-stack-ui.mjs` regression: 108/108 PASS, run twice (before and after the review
+  fixes). It ran through the `isolated4.sh`
+  harness copied to the session scratchpad and pointed at this checkout (jar on 8095, Chromium on
+  9333). `stop` reported all four fixtures unchanged, 0 model requests and the ports free.
+- Evidence `docs/evidence/ungroup/01..08` was inspected:
+  - 01: services has no box, and its two classes stand free with their routes.
+  - 01b: services picked from the tree: the "Ungrouped on the map" notice, Arrange disabled,
+    nothing muted, no box.
+  - 02: EventService is dragged away, and domain sits in the old area and is inspected.
+  - 03: EmailServiceClient's menu shows "Collapse into com.kipper.eventsmicroservice.services".
+  - 04: services is back as a collapsed card.
+  - 05: after the menu Ungroup, no outline is left.
+  - 06: EventService's five methods are free, reading "EventService · eventsmicros…".
+  - 07: the arrangement around EmailServiceClient places the methods individually.
+  - 08: in Changes, the MODIFIED services box is hidden and EventService keeps its CHANGED badge.
+- Not run:
+  - `verify_stable_graph_pipeline.py`: known broken by ADR 0007, see above.
+  - The hierarchical, change-edges and git-review pipelines: they don't touch expansion
+    geometry, arrangement or stack layers.
+  - `./gradlew constrainedMemoryTest`: no backend change.
+- Not retaken, by user decision: existing screenshots for other features, whose method cards now
+  show the class name.
+
+### Review remediation (2026-09-28)
+
+Fixes for the adversarial review of step 14 (14 findings). The report's "disproved claims" in its
+§7 point at the expand-in-place sentences about the tree ⌖, the inspector, entry points and the
+deep link ("Repurposed the four former level-switch triggers..."). Those sentences come from the
+ADR 0007-era entry "Package-only exploration view — Class/Method level view removed (2026-09-22)",
+not from step 14. The defects were already on `main` (findings 1, 2, and 6's ⊟ case) and are
+fixed here all the same.
+
+- **1 (pre-existing).** `toggleExpand` dispatched `ownerId: null` for a graph node from the tree,
+  inspector or reveal chain, so the reducer rejected every class. It now resolves the card as drawn
+  (`projected.nodes`), does nothing for an undrawn card, and returns whether the change lands
+  (checked with the pure reducer).
+  - The tree ⌖ / inspector "View methods" (`revealChildren`) and entry-point cards
+    (`expandToReveal`) open the containers from the new `graphModel.revealContainers`: the
+    package, then, for a method or constructor, its own type. A nested type's outer class is never
+    opened.
+  - One pending mechanism serves both. A step that cannot land, or expansions that change without
+    it, ends the reveal instead of waiting forever.
+- **2 (pre-existing).** The deep link walked the raw `parentId` chain and read a class's position
+  from the top-level positions. It now uses `revealContainers`, reads a type's position from its
+  package's `childPositions`, and passes that package as `ownerId`.
+- **3.** `outgoingStack` `repOf`: a hidden box represents only itself. This is checked before the
+  representative cache, so an earlier lookup of the box cannot leak. An undrawn member counts
+  beyond the map.
+- **4.** The browser check for individual arrangement now requires at least two different
+  displacement vectors among the freed methods.
+- **5.** Incoming rule-9 unit checks (hidden package; hidden class inside a hidden package).
+- **6 (⊟ pre-existing).** Both collapses go through `explorerJourney.collapseInJourney`, which
+  drops every card drawn inside from `multiIds` in the same update: one undo entry.
+- **7.** The inspector hides "View classes ↗" / "View methods ↗" when `mapStatus` is `UNGROUPED`.
+  The browser step 1b check now also asserts that no "View classes ↗" button is offered.
+- **8.** `outgoingStack` returns null for a hidden root.
+- **9.** `revalidateJourney.displayedMap` passes `hidden` to `projectDisplayed`; the post-filter
+  stays.
+- **10.** The expansion-layout check adds R at `box(2500, 0)`, moving to x 2850.
+- **11.** The focused-arrangement check asserts `childPositions.C` is `{ m1: { x: 0, y: 0 } }`.
+- **12.** Browser step 6b clicks "Collapse into EventService" (after the arrangement step). It
+  checks that EventService is a collapsed card inside the still-hidden services and its methods
+  are gone. Re-expanding it shows that the multi-selected method did not come back selected.
+- **13.** The browser check compares the rects: Ungroup is left of the stack toggle (the box is
+  selected through the tree so the toggle is drawn), which is left of the collapse square, on one
+  row without overlap.
+- **14.** `cornerHit` returns null for a hidden box.
+- **New browser coverage for 1 and 2.** From a fresh map, the tree ⌖ "View methods of
+  EventService" opens services, then EventService, and inspects it. A
+  `?selectedSymbol=<method id>` link draws the method inside EventService inside services, and
+  inspects it.
+
+Tests added:
+- graph-model: the `revealContainers` block;
+- outgoing-stack 48 (5 new): an undrawn class in a hidden package; the cache order; a hidden root;
+  two incoming rule-9 cases;
+- journeys 59 (3 new): collapse prunes multi-selection, expanded and ungrouped, one undo entry;
+  rejected collapse unchanged;
+- expansion-layout: R;
+- focused-arrangement: `childPositions.C`.
+
+The finding-3, cache-order and hidden-root checks were seen failing before the fix: the first
+against the unfixed file, the other two by temporarily reverting their part of the fix. The
+incoming, R and `childPositions.C` checks are coverage and passed on first run.
+
+Checks:
+- `for t in scripts/test-*.mjs; do node "$t" >/dev/null && echo "PASS $t" || echo "FAIL $t"; done`:
+  12/12 PASS.
+- `cd frontend && npx tsc -b --force && npm run build`: PASS.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar -q`: PASS.
+- `PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH python3 scripts/verify_ungroup_pipeline.py`:
+  33/33 PASS (run `build/ungroup/run-oolybsdq`, copied to `docs/evidence/ungroup/`), fixtures
+  hashed unchanged.
+  - Earlier runs of the edited verifier failed on test-side issues, which were fixed:
+    - the stack toggle is only drawn on a selected card;
+    - a header click landed on a route;
+    - the tree label is the short package name;
+    - a button needed zoom.
+  - One run showed a "1 selected" bar in 06b that the four later runs did not. The new
+    multi-selection check asserts the state that the later runs showed.
+- `verify-outgoing-stack-ui.mjs` through the `isolated4.sh` harness: 108/108 PASS. `stop`
+  reported all four fixtures unchanged, 0 model requests and the ports free.
+- `git diff --check`: clean.
+- Evidence inspected (`docs/evidence/ungroup/`):
+  - 01–08 were re-inspected from this run and show what the step-14 list above describes. 01 now
+    lists services under "Recently viewed", because step 1 selects it through the tree;
+  - 01b now has no "View classes ↗" button;
+  - 06b: EventService is collapsed again, with no selection bar;
+  - 09: services and EventService expanded, EventService inspected;
+  - 10: createEvent inside EventService inside services, inspected.
+- Not run:
+  - `./gradlew test`: no backend change;
+  - `verify_stable_graph_pipeline.py`: broken by ADR 0007;
+  - the hierarchical, change-edges and git-review pipelines: untouched areas.
+  - The new browser checks for findings 1/2 were not run against the unfixed App.tsx. That would
+    need a rebuild of the old frontend; the failure was traced by code reading and the reducer
+    rejection is pinned in the report's reproduction.
+- Independent re-verification after the remediation, on the same tree, by the reviewing session:
+  - Node tests: 12/12 PASS (journeys 59, stack 48, arrangement 17, view-state 73).
+  - `npx tsc -b --force` and `npm run build`: PASS; `bootJar`: PASS.
+  - `./gradlew test`: 150 tests, 0 failures. This closes the "not run" item above.
+  - `verify_ungroup_pipeline.py`: 33/33 (run `build/ungroup/run-27jbhcwm`); fixtures unchanged.
+  - `verify-outgoing-stack-ui.mjs`: 108/108, through the scratchpad `isolated4.sh`. All four
+    fixtures unchanged, 0 model requests, ports free.
+  - `git diff --check`: clean.
+  - Screenshots 01b, 06b, 09 and 10 of that run were inspected and match the claims above.
+  - The review glue (`toggleExpand`, `revealStep`, `collapseInJourney`) and the `repOf` hidden-box
+    rule were read line by line. `collapse` via `journeys.update` is equivalent to the former
+    `dispatchView` path, plus the multi-selection pruning.
 
 ## Incoming relation stack (2026-09-28)
 

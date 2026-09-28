@@ -11,11 +11,16 @@ const MIN_CODE_BUTTON_PX = 14;
 /** Below this rendered card width the resize grip is hidden. */
 const MIN_RESIZE_CARD_PX = 60;
 /** The expand/collapse control a card or container shows in its corner, or the outgoing-stack toggle. */
-type CornerHit = CornerAction | 'collapse' | 'stack';
+type CornerHit = CornerAction | 'collapse' | 'ungroup' | 'stack';
 /** Layer badge height in model units; it never renders smaller than STACK_BADGE_MIN_PX. */
 const STACK_BADGE_SIZE = 30, STACK_BADGE_MIN_PX = 20;
 /** Card-local square of the outgoing-stack toggle: left of the leftmost corner button of a card, or
  * of the collapse square of an expanded card. Same units as CODE_BUTTON / CONTAINER_BUTTON. */
+/** Card-local square of an expanded box's Ungroup button (ADR 0011): left of the stack toggle's slot,
+ * so it never moves when the toggle appears on hover or selection. */
+const UNGROUP_BUTTON = { right: CONTAINER_BUTTON.inset + 2 * (CONTAINER_BUTTON.size + 6), top: CONTAINER_BUTTON.inset, size: CONTAINER_BUTTON.size };
+// `right` is the square's right edge from the box's right edge, as in stackButton: collapse at inset,
+// the stack toggle one slot left, Ungroup two slots left.
 function stackButton(data: any): { right: number; top: number; size: number } {
   if (data.expanded) return { right: CONTAINER_BUTTON.inset + CONTAINER_BUTTON.size + 6, top: CONTAINER_BUTTON.inset, size: CONTAINER_BUTTON.size };
   const corners = cornerButtons(data);
@@ -91,6 +96,12 @@ interface Props {
   containerSizes: Record<string, CardSize>;
   /** The details button on a package/type card (expand), or the collapse button on an expanded one. */
   onToggleExpand: (node: AtlasNode) => void;
+  /** Ungroup (ADR 0011): hide an expanded card's box, leaving its children as free cards. */
+  onUngroup: (node: AtlasNode) => void;
+  /** The nearest ungrouped card this card sits inside, or null; the menu offers to collapse into it. */
+  hiddenAncestorOf: (node: AtlasNode) => AtlasNode | null;
+  /** Brings an ungrouped card back as a collapsed card. */
+  onCollapseInto: (node: AtlasNode) => void;
   /** A resize-grip drag completed on a card; `position` keeps its top-left corner in place. */
   onResizeNode: (id: string, size: CardSize, position: Point, containerId: string | null) => void;
   /** A resize-grip drag completed on an expanded card's box; the size excludes the box's padding. */
@@ -127,10 +138,10 @@ interface Props {
  * `cy.fit()` is called only once per level (when `camera` is null) and by the explicit Fit map
  * button -- both are real camera changes the product allows.
  */
-export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, mapOpen, onMapOpenChange: setMapOpen, fullscreen, onFullscreenChange: setFullscreen, onClearSelection, nodes, edges, positions, camera, selectedId, onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, scopeRemovalTargets, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, sizes, containerSizes, onToggleExpand, onResizeNode, onResizeContainer, restoreVersion, outgoingStack, stackRoot, onCycleStack, onToggleStack }: Props) {
+export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, mapOpen, onMapOpenChange: setMapOpen, fullscreen, onFullscreenChange: setFullscreen, onClearSelection, nodes, edges, positions, camera, selectedId, onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, scopeRemovalTargets, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, sizes, containerSizes, onToggleExpand, onUngroup, hiddenAncestorOf, onCollapseInto, onResizeNode, onResizeContainer, restoreVersion, outgoingStack, stackRoot, onCycleStack, onToggleStack }: Props) {
   const container = useRef<HTMLDivElement>(null), cyRef = useRef<cytoscape.Core | null>(null), menuRef = useRef<HTMLDivElement>(null);
-  const callbacks = useRef({ onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, onToggleExpand, onResizeNode, onResizeContainer, onClearSelection, onCycleStack });
-  callbacks.current = { onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, onToggleExpand, onResizeNode, onResizeContainer, onClearSelection, onCycleStack };
+  const callbacks = useRef({ onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, onToggleExpand, onUngroup, onResizeNode, onResizeContainer, onClearSelection, onCycleStack });
+  callbacks.current = { onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, onToggleExpand, onUngroup, onResizeNode, onResizeContainer, onClearSelection, onCycleStack };
   const [mini, setMini] = useState<MinimapState | null>(null);
   const [hover,setHover]=useState<{title:string;description:string;x:number;y:number;ready:boolean}|null>(null);
   // `node` is the card that was right-clicked; null when the menu opened from a marquee.
@@ -177,13 +188,14 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
   const edgeLabel=(e:AtlasEdge)=>(e.explanationStatus==='READY'?'✦ ':'')+kindSummary(e,1);
   const childCounts=useMemo(()=>{const m=new Map<string,number>();for(const n of nodes)if(n.containerId)m.set(n.containerId,(m.get(n.containerId)||0)+1);return m;},[nodes]);
   // `parent` is left out on purpose: Cytoscape sets a node's parent only on add or move(), never through data().
+  // Boolean flags are always written: data() merges, so a flag left out would keep its stale value.
   const nodeStyleData=(n:AtlasNode)=>{
     const {containerId:_containerId,...rest}=n;
     const card=nodeCard(n,sizes[n.id]),min=containerSizes[n.id];
     const childWord=n.kind==='PACKAGE'?'types':'methods';
     const reviewChange=n.reviewChange&&n.reviewChange!=='UNCHANGED'?n.reviewChange:null;
     const reviewLabel=reviewChange==='UNKNOWN'?' · NOT ANALYZED':reviewChange?` · ${reviewChange} +${n.reviewAddedLines||0} −${n.reviewRemovedLines||0}`:'';
-    return {...rest,...(n.reviewChange?{reviewChange:n.reviewChange}:{}),expanded:!!n.expanded,card:card.image,cardWidth:card.width,cardHeight:card.height,minW:min?.width||0,minH:min?.height||0,
+    return {...rest,...(n.reviewChange?{reviewChange:n.reviewChange}:{}),expanded:!!n.expanded,hiddenBox:!!n.hiddenBox,card:card.image,cardWidth:card.width,cardHeight:card.height,minW:min?.width||0,minH:min?.height||0,
       containerLabel:`${n.kind==='PACKAGE'?n.qualifiedName||n.simpleName:n.simpleName}  ·  ${childCounts.get(n.id)||0} ${childWord}${reviewLabel}`,
       label:n.simpleName+'\n'+(n.roles?.[0]?.toLowerCase().replaceAll('_',' ')||n.kind.toLowerCase()),color:n.kind==='PACKAGE'?'#6c79b6':n.roles?.includes('SERVICE')?'#16888a':n.roles?.includes('REPOSITORY')?'#6287c8':'#8293a8'};
   };
@@ -247,6 +259,10 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         { selector: 'edge.flow-in', style: { 'underlay-color': HALO.in } },
         // Direct edge inspection overrides change colors until deselection.
         { selector: 'edge.inspected', style: { 'line-color': '#000000', 'target-arrow-color': '#000000', color: '#000000', 'underlay-color': '#000000', 'underlay-opacity': .16, 'underlay-padding': 4 } },
+        // An ungrouped box (ADR 0011) is still the compound parent of its children but draws nothing
+        // and takes no pointer events, so its children move freely and a click anywhere reaches the
+        // card or canvas under it. Last, so no selection, halo, stack or change-state rule shows it.
+        { selector: 'node[?hiddenBox]', style: { 'background-opacity': 0, 'border-width': 0, 'border-opacity': 0, 'outline-width': 0, 'outline-opacity': 0, 'overlay-opacity': 0, 'underlay-opacity': 0, label: '', padding: '0px', 'min-width': 0, 'min-height': 0, events: 'no' } as any },
       ] });
     cyRef.current = cy;
     const directionCanvas = document.createElement('canvas');
@@ -332,10 +348,14 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       const corners: { id: string; action: CornerHit; left: number; top: number; size: number }[] = [], grips: { id: string; left: number; top: number; size: number }[] = [];
       const gripSize = Math.max(12, Math.min(22, 18 * zoomNow));
       cy.nodes().forEach(n => {
+        if (n.data('hiddenBox')) return;
         const bb = n.renderedBoundingBox({ includeLabels: false, includeOverlays: false });
         if (n.data('expanded')) {
           const size = CONTAINER_BUTTON.size * zoomNow;
-          if (size >= MIN_CODE_BUTTON_PX) corners.push({ id: n.id(), action: 'collapse', left: bb.x2 - (CONTAINER_BUTTON.inset * zoomNow + size), top: bb.y1 + CONTAINER_BUTTON.inset * zoomNow, size });
+          if (size >= MIN_CODE_BUTTON_PX) {
+            corners.push({ id: n.id(), action: 'collapse', left: bb.x2 - (CONTAINER_BUTTON.inset * zoomNow + size), top: bb.y1 + CONTAINER_BUTTON.inset * zoomNow, size });
+            corners.push({ id: n.id(), action: 'ungroup', left: bb.x2 - (UNGROUP_BUTTON.right + UNGROUP_BUTTON.size) * zoomNow, top: bb.y1 + UNGROUP_BUTTON.top * zoomNow, size });
+          }
         } else if (CODE_BUTTON.size * zoomNow >= MIN_CODE_BUTTON_PX) {
           const p = n.renderedPosition(), rw = n.renderedWidth(), rh = n.renderedHeight();
           for (const c of cornerButtons(n.data())) corners.push({ id: n.id(), action: c.action, left: p.x + rw / 2 - (c.right + c.size) * zoomNow, top: p.y - rh / 2 + c.top * zoomNow, size: c.size * zoomNow });
@@ -349,7 +369,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       setResizeGrips(prev => prev.length || visibleGrips.length ? visibleGrips : prev);
       if (!cy.nodes().length) return;
       const b = cy.elements().boundingBox(); const v = cy.extent();
-      const next = {nodes: cy.nodes().map(n => { const nb = n.boundingBox({ includeLabels: false, includeOverlays: false }); return { id: n.id(), x: (nb.x1 + nb.x2) / 2, y: (nb.y1 + nb.y2) / 2, w: nb.w, h: nb.h, parent: !!n.data('expanded') }; }), box: {x1: b.x1 - 30, y1: b.y1 - 30, w: Math.max(280, b.w + 60), h: Math.max(160, b.h + 60)}, viewport: v, zoom: cy.zoom()};
+      const next = {nodes: cy.nodes().filter(n => !n.data('hiddenBox')).map(n => { const nb = n.boundingBox({ includeLabels: false, includeOverlays: false }); return { id: n.id(), x: (nb.x1 + nb.x2) / 2, y: (nb.y1 + nb.y2) / 2, w: nb.w, h: nb.h, parent: !!n.data('expanded') }; }), box: {x1: b.x1 - 30, y1: b.y1 - 30, w: Math.max(280, b.w + 60), h: Math.max(160, b.h + 60)}, viewport: v, zoom: cy.zoom()};
       // Same rule as the overlay arrays above: skip the state update (and its re-render) when nothing
       // actually moved, rather than setting a fresh object on every rAF regardless (review remediation
       // F-04). During real panning/zooming the viewport genuinely differs every frame and still updates.
@@ -383,7 +403,8 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     // the card. A plain click is hit-tested here instead: inside the square it opens the code.
     // A programmatic tap (`node.emit('tap')`) carries no position and is never on the square.
     const cornerHit = (n: cytoscape.NodeSingular, p: Point | undefined): CornerHit | null => {
-      if (!p) return null;
+      // An ungrouped box draws no buttons (ADR 0011), so none can be hit.
+      if (!p || n.data('hiddenBox')) return null;
       const inSquare = (right: number, top: number, size: number) => p.x >= right - size && p.x <= right && p.y >= top && p.y <= top + size;
       // The stack toggle is live only where it is drawn: the selected card, the hovered card, the root.
       const stack = stackButton(n.data());
@@ -394,6 +415,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       if (n.data('expanded')) {
         if (CONTAINER_BUTTON.size * cy.zoom() < MIN_CODE_BUTTON_PX) return null;
         const bb = n.boundingBox({ includeLabels: false, includeOverlays: false });
+        if (inSquare(bb.x2 - UNGROUP_BUTTON.right, bb.y1 + UNGROUP_BUTTON.top, UNGROUP_BUTTON.size)) return 'ungroup';
         return inSquare(bb.x2 - CONTAINER_BUTTON.inset, bb.y1 + CONTAINER_BUTTON.inset, CONTAINER_BUTTON.size) ? 'collapse' : null;
       }
       if (CODE_BUTTON.size * cy.zoom() < MIN_CODE_BUTTON_PX) return null;
@@ -413,6 +435,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       const corner = cornerHit(e.target, e.position);
       if (corner === 'code') { setContextMenu(null); callbacks.current.onViewCode(node); return; }
       if (corner === 'stack') { setContextMenu(null); callbacks.current.onCycleStack(node.id); return; }
+      if (corner === 'ungroup') { setContextMenu(null); callbacks.current.onUngroup(node); return; }
       if (corner) { setContextMenu(null); callbacks.current.onToggleExpand(node); return; }
       callbacks.current.onNodeSelect(node);
     });
@@ -490,7 +513,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     // 'boxend'), so those ids are collected and added to the multi-selection once the gesture ends.
     const boxed = new Set<string>();
     cy.on('boxstart', () => boxed.clear());
-    cy.on('box', 'node', e => { boxed.add(e.target.id()); });
+    cy.on('box', 'node', e => { if (!e.target.data('hiddenBox')) boxed.add(e.target.id()); });
     cy.on('boxend', () => queueMicrotask(() => {
       if (!boxed.size) return;
       const add = [...boxed]; boxed.clear();
@@ -505,7 +528,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     let anchor: Point | null = null, dragging = false, candidates: string[] = [];
     const bandFor = (a: Point, b: Point) => ({ x1: Math.min(a.x, b.x), y1: Math.min(a.y, b.y), x2: Math.max(a.x, b.x), y2: Math.max(a.y, b.y) });
     const toRendered = (p: Point) => ({ x: p.x * cy.zoom() + cy.pan().x, y: p.y * cy.zoom() + cy.pan().y });
-    const hits = (band: { x1: number; y1: number; x2: number; y2: number }) => cy.nodes().filter(n => {
+    const hits = (band: { x1: number; y1: number; x2: number; y2: number }) => cy.nodes('[!hiddenBox]').filter(n => {
       const bb = n.boundingBox({ includeLabels: false, includeOverlays: false });
       return bb.x1 <= band.x2 && bb.x2 >= band.x1 && bb.y1 <= band.y2 && bb.y2 >= band.y1;
     }).map(n => n.id());
@@ -544,10 +567,15 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     // card corners already win over routes through the node tap above, so a route crossing them still inspects.
     cy.on('tap', 'edge', e => {
       const p = e.position;
-      const boxHit = (n: cytoscape.NodeSingular) => { const hit = p ? cornerHit(n, p) : null; return hit === 'collapse' || hit === 'stack' ? hit : null; };
-      const box = p && cy.nodes('[?expanded]').filter(n => boxHit(n) !== null).first();
+      const boxHit = (n: cytoscape.NodeSingular) => { const hit = p ? cornerHit(n, p) : null; return hit === 'collapse' || hit === 'ungroup' || hit === 'stack' ? hit : null; };
+      const box = p && cy.nodes('[?expanded][!hiddenBox]').filter(n => boxHit(n) !== null).first();
       const node = box && box.length ? currentModel.current.nodes.find(m => m.id === box.id()) : undefined;
-      if (node) { setContextMenu(null); if (boxHit(box as unknown as cytoscape.NodeSingular) === 'stack') callbacks.current.onCycleStack(node.id); else callbacks.current.onToggleExpand(node); return; }
+      if (node) {
+        setContextMenu(null);
+        const hit = boxHit(box as unknown as cytoscape.NodeSingular);
+        if (hit === 'stack') callbacks.current.onCycleStack(node.id); else if (hit === 'ungroup') callbacks.current.onUngroup(node); else callbacks.current.onToggleExpand(node);
+        return;
+      }
       const edge = currentModel.current.edges.find(n => n.id === e.target.id()); if (edge) callbacks.current.onEdgeSelect(edge);
     });
     const canvas=container.current;
@@ -600,7 +628,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       const id=fromButton??(!focused||focused===document.body||stage.contains(focused)?selectedIdRef.current:null);
       const node=id?currentModel.current.nodes.find(n=>n.id===id):undefined;
       const element=id&&cy?cy.getElementById(id):null;
-      if(!cy||!node||!element||!element.length)return;
+      if(!cy||!node||!element||!element.length||node.hiddenBox)return;
       event.preventDefault();
       setHover(null);
       menuOpenerRef.current=fromButton&&focused?focused:null;
@@ -734,7 +762,10 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     const cy = cyRef.current; if (!cy) return;
     cy.batch(() => {
       cy.elements().removeClass('inspected muted neighbor flow-out flow-in rel-out rel-in rel-both stack-root stack-member stack-in').removeStyle(ANIMATED_STYLES);
-      const selected = selectedId ? cy.getElementById(selectedId) : cy.collection();
+      // An ungrouped box is not on the map (ADR 0011): selected from the tree, search or Back, it is
+      // treated like any undrawn subject, so nothing is lit or muted around an invisible card.
+      const picked = selectedId ? cy.getElementById(selectedId) : cy.collection();
+      const selected = picked.length && picked.data('hiddenBox') ? cy.collection() : picked;
       // A relation stack replaces the selection's neighborhood emphasis: the chain stays lit (its
       // routes with the selected-route dashes and a cyan underlay, indigo for an incoming stack;
       // dashes keep the factual source-to-target motion), the selection keeps only its
@@ -777,6 +808,9 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         node.addClass(outgoing.has(id) && incoming.has(id) ? 'rel-both' : outgoing.has(id) ? 'rel-out' : 'rel-in');
       });
     });
+    // An ungrouped box draws nothing (ADR 0011): it never takes an emphasis look. The pulsing halo is a
+    // style bypass, which would win over its stylesheet rule, so it must not be a halo target at all.
+    cy.nodes('[?hiddenBox]').removeClass('inspected neighbor rel-out rel-in rel-both stack-root stack-member stack-in');
     drawDirectionRef.current(undefined,undefined,true);
   }, [selectedId, nodes, edges, outgoingStack, stackRootId, stackDirection]);
 
@@ -919,6 +953,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
   function fit() { const cy = cyRef.current; if (cy && nodes.length) { cy.fit(undefined, 55); if (cy.zoom() > 1) { cy.zoom(1); cy.center(); } } }
   const menuNode=contextMenu?.node||null;
   const menuSelected=menuNode?selectedNodes.some(n=>n.id===menuNode.id):false;
+  const menuHiddenAncestor=menuNode?hiddenAncestorOf(menuNode):null;
   const menuTitle=selectedNodes.length>1?`${selectedNodes.length} resources selected`:(menuNode||selectedNodes[0])?.simpleName||'Selection';
   return <div className={`graph-stage${fullscreen?' fullscreen':''}`}>
     <div ref={container} className="graph-canvas" aria-label="Dependency graph" />
@@ -934,6 +969,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         return <button key={`${b.id}:stack`} type="button" className={`code-button map-code-button map-stack-button${on?' active':''}${incoming?' incoming':''}${hot}`} style={style} aria-pressed={on} aria-label={label} title={title} data-card-id={b.id} data-stack-direction={on?stackDirection:undefined} onFocus={()=>setFocusedStackId(b.id)} onBlur={()=>setFocusedStackId(id=>id===b.id?null:id)} onClick={event=>{event.stopPropagation();setContextMenu(null);onCycleStack(n.id);}}><StackIcon/></button>;
       }
       if(b.action==='code')return <CodeButton key={`${b.id}:code`} cardId={b.id} name={n.simpleName} kind={n.kind} className={`map-code-button${hot}`} style={style} onClick={()=>{setContextMenu(null);onViewCode(n);}}/>;
+      if(b.action==='ungroup')return <button key={`${b.id}:ungroup`} type="button" data-card-id={b.id} data-action="ungroup" className={`code-button map-code-button map-ungroup-button${hot}`} style={style} aria-label={`Ungroup ${n.simpleName}`} title={`Ungroup: remove the box and keep its ${n.kind==='PACKAGE'?'types':'methods'} as free cards`} onClick={event=>{event.stopPropagation();setContextMenu(null);onUngroup(n);}}><UngroupIcon/></button>;
       const collapse=b.action==='collapse',what=n.kind==='PACKAGE'?'types':'methods';
       // Stable key across the details<->collapse flip (WCAG 2.1 SC 2.4.3): `b.action` changes when the
       // card expands, so keying on it unmounted the very button the user just pressed and focus fell
@@ -954,6 +990,11 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
           // Rooting a stack is not a multi-select action: undo the selection this right-click added.
           const added=contextMenu.addedId;if(added)setMultiIds(ids=>ids.filter(id=>id!==added));
           onToggleStack(menuNode.id,direction);setContextMenu(null);}}><span aria-hidden="true">{direction==='in'?'⇇':'⇶'}</span> {on?`Hide ${name} stack`:`Show ${name} stack`}</button>;})}
+      {menuNode&&menuNode.expanded&&!menuNode.hiddenBox&&<button role="menuitem" onClick={()=>{setContextMenu(null);onUngroup(menuNode);}}><span aria-hidden="true">⬚</span> Ungroup {menuNode.simpleName}</button>}
+      {menuHiddenAncestor&&<button role="menuitem" onClick={()=>{
+        // Like a stack, collapsing is not a multi-select action: undo the selection this right-click added.
+        const added=contextMenu.addedId;if(added)setMultiIds(ids=>ids.filter(id=>id!==added));
+        setContextMenu(null);onCollapseInto(menuHiddenAncestor);}}><span aria-hidden="true">⊟</span> Collapse into {menuHiddenAncestor.simpleName}</button>}
       <button role="menuitem" onClick={()=>{onClearSelection();setContextMenu(null);}}><span aria-hidden="true">✕</span> {selectedNodes.length>1?'Clear selection':'Deselect'}</button>
       <p className="graph-context-menu-hint">Right-click or right-drag over more cards to add them. Drag any selected card to move the group.</p>
     </div>}
@@ -979,6 +1020,14 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
 /** Where the card actions menu opens: at the pointer (or the card's center), kept inside the canvas. */
 function menuPosition(cy: cytoscape.Core, position: Point) {
   return { x: Math.max(8, Math.min(position.x, cy.width() - 238)), y: Math.max(8, Math.min(position.y, cy.height() - 150)) };
+}
+
+/** Four cards whose surrounding box is broken open: the Ungroup button. */
+function UngroupIcon() {
+  return <svg viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 8V5a2 2 0 0 1 2-2h3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3"/>
+    <path d="M8 8h3v3H8zM13 8h3v3h-3zM8 13h3v3H8zM13 13h3v3h-3z"/>
+  </svg>;
 }
 
 /** Three stacked, right-pointing layers: the outgoing-stack toggle. */

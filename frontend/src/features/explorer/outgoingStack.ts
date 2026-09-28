@@ -1,7 +1,8 @@
 import { AtlasGraph, AtlasNode, Level, isType, ownerAt } from './graphModel';
 
-/** A drawn card: `containerId` is the expanded card it sits in (projectDisplayed's output). */
-export interface StackCard { id: string; containerId?: string }
+/** A drawn card: `containerId` is the expanded card it sits in (projectDisplayed's output);
+ * `hiddenBox` marks an ungrouped box that draws nothing (ADR 0011). */
+export interface StackCard { id: string; containerId?: string; hiddenBox?: boolean }
 /** A drawn route: aggregated among the displayed cards; `occurrenceIds` are the raw edges it carries. */
 export interface StackRoute { id: string; occurrenceIds?: string[] }
 /** 'out' follows what the root sets in motion; 'in' walks every fact reversed (what leads to it). */
@@ -75,7 +76,9 @@ const ROOT_CARD = '\u0000root';
  * 3. An entity's representative card is its own card when drawn (even as an expanded box), else the
  *    nearest drawn ancestor on its parentId chain (the collapsed card that contains it). An entity
  *    with no drawn representative (out of scope, not on the page) is not walked through; each
- *    distinct such entity reached by a kept step from a chain entity counts in `beyond`.
+ *    distinct such entity reached by a kept step from a chain entity counts in `beyond`. An
+ *    ungrouped (hidden) box draws nothing, so it represents only the entity it is itself (rule 9
+ *    then hands that down); an undrawn entity inside it has no representative.
  * 4. The root entity is the root card. The root set (layer 0) is the root card plus every drawn
  *    card inside it.
  * 5. Distances come from a 0-1 BFS from the root entity. A step costs 0 when both entities have the
@@ -89,10 +92,13 @@ const ROOT_CARD = '\u0000root';
  *    source and target entities are both in the chain (the root entity or reached). A self-loop of
  *    a chain entity counts here, so routes inside an expanded root stay lit.
  * 8. `depth` is the maximum card layer and `count` the number of layered cards. Returns null when
- *    the root card is not drawn (or is not a package, type or method). `direction: 'in'` (the
- *    incoming stack) reverses every mapped step after rules 1-2: an exact mirror, so a type root
- *    reaches its implementors and subclasses, a method root's callers are reached through the
- *    overridden method (impl <- interface method <- its callers), and terminal types never appear.
+ *    the root card is not drawn (an ungrouped box is not) or is not a package, type or method.
+ *    `direction: 'in'` (the incoming stack) reverses every mapped step after rules 1-2: an exact
+ *    mirror, so a type root reaches its implementors and subclasses, a method root's callers are
+ *    reached through the overridden method (impl <- interface method <- its callers), and terminal
+ *    types never appear.
+ * 9. An ungrouped (hidden) box (ADR 0011) never holds a layer: a layer it would get goes to each card
+ *    freed from it, unless that card already has a nearer one. Nothing inside it is covered.
  *
  * Pure; O(nodes + edges) with memoized owner and representative lookups.
  */
@@ -101,7 +107,8 @@ export function outgoingStack({ graph, cards, routes, rootId, kind, direction = 
   const all = new Map(graph.nodes.map(n => [n.id, n]));
   const root = all.get(rootId);
   const level = root && granularityOf(root);
-  if (!level || !displayed.has(rootId)) return null;
+  const hidden = new Set(cards.filter(c => c.hiddenBox).map(c => c.id));
+  if (!level || !displayed.has(rootId) || hidden.has(rootId)) return null;
 
   const containerOf = new Map(cards.filter(c => c.containerId).map(c => [c.id, c.containerId!]));
   const inside = (id: string, container: string) => { for (let c: string | undefined = id; c; c = containerOf.get(c)) if (c === container) return true; return false; };
@@ -122,6 +129,8 @@ export function outgoingStack({ graph, cards, routes, rootId, kind, direction = 
     let found: string | null = null;
     for (let c: AtlasNode | undefined = all.get(id), seen = new Set<string>(); c && !seen.has(c.id); c = c.parentId ? all.get(c.parentId) : undefined) {
       seen.add(c.id);
+      // Checked before the cache: a hidden box cached as standing for itself never stands for a member.
+      if (hidden.has(c.id) && c.id !== id) break;
       const known = reps.get(c.id);
       if (known !== undefined) { found = known; break; }
       path.push(c.id);
@@ -171,6 +180,18 @@ export function outgoingStack({ graph, cards, routes, rootId, kind, direction = 
     const card = repOf(entity);
     if (!card || cardKey(entity) === ROOT_CARD) continue;
     if (!raw.has(card) || d < raw.get(card)!) raw.set(card, d);
+  }
+  // An ungrouped box draws nothing: its distance goes to each card freed from it (through nested
+  // hidden boxes), unless that card was reached sooner on its own (rule 9). Done before ranking, so
+  // a distance only a hidden box held never leaves a gap in the badge numbers.
+  for (let moved = true; moved;) {
+    moved = false;
+    for (const [card, d] of [...raw]) {
+      if (!hidden.has(card)) continue;
+      raw.delete(card);
+      moved = true;
+      for (const c of cards) if (c.containerId === card && !rootSet.has(c.id) && !(raw.get(c.id)! <= d)) raw.set(c.id, d);
+    }
   }
   const rank = new Map([...new Set(raw.values())].sort((a, b) => a - b).map((d, i) => [d, i + 1]));
   const layers = new Map([...raw].map(([card, d]) => [card, rank.get(d)!]));

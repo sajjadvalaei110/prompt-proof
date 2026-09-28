@@ -58,6 +58,16 @@ export function cycleRelationStack(current: RelationStackRoot | null, id: string
 export function toggleRelationStack(current: RelationStackRoot | null, id: string, direction: StackDirection): RelationStackRoot | null {
   return current?.rootId === id && current.direction === direction ? null : { rootId: id, direction };
 }
+/** Collapses a card (⊟ or "Collapse into X"). Every card drawn inside it (`cards`: projectDisplayed's
+ * nodes, followed through `containerId`) leaves the map, so it leaves the multi-selection in the same
+ * update: one undo entry. `j` itself when the reducer rejects the collapse. */
+export function collapseInJourney(j: Journey, action: Extract<ExplorerAction, { type: 'COLLAPSE_RESOURCE' }>, cards: readonly { id: string; containerId?: string }[]): Journey {
+  const view = explorerViewReducer(j.view, action);
+  if (view === j.view) return j;
+  const containerOf = new Map(cards.map(c => [c.id, c.containerId]));
+  const inside = (id: string) => { for (let c = containerOf.get(id); c; c = containerOf.get(c)) if (c === action.id) return true; return false; };
+  return { ...j, view, multiIds: j.multiIds.some(inside) ? j.multiIds.filter(id => !inside(id)) : j.multiIds };
+}
 export function newJourney(view = initExplorerViewState()): Journey {
   return { view, scope: { mode: 'ALL', selectedPackageIds: new Set(), selectedClassIds: new Set() }, kind: 'ALL', tab: 'map', search: '', mobilePane: 'map', source: null, treeOpen: {}, multiIds: [], mapOpen: true, fullscreen: false, navWidth: null, review: false, reviewKey: null, reviewTouched: false, relationStack: null };
 }

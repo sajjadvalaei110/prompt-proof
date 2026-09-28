@@ -7,7 +7,11 @@ export interface AtlasNode { id: string; simpleName: string; qualifiedName?: str
   /** Set on a projected card drawn inside an expanded card: the id of that container card. */
   containerId?: string;
   /** Set on a projected card that is currently expanded into a container of its children. */
-  expanded?: boolean }
+  expanded?: boolean;
+  /** An ungrouped expanded card: its box is not drawn and it takes no pointer events (ADR 0011). */
+  hiddenBox?: boolean;
+  /** A method/constructor card's owning class name, shown on the card (ADR 0011). */
+  ownerName?: string }
 export interface AtlasEdge { id: string; sourceId: string; targetId: string | null; kind: string; resolution: string; descriptiveLabel?: string; occurrenceCount?: number; occurrenceIds?: string[]; hoverSummary?: string; explanationStatus?: string;
   /** Kept in the aggregate key for review overlay facts, so added/removed routes cannot cancel out. */
   reviewChange?: 'ADDED' | 'REMOVED' | 'UNCHANGED' | 'UNKNOWN'; reviewSnapshotId?: string; reviewSide?: 'base' | 'head';
@@ -110,11 +114,14 @@ function decorate(byParent: Map<string, AtlasNode[]>, all: Map<string, AtlasNode
   const detailCount = n.kind === 'PACKAGE'
     ? (packageTypes.get(n.id) || []).filter(m => !scope || isNodeInScope(m, scope, graph)).length
     : isType(n) ? members.filter(m => m.kind === 'METHOD' || m.kind === 'CONSTRUCTOR').length : 0;
-  return { ...n, memberNames: members.slice(0, 12).map(m => m.simpleName), memberCount: members.length, detailCount, packageName: pkg?.qualifiedName };
+  // A method card names its owning class (ADR 0011): freed from an ungrouped class, it has no box to say so.
+  const ownerName = n.kind === 'METHOD' || n.kind === 'CONSTRUCTOR' ? ownerAt(n, 'CLASS', all)?.simpleName : undefined;
+  return { ...n, memberNames: members.slice(0, 12).map(m => m.simpleName), memberCount: members.length, detailCount, packageName: pkg?.qualifiedName, ...(ownerName ? { ownerName } : {}) };
 }
 
-/** One expanded card: `ownerId` is the container it is drawn inside, or null for a top-level card. */
-export interface ExpansionSpec { id: string; ownerId: string | null }
+/** One expanded card: `ownerId` is the container it is drawn inside, or null for a top-level card.
+ * `hidden` marks an ungrouped card whose box is not drawn (ADR 0011). */
+export interface ExpansionSpec { id: string; ownerId: string | null; hidden?: boolean }
 
 /** Only packages and types expand: a package into its types, a type into its methods and constructors. */
 export const isExpandable = (n: AtlasNode) => n.kind === 'PACKAGE' || isType(n);
@@ -130,6 +137,18 @@ export function childrenOf(graph: AtlasGraph, container: AtlasNode, scope: Scope
   if (container.kind === 'PACKAGE') return graph.nodes.filter(n => isType(n) && ownerAt(n, 'PACKAGE', all)?.id === container.id && isNodeInScope(n, scope, graph)).sort(byName);
   if (isType(container)) return graph.nodes.filter(n => n.parentId === container.id && (n.kind === 'METHOD' || n.kind === 'CONSTRUCTOR')).sort(byName);
   return [];
+}
+
+/**
+ * The containers to open, outermost first, so that `node` is drawn: its package box, then (for a
+ * method or constructor only) its owning type's box. A package box holds nested types side by side
+ * with their outer type (childrenOf), so a nested type's outer class is never one of them.
+ */
+export function revealContainers(node: AtlasNode, all: Map<string, AtlasNode>): AtlasNode[] {
+  const pkg = ownerAt(node, 'PACKAGE', all);
+  const out = pkg && pkg.id !== node.id ? [pkg] : [];
+  const type = node.kind === 'METHOD' || node.kind === 'CONSTRUCTOR' ? ownerAt(node, 'CLASS', all) : undefined;
+  return type ? [...out, type] : out;
 }
 
 /** Uncertainty rank: the aggregate's representative resolution is the least certain one present, so a single candidate/unresolved occurrence is never reported as resolved (hover text, inspector). The line itself is not styled by resolution (ADR 0008 amendment, 2026-09-25). */
@@ -288,11 +307,12 @@ export function projectDisplayed(graph: AtlasGraph, level: Level, displayedIds: 
   const byParent = childrenByParent(graph);
   const packageTypes = typesByOwnerPackage(graph, all);
   const owners = new Map<string, string | null>((expansion?.expansions || []).map(e => [e.id, e.ownerId]));
+  const hidden = new Set((expansion?.expansions || []).filter(e => e.hidden).map(e => e.id));
   const containerOf = new Map<string, string>(), expanded = new Set<string>();
   const nodes: AtlasNode[] = [];
   const visit = (n: AtlasNode, containerId: string | null) => {
     const isExpanded = level !== 'METHOD' && owners.has(n.id) && owners.get(n.id) === containerId && isExpandable(n);
-    nodes.push({ ...decorate(byParent, all, packageTypes, graph, n, expansion?.scope), ...(containerId ? { containerId } : {}), ...(isExpanded ? { expanded: true } : {}) });
+    nodes.push({ ...decorate(byParent, all, packageTypes, graph, n, expansion?.scope), ...(containerId ? { containerId } : {}), ...(isExpanded ? { expanded: true } : {}), ...(isExpanded && hidden.has(n.id) ? { hiddenBox: true } : {}) });
     if (containerId) containerOf.set(n.id, containerId);
     if (!isExpanded) return;
     expanded.add(n.id);

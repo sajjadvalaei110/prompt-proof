@@ -87,10 +87,12 @@ function displayedMap(j: Journey, graph: AtlasGraph | null | undefined, withRout
   if (!graph) {
     const cards = new Set(lv.displayedIds);
     if (level !== 'METHOD') for (const e of Object.values(lv.expansions)) for (const id of Object.keys(e.childPositions)) cards.add(id);
+    for (const [id, e] of Object.entries(lv.expansions)) if (e.hidden) cards.delete(id);
     return { cards, routes: null };
   }
-  const expanded = projectDisplayed(graph, level, lv.displayedIds, 'ALL', { expansions: Object.entries(lv.expansions).map(([id, e]) => ({ id, ownerId: e.ownerId })), scope: j.scope });
-  const cards = new Set(expanded.nodes.map(n => n.id));
+  const expanded = projectDisplayed(graph, level, lv.displayedIds, 'ALL', { expansions: Object.entries(lv.expansions).map(([id, e]) => ({ id, ownerId: e.ownerId, hidden: e.hidden })), scope: j.scope });
+  // An ungrouped card's box is not drawn, so the card itself is not on the map (ADR 0011).
+  const cards = new Set(expanded.nodes.filter(n => !lv.expansions[n.id]?.hidden).map(n => n.id));
   if (!withRoutes) return { cards, routes: null };
   const plain = projectDisplayed(graph, level, lv.displayedIds, 'ALL', { expansions: [], scope: j.scope });
   return { cards, routes: new Set([...expanded.edges, ...plain.edges].map(e => e.id)) };
@@ -104,14 +106,15 @@ function sameDisplayInputs(a: Journey, b: Journey): boolean {
 }
 
 /**
- * Expansions compared by what they draw: the expanded IDs and their owners. Moving a card inside
+ * Expansions compared by what they draw: the expanded IDs, their owners and whether their box is
+ * hidden (an ungrouped card is not on the map). Moving a card inside
  * an expanded box only rewrites its stored child position (a new `expansions` object), which never
  * takes a card off the map, so it must not cost a full reprojection while a stack is shown.
  */
 function sameExpansionMembership(x: Record<string, ExpansionState>, y: Record<string, ExpansionState>): boolean {
   if (x === y) return true;
   const keys = Object.keys(x);
-  return keys.length === Object.keys(y).length && keys.every(id => id in y && y[id].ownerId === x[id].ownerId);
+  return keys.length === Object.keys(y).length && keys.every(id => id in y && y[id].ownerId === x[id].ownerId && !y[id].hidden === !x[id].hidden);
 }
 
 function clearInspection(view: ExplorerViewState): ExplorerViewState {

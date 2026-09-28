@@ -33,6 +33,9 @@ export interface ExpansionState {
   childPositions: Record<string, Point>;
   /** A user-resized container's minimum box; null keeps it tight around its children. */
   minSize: Size | null;
+  /** Ungrouped (Step 14, ADR 0011): the box is not drawn and its children stand as free cards. The
+   * card stays expanded, so its children, their positions and edge resolution are unchanged. */
+  hidden?: boolean;
 }
 
 export interface LevelViewState {
@@ -154,6 +157,9 @@ export type ExplorerAction =
   /** Expand `id` in place into its children at the given positions. `ownerId` is the expanded card
    * it sits inside (null for a displayed card). Ignored when that card is not actually there. */
   | { type: 'EXPAND_RESOURCE'; level: Level; id: string; ownerId: string | null; childPositions: Record<string, Point>; generation: number; moves?: CardMoves }
+  /** Hide the box of the expanded card `id`, leaving its children as free cards (Step 14). Ignored
+   * when `id` is not expanded or already hidden. Collapsing it (COLLAPSE_RESOURCE) brings it back. */
+  | { type: 'UNGROUP_RESOURCE'; level: Level; id: string; generation: number }
   /** Collapse `id` (and every expansion nested inside it) back to a card centered at `position`. */
   | { type: 'COLLAPSE_RESOURCE'; level: Level; id: string; position: Point; generation: number; moves?: CardMoves }
   /** A user resize of one card; `position` keeps its top-left corner where it was. `containerId` is
@@ -235,6 +241,20 @@ function pruneExpansions(view: LevelViewState, survivors: string[], children?: R
     expansions: !trimmed && Object.keys(kept).length === Object.keys(view.expansions).length ? view.expansions : kept,
     sizes: Object.keys(sizes).length === Object.keys(view.sizes).length ? view.sizes : sizes,
   };
+}
+
+/**
+ * The nearest ungrouped (hidden) box that `id` sits inside, or null. `containerOf` maps each card to
+ * the expanded card it is drawn in (the projection's `containerId`); a leaf card has no expansion of
+ * its own, so the walk cannot rely on `expansions` alone.
+ */
+export function nearestHiddenAncestor(expansions: Record<string, ExpansionState>, containerOf: Record<string, string | null | undefined>, id: string): string | null {
+  const seen = new Set<string>([id]);
+  for (let c = containerOf[id]; c && !seen.has(c); c = containerOf[c]) {
+    if (expansions[c]?.hidden) return c;
+    seen.add(c);
+  }
+  return null;
 }
 
 /** Removes `id`'s expansion and every expansion nested inside it. */
@@ -683,6 +703,14 @@ export function explorerViewReducer(state: ExplorerViewState, action: ExplorerAc
       const expansions = { ...view.expansions, [action.id]: { ownerId: action.ownerId, childPositions: action.childPositions, minSize: null } };
       const next = applyMoves({ ...view, expansions }, action.moves);
       return { ...state, levelViews: { ...state.levelViews, [action.level]: { ...next, geometryRevision: view.geometryRevision + 1 } } };
+    }
+    case 'UNGROUP_RESOURCE': {
+      if (action.generation !== state.generation) return state;
+      const view = state.levelViews[action.level];
+      const expansion = view.expansions[action.id];
+      if (!expansion || expansion.hidden) return state;
+      const expansions = { ...view.expansions, [action.id]: { ...expansion, hidden: true } };
+      return { ...state, levelViews: { ...state.levelViews, [action.level]: { ...view, expansions, geometryRevision: view.geometryRevision + 1 } } };
     }
     case 'COLLAPSE_RESOURCE': {
       if (action.generation !== state.generation) return state;

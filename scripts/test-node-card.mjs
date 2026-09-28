@@ -56,3 +56,16 @@ console.log('nodeCard tests: PASS');
   assert.equal(hasDetailsButton({kind:'CLASS',memberCount:1,detailCount:0}),false,'a class holding only a nested type has nothing to expand into');
   console.log('nodeCard resize/corner tests: PASS');
 }
+
+// Step 14 (ADR 0011): a method card names its owning class before the package, so a method freed
+// from an ungrouped class still says where it lives. Long lines lose the package end first.
+{
+  const text=img=>decodeURIComponent(img).replaceAll('&apos;',"'");
+  const method=text(nodeCard({id:'m',kind:'METHOD',simpleName:'place',ownerName:'OrderService',packageName:'com.shop.order.service'}).image);
+  assert.ok(method.includes('>OrderService · order.service<'),'class, then the last two package segments');
+  const long=text(nodeCard({id:'m2',kind:'METHOD',simpleName:'place',ownerName:'OrderFulfilmentCoordinator',packageName:'com.shop.fulfilment.orchestration'}).image);
+  assert.match(long,/>OrderFulfilmentCoordinator · [^<]*…</,'the class name survives the ellipsis');
+  const cls=text(nodeCard({id:'c',kind:'CLASS',simpleName:'OrderService',ownerName:'ignored',packageName:'com.shop.order.service'}).image);
+  assert.ok(cls.includes('>order.service<'),'a class card keeps its package line');
+  console.log('nodeCard method owner line: PASS');
+}

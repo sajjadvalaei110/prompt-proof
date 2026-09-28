@@ -128,8 +128,12 @@ export function nodeCard(node: AtlasNode, size?: CardSize) {
   const rows=[] as string[];
   const rowStart=170+reviewOffset;
   for(const n of node.memberNames||[]){const y=rowStart+rows.length*36;if(y+28+8>height)break;rows.push(n);}
+  // Where the card lives: a method names its class first (ADR 0011), so one freed from an ungrouped
+  // class still says where it belongs; fitText cuts from the end, so the class name survives.
+  const pkgTail=node.packageName?.split('.').slice(-2).join('.')||'';
+  const placeLine=method&&node.ownerName?[node.ownerName,pkgTail].filter(Boolean).join(' · '):pkgTail||node.qualifiedName||'';
   const lower=pkg?(fits(156+reviewOffset)?`<text x="16" y="${156+reviewOffset}" font-size="13" fill="#7c8ea3">${xml(fitText(node.qualifiedName||node.simpleName,13,inner))}</text>`:'')+rows.map((n,i)=>`<rect x="16" y="${rowStart+i*36}" width="${inner}" height="28" rx="5" fill="#edf3f8"/><text x="26" y="${189+reviewOffset+i*36}" font-size="14" fill="#4c647f">${xml(fitText(n,14,inner-20))}</text>`).join(''):
-    (fits(142+reviewOffset)?`<line x1="16" y1="${142+reviewOffset}" x2="${width-16}" y2="${142+reviewOffset}" stroke="#e5edf3"/>`:'')+(fits(166+reviewOffset)?`<text x="16" y="${166+reviewOffset}" font-size="14" fill="#74859a">${xml(fitText(node.packageName?.split('.').slice(-2).join('.')||node.qualifiedName||'',14,inner))}</text>`:'')+(!method&&fits(190+reviewOffset)?`<text x="16" y="${190+reviewOffset}" font-size="15" fill="#48637c">${node.memberCount||0} methods</text>`:'');
+    (fits(142+reviewOffset)?`<line x1="16" y1="${142+reviewOffset}" x2="${width-16}" y2="${142+reviewOffset}" stroke="#e5edf3"/>`:'')+(fits(166+reviewOffset)?`<text x="16" y="${166+reviewOffset}" font-size="14" fill="#74859a">${xml(fitText(placeLine,14,inner))}</text>`:'')+(!method&&fits(190+reviewOffset)?`<text x="16" y="${190+reviewOffset}" font-size="15" fill="#48637c">${node.memberCount||0} methods</text>`:'');
   const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><g font-family="Segoe UI, Arial, sans-serif"><g transform="translate(16 16) scale(1.2)"><rect width="30" height="30" rx="7" fill="${color}14"/><g stroke="${color}" stroke-width="1.5" fill="none"><path d="M8 7l7-4 7 4v9l-7 4-7-4zM8 7l7 4 7-4M15 11v9"/></g></g><text x="62" y="40" font-size="15" fill="#6c8097">${xml(fitText(subtitle,15,(ready?sparkleX:codeLeft)-62-8))}</text>${review}${nameSvg}${lower}${sparkle}</g></svg>`;
   return { image: 'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg), width,height };
 }

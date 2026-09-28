@@ -81,6 +81,12 @@ calls into C.
   walk is at the root's granularity, expanding a downstream card does not change any layer (for a
   package root, the reached package's own box keeps its badge). Expanding the root adds its inner
   cards to the root set.
+- **Ungrouped boxes (ADR 0011, 2026-09-28):** a hidden box draws nothing, so it never holds a
+  layer. A layer it would get goes to each card freed from it, unless that card already has a
+  nearer one, and nothing inside it is covered. The same holds for the incoming stack. A hidden
+  box represents only the entity it is itself (a package at package granularity, a class reached
+  as a type), never an undrawn member: that member has no representative, counts beyond the map,
+  and the chain stops there. A hidden box is never a root (the helper returns null).
 - **Chain routes:** a drawn route is a chain route iff one of its `occurrenceIds` is a walked fact
   whose mapped source and target are both in the chain (the root entity or reached entities,
   self-loops included). A drawn B -> C route that carries only another class's call is therefore

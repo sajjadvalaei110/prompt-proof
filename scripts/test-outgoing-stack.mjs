@@ -459,4 +459,70 @@ check('the result does not depend on the order of nodes, facts, cards or routes'
   }
 });
 
+
+// --- Step 14 (ADR 0011): an ungrouped (hidden) box hands its layer to its freed cards -----------
+check('a reached hidden package lays its layer on each freed class instead of covering them', () => {
+  const hidden = [card('A', 'PACKAGE'), { ...card('B', 'PACKAGE'), hiddenBox: true }, card('Q', 'CLASS', 'B'), card('S', 'CLASS', 'B'), card('C', 'PACKAGE'), card('D', 'PACKAGE')];
+  const stack = run(graphOf([PQ, QT, ST, SU]), hidden, [], 'A');
+  assert.deepEqual(layersOf(stack), { C: 2, D: 2, Q: 1, S: 1 }, 'B itself draws nothing, so it carries no badge');
+  assert.deepEqual(sorted(stack.coveredIds), []);
+  assert.equal(stack.count, 4);
+  assert.equal(stack.depth, 2);
+});
+check('a freed card keeps its own nearer layer over the one its hidden box hands down, and badges never skip', () => {
+  // Method root P.m calls Q.q (layer 1). Q.q constructs its own class Q: a type target, a dead end
+  // drawn by Q's hidden box, one hop further (raw 2). Q.q also calls T.t in collapsed package C
+  // (raw 2), and T.t calls U.u in collapsed package D (raw 3). Q's distance goes to Q.q, which is
+  // nearer already and keeps 1; T.t keeps 2 and U.u 3, so the numbers stay 1, 2, 3.
+  const graph = { nodes: NODES, edges: [fact('pq', 'P.m', 'Q.q'), fact('qq', 'Q.q', 'Q', { kind: 'CONSTRUCTS' }), fact('qt', 'Q.q', 'T.t'), fact('tu', 'T.t', 'U.u')] };
+  const hidden = [card('A', 'PACKAGE'), card('P', 'CLASS', 'A'), card('P.m', 'METHOD', 'P'), card('B', 'PACKAGE'),
+    { ...card('Q', 'CLASS', 'B'), hiddenBox: true }, card('Q.q', 'METHOD', 'Q'), card('C', 'PACKAGE'), card('D', 'PACKAGE')];
+  const stack = run(graph, hidden, [], 'P.m');
+  assert.deepEqual(layersOf(stack), { C: 2, D: 3, 'Q.q': 1 }, 'Q itself draws nothing and carries no badge');
+  assert.equal(stack.depth, 3);
+});
+check('an undrawn class inside a hidden package has no representative: it counts beyond the map and hands nothing down', () => {
+  // Review finding 3. Class root P calls S, which is out of scope in ungrouped package B; only Q is
+  // freed from B. B draws nothing, so it cannot stand in for S: S is beyond the map, and Q, which
+  // nothing calls, gets no layer.
+  const cards = [card('A', 'PACKAGE'), card('P', 'CLASS', 'A'), { ...card('B', 'PACKAGE'), hiddenBox: true }, card('Q', 'CLASS', 'B')];
+  const stack = run(graphOf([fact('ps', 'P', 'S')]), cards, [], 'P');
+  assert.deepEqual(layersOf(stack), {});
+  assert.equal(stack.beyond, 1);
+  assert.equal(stack.depth, 0);
+});
+check('a hidden box represents itself even once looked up, never an undrawn member', () => {
+  // Method root P.m constructs Q (a type target: Q's hidden box stands for Q itself, raw 1) and calls
+  // Q.q2, which is not drawn: only Q.q is freed from Q. Q is looked up first, so the member lookup
+  // must not reuse it. Q.q2 is beyond the map; Q's distance goes to Q.q, layer 1.
+  const graph = { nodes: NODES, edges: [fact('pc', 'P.m', 'Q', { kind: 'CONSTRUCTS' }), fact('pq2', 'P.m', 'Q.q2')] };
+  const cards = [card('A', 'PACKAGE'), card('P', 'CLASS', 'A'), card('P.m', 'METHOD', 'P'), card('B', 'PACKAGE'),
+    { ...card('Q', 'CLASS', 'B'), hiddenBox: true }, card('Q.q', 'METHOD', 'Q')];
+  const stack = run(graph, cards, [], 'P.m');
+  assert.deepEqual(layersOf(stack), { 'Q.q': 1 });
+  assert.equal(stack.beyond, 1);
+});
+check('a hidden box is not drawn, so it cannot be a stack root', () => {
+  const cards = [card('A', 'PACKAGE'), { ...card('B', 'PACKAGE'), hiddenBox: true }, card('Q', 'CLASS', 'B'), card('S', 'CLASS', 'B'), card('C', 'PACKAGE')];
+  assert.equal(run(graphOf([PQ, QT, ST]), cards, [], 'B'), null);
+  assert.equal(run(graphOf([PQ, QT, ST]), cards, [], 'B', { direction: 'in' }), null);
+});
+check('incoming: a reached hidden package hands its layer to its freed classes, and the numbers stay 1, 2, 3', () => {
+  // Package root C, incoming. B leads to C (Q.q2 -> T.t), A to B (P.m -> Q.q), D to A (U.u -> P.m).
+  // Reversed: B 1, A 2, D 3. B is ungrouped, so Q and S carry its 1.
+  const cards = [card('A', 'PACKAGE'), { ...card('B', 'PACKAGE'), hiddenBox: true }, card('Q', 'CLASS', 'B'), card('S', 'CLASS', 'B'), card('C', 'PACKAGE'), card('D', 'PACKAGE')];
+  const stack = run(graphOf([QT, PQ, fact('up', 'U.u', 'P.m')]), cards, [], 'C', { direction: 'in' });
+  assert.deepEqual(layersOf(stack), { A: 2, D: 3, Q: 1, S: 1 });
+  assert.deepEqual(sorted(stack.coveredIds), []);
+  assert.equal(stack.depth, 3); assert.equal(stack.count, 4); assert.equal(stack.beyond, 0);
+});
+check('incoming: through a hidden class inside a hidden package the layer reaches the freed methods', () => {
+  // Same facts; Q is ungrouped too, so its methods stand free. B's 1 goes to Q (hidden), then to
+  // Q.q and Q.q2; S keeps it as a card.
+  const cards = [card('A', 'PACKAGE'), { ...card('B', 'PACKAGE'), hiddenBox: true }, { ...card('Q', 'CLASS', 'B'), hiddenBox: true },
+    card('Q.q', 'METHOD', 'Q'), card('Q.q2', 'METHOD', 'Q'), card('S', 'CLASS', 'B'), card('C', 'PACKAGE'), card('D', 'PACKAGE')];
+  const stack = run(graphOf([QT, PQ, fact('up', 'U.u', 'P.m')]), cards, [], 'C', { direction: 'in' });
+  assert.deepEqual(layersOf(stack), { A: 2, D: 3, 'Q.q': 1, 'Q.q2': 1, S: 1 });
+  assert.equal(stack.depth, 3); assert.equal(stack.count, 5);
+});
 console.log(`${count} outgoing-stack checks passed`);

@@ -274,6 +274,21 @@ Home and End move through it, and Escape or an action returns focus to where it 
 keyboard-opened menu adds nothing to the multi-selection, and a card that a right-click added only
 to open the menu leaves the multi-selection when the menu roots the stack.
 
+### Ungroup (2026-09-28, ADR 0011)
+
+An expanded package or class box has an Ungroup button (two slots left of its collapse square)
+and an "Ungroup X" card-menu item. Ungroup hides the box and leaves its children where they are
+as free cards. It draws nothing and catches no click, and the children, their routes and anything
+expanded inside them are unchanged. Freed cards can be dragged anywhere on the map. Their package or
+class membership never changes by where they are dropped.
+
+Make-room, double-click arrangement and the relation stack treat freed cards as individual cards,
+never as one invisible block. The hidden card is off the map for selection and stacks. Any card or
+inner box inside a hidden one offers "Collapse into X" (the nearest hidden one) in its card menu,
+which brings X back as a collapsed card centred on its children and moves nothing else. Both are one
+undo step each, and both work in Changes mode. Every method card's sub-line names its class first:
+`OwningClass · last.two.package`.
+
 ## Delivery and validation
 
 Implement stable selection/page state first, incremental canvas updates second, then

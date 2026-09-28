@@ -54,7 +54,7 @@ with an explicit `graphFor` rather than the render-time one. The incoming stack 
 the button cycle (outgoing -> incoming -> off on the root, outgoing on another card) and the menu's
 direct toggles as pure functions; a direction switch adds no entry and keeps redo, and undo/redo
 carry the direction; an incoming root is pruned like an outgoing one; and Clone copies the
-direction (53 checks).
+direction (53 checks then; 59 after step 14 and its review remediation).
 
 `node scripts/test-outgoing-stack.mjs` pins the pure layer computation
 (`docs/OUTGOING_STACK.md` §Traversal) over hand-computable fact graphs: an undrawn root, an empty
@@ -75,7 +75,56 @@ path through one card against a hop chain) pins the 0-1 BFS: plain BFS fails it.
 stack (2026-09-28) adds the "Incoming stack:" summary; the collapsed-hub mirror at class and package
 level; reversed dispatch (impl <- interface method <- callers, no sibling implementation); no
 terminal types for a method root; an interface root reaching its implementors through reverse
-IMPLEMENTS; and beyond the map (41 checks).
+IMPLEMENTS; and beyond the map (41 checks then; 48 after step 14 and its review remediation).
+
+`python3 scripts/verify_ungroup_pipeline.py` (step 14, ADR 0011) starts an isolated packaged jar
+(model URL on a closed port) and a headless Chromium. It copies `test-fixtures/microservice-java`
+twice, once plain and once as a Git repository whose working tree adds a method to EventService,
+hashes both before and after, and runs `scripts/verify-ungroup-ui.mjs` (33 checks since the
+review remediation of 2026-09-28). The checks cover:
+- Ungroup from the corner button and from the box's card menu: the box has no fill, border,
+  outline, underlay, label, pointer events, corner buttons, routes or minimap rect. The Ungroup
+  button's rect lies left of the stack toggle's, which lies left of the collapse square's, on one
+  row without overlap.
+- A hidden package picked from the tree: nothing lit or muted, the inspector's "Ungrouped on the
+  map" notice with Arrange disabled, and no keyboard card menu.
+- A freed class dragged far away on its own, and a top-level card dropped inside the hidden area
+  that still receives the click.
+- "Collapse into X" in a freed card's menu, centred on its children, with undo and redo.
+- A class ungrouped inside the hidden package: its methods name the class, and their menu offers
+  only the nearest hidden parent.
+- Double-click arrangement moving freed methods individually: at least two of them move by
+  different vectors, so the hidden box did not move as one block.
+- "Collapse into EventService" from a freed method: EventService returns as a collapsed card still
+  inside the hidden services, its methods leave the map, and a method that was multi-selected is
+  not selected again when the class is re-expanded.
+- One Changes-mode pass on a MODIFIED package.
+- From a fresh map, the tree's ⌖ "View methods of EventService" while services is collapsed opens
+  services, then EventService, and inspects EventService.
+- A `?selectedSymbol=<method id>` deep link draws the method inside its class box inside its
+  package box, and inspects it.
+
+Screenshots go to `build/ungroup/run-*/evidence` (inspected copy in `docs/evidence/ungroup/`).
+`node scripts/test-expansion-layout.mjs`, `test-focused-arrangement.mjs`,
+`test-explorer-view-state.mjs`, `test-explorer-journeys.mjs`, `test-graph-model.mjs`,
+`test-outgoing-stack.mjs` and `test-node-card.mjs` pin the pure parts:
+- the reducer flag and `nearestHiddenAncestor`;
+- undo/redo and pruning;
+- the `hiddenBox` projection;
+- `roomMoves` and `arrangeDisplayed` looking through hidden boxes;
+- a hidden box's layer handed to its freed cards, outgoing and incoming;
+- the method-card class line.
+
+The review remediation (2026-09-28) adds:
+- `revealContainers` (graph-model): the containers to open for a target (package, then a method's
+  own type, never a nested type's outer class);
+- `collapseInJourney` (journeys): a collapse drops the cards drawn inside from the
+  multi-selection, in one undo entry, and is a no-op when the reducer rejects it;
+- a hidden box representing only itself (an undrawn member counts beyond the map, including after
+  the box itself was looked up), a hidden root returning null, and incoming rule-9 cases
+  (outgoing-stack);
+- the top-level card past a hidden box moving by the width change (expansion-layout), and the
+  focus's own stored position (focused-arrangement).
 
 `node scripts/verify-outgoing-stack-ui.mjs <microservice-java copy> <git fixture> <base oid> <chain fixture> <journey fixture>`
 (BACKEND/APP/DEBUG as below) is the stack's browser acceptance (108 checks). It activates the

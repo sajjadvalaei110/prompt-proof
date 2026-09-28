@@ -15,7 +15,7 @@ const stripLocalImport = (src, name) => src.replace(new RegExp(`import \\{[^}]*\
 const placementModule = compile('../frontend/src/features/explorer/graphPlacement.ts');
 const viewStateModule = stripLocalImport(stripLocalImport(compile('../frontend/src/features/explorer/explorerViewState.ts'), 'graphModel'), 'graphPlacement');
 const compiled = placementModule + '\n' + viewStateModule;
-const { explorerViewReducer, initExplorerViewState } = await import('data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'));
+const { explorerViewReducer, initExplorerViewState, nearestHiddenAncestor } = await import('data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'));
 
 let passCount = 0;
 function check(label, fn) { fn(); passCount++; }
@@ -881,6 +881,83 @@ check('CLEAR_INSPECTION drops the occurrence choice but Back still restores it w
   s = explorerViewReducer(s, { type: 'NAVIGATE_BACK', eligibleIds: ['a', 'b'] });
   assert.equal(s.inspectedSubjectId, 'e1');
   assert.equal(s.inspectedOccurrenceId, 'occ2', 'the closed subject returns with the occurrence it had');
+});
+
+
+// --- Step 14: Ungroup (an expanded card whose box is hidden) ---
+function ungroupFixture() {
+  let s = initExplorerViewState('PACKAGE');
+  s = explorerViewReducer(s, { type: 'RESET', level: 'PACKAGE', eligibleIds: ['p0', 'p1'], batchSize: 12 });
+  s = explorerViewReducer(s, { type: 'EXPAND_RESOURCE', level: 'PACKAGE', id: 'p0', ownerId: null, childPositions: { c0: { x: 100, y: 200 }, c1: { x: 400, y: 200 } }, generation: s.generation });
+  return s;
+}
+
+check('UNGROUP_RESOURCE hides an expanded box, keeps its children where they are, and bumps geometry once', () => {
+  const s = ungroupFixture();
+  const next = explorerViewReducer(s, { type: 'UNGROUP_RESOURCE', level: 'PACKAGE', id: 'p0', generation: s.generation });
+  const e = next.levelViews.PACKAGE.expansions.p0;
+  assert.equal(e.hidden, true);
+  assert.deepEqual(e.childPositions, { c0: { x: 100, y: 200 }, c1: { x: 400, y: 200 } });
+  assert.deepEqual(next.levelViews.PACKAGE.displayedIds, s.levelViews.PACKAGE.displayedIds, 'membership is untouched');
+  assert.equal(next.levelViews.PACKAGE.geometryRevision, s.levelViews.PACKAGE.geometryRevision + 1);
+});
+
+check('UNGROUP_RESOURCE is ignored for a collapsed card, an already hidden box, or a stale generation', () => {
+  const s = ungroupFixture();
+  assert.strictEqual(explorerViewReducer(s, { type: 'UNGROUP_RESOURCE', level: 'PACKAGE', id: 'p1', generation: s.generation }), s);
+  assert.strictEqual(explorerViewReducer(s, { type: 'UNGROUP_RESOURCE', level: 'PACKAGE', id: 'p0', generation: s.generation + 1 }), s);
+  const hidden = explorerViewReducer(s, { type: 'UNGROUP_RESOURCE', level: 'PACKAGE', id: 'p0', generation: s.generation });
+  assert.strictEqual(explorerViewReducer(hidden, { type: 'UNGROUP_RESOURCE', level: 'PACKAGE', id: 'p0', generation: s.generation }), hidden);
+});
+
+check('a freed child dragged anywhere stays a child of its hidden parent', () => {
+  let s = ungroupFixture();
+  s = explorerViewReducer(s, { type: 'UNGROUP_RESOURCE', level: 'PACKAGE', id: 'p0', generation: s.generation });
+  s = explorerViewReducer(s, { type: 'NODE_MOVED', level: 'PACKAGE', id: 'c0', position: { x: -5000, y: 9000 }, containerId: 'p0', generation: s.generation });
+  const e = s.levelViews.PACKAGE.expansions.p0;
+  assert.deepEqual(e.childPositions.c0, { x: -5000, y: 9000 });
+  assert.equal(e.hidden, true);
+});
+
+check('nearestHiddenAncestor walks owners: a method in a hidden class inside a hidden package names the class', () => {
+  let s = ungroupFixture();
+  s = explorerViewReducer(s, { type: 'EXPAND_RESOURCE', level: 'PACKAGE', id: 'c0', ownerId: 'p0', childPositions: { m0: { x: 100, y: 400 } }, generation: s.generation });
+  const ex = () => s.levelViews.PACKAGE.expansions;
+  const owners = { c0: 'p0', c1: 'p0', m0: 'c0' };
+  assert.equal(nearestHiddenAncestor(ex(), owners, 'm0'), null, 'nothing hidden yet');
+  s = explorerViewReducer(s, { type: 'UNGROUP_RESOURCE', level: 'PACKAGE', id: 'p0', generation: s.generation });
+  assert.equal(nearestHiddenAncestor(ex(), owners, 'c1'), 'p0');
+  assert.equal(nearestHiddenAncestor(ex(), owners, 'c0'), 'p0', 'an inner box can bring its hidden package back');
+  assert.equal(nearestHiddenAncestor(ex(), owners, 'm0'), 'p0', 'through a visible class box to the hidden package');
+  s = explorerViewReducer(s, { type: 'UNGROUP_RESOURCE', level: 'PACKAGE', id: 'c0', generation: s.generation });
+  assert.equal(nearestHiddenAncestor(ex(), owners, 'm0'), 'c0', 'only the nearest hidden parent');
+  assert.equal(nearestHiddenAncestor(ex(), owners, 'p1'), null);
+});
+
+check('COLLAPSE_RESOURCE on a hidden box brings the parent back as a plain collapsed card at the given point', () => {
+  let s = ungroupFixture();
+  s = explorerViewReducer(s, { type: 'UNGROUP_RESOURCE', level: 'PACKAGE', id: 'p0', generation: s.generation });
+  s = explorerViewReducer(s, { type: 'COLLAPSE_RESOURCE', level: 'PACKAGE', id: 'p0', position: { x: 250, y: 200 }, generation: s.generation });
+  assert.equal(s.levelViews.PACKAGE.expansions.p0, undefined);
+  assert.deepEqual(s.levelViews.PACKAGE.positions.p0, { x: 250, y: 200 });
+});
+
+check('a hidden package that leaves scope and comes back returns as a collapsed card', () => {
+  let s = ungroupFixture();
+  s = explorerViewReducer(s, { type: 'UNGROUP_RESOURCE', level: 'PACKAGE', id: 'p0', generation: s.generation });
+  s = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: ['p1'], batchSize: Infinity });
+  assert.equal(s.levelViews.PACKAGE.expansions.p0, undefined);
+  s = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: ['p0', 'p1'], batchSize: Infinity });
+  assert.ok(s.levelViews.PACKAGE.displayedIds.includes('p0'));
+  assert.equal(s.levelViews.PACKAGE.expansions.p0, undefined, 'the hidden flag is not resurrected');
+});
+
+check('a scope edit that trims a hidden box keeps it hidden', () => {
+  let s = ungroupFixture();
+  s = explorerViewReducer(s, { type: 'UNGROUP_RESOURCE', level: 'PACKAGE', id: 'p0', generation: s.generation });
+  s = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: ['p0', 'p1'], batchSize: Infinity, expansionChildren: { p0: ['c1'] } });
+  assert.equal(s.levelViews.PACKAGE.expansions.p0.hidden, true);
+  assert.deepEqual(Object.keys(s.levelViews.PACKAGE.expansions.p0.childPositions), ['c1']);
 });
 
 console.log(`PASS: ${passCount} explorerViewState reducer checks (inspection/membership separation, append-only scope growth, show more, back navigation, reset, Step 3 geometry/camera, Step 4 inactive-level scope reconciliation and Back precedence, Step 5 focused arrangement, Step 5 review remediation A1/B1)`);

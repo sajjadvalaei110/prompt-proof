@@ -161,6 +161,13 @@ projection in the root's direction (the incoming stack reverses every step), and
 applies classes and draws layer badges on its direction overlay, cyan or indigo by direction.
 It never moves cards or the camera.
 
+Ungroup (ADR 0011) is an expansion whose box is hidden (`ExpansionState.hidden` →
+`projectDisplayed`'s `hiddenBox`), not a change of level or membership. The pure layout helpers
+look through a hidden box to its children: `expansionLayout.roomMoves` for make-room (App's
+expand/collapse/resize), `focusedArrangement.arrangeDisplayed` for double-click arrangement, and
+`outgoingStack`, which hands a hidden box's layer to its freed cards. `revalidateJourney` counts a
+hidden card as off the map. `GraphCanvas` only styles it invisible and inert.
+
 Renderer inputs must not alias saved state: Cytoscape retains and mutates coordinates
 passed to `add()`, so `GraphCanvas` copies positions at that boundary. Parser graph data,
 explanation responses, project documents, settings and backend jobs stay outside history.

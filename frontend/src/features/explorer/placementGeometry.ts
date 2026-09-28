@@ -26,7 +26,7 @@ export function geometryForJourney(
 ): JourneyGeometry {
   const level = view.activeLevel, levelView = view.levelViews[level];
   const expansionInput = {
-    expansions: Object.entries(levelView.expansions).map(([id, e]) => ({ id, ownerId: e.ownerId })),
+    expansions: Object.entries(levelView.expansions).map(([id, e]) => ({ id, ownerId: e.ownerId, hidden: e.hidden })),
     scope,
   };
   const displayed = projectedInput || projectDisplayed(graph, level, displayedIdsInput ?? levelView.displayedIds, kind, expansionInput);
@@ -55,7 +55,7 @@ export function geometryForJourney(
       ...cardSize(c),
       ...(positions[c.id] || { x: 0, y: 0 }),
     }));
-    const box = containerBox(childBoxes, levelView.expansions[n.id]?.minSize || null);
+    const box = containerBox(childBoxes, levelView.expansions[n.id]?.minSize || null, !!levelView.expansions[n.id]?.hidden);
     if (box) boxes[n.id] = box;
   }
   return { positions, boxes, projected: displayed };

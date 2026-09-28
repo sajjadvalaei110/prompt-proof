@@ -8,7 +8,7 @@ const compile = name => ts.transpileModule(fs.readFileSync(new URL(`../frontend/
 }).outputText.replace(/import \{[^}]*\} from ['"]\.\/[^'"]+['"];?\n?/g, '');
 const compiled = ['graphPlacement', 'scopeModel', 'graphModel', 'explorerViewState', 'explorerJourney', 'revalidateJourney'].map(name => name === 'explorerViewState'
   ? compile(name).replaceAll('HISTORY_LIMIT', 'NAVIGATION_HISTORY_LIMIT') : compile(name)).join('\n');
-const { initJourneys, journeysReducer: reduce, explorerViewReducer: viewReduce, HISTORY_LIMIT, newJourney, toggleJourneyReview, cycleRelationStack, toggleRelationStack, initExplorerViewState, revalidateJourneyState } = await import('data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'));
+const { initJourneys, journeysReducer: reduce, explorerViewReducer: viewReduce, HISTORY_LIMIT, newJourney, toggleJourneyReview, cycleRelationStack, toggleRelationStack, initExplorerViewState, revalidateJourneyState, collapseInJourney } = await import('data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'));
 let count = 0;
 const check = (name, fn) => { fn(); count++; console.log('PASS', name); };
 const active = s => s.tabs.find(t => t.id === s.activeId);
@@ -741,5 +741,66 @@ check('Clone copies the stack and its direction; the copies then change independ
   assert.deepEqual(active(s).present.relationStack, { rootId: 'p1', direction: 'in' });
   s = stackOn(s, 2, 'p2');
   assert.deepEqual(s.tabs.find(t => t.id === source).present.relationStack, { rootId: 'p1', direction: 'in' });
+});
+// Step 14: Ungroup hides an expanded card's box; the hidden card is no longer on the map.
+const expandP2 = (s, group) => updateDrawn(s, group, j => ({ ...j, view: viewReduce(j.view, { type: 'EXPAND_RESOURCE', level: 'PACKAGE', id: 'p2', ownerId: null, childPositions: { c2: { x: 1, y: 1 } }, generation: j.view.generation }) }));
+const ungroupP2 = (s, group) => updateDrawn(s, group, j => ({ ...j, view: viewReduce(j.view, { type: 'UNGROUP_RESOURCE', level: 'PACKAGE', id: 'p2', generation: j.view.generation }) }));
+check('ungroup is one undo step; undo shows the box again and redo hides it', () => {
+  let s = initJourneys(mapJourney(['p1', 'p2']));
+  s = expandP2(s, 1);
+  s = ungroupP2(s, 2);
+  assert.equal(active(s).past.length, 2);
+  assert.equal(active(s).present.view.levelViews.PACKAGE.expansions.p2.hidden, true);
+  s = undo(s);
+  assert.ok(active(s).present.view.levelViews.PACKAGE.expansions.p2, 'still expanded');
+  assert.ok(!active(s).present.view.levelViews.PACKAGE.expansions.p2.hidden, 'with its box shown');
+  s = redo(s);
+  assert.equal(active(s).present.view.levelViews.PACKAGE.expansions.p2.hidden, true);
+});
+check('ungroup ends a stack rooted at the hidden card but keeps one rooted at a freed child', () => {
+  let s = initJourneys(mapJourney(['p1', 'p2']));
+  s = expandP2(s, 1);
+  s = stackOn(s, 2, 'p2');
+  s = ungroupP2(s, 3);
+  assert.equal(root(s), null);
+  s = initJourneys(mapJourney(['p1', 'p2']));
+  s = expandP2(s, 1);
+  s = stackOn(s, 2, 'c2');
+  s = ungroupP2(s, 3);
+  assert.equal(root(s), 'c2');
+});
+check('redoing an ungroup drops a carried selection of the card that became hidden', () => {
+  let s = initJourneys(mapJourney(['p1', 'p2']));
+  s = expandP2(s, 1);
+  s = ungroupP2(s, 2);
+  s = undo(s);
+  s = inspect(s, 3, 'p2');
+  s = redo(s);
+  assert.equal(active(s).present.view.inspectedSubjectId, null);
+});
+// Collapsing a card takes the cards drawn inside it off the map: they leave the multi-selection in
+// the same update, which stays one undo entry (review finding 6; ⊟ had the same gap).
+const drawn = [{ id: 'p1' }, { id: 'p2' }, { id: 'c2', containerId: 'p2' }, { id: 'm2', containerId: 'c2' }];
+const collapseP2 = (s, group) => update(s, group, j => collapseInJourney(j, { type: 'COLLAPSE_RESOURCE', level: 'PACKAGE', id: 'p2', position: { x: 5, y: 5 }, generation: j.view.generation }, drawn));
+const pick = (s, group, ids) => update(s, group, j => ({ ...j, multiIds: ids }));
+for (const hidden of [false, true]) check(`collapsing ${hidden ? 'into an ungrouped' : 'an expanded'} card drops what was drawn inside it from the multi-selection, in one undo entry`, () => {
+  let s = initJourneys(mapJourney(['p1', 'p2']));
+  s = expandP2(s, 1);
+  if (hidden) s = ungroupP2(s, 2);
+  s = pick(s, 3, ['c2', 'p2', 'm2', 'p1']);
+  const entries = active(s).past.length;
+  s = collapseP2(s, 4);
+  assert.equal(active(s).present.view.levelViews.PACKAGE.expansions.p2, undefined, 'p2 is collapsed');
+  assert.deepEqual(active(s).present.multiIds, ['p2', 'p1'], 'c2 and m2 (inside c2) leave; the collapsed card and others stay');
+  assert.equal(active(s).past.length, entries + 1, 'one undo entry');
+  s = undo(s);
+  assert.ok(active(s).present.view.levelViews.PACKAGE.expansions.p2, 'undo expands it again');
+  // The selection is carried, not restored (ADR 0009); a restored ungrouped box is off the map, so
+  // undo's own pruning drops it from the carried selection (ADR 0011).
+  assert.deepEqual(active(s).present.multiIds, hidden ? ['p1'] : ['p2', 'p1'], 'the pruned members do not come back');
+});
+check('a collapse the reducer rejects leaves the journey untouched, multi-selection included', () => {
+  const j = { ...mapJourney(['p1', 'p2']), multiIds: ['c2'] };
+  assert.equal(collapseInJourney(j, { type: 'COLLAPSE_RESOURCE', level: 'PACKAGE', id: 'p2', position: { x: 0, y: 0 }, generation: j.view.generation }, drawn), j);
 });
 console.log(`${count} journey checks passed`);

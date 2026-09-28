@@ -2,12 +2,12 @@ import { SetStateAction, useEffect, useMemo, useRef, useState } from 'react';
 import './styles/App.css';
 import { apiClient } from './api/client';
 import GraphCanvas from './features/explorer/GraphCanvas';
-import { AtlasGraph, AtlasNode, AtlasEdge, Level, isType, ownerAt, getEligibleIds, rankEligibleIds, projectDisplayed, childrenOf } from './features/explorer/graphModel';
+import { AtlasGraph, AtlasNode, AtlasEdge, Level, isType, ownerAt, getEligibleIds, rankEligibleIds, projectDisplayed, childrenOf, revealContainers } from './features/explorer/graphModel';
 import { ScopeSelection, wholeSystemScope, scopeToLabel, isNodeInScope, isClassInScope, togglePackages, toggleClass } from './features/explorer/scopeModel';
-import { explorerViewReducer, initExplorerViewState, ExplorerViewState, PlacementDims, Point, Camera, CardMoves } from './features/explorer/explorerViewState';
-import { arrangeAroundResource, ArrangeCard, ArrangeEdge } from './features/explorer/focusedArrangement';
+import { explorerViewReducer, initExplorerViewState, nearestHiddenAncestor, ExplorerViewState, ExplorerAction, PlacementDims, Point, Camera, CardMoves } from './features/explorer/explorerViewState';
+import { arrangeDisplayed, ArrangeEdge, DisplayedCard } from './features/explorer/focusedArrangement';
 import { nodeCard, defaultCardSize, CardSize } from './features/explorer/nodeCard';
-import { Box, boxOfCard, containerBox, layoutChildren, roomShifts } from './features/explorer/expansionLayout';
+import { Box, RoomCard, boxOfCard, containerBox, layoutChildren, roomMoves } from './features/explorer/expansionLayout';
 import { geometryForJourney, placementForGraphs } from './features/explorer/placementGeometry';
 import NavigationPane from './features/explorer/NavigationPane';
 import InspectorPanel from './features/inspector/InspectorPanel';
@@ -18,7 +18,7 @@ import type { SourceSubject } from './features/source/SourceDialog';
 import { useReviewComparison } from './features/review/useReviewComparison';
 import { startSerialPolling } from './utils/serialPolling';
 import { useExplorerJourneys, flushExplorerCamera } from './features/explorer/useExplorerJourneys';
-import { Journey, cycleRelationStack, newJourney, toggleJourneyReview, toggleRelationStack } from './features/explorer/explorerJourney';
+import { Journey, collapseInJourney, cycleRelationStack, newJourney, toggleJourneyReview, toggleRelationStack } from './features/explorer/explorerJourney';
 import { revalidateJourneyState } from './features/explorer/revalidateJourney';
 import { outgoingStack, stackSummary, type StackDirection } from './features/explorer/outgoingStack';
 
@@ -195,7 +195,7 @@ export default function App() {
   }
   function handleNodeMoved(id:string,position:Point,containerId:string|null){dispatchView({type:'NODE_MOVED',level,id,position,containerId,generation:viewState.generation});}
   function handleNodesMoved(moves:{id:string;position:Point;containerId:string|null}[]){dispatchView({type:'NODES_MOVED',level,moves,generation:viewState.generation});}
-  const expansionInput=useMemo(()=>({expansions:Object.entries(expansions).map(([id,e])=>({id,ownerId:e.ownerId})),scope}),[expansions,scope]);
+  const expansionInput=useMemo(()=>({expansions:Object.entries(expansions).map(([id,e])=>({id,ownerId:e.ownerId,hidden:e.hidden})),scope}),[expansions,scope]);
   const projected=useMemo(()=>graph?projectDisplayed(graph,level,displayedIds,kind,expansionInput):{nodes:[] as AtlasNode[],edges:[] as AtlasEdge[]},[graph,level,displayedIds,kind,expansionInput]);
   // The relation stack (outgoing, or incoming over reversed facts): a walk over the tab's parser facts
   // (`graph`, ordinary or Changes) at the root's granularity, mapped onto the drawn cards and routes and
@@ -277,7 +277,7 @@ export default function App() {
   // A card inside an expanded card is displayed too, whatever its own natural level.
   // Files the parser could not read: every type they declare is missing from the map, so say so.
   const unanalyzedFiles:string[]=(graph?.metadata as any)?.unanalyzedFiles||[];
-  const mapStatus=node&&graph?(!isNodeInScope(node,scope,graph)?'OUT_OF_SCOPE':(level===levelOf(node)&&displayedIds.includes(node.id))||projected.nodes.some(n=>n.id===node.id)?'DISPLAYED':'IN_SCOPE_NOT_DISPLAYED'):null;
+  const mapStatus=node&&graph?(!isNodeInScope(node,scope,graph)?'OUT_OF_SCOPE':expansions[node.id]?.hidden?'UNGROUPED':(level===levelOf(node)&&displayedIds.includes(node.id))||projected.nodes.some(n=>n.id===node.id)?'DISPLAYED':'IN_SCOPE_NOT_DISPLAYED'):null;
   async function loadSnapshot(id:string, ws?:any) {
     const [data,entryPoints]=await Promise.all([apiClient.getGraph(id),apiClient.getSpringRoutes(id)]);
     if(!ws&&!data?.metadata?.workspaceId)throw new Error('Snapshot response is missing workspace metadata; try re-opening the project.');
@@ -290,22 +290,22 @@ export default function App() {
     if(selected){
       const n=data.nodes.find((n:AtlasNode)=>n.id===selected||n.simpleName===selected);
       if(n){
-        // A deep-linked class/method is not a top-level PACKAGE-level card: expand each ancestor
-        // package/class in place (as the ⊞ button would) so the target is actually displayed,
+        // A deep-linked class/method is not a top-level PACKAGE-level card: expand its package, then
+        // (for a method) its type, in place (as the ⊞ button would) so the target is actually displayed,
         // rather than jumping the whole map to a class/method level (that level view is gone).
         const all=new Map<string,AtlasNode>(data.nodes.map((x:AtlasNode)=>[x.id,x]));
-        const chain:AtlasNode[]=[];
-        for(let p=n.parentId?all.get(n.parentId):undefined;p;p=p.parentId?all.get(p.parentId):undefined)chain.unshift(p);
-        for(const ancestor of chain){
-          const lg=initialView.levelViews.PACKAGE;
-          const pos=lg.positions[ancestor.id];
-          if(!pos)continue;
+        const chain=revealContainers(n,all);
+        for(const [i,ancestor] of chain.entries()){
+          // A type sits in its package's box, so its position is stored with that expansion.
+          const lg=initialView.levelViews.PACKAGE,owner=chain[i-1]??null;
+          const pos=owner?lg.expansions[owner.id]?.childPositions[ancestor.id]:lg.positions[ancestor.id];
+          if(!pos)break;
           const size=lg.sizes[ancestor.id]||defaultCardSize(ancestor);
           const before=boxOfCard({id:ancestor.id,...size,...pos});
           const kids=childrenOf(data,ancestor,wholeSystemScope(),all);
-          if(!kids.length)continue;
+          if(!kids.length)break;
           const childPositions=layoutChildren({x:before.x1,y:before.y1},kids.map(c=>({id:c.id,...nodeCard(c)})));
-          initialView=explorerViewReducer(initialView,{type:'EXPAND_RESOURCE',level:'PACKAGE',id:ancestor.id,ownerId:ancestor.containerId??null,childPositions,generation:initialView.generation});
+          initialView=explorerViewReducer(initialView,{type:'EXPAND_RESOURCE',level:'PACKAGE',id:ancestor.id,ownerId:owner?.id??null,childPositions,generation:initialView.generation});
         }
         initialView=explorerViewReducer(initialView,{type:'INSPECT_NODE',id:n.id});
       }
@@ -433,51 +433,53 @@ export default function App() {
   // "View classes"/"View methods" (the tree's ⌖ button, the inspector's buttons) used to switch
   // the whole map to a different abstraction level (Step 4, Story 6/H3). Class/Method level view
   // is gone; digging in now always happens by expanding the card itself in place, so these ensure
-  // the target is expanded (never collapse an already-expanded one) and select it.
-  function ensureExpanded(n:AtlasNode){if(!expansions[n.id])toggleExpand(n);}
+  // the target is expanded (never collapse an already-expanded one, hidden included) and select it.
+  // A class whose package is collapsed opens the package first (revealContainers), one step per render.
   function revealChildren(n:AtlasNode){
     if(!graph)return;
-    ensureExpanded(n);
-    // Same toggle as a click: an already-inspected card deselects (clearSelection shows the map pane).
-    if(viewState.inspectedKind==='NODE'&&viewState.inspectedSubjectId===n.id)select(n);else inspectNode(n,'map');
+    const chain=[...revealContainers(n,new Map(graph.nodes.map(k=>[k.id,k]))),n].filter(c=>!expansions[c.id]);
+    // Same toggle as a click when nothing opens: an already-inspected card deselects (clearSelection shows the map pane).
+    if(!chain.length&&viewState.inspectedKind==='NODE'&&viewState.inspectedSubjectId===n.id)select(n);else inspectNode(n,'map');
     setTab('map');
+    if(chain.length)revealStep(chain.map(c=>c.id),null);
   }
   function viewClasses(n:AtlasNode){revealChildren(n);}
   function viewMethods(n:AtlasNode){revealChildren(n);}
-  // Reveal a node buried under expand-in-place ancestors (an HTTP route handler, a deep link) by
-  // expanding each ancestor in turn, then selecting the target. Each expansion must actually land
-  // in state before the next one is computed -- toggleExpand's own box math reads the current
-  // `expansions`/`geometry`, which are still stale mid-handler -- so this drives one remaining
-  // ancestor per render via the effect below instead of dispatching the whole chain at once.
-  const pendingRevealRef=useRef<{remaining:string[];selectId:string}|null>(null);
+  // Reveal a node buried under expand-in-place containers (an HTTP route handler, a deep link) by
+  // expanding each of them in turn (revealContainers), then selecting the target. Each expansion must
+  // actually land in state before the next one is computed -- toggleExpand's own box math reads the
+  // current `expansions`/`geometry`, which are still stale mid-handler -- so this drives one remaining
+  // container per render via the effect below instead of dispatching the whole chain at once.
+  const pendingRevealRef=useRef<{remaining:string[];selectId:string|null}|null>(null);
   function expandToReveal(n:AtlasNode){
     if(!graph)return;
-    const all=new Map(graph.nodes.map(item=>[item.id,item]));
-    const chain:string[]=[];
-    for(let p=n.parentId?all.get(n.parentId):undefined;p;p=p.parentId?all.get(p.parentId):undefined)chain.unshift(p.id);
-    const remaining=chain.filter(id=>!expansions[id]);
+    const remaining=revealContainers(n,new Map(graph.nodes.map(item=>[item.id,item]))).filter(c=>!expansions[c.id]).map(c=>c.id);
     setTab('map');
     if(!remaining.length){select(n);return;}
     setMobilePane('map');
-    pendingRevealRef.current={remaining,selectId:n.id};
-    const first=all.get(remaining[0]);
-    if(first)toggleExpand(first);
+    revealStep(remaining,n.id);
+  }
+  // Opens the first remaining container and waits for it. A step that cannot land (its card is not
+  // drawn, nothing inside is in scope, the reducer rejects it) ends the reveal instead of waiting
+  // forever, and the target is still selected.
+  function revealStep(remaining:string[],selectId:string|null){
+    const next=graph?.nodes.find(k=>k.id===remaining[0]);
+    pendingRevealRef.current={remaining,selectId};
+    if(next&&toggleExpand(next))return;
+    pendingRevealRef.current=null;
+    const target=selectId?graph?.nodes.find(k=>k.id===selectId):undefined;
+    if(target)select(target);
   }
   useEffect(()=>{
     const pending=pendingRevealRef.current;
     if(!pending||!graph)return;
-    const all=new Map(graph.nodes.map(item=>[item.id,item]));
     const [doneId,...rest]=pending.remaining;
-    if(!expansions[doneId])return;
-    if(!rest.length){
-      pendingRevealRef.current=null;
-      const target=all.get(pending.selectId);
-      if(target)select(target);
-      return;
-    }
-    pendingRevealRef.current={remaining:rest,selectId:pending.selectId};
-    const next=all.get(rest[0]);
-    if(next)toggleExpand(next);
+    // The expansions changed without this step landing (another edit, a tab switch): the reveal is over.
+    if(!expansions[doneId]){pendingRevealRef.current=null;return;}
+    if(rest.length){revealStep(rest,pending.selectId);return;}
+    pendingRevealRef.current=null;
+    const target=pending.selectId?graph.nodes.find(k=>k.id===pending.selectId):undefined;
+    if(target)select(target);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[expansions]);
   // Step 5 (Appendix B): the dedicated focused-arrangement command, wired to canvas double-click
@@ -489,90 +491,74 @@ export default function App() {
   // graph -- matching the inspector button's own disabled condition (H3).
   function arrangeAround(id:string){
     if(!graph)return;
-    // Arrangement moves top-level cards only. An expanded card takes part as its whole box and carries
-    // everything inside it (nested expansions included) by the same offset; a card inside a container
-    // arranges the map around its outermost container, and routes count between those top-level cards.
-    const byId=new Map(projected.nodes.map(n=>[n.id,n]));
-    const topOf=(nodeId:string)=>{let n=byId.get(nodeId);while(n?.containerId)n=byId.get(n.containerId);return n?.id;};
-    const focusId=topOf(id);
-    if(!focusId)return;
-    const top=projected.nodes.filter(n=>!n.containerId);
-    const centerOf=(n:AtlasNode)=>{const b=geometry.boxes[n.id];return b?{x:(b.x1+b.x2)/2,y:(b.y1+b.y2)/2}:geometry.positions[n.id]||{x:0,y:0};};
-    const cards:ArrangeCard[]=top.map(n=>{const b=geometry.boxes[n.id],size=b?{width:b.x2-b.x1,height:b.y2-b.y1}:cardSizeOf(n);return {id:n.id,...size,qualifiedName:n.qualifiedName||n.simpleName};});
-    const arrangeEdges:ArrangeEdge[]=[];
-    for(const e of projected.edges){const a=e.targetId&&topOf(e.sourceId),b=e.targetId&&topOf(e.targetId);if(a&&b&&a!==b)arrangeEdges.push({sourceId:a,targetId:b});}
-    const positions=arrangeAroundResource(cards,arrangeEdges,focusId,centerOf(byId.get(focusId)!));
-    if(!positions)return;
-    const childPositions:Record<string,Record<string,Point>>={};
-    for(const n of top){
-      if(!n.expanded||!positions[n.id])continue;
-      const from=centerOf(n),dx=positions[n.id].x-from.x,dy=positions[n.id].y-from.y;
-      for(const inner of projected.nodes)if(inner.containerId&&topOf(inner.id)===n.id&&geometry.positions[inner.id])(childPositions[inner.containerId]??={})[inner.id]={x:geometry.positions[inner.id].x+dx,y:geometry.positions[inner.id].y+dy};
-    }
-    dispatchView({type:'ARRANGE_AROUND_RESOURCE',level,positions,childPositions,generation:viewState.generation});
+    // Arrangement moves the map's own cards, looking through ungrouped boxes (focusedArrangement.
+    // arrangeDisplayed): a visible expanded card takes part as its whole box and carries everything
+    // inside it; a freed card arranges on its own.
+    const cards:DisplayedCard[]=projected.nodes.map(n=>({id:n.id,containerId:n.containerId??null,expanded:n.expanded,hidden:n.hiddenBox,qualifiedName:n.qualifiedName||n.simpleName,box:boxOf(n),position:geometry.positions[n.id]}));
+    const edges:ArrangeEdge[]=projected.edges.filter(e=>e.targetId).map(e=>({sourceId:e.sourceId,targetId:e.targetId!}));
+    const moves=arrangeDisplayed(cards,edges,id);
+    if(!moves)return;
+    dispatchView({type:'ARRANGE_AROUND_RESOURCE',level,positions:moves.positions,childPositions:moves.childPositions,generation:viewState.generation});
   }
   const boxOf=(k:AtlasNode):Box=>geometry.boxes[k.id]||boxOfCard({id:k.id,...cardSizeOf(k),...(geometry.positions[k.id]||{x:0,y:0})});
   // When card `n`'s box changes from `before` to `after` (expand, collapse, resize), cards to its right
-  // or below make room (expansionLayout.roomShift). When it sits inside a container, that container's
+  // or below make room (expansionLayout.roomMoves, which looks through an ungrouped box). When it sits inside a container, that container's
   // resulting change makes room around it in turn, up to the map itself. Returns the moves to dispatch
   // together with the change, so one action updates everything at once.
   function makeRoom(n:AtlasNode,before:Box,after:Box):CardMoves{
-    // One container->children index and one id lookup for the whole cascade (F-10), instead of
-    // scanning projected.nodes again for every sibling call and every level walked upward.
-    const byId=new Map<string,AtlasNode>(),byContainer=new Map<string|null,AtlasNode[]>();
-    for(const k of projected.nodes){
-      byId.set(k.id,k);
-      const key=k.containerId??null,list=byContainer.get(key);
-      if(list)list.push(k);else byContainer.set(key,[k]);
-    }
-    const kidsOf=(id:string|null)=>byContainer.get(id)||[];
-    const moves:CardMoves={positions:{},childPositions:{}};
-    const translate=(k:AtlasNode,d:Point)=>{
-      const p=geometry.positions[k.id];
-      if(p){const q={x:p.x+d.x,y:p.y+d.y};if(k.containerId)(moves.childPositions[k.containerId]??={})[k.id]=q;else moves.positions[k.id]=q;}
-      if(k.expanded)for(const inner of kidsOf(k.id))translate(inner,d);
-    };
-    for(let current=n,parent=n.containerId??null;;){
-      // Siblings shift together (expansionLayout.roomShifts), not independently: a sibling that
-      // qualifies for a shift is clamped against any row/column-mate that does not, so a large
-      // collapse can never pull it back across one that stayed put (F-01).
-      const siblings=kidsOf(parent).filter(k=>k.id!==current.id);
-      const boxes=siblings.map(boxOf);
-      const shifts=roomShifts(boxes,before,after);
-      const shifted=new Map<string,Box>();
-      siblings.forEach((sibling,i)=>{
-        const d=shifts[i];
-        if(d){translate(sibling,d);const b=boxes[i];shifted.set(sibling.id,{x1:b.x1+d.x,y1:b.y1+d.y,x2:b.x2+d.x,y2:b.y2+d.y});}
-      });
-      const container=parent===null?undefined:byId.get(parent);
-      if(!container)return moves;
-      const containerBefore=boxOf(container);
-      const nextAfter=containerBox(kidsOf(container.id).map(k=>k.id===current.id?after:shifted.get(k.id)||boxOf(k)),expansions[container.id]?.minSize||null);
-      if(!nextAfter)return moves;
-      // The container's own box did not change, so nothing further up the hierarchy can have
-      // changed either: stop the cascade here instead of walking every remaining ancestor (F-11).
-      const unchanged=Math.abs(nextAfter.x1-containerBefore.x1)<0.5&&Math.abs(nextAfter.y1-containerBefore.y1)<0.5&&Math.abs(nextAfter.x2-containerBefore.x2)<0.5&&Math.abs(nextAfter.y2-containerBefore.y2)<0.5;
-      if(unchanged)return moves;
-      before=containerBefore;after=nextAfter;current=container;parent=container.containerId??null;
-    }
+    const cards:RoomCard[]=projected.nodes.map(k=>({id:k.id,containerId:k.containerId??null,expanded:k.expanded,hidden:k.hiddenBox,box:boxOf(k),position:geometry.positions[k.id],minSize:expansions[k.id]?.minSize??null}));
+    return roomMoves(cards,n.id,before,after);
   }
   // Details: expand a package/type card in place into a box of its children laid out from the card's
   // top-left corner, or collapse an expanded one back to a card at the box's top-left corner. Several
   // cards (and cards inside expanded cards) can be expanded at once; neighbors make room either way.
-  function toggleExpand(n:AtlasNode){
-    if(!graph)return;
+  // The card is resolved as drawn: the tree, inspector and reveal chain pass a graph node, which has
+  // no `containerId`. A card that is not drawn is left alone. Returns whether the change lands.
+  function toggleExpand(target:AtlasNode):boolean{
+    const n=projected.nodes.find(k=>k.id===target.id);
+    if(!graph||!n)return false;
     const size=cardSizeOf(n);
     if(expansions[n.id]){
       const before=boxOf(n),after={x1:before.x1,y1:before.y1,x2:before.x1+size.width,y2:before.y1+size.height};
-      dispatchView({type:'COLLAPSE_RESOURCE',level,id:n.id,position:{x:before.x1+size.width/2,y:before.y1+size.height/2},moves:makeRoom(n,before,after),generation:viewState.generation});
-      return;
+      collapse({type:'COLLAPSE_RESOURCE',level,id:n.id,position:{x:before.x1+size.width/2,y:before.y1+size.height/2},moves:makeRoom(n,before,after),generation:viewState.generation});
+      return true;
     }
     const before=boxOf(n),children=childrenOf(graph,n,scope).map(c=>({id:c.id,...cardSizeOf(c)}));
     // Nothing in scope to show: an empty box would only hide the card.
-    if(!children.length)return;
+    if(!children.length)return false;
     const childPositions=layoutChildren({x:before.x1,y:before.y1},children);
     const after=containerBox(children.map(c=>boxOfCard({...c,...childPositions[c.id]})),null)||before;
-    dispatchView({type:'EXPAND_RESOURCE',level,id:n.id,ownerId:n.containerId??null,childPositions,moves:makeRoom(n,before,after),generation:viewState.generation});
+    const action:ExplorerAction={type:'EXPAND_RESOURCE',level,id:n.id,ownerId:n.containerId??null,childPositions,moves:makeRoom(n,before,after),generation:viewState.generation};
+    // The same state the dispatch applies to, so a reveal chain learns now whether to wait for it.
+    if(explorerViewReducer(viewState,action)===viewState)return false;
+    dispatchView(action);
+    return true;
+  }
+  // Collapsing takes the cards drawn inside the card off the map, so they leave the multi-selection
+  // in the same update (collapseInJourney): one undo entry.
+  function collapse(action:Extract<ExplorerAction,{type:'COLLAPSE_RESOURCE'}>){journeys.update(j=>collapseInJourney(j,action,projected.nodes));}
+  // Ungroup (ADR 0011): the box is hidden and its children stay where they are as free cards, one undo
+  // entry. The hidden card is no longer on the map, so it leaves the selection in the same update (a
+  // stack rooted at it is ended by the journey's own display check).
+  function ungroup(n:AtlasNode){
+    journeys.update(j=>{
+      let view=explorerViewReducer(j.view,{type:'UNGROUP_RESOURCE',level,id:n.id,generation:j.view.generation});
+      if(view===j.view)return j;
+      if(view.inspectedKind==='NODE'&&view.inspectedSubjectId===n.id)view=explorerViewReducer(view,{type:'CLEAR_INSPECTION'});
+      return {...j,view,multiIds:j.multiIds.includes(n.id)?j.multiIds.filter(id=>id!==n.id):j.multiIds};
+    });
+  }
+  // Asked only when a card menu opens, so the container map is built then rather than on every render.
+  function hiddenAncestorOf(n:AtlasNode):AtlasNode|null{
+    const containerOf=Object.fromEntries(projected.nodes.map(k=>[k.id,k.containerId??null]));
+    const id=nearestHiddenAncestor(expansions,containerOf,n.id);
+    return id?projected.nodes.find(k=>k.id===id)||null:null;
+  }
+  // Collapse into X: X comes back as a collapsed card centered on where its children are now. Nothing
+  // else moves: the freed cards were placed by the user, so there is no room to make or give back.
+  function collapseInto(x:AtlasNode){
+    const b=boxOf(x);
+    collapse({type:'COLLAPSE_RESOURCE',level,id:x.id,position:{x:(b.x1+b.x2)/2,y:(b.y1+b.y2)/2},generation:viewState.generation});
   }
   // A finished resize keeps the card's top-left corner and, like expanding, makes room around it.
   function resizeNode(id:string,size:CardSize,position:Point,containerId:string|null){
@@ -865,7 +851,7 @@ export default function App() {
           </div>
           {scopeEmpty
             ? <div className="scope-empty-state"><h2>No packages or classes selected</h2><p>Check packages or classes in the left tree to define what the graph shows.</p><button className="primary" onClick={resetScope}>Select all</button></div>
-            : <GraphCanvas multiIds={active.present.multiIds} onMultiIdsChange={v=>journeys.set('multiIds',v)} mapOpen={active.present.mapOpen} onMapOpenChange={v=>journeys.setTransient('mapOpen',v)} fullscreen={active.present.fullscreen} onFullscreenChange={v=>journeys.setTransient('fullscreen',v)} onClearSelection={clearSelection} nodes={projected.nodes} edges={projected.edges} positions={geometry.positions} sizes={sizes} containerSizes={containerSizes} onToggleExpand={toggleExpand} outgoingStack={stack} stackRoot={stack&&relationStack?relationStack:null} onCycleStack={cycleStack} onToggleStack={toggleStack} onResizeNode={resizeNode} onResizeContainer={resizeContainer} camera={levelGeometry.camera} selectedId={node?.id||edge?.id} onNodeSelect={select} onEdgeSelect={inspectEdge} canRemoveFromScope={n=>isNodeInScope(n,scope,graph)} onRemoveFromScope={removeFromScope} scopeRemovalTargets={nodes=>planScopeRemoval(nodes).removed} onCameraChange={handleCameraChange} onNodeMoved={handleNodeMoved} onNodesMoved={handleNodesMoved} onArrangeAroundResource={id=>{
+            : <GraphCanvas multiIds={active.present.multiIds} onMultiIdsChange={v=>journeys.set('multiIds',v)} mapOpen={active.present.mapOpen} onMapOpenChange={v=>journeys.setTransient('mapOpen',v)} fullscreen={active.present.fullscreen} onFullscreenChange={v=>journeys.setTransient('fullscreen',v)} onClearSelection={clearSelection} nodes={projected.nodes} edges={projected.edges} positions={geometry.positions} sizes={sizes} containerSizes={containerSizes} onToggleExpand={toggleExpand} onUngroup={ungroup} hiddenAncestorOf={hiddenAncestorOf} onCollapseInto={collapseInto} outgoingStack={stack} stackRoot={stack&&relationStack?relationStack:null} onCycleStack={cycleStack} onToggleStack={toggleStack} onResizeNode={resizeNode} onResizeContainer={resizeContainer} camera={levelGeometry.camera} selectedId={node?.id||edge?.id} onNodeSelect={select} onEdgeSelect={inspectEdge} canRemoveFromScope={n=>isNodeInScope(n,scope,graph)} onRemoveFromScope={removeFromScope} scopeRemovalTargets={nodes=>planScopeRemoval(nodes).removed} onCameraChange={handleCameraChange} onNodeMoved={handleNodeMoved} onNodesMoved={handleNodesMoved} onArrangeAroundResource={id=>{
               cancelReclick();
               arrangeAround(id);
               setMobilePane('details');
