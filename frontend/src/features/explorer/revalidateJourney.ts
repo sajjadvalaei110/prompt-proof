@@ -14,7 +14,7 @@ import type { Journey } from './explorerJourney';
  */
 export function revalidateJourneyState(journey: Journey, targetGraph: AtlasGraph, targetIsReview: boolean): Journey {
   const nodeIds = new Set(targetGraph.nodes.map(node => node.id));
-  const { view, multiIds, outgoingStackRootId } = revalidateSelection(journey, nodeIds, targetIsReview || journey.review);
+  const { view, multiIds, relationStack } = revalidateSelection(journey, nodeIds, targetIsReview || journey.review);
 
   let source = journey.source;
   if (source && (!source.node?.id || source.snapshotId || targetIsReview)) {
@@ -31,19 +31,19 @@ export function revalidateJourneyState(journey: Journey, targetGraph: AtlasGraph
 
   return view === journey.view
     && multiIds.length === journey.multiIds.length
-    && outgoingStackRootId === journey.outgoingStackRootId
+    && relationStack === journey.relationStack
     && source === journey.source
     ? journey
-    : { ...journey, view, multiIds, outgoingStackRootId, source };
+    : { ...journey, view, multiIds, relationStack, source };
 }
 
 /**
  * The selection half of revalidateJourneyState: inspection, Back trail, multi-selection and the
- * outgoing stack root checked
+ * relation stack root checked
  * against the target graph's node IDs (null: unknown, keep nodes), dropping edge identities when
  * the comparison identity changes.
  */
-function revalidateSelection(journey: Journey, nodeIds: ReadonlySet<string> | null, comparisonIdentityChanges: boolean): Pick<Journey, 'view' | 'multiIds' | 'outgoingStackRootId'> {
+function revalidateSelection(journey: Journey, nodeIds: ReadonlySet<string> | null, comparisonIdentityChanges: boolean): Pick<Journey, 'view' | 'multiIds' | 'relationStack'> {
   let view = journey.view;
   const invalidNode = view.inspectedKind === 'NODE'
     && (!view.inspectedSubjectId || (nodeIds !== null && !nodeIds.has(view.inspectedSubjectId)));
@@ -67,9 +67,9 @@ function revalidateSelection(journey: Journey, nodeIds: ReadonlySet<string> | nu
   if (history.length !== view.history.length) view = { ...view, history };
 
   const multiIds = nodeIds === null ? journey.multiIds : journey.multiIds.filter(id => nodeIds.has(id));
-  const root = journey.outgoingStackRootId;
-  const outgoingStackRootId = root && nodeIds !== null && !nodeIds.has(root) ? null : root;
-  return { view, multiIds: multiIds.length === journey.multiIds.length ? journey.multiIds : multiIds, outgoingStackRootId };
+  const stack = journey.relationStack;
+  const relationStack = stack && nodeIds !== null && !nodeIds.has(stack.rootId) ? null : stack;
+  return { view, multiIds: multiIds.length === journey.multiIds.length ? journey.multiIds : multiIds, relationStack };
 }
 
 /** What a journey's map draws: its cards (children of expanded cards included) and, when asked
@@ -132,12 +132,12 @@ function clearInspection(view: ExplorerViewState): ExplorerViewState {
  * is inspected or trailed.
  */
 export function pruneRestoredSelection(restored: Journey, before: Journey, graphFor?: (j: Journey) => AtlasGraph | null | undefined): Journey {
-  if (!restored.view.inspectedSubjectId && !restored.multiIds.length && !restored.outgoingStackRootId && !restored.view.history.some(e => e.subjectId !== null)) return restored;
-  let { view, multiIds, outgoingStackRootId } = restored;
+  if (!restored.view.inspectedSubjectId && !restored.multiIds.length && !restored.relationStack && !restored.view.history.some(e => e.subjectId !== null)) return restored;
+  let { view, multiIds, relationStack } = restored;
   let targetGraph: AtlasGraph | null | undefined;
   if (restored.review !== before.review) {
     targetGraph = graphFor?.(restored);
-    ({ view, multiIds, outgoingStackRootId } = revalidateSelection(restored, targetGraph ? new Set(targetGraph.nodes.map(n => n.id)) : null, true));
+    ({ view, multiIds, relationStack } = revalidateSelection(restored, targetGraph ? new Set(targetGraph.nodes.map(n => n.id)) : null, true));
   }
   if (!sameDisplayInputs(before, restored)) {
     if (targetGraph === undefined) targetGraph = graphFor?.(restored);
@@ -155,20 +155,20 @@ export function pruneRestoredSelection(restored: Journey, before: Journey, graph
     if (history.length !== view.history.length) view = { ...view, history };
     const kept = multiIds.filter(id => !gone(id));
     if (kept.length !== multiIds.length) multiIds = kept;
-    if (outgoingStackRootId && gone(outgoingStackRootId)) outgoingStackRootId = null;
+    if (relationStack && gone(relationStack.rootId)) relationStack = null;
   }
-  return view === restored.view && multiIds === restored.multiIds && outgoingStackRootId === restored.outgoingStackRootId
-    ? restored : { ...restored, view, multiIds, outgoingStackRootId };
+  return view === restored.view && multiIds === restored.multiIds && relationStack === restored.relationStack
+    ? restored : { ...restored, view, multiIds, relationStack };
 }
 
 /**
- * The outgoing stack ends when its root leaves the map (docs/OUTGOING_STACK.md): after an ordinary
+ * The relation stack (either direction) ends when its root leaves the map (docs/OUTGOING_STACK.md): after an ordinary
  * update or a review recapture changed what `next` draws relative to `prev`, a root that `next` no
  * longer draws is dropped. It never re-roots. Cheap when no stack is shown or the display inputs are
  * unchanged, which covers every selection click and card move.
  */
 export function pruneStackRoot(next: Journey, prev: Journey, graphFor?: (j: Journey) => AtlasGraph | null | undefined): Journey {
-  const root = next.outgoingStackRootId;
+  const root = next.relationStack?.rootId;
   if (!root || next === prev || sameDisplayInputs(prev, next)) return next;
-  return displayedMap(next, graphFor?.(next), false).cards.has(root) ? next : { ...next, outgoingStackRootId: null };
+  return displayedMap(next, graphFor?.(next), false).cards.has(root) ? next : { ...next, relationStack: null };
 }

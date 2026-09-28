@@ -37,7 +37,7 @@ function sameMinimap(a: MinimapState, b: MinimapState): boolean {
   return true;
 }
 import GeminiBadge from '../../components/GeminiBadge';
-import { OutgoingStack, stackSummary } from './outgoingStack';
+import { OutgoingStack, StackDirection, stackSummary } from './outgoingStack';
 
 export interface Point { x: number; y: number }
 
@@ -108,12 +108,14 @@ interface Props {
    * dismiss transient pointer-interaction UI (context menu, edge hover) a restored state can't
    * otherwise account for -- never to reset model/camera state, which already resyncs from props. */
   restoreVersion: number;
-  /** The outgoing relation stack to show (computed by the caller for exactly these nodes/edges), or null. */
+  /** The relation stack to show (computed by the caller for exactly these nodes/edges), or null. */
   outgoingStack: OutgoingStack | null;
-  /** The stack's pinned root while a stack is shown. */
-  outgoingStackRootId: string | null;
-  /** The on-card stack button or menu item: start a stack rooted at this card, or end the one it roots. */
-  onToggleOutgoingStack: (id: string) => void;
+  /** The stack's pinned root and direction while a stack is shown. */
+  stackRoot: { rootId: string; direction: StackDirection } | null;
+  /** The on-card stack button: off -> outgoing -> incoming -> off on the root; outgoing on any other card. */
+  onCycleStack: (id: string) => void;
+  /** A context-menu item: root this direction on the card, or end it when it is the one shown. */
+  onToggleStack: (id: string, direction: StackDirection) => void;
 }
 
 /**
@@ -127,10 +129,10 @@ interface Props {
  * `cy.fit()` is called only once per level (when `camera` is null) and by the explicit Fit map
  * button -- both are real camera changes the product allows.
  */
-export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, mapOpen, onMapOpenChange: setMapOpen, fullscreen, onFullscreenChange: setFullscreen, onClearSelection, nodes, edges, positions, camera, selectedId, onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, scopeRemovalTargets, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, sizes, containerSizes, onToggleExpand, onToggleExpandMany, onResizeNode, onResizeContainer, restoreVersion, outgoingStack, outgoingStackRootId, onToggleOutgoingStack }: Props) {
+export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, mapOpen, onMapOpenChange: setMapOpen, fullscreen, onFullscreenChange: setFullscreen, onClearSelection, nodes, edges, positions, camera, selectedId, onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, scopeRemovalTargets, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, sizes, containerSizes, onToggleExpand, onToggleExpandMany, onResizeNode, onResizeContainer, restoreVersion, outgoingStack, stackRoot, onCycleStack, onToggleStack }: Props) {
   const container = useRef<HTMLDivElement>(null), cyRef = useRef<cytoscape.Core | null>(null), menuRef = useRef<HTMLDivElement>(null);
-  const callbacks = useRef({ onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, onToggleExpand, onResizeNode, onResizeContainer, onClearSelection, onToggleOutgoingStack });
-  callbacks.current = { onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, onToggleExpand, onResizeNode, onResizeContainer, onClearSelection, onToggleOutgoingStack };
+  const callbacks = useRef({ onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, onToggleExpand, onResizeNode, onResizeContainer, onClearSelection, onCycleStack });
+  callbacks.current = { onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, onToggleExpand, onResizeNode, onResizeContainer, onClearSelection, onCycleStack };
   const [mini, setMini] = useState<MinimapState | null>(null);
   const [hover,setHover]=useState<{title:string;description:string;x:number;y:number;ready:boolean}|null>(null);
   // `node` is the card that was right-clicked; null when the menu opened from a marquee.
@@ -154,15 +156,17 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
   const [resizeGrips,setResizeGrips]=useState<{id:string;left:number;top:number;size:number}[]>([]);
   // The card corner square the pointer is over (the canvas owns the pointer; see cornerHit).
   const [hotCorner,setHotCorner]=useState<string|null>(null);
-  // The card under the pointer: it shows the outgoing-stack toggle, like the selected card and the root.
+  // The card under the pointer: it shows the relation-stack toggle, like the selected card and the root.
   const [hoverCard,setHoverCard]=useState<string|null>(null);
   // The card whose stack toggle holds keyboard focus: it stays drawn after the toggle turns the stack
   // off, so focus is not dropped to the page (WCAG 2.1 SC 2.4.3).
   const [focusedStackId,setFocusedStackId]=useState<string|null>(null);
-  const stackButtonIds=useMemo(()=>new Set([selectedId,hoverCard,outgoingStackRootId,focusedStackId].filter((id):id is string=>!!id&&nodes.some(n=>n.id===id))),[selectedId,hoverCard,outgoingStackRootId,focusedStackId,nodes]);
+  const stackRootId=stackRoot?.rootId??null, stackDirection=stackRoot?.direction??'out';
+  const stackButtonIds=useMemo(()=>new Set([selectedId,hoverCard,stackRootId,focusedStackId].filter((id):id is string=>!!id&&nodes.some(n=>n.id===id))),[selectedId,hoverCard,stackRootId,focusedStackId,nodes]);
   // Read by the Cytoscape handlers and the overlay draw, which are bound once at mount.
   const stackButtonIdsRef=useRef(stackButtonIds); stackButtonIdsRef.current=stackButtonIds;
   const stackRef=useRef(outgoingStack); stackRef.current=outgoingStack;
+  const stackDirectionRef=useRef(stackDirection); stackDirectionRef.current=stackDirection;
   const model = useMemo(() => ({nodes, edges}), [nodes, edges]);
   const currentModel=useRef(model); currentModel.current=model;
   const updateMapRef = useRef<() => void>(() => {});
@@ -231,9 +235,11 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         { selector: 'node.rel-out', style: { 'outline-color': HALO.out, 'border-color': HALO.out, 'border-style': 'solid' } },
         { selector: 'node.rel-in', style: { 'outline-color': HALO.in, 'border-color': HALO.in, 'border-style': 'dashed' } },
         { selector: 'node.rel-both', style: { 'outline-opacity': 0, 'border-color': '#64748b', 'border-style': 'double', 'border-width': 5 } },
-        // Outgoing stack chain cards: a thin static cyan outline (never the pulsing rel-out halo).
-        // Layer numbers are drawn on the direction overlay.
+        // Relation stack chain cards: a thin static outline (never the pulsing rel-out/rel-in halo),
+        // cyan for an outgoing stack and indigo for an incoming one. Layer numbers are drawn on the
+        // direction overlay.
         { selector: 'node.stack-member', style: { 'outline-width': 3, 'outline-offset': 2, 'outline-opacity': 1, 'outline-color': HALO.out } },
+        { selector: 'node.stack-member.stack-in', style: { 'outline-color': HALO.in } },
         // Multi-select and marquee sit last so their purple outline wins over flow emphasis.
         { selector: 'node.multi-selected', style: { 'border-color': '#7955b7', 'border-width': 4, 'overlay-color': '#7955b7', 'overlay-opacity': .1, 'overlay-padding': 8 } },
         { selector: 'node.marquee-candidate', style: { 'border-color': '#7955b7', 'border-width': 3, 'border-style': 'dashed' } },
@@ -284,11 +290,13 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         directionContext.globalAlpha = 1;
         rings.push({nodeId:node.id(),x,y,width,height,leftColor:HALO.in,rightColor:HALO.out});
       });
-      // Outgoing stack layer badges: a rounded square centered on each layered card's top-left
-      // corner, with a dashed HALO.out border that moves with the route dashes (same phase, same
-      // [8, 5] pattern scaled to the badge). A minimum on-screen size keeps it legible at low zoom.
-      const badges:{nodeId:string;layer:number;x:number;y:number;width:number;height:number}[]=[];
-      const stack=stackRef.current;
+      // Relation stack layer badges: a rounded square centered on each layered card's top-left
+      // corner, with a dashed border (HALO.out for outgoing, HALO.in for incoming) that moves with the
+      // route dashes (same phase, same [8, 5] pattern scaled to the badge). A minimum on-screen size
+      // keeps it legible at low zoom.
+      const badges:{nodeId:string;layer:number;x:number;y:number;width:number;height:number;color:string}[]=[];
+      const stack=stackRef.current,incoming=stackDirectionRef.current==='in';
+      const badgeColor=incoming?HALO.in:HALO.out,badgeText=incoming?'#3730a3':'#075985';
       if(stack) for(const [id,layer] of stack.layers){
         const node=cy.getElementById(id);
         if(!node.length||!node.isNode())continue;
@@ -300,13 +308,13 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         if(x>w||y>h||x+width<0||y+height<0)continue;
         directionContext.beginPath();directionContext.roundRect(x,y,width,height,height*.28);
         directionContext.fillStyle='#ffffff';directionContext.fill();
-        directionContext.lineWidth=Math.max(1.5,2.5*scale);directionContext.strokeStyle=HALO.out;
+        directionContext.lineWidth=Math.max(1.5,2.5*scale);directionContext.strokeStyle=badgeColor;
         directionContext.setLineDash([8*scale,5*scale]);directionContext.lineDashOffset=-phase*scale;directionContext.stroke();
         directionContext.setLineDash([]);directionContext.lineDashOffset=0;
-        directionContext.fillStyle='#075985';directionContext.font=`700 ${Math.round(height*.56)}px Segoe UI, Arial, sans-serif`;
+        directionContext.fillStyle=badgeText;directionContext.font=`700 ${Math.round(height*.56)}px Segoe UI, Arial, sans-serif`;
         directionContext.textAlign='center';directionContext.textBaseline='middle';
         directionContext.fillText(String(layer),x+width/2,y+height/2+height*.03);
-        badges.push({nodeId:id,layer,x,y,width,height});
+        badges.push({nodeId:id,layer,x,y,width,height,color:badgeColor});
       }
       overlayDraws++;cy.scratch('atlas:directionOverlay',{rings,badges,draws:overlayDraws});
     };
@@ -409,7 +417,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       if (!node) return;
       const corner = cornerHit(e.target, e.position);
       if (corner === 'code') { setContextMenu(null); callbacks.current.onViewCode(node); return; }
-      if (corner === 'stack') { setContextMenu(null); callbacks.current.onToggleOutgoingStack(node.id); return; }
+      if (corner === 'stack') { setContextMenu(null); callbacks.current.onCycleStack(node.id); return; }
       if (corner) { setContextMenu(null); callbacks.current.onToggleExpand(node); return; }
       callbacks.current.onNodeSelect(node);
     });
@@ -544,7 +552,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       const boxHit = (n: cytoscape.NodeSingular) => { const hit = p ? cornerHit(n, p) : null; return hit === 'collapse' || hit === 'stack' ? hit : null; };
       const box = p && cy.nodes('[?expanded]').filter(n => boxHit(n) !== null).first();
       const node = box && box.length ? currentModel.current.nodes.find(m => m.id === box.id()) : undefined;
-      if (node) { setContextMenu(null); if (boxHit(box as unknown as cytoscape.NodeSingular) === 'stack') callbacks.current.onToggleOutgoingStack(node.id); else callbacks.current.onToggleExpand(node); return; }
+      if (node) { setContextMenu(null); if (boxHit(box as unknown as cytoscape.NodeSingular) === 'stack') callbacks.current.onCycleStack(node.id); else callbacks.current.onToggleExpand(node); return; }
       const edge = currentModel.current.edges.find(n => n.id === e.target.id()); if (edge) callbacks.current.onEdgeSelect(edge);
     });
     const canvas=container.current;
@@ -736,10 +744,11 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
   useEffect(() => {
     const cy = cyRef.current; if (!cy) return;
     cy.batch(() => {
-      cy.elements().removeClass('inspected muted neighbor flow-out flow-in rel-out rel-in rel-both stack-root stack-member').removeStyle(ANIMATED_STYLES);
+      cy.elements().removeClass('inspected muted neighbor flow-out flow-in rel-out rel-in rel-both stack-root stack-member stack-in').removeStyle(ANIMATED_STYLES);
       const selected = selectedId ? cy.getElementById(selectedId) : cy.collection();
-      // An outgoing stack replaces the selection's neighborhood emphasis: the chain stays lit (its
-      // routes with the selected-route dashes and cyan underlay), the selection keeps only its
+      // A relation stack replaces the selection's neighborhood emphasis: the chain stays lit (its
+      // routes with the selected-route dashes and a cyan underlay, indigo for an incoming stack;
+      // dashes keep the factual source-to-target motion), the selection keeps only its
       // `inspected` look, and everything else is muted except containers of what is emphasized.
       if (outgoingStack) {
         // Covered cards sit inside a layered expanded box: part of the chain, but without badge or outline.
@@ -748,8 +757,9 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         // Every layer-0 card takes the root look, so the inside of an expanded root reads as the root
         // (docs/OUTGOING_STACK_REVIEW.md); the pressed toggle stays on the pinned root card only.
         chain.filter(n => outgoingStack.rootSet.has(n.id())).addClass('stack-root');
-        chain.filter(n => outgoingStack.layers.has(n.id())).addClass('stack-member');
-        routes.addClass('flow-out');
+        const incoming = stackDirection === 'in';
+        chain.filter(n => outgoingStack.layers.has(n.id())).addClass(incoming ? 'stack-member stack-in' : 'stack-member');
+        routes.addClass(incoming ? 'flow-in' : 'flow-out');
         selected.addClass('inspected');
         const lit = chain.union(routes).union(selected).union(selected.connectedNodes());
         cy.elements().difference(lit.union(lit.nodes().ancestors())).addClass('muted');
@@ -779,7 +789,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       });
     });
     drawDirectionRef.current(undefined,undefined,true);
-  }, [selectedId, nodes, edges, outgoingStack, outgoingStackRootId]);
+  }, [selectedId, nodes, edges, outgoingStack, stackRootId, stackDirection]);
 
   // The moving glow: one requestAnimationFrame loop, only while a displayed resource is inspected (or an
   // outgoing stack is shown, with or without a selection) and has emphasized routes. Dash phase moves from source to target; route glow and halos pulse together. The phase
@@ -936,8 +946,11 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       const hot=hotCorner===`${b.id}:${b.action}`?' hot':'',style={left:b.left,top:b.top,width:b.size,height:b.size,fontSize:Math.max(10,b.size*.5)};
       if(b.action==='stack'){
         if(!stackButtonIds.has(b.id))return null;
-        const on=outgoingStackRootId===b.id;
-        return <button key={`${b.id}:stack`} type="button" className={`code-button map-code-button map-stack-button${on?' active':''}${hot}`} style={style} aria-pressed={on} aria-label={on?`Hide outgoing stack of ${n.simpleName}`:`Show outgoing stack of ${n.simpleName}`} title={on&&outgoingStack?stackSummary(outgoingStack):'Show outgoing stack: what this sets in motion, layer by layer'} data-card-id={b.id} onFocus={()=>setFocusedStackId(b.id)} onBlur={()=>setFocusedStackId(id=>id===b.id?null:id)} onClick={event=>{event.stopPropagation();setContextMenu(null);onToggleOutgoingStack(n.id);}}><StackIcon/></button>;
+        // Three states on the root: outgoing, then incoming, then off. The label names what a press does.
+        const on=stackRootId===b.id,incoming=on&&stackDirection==='in';
+        const label=!on?`Show outgoing stack of ${n.simpleName}`:incoming?`Hide incoming stack of ${n.simpleName}`:`Show incoming stack of ${n.simpleName}`;
+        const title=!on||!outgoingStack?'Show outgoing stack: what this sets in motion, layer by layer':`${stackSummary(outgoingStack,stackDirection)}${incoming?' (click to hide)':' (click for incoming)'}`;
+        return <button key={`${b.id}:stack`} type="button" className={`code-button map-code-button map-stack-button${on?' active':''}${incoming?' incoming':''}${hot}`} style={style} aria-pressed={on} aria-label={label} title={title} data-card-id={b.id} data-stack-direction={on?stackDirection:undefined} onFocus={()=>setFocusedStackId(b.id)} onBlur={()=>setFocusedStackId(id=>id===b.id?null:id)} onClick={event=>{event.stopPropagation();setContextMenu(null);onCycleStack(n.id);}}><StackIcon/></button>;
       }
       if(b.action==='code')return <CodeButton key={`${b.id}:code`} cardId={b.id} name={n.simpleName} kind={n.kind} className={`map-code-button${hot}`} style={style} onClick={()=>{setContextMenu(null);onViewCode(n);}}/>;
       const collapse=b.action==='collapse',what=n.kind==='PACKAGE'?'types':'methods';
@@ -954,7 +967,10 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       <div className="graph-context-menu-heading">{menuTitle}</div>
       <button role="menuitem" className="danger" disabled={!removableNodes.length} title={removalTitle} onClick={removeSelectedFromScope}><span aria-hidden="true">−</span> {removalLabel}</button>
       {menuNode&&menuSelected&&selectedNodes.length>1&&<button role="menuitem" onClick={()=>{setMultiIds(ids=>ids.filter(id=>id!==menuNode.id));setContextMenu(null);}}><span aria-hidden="true">○</span> Deselect {menuNode.simpleName}</button>}
-      {menuNode&&<button role="menuitem" aria-pressed={outgoingStackRootId===menuNode.id} onClick={()=>menuSingle(()=>onToggleOutgoingStack(menuNode.id))}><span aria-hidden="true">⇶</span> {outgoingStackRootId===menuNode.id?'Hide outgoing stack':'Show outgoing stack'}</button>}
+      {menuNode&&(['out','in'] as const).map(direction=>{
+        const on=stackRootId===menuNode.id&&stackDirection===direction,name=direction==='in'?'incoming':'outgoing';
+        // Rooting a stack is not a multi-select action: menuSingle undoes the selection this right-click added.
+        return <button key={direction} role="menuitem" aria-pressed={on} onClick={()=>menuSingle(()=>onToggleStack(menuNode.id,direction))}><span aria-hidden="true">{direction==='in'?'⇇':'⇶'}</span> {on?`Hide ${name} stack`:`Show ${name} stack`}</button>;})}
       {expandTargets.length>0&&<button role="menuitem" onClick={()=>{if(menuGroup){onToggleExpandMany(expandTargets,menuExpand);setContextMenu(null);}else menuSingle(()=>onToggleExpandMany(expandTargets,menuExpand));}}><span aria-hidden="true">{menuExpand==='expand'?'⊞':'⊟'}</span> {menuExpand==='expand'?'Expand':'Collapse'}{expandTargets.length>1?` ${expandTargets.length} selected`:''}</button>}
       {menuNode&&hasCodeButton(menuNode)&&<button role="menuitem" onClick={()=>menuSingle(()=>onViewCode(menuNode))}><span aria-hidden="true">{'</>'}</span> View source</button>}
       <button role="menuitem" onClick={()=>{onClearSelection();setContextMenu(null);}}><span aria-hidden="true">✕</span> {selectedNodes.length>1?'Clear selection':'Deselect'}</button>

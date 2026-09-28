@@ -4,6 +4,8 @@ import { AtlasGraph, AtlasNode, Level, isType, ownerAt } from './graphModel';
 export interface StackCard { id: string; containerId?: string }
 /** A drawn route: aggregated among the displayed cards; `occurrenceIds` are the raw edges it carries. */
 export interface StackRoute { id: string; occurrenceIds?: string[] }
+/** 'out' follows what the root sets in motion; 'in' walks every fact reversed (what leads to it). */
+export type StackDirection = 'out' | 'in';
 export interface OutgoingStackInput {
   /** The full graph the tab renders (ordinary or Changes): its raw edges are the facts walked. */
   graph: AtlasGraph;
@@ -13,8 +15,8 @@ export interface OutgoingStackInput {
   rootId: string;
   /** The relationship-kind filter: 'ALL' or one edge kind. */
   kind: string;
-  /** Only 'out' is wired to the UI; 'in' walks every fact reversed. */
-  direction?: 'out' | 'in';
+  /** 'out' (default) or 'in': the incoming stack, the exact mirror over reversed facts. */
+  direction?: StackDirection;
 }
 export interface OutgoingStack {
   /** Every drawn card that represents a reached entity, with its layer (1-based; see outgoingStack). */
@@ -35,10 +37,11 @@ export interface OutgoingStack {
 }
 
 /** The line shown on the root's button tooltip and in its inspector:
- * "Outgoing stack: N layers · M resources", plus " · K beyond the map" when K > 0. */
-export function stackSummary(stack: Pick<OutgoingStack, 'depth' | 'count'> & { beyond?: number }): string {
+ * "Outgoing stack: N layers · M resources" ("Incoming stack: ..." for 'in'), plus
+ * " · K beyond the map" when K > 0. */
+export function stackSummary(stack: Pick<OutgoingStack, 'depth' | 'count'> & { beyond?: number }, direction: StackDirection = 'out'): string {
   const beyond = stack.beyond ? ` · ${stack.beyond} beyond the map` : '';
-  return `Outgoing stack: ${stack.depth} ${stack.depth === 1 ? 'layer' : 'layers'} · ${stack.count} ${stack.count === 1 ? 'resource' : 'resources'}${beyond}`;
+  return `${direction === 'in' ? 'Incoming' : 'Outgoing'} stack: ${stack.depth} ${stack.depth === 1 ? 'layer' : 'layers'} · ${stack.count} ${stack.count === 1 ? 'resource' : 'resources'}${beyond}`;
 }
 
 /** The granularity a root walks at: its own kind (a field is never a card, so it has none). */
@@ -86,8 +89,10 @@ const ROOT_CARD = '\u0000root';
  *    source and target entities are both in the chain (the root entity or reached). A self-loop of
  *    a chain entity counts here, so routes inside an expanded root stay lit.
  * 8. `depth` is the maximum card layer and `count` the number of layered cards. Returns null when
- *    the root card is not drawn (or is not a package, type or method). `direction: 'in'` reverses
- *    every mapped step.
+ *    the root card is not drawn (or is not a package, type or method). `direction: 'in'` (the
+ *    incoming stack) reverses every mapped step after rules 1-2: an exact mirror, so a type root
+ *    reaches its implementors and subclasses, a method root's callers are reached through the
+ *    overridden method (impl <- interface method <- its callers), and terminal types never appear.
  *
  * Pure; O(nodes + edges) with memoized owner and representative lookups.
  */

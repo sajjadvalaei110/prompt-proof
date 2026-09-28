@@ -2,7 +2,9 @@
 Last updated: 2026-09-28
 Active milestone: R6 — Developer comprehension redesign (in progress)
 Current revision: step 13 (card menu Expand/Collapse + View source, cascading tree collapse,
-Entry points Explore → outgoing stack, kind icons), on top of
+Entry points Explore → outgoing stack, kind icons) merged with main's
+incoming relation stack (the stack button's second press, docs/OUTGOING_STACK.md
+"Incoming stack"), both on top of
 step 12 follow-up (candidate calls reverted, uniform route colour, Changes-mode
 source-root fix), on top of
 step 12 phases B/C review fixes (analyzer visibility and lexical-receiver rules,
@@ -150,6 +152,147 @@ checkout was never mutated):
 
 Limits: a queue step whose dispatch the reducer ignores (a stale generation) stays in flight until
 the next expansion change, which then drops it; no case of this was observed.
+
+### Merge of main (incoming stack) into step13 (2026-09-28)
+
+`git merge origin/main` (639ed08, PR #1 incoming relation stack) into `step13`, a merge and not a
+rebase. Conflicts were in `App.tsx`, `GraphCanvas.tsx`, `docs/OUTGOING_STACK.md` and this file.
+- The card menu keeps main's two stack items ("Show/Hide outgoing stack", "Show/Hide incoming
+  stack", `onToggleStack(id, direction)`). Each one now runs through step 13's `menuSingle`, which
+  does the right-click `addedId` cleanup that main had inlined, so the cleanup happens once.
+  Expand/Collapse and View source follow them.
+- GraphCanvas takes main's `stackRoot`/`onCycleStack`/`onToggleStack` plus step 13's
+  `onToggleExpandMany`. App passes `onToggleExpandMany={toggleExpandMany}` alongside main's props.
+- Entry points → Explore used to set `outgoingStackRootId`. It now sets main's
+  `relationStack: { rootId, direction: 'out' }` explicitly, so it replaces an incoming stack or a
+  stack on another root, and it is a no-op only when that exact outgoing stack is already shown.
+- The step 13 journey check in `scripts/test-explorer-journeys.mjs` used the removed
+  `outgoingStackRootId` field and was moved to `relationStack`.
+- `docs/OUTGOING_STACK.md` "Activation and lifetime" keeps main's three-state button and both menu
+  items, and adds the Explore bullet using `relationStack` terms.
+
+Verification:
+- `cd frontend && npx tsc -b --force && npm run build`: PASS (node_modules was present, so `npm ci`
+  was not run).
+- `for t in scripts/test-*.mjs; do node "$t" …; done`: all 12 PASS. `test-explorer-journeys.mjs`
+  reports 55 checks.
+- `./gradlew bootJar -q`: PASS.
+- Browser suites ran against an isolated jar on 8097 (closed model port 9) and headless Chromium on
+  9335:
+  - `verify-step13-ui.mjs`: **38/38**
+  - `verify-explorer-journeys.mjs`: **51/51**
+  - `verify-outgoing-stack-ui.mjs` (microservice copy, generated git fixture, chain fixture, fresh
+    `journey-candidates` copy): **108/108**, the same count as main's report
+  - The microservice fixture's hash was unchanged afterwards. Both processes were stopped by their
+    saved PIDs, and ports 8097 and 9335 were free.
+- Screenshots inspected: the stack suite's `17-keyboard-menu` and `in-01-incoming-stack`, and step
+  13's `02-package-menu` and `10-entry-explore-stack`. The menu shows both stack items, then
+  Expand, then Deselect. The Explore stack reads "Outgoing stack: 1 layer · 2 resources".
+- Not run: backend `./gradlew test` (no backend change on either side) and the Python
+  `verify_*_pipeline.py` suites. Evidence images under `docs/evidence/` were not regenerated.
+- Not covered by a browser check: Explore while an incoming stack is shown on the handler (it
+  replaces it with outgoing). The logic is the one-line explicit set above.
+
+## Incoming relation stack (2026-09-28)
+
+User request: the mirror of the outgoing stack (a BFS over incoming edges), on the same button:
+first press outgoing, second press incoming, third press off. The incoming stack uses the
+incoming-selection color (`HALO.in`, `#6366F1`). Six decisions came out of a grilling round, all
+recommendations accepted, and are recorded in `docs/OUTGOING_STACK.md` §"Incoming stack":
+- another card's button starts outgoing there
+- the menu has two direct items
+- Escape ends either direction
+- purple is used for the badges, outlines, route underlay and pressed button, while the root stays
+  teal
+- the incoming stack is an exact mirror, so an interface root reaches its implementors
+- the wording is "Incoming stack: N layers · M resources"
+
+No ADR: `docs/BUILD.md` does not mention an incoming stack, and the outgoing spec had listed it as
+anticipated future work.
+
+- **State.** `Journey.outgoingStackRootId` became `relationStack: { rootId, direction } | null`,
+  one value, so the ADR 0009 selection-only classification, the undo/redo carry, pruning and Clone
+  all cover the direction unchanged. `cycleRelationStack` (button) and `toggleRelationStack`
+  (menu) are pure transitions in `explorerJourney.ts`.
+- **Traversal.** `outgoingStack.ts` is unchanged apart from `StackDirection` and
+  `stackSummary(stack, direction)`. `direction: 'in'` already reversed every kept step.
+- **UI.**
+  - `GraphCanvas`: the three-state button (aria-label names the next action, `data-stack-direction`)
+    and two menu items (⇶ / ⇇).
+  - Incoming styling: `stack-member stack-in` outlines, `flow-in` chain routes and indigo badges on
+    the overlay (the overlay scratch now records each badge's color).
+  - CSS: `.map-stack-button.active.incoming` and `.stack-summary.incoming`.
+- **Tests.**
+  - `test-explorer-journeys.mjs`: 49 → 53 checks. New: cycle and menu transitions; a direction
+    switch adds no entry, keeps redo, and survives undo/redo; incoming pruning; Clone copies the
+    direction.
+  - `test-outgoing-stack.mjs`: 34 → 41 checks. New: the summary prefix; the collapsed-hub mirror at
+    class and package level; reversed dispatch; no terminal types for a method root; an interface
+    root reaching implementors; beyond the map.
+  - `verify-outgoing-stack-ui.mjs`: 81 → 108 checks. The oracle takes a direction. The outgoing
+    label, tooltip and focus expectations were updated for the three states. The B4 keyboard
+    scenario now goes outgoing → incoming (focus kept) → off. The new incoming scenarios are
+    described in `docs/TESTING.md`.
+- **Docs.** `OUTGOING_STACK.md`, `STABLE_GRAPH_INTERACTIONS.md`, `ARCHITECTURE.md` §5, `TESTING.md`,
+  and an ADR 0009 note on the field rename.
+
+Checks (this entry's tree):
+- `for t in scripts/test-*.mjs; do node "$t" >/dev/null && echo "PASS $t" || echo "FAIL $t"; done`:
+  12/12 PASS.
+- `cd frontend && npx tsc -b --force && npm run build`: PASS.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar`: PASS.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew test`: PASS, 21 classes, 150 tests, 0
+  failures. No backend source changed.
+- `git diff --check`: clean.
+- Browser: the `isolated4.sh` harness copied to the session scratchpad, pointed at this checkout
+  (jar on 8095 with its own data dir, model URL `http://127.0.0.1:9/v1`, snap Chromium on 9333,
+  fixtures copied and hashed). Command: `BACKEND=http://127.0.0.1:8095 APP=http://127.0.0.1:8095
+  DEBUG=http://127.0.0.1:9333 OUT=<run>/evidence node scripts/verify-outgoing-stack-ui.mjs
+  <run>/fixture <run>/gitfix <base oid> <run>/chainfix <run>/journeyfix`.
+  - Result: 108/108 PASS (run `run-Ydw7`). `stop` reported all four fixtures unchanged, 0 model
+    requests and the ports free.
+  - Two earlier runs failed in the new chain-fixture checks, for test reasons. Card app.d sat under
+    the inspector panel, so the button clicks missed. After centring it, a and b were off screen,
+    so their badges were not drawn (by design). The script now centres the root, then fits the map
+    (view-only) before reading badges.
+- Evidence:
+  - `docs/evidence/incoming-stack/in-01..04` were inspected:
+    - dtos root: controllers, services and domain are 1, repositories 2. Indigo badges, outlines,
+      routes, pressed button and inspector line; the root stays teal.
+    - The layer-1 selection keeps the root.
+    - Chain package root app.d: b 1, and the a box 2 with its children covered.
+    - Class root U: b 1 only, a muted.
+  - `docs/evidence/outgoing-stack/` was refreshed from the same run, and these were inspected:
+    - 01 and 05: the outgoing stack is still cyan, with the pressed cyan toggle.
+    - 07: Changes mode, with cyan badges, change fills kept and the green ADDED route.
+    - 17: the menu offers both "Show outgoing stack" and "Show incoming stack".
+    - 18: after outgoing → incoming → off, the focus ring stays on the unpressed toggle while
+      another card is selected.
+
+    The other outgoing screenshots show scenarios this change did not touch and were not
+    re-inspected.
+- Known limits:
+  - Direction is shown by colour (cyan against indigo), the tooltip, the aria-label and the
+    inspector line. Badges, outlines and the pressed button have no non-colour cue, unlike the
+    selection halos (outgoing solid, incoming dashed, WCAG 2.1 SC 1.4.1). `AGENTS.md` does not
+    require one, and the user chose colour. A dashed incoming outline would be a small follow-up.
+  - `data-testid="outgoing-stack-summary"` keeps its name for both directions, to avoid churn.
+- Codex review (`/home/sajjad/prompts/incoming-stack/review-report.md`, brief
+  `ultrareview-codex.md`): SHIP WITH FIXES, with no P0–P2 findings. The reviewer's own isolated
+  run reproduced 108/108, 53 and 41 checks, and the gradle, build and tsc results. Two P3 doc
+  findings were verified against the tree and fixed in `175b120`:
+  - D-1: `OUTGOING_STACK.md` called the stack state a `TRANSIENT_UPDATE`; it is a selection-only
+    `UPDATE`.
+  - D-2: `ARCHITECTURE.md` still credited CANDIDATE calls.
+
+  The same fix removed a related stale "calls candidate members of" phrase in
+  `STABLE_GRAPH_INTERACTIONS.md` that the report missed.
+- Not run:
+  - `verify_stable_graph_pipeline.py`, `verify_hierarchical_pipeline.py`,
+    `verify_change_edges_pipeline.py`, `verify_git_review_pipeline.py`: no stack coverage, and this
+    change touches only the stack's state, UI and styles.
+  - `verify-explorer-journeys.mjs`: it does not reference the stack field or button.
+  - `constrainedMemoryTest`: backend untouched.
 
 ## Step 12 follow-up: candidate calls reverted, uniform route colour, Changes-mode edge fix (2026-09-25)
 
