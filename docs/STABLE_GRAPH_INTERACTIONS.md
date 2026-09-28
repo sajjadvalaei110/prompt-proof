@@ -158,9 +158,10 @@ Acceptance:
   in the inspector or resource action menu. It invokes this same command, not a third
   arrangement mode. Disable it when the resource is absent from the current map.
 - There is no separate class/method level to drill into (ADR 0007): the map is
-  package-only. **View methods**/**View classes** (tree `⌖`, inspector buttons, entry-
-  point route cards, deep links) expand the target's card in place instead of
-  switching levels, then select it.
+  package-only. **View methods**/**View classes** (tree `⌖`, inspector buttons, deep
+  links) expand the target's card in place, opening any collapsed ancestor first, instead
+  of switching levels, then select it; the whole reveal is one undo step. Entry-point
+  route cards reveal the handler method and root its outgoing stack (see the table above).
 
 ## Story 3 — Reorder the map I am actually viewing
 

@@ -138,7 +138,10 @@ snapshot's initial view; clones share immutable values and inherit both undo and
 branches. Closing a tab retains its history among the ten most recently closed tabs.
 
 `useExplorerJourneys` groups synchronous updates from a user action into one history
-entry (up to 200 per tab). Initial camera fitting updates the baseline without creating
+entry (up to 200 per tab). An action that needs several renders (a sequential expand
+queue: the card menu's Expand/Collapse on a selection, Entry points → Explore, View
+classes/methods into collapsed cards) takes an explicit group from `beginGroup()` and passes
+it to each update, so it is still one entry; any other update in between starts its own. Initial camera fitting updates the baseline without creating
 an undo step. Pending camera changes flush before navigation commands. Tab IDs are never
 reused across snapshot resets, so an old callback cannot edit a replacement snapshot.
 `<main>` is keyed on the active tab's ID, so switching tabs remounts it and restores that

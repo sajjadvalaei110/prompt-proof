@@ -113,11 +113,27 @@
       "pass": true
     },
     {
+      "label": "after undoing Explore, the stack has ended (its root is no longer drawn)",
+      "pass": true
+    },
+    {
       "label": "...the reveal was one step: the next Undo is the tab switch, back to the unexpanded map",
       "pass": true
     },
     {
       "label": "a second Explore keeps the handler inspected",
+      "pass": true
+    },
+    {
+      "label": "tree View methods opens the collapsed package and the class in place",
+      "pass": true
+    },
+    {
+      "label": "...and inspects the class",
+      "pass": true
+    },
+    {
+      "label": "...as one undo step",
       "pass": true
     },
     {

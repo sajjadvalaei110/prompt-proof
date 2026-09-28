@@ -161,6 +161,11 @@ check('Explore roots the outgoing stack on the handler', handler && (await evalu
 await shot('10-entry-explore-stack');
 await undo();
 check('one Undo reverts every ancestor expansion of the reveal and returns to Entry points', !(await evaluate(`!!document.querySelector('.graph-canvas')`)) && await evaluate(`!!document.querySelector('.route-card')`));
+// Undo took the handler's card off the map, so its stack must have ended with it.
+await clickSelector('.workspace-nav button:nth-child(1)');
+await waitFor(`!!document.querySelector('.graph-canvas')?._cyreg?.cy`, 'map after undo');
+check('after undoing Explore, the stack has ended (its root is no longer drawn)', await evaluate(`${CY}.nodes('.stack-root').length===0`));
+await undo();
 // The only earlier step is opening the Entry points tab itself; undoing it lands on the fresh map.
 await undo();
 check('...the reveal was one step: the next Undo is the tab switch, back to the unexpanded map', await undoDisabled() && (await expandedIds()).length === 0);
@@ -172,6 +177,20 @@ await waitFor(`${CY}.nodes('.stack-root').length>0`, 'stack rooted again');
 await pause(600);
 check('a second Explore keeps the handler inspected', (await evaluate(`document.querySelector('.inspector .subject-heading h2')?.textContent||''`)).includes(route.handler));
 
+// View methods from the tree on a class inside a collapsed package opens the package and the
+// class in place, inspects the class, and is one undo step.
+await openMap();
+const eventCtrl = byName('CLASS', 'com.kipper.eventsmicroservice.controllers.EventController');
+const controllersPkg = byName('PACKAGE', 'com.kipper.eventsmicroservice.controllers');
+if ((await treeOpen('com.kipper.eventsmicroservice.controllers')) !== 'true') await toggleTree('com.kipper.eventsmicroservice.controllers');
+const undoBefore = await undoDisabled();
+await clickSelector('[aria-label="View methods of EventController"]');
+await waitFor(`${CY}.getElementById(${JSON.stringify(eventCtrl.id)}).data('expanded')===true`, 'EventController expanded');
+check('tree View methods opens the collapsed package and the class in place', (await expandedIds()).join() === [controllersPkg.id, eventCtrl.id].sort().join(), await expandedIds());
+check('...and inspects the class', (await evaluate(`document.querySelector('.inspector .subject-heading h2')?.textContent||''`)).includes('EventController'));
+await shot('12-tree-view-methods');
+await undo();
+check('...as one undo step', (await expandedIds()).length === 0 && (await undoDisabled()) === undoBefore);
 // A handler outside the current scope cannot be revealed: its row says so and Explore is disabled.
 await openMap();
 await clickSelector('[aria-label="Remove package com.kipper.eventsmicroservice.controllers from scope"]');

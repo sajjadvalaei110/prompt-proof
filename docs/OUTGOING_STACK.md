@@ -96,6 +96,8 @@ calls into C.
   - an on-card overlay button next to the details/expand toggle, shown on the selected card and
     on hover
   - a context-menu item, "Show outgoing stack" / "Hide outgoing stack"
+  - **Entry points → Explore** (step 13): reveals the route's handler method on the Code map,
+    inspects it and roots the stack on it (sets, never toggles, the root)
 
   Both are keyboard reachable. The toggle is a focusable button. The menu opens from the keyboard
   with **Shift+F10** or the **ContextMenu** key, either on a focused corner button of the card or

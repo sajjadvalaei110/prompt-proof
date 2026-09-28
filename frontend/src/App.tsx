@@ -429,14 +429,19 @@ export default function App() {
   // "View classes"/"View methods" (the tree's ⌖ button, the inspector's buttons) used to switch
   // the whole map to a different abstraction level (Step 4, Story 6/H3). Class/Method level view
   // is gone; digging in now always happens by expanding the card itself in place, so these ensure
-  // the target is expanded (never collapse an already-expanded one) and select it.
-  function ensureExpanded(n:AtlasNode){if(!expansions[n.id])toggleExpand(n);}
+  // the target is expanded (never collapse an already-expanded one) and select it. A target inside
+  // collapsed cards opens its ancestors first, through the expand queue; the tab switch and every
+  // expansion are one undo step.
   function revealChildren(n:AtlasNode){
     if(!graph)return;
-    ensureExpanded(n);
+    const all=new Map(graph.nodes.map(item=>[item.id,item]));
+    const chain:string[]=[n.id];
+    for(let p=n.parentId?all.get(n.parentId):undefined;p;p=p.parentId?all.get(p.parentId):undefined)chain.unshift(p.id);
+    const group=journeys.beginGroup();
     // Same toggle as a click: an already-inspected card deselects (clearSelection shows the map pane).
-    if(viewState.inspectedKind==='NODE'&&viewState.inspectedSubjectId===n.id)select(n);else inspectNode(n,'map');
-    setTab('map');
+    if(viewState.inspectedKind==='NODE'&&viewState.inspectedSubjectId===n.id)select(n);else inspectNode(n,'map',group);
+    journeys.update(j=>j.tab==='map'?j:{...j,tab:'map'},group);
+    startExpandQueue({pending:chain,action:'expand',strict:true},group);
   }
   function viewClasses(n:AtlasNode){revealChildren(n);}
   function viewMethods(n:AtlasNode){revealChildren(n);}
@@ -888,7 +893,7 @@ export default function App() {
           // Explore reveals the handler on the Code map and roots its outgoing stack there. A handler
           // outside the current scope has no card to reveal, so the row says so instead.
           const outside=!!handler&&!isNodeInScope(handler,scope,graph);
-          return <button className="route-card" key={r.id} disabled={!handler||outside} title={outside?'Handler is outside the current scope':!handler?'Handler not found in this snapshot':'Show the handler and its outgoing stack on the Code map'} onClick={()=>{if(handler)handler.kind==='PACKAGE'?viewClasses(handler):expandToReveal(handler,{stack:true});}}><span className="tag">{r.http_method}</span><strong>{r.path}</strong><span>{handler?.simpleName||r.handler_qualified}</span><span>{outside?'Outside scope':'Explore ↗'}</span></button>;}):<div className="empty-state"><h2>No HTTP routes found</h2><p>Explore packages and classes to find this application's entry points.</p><button onClick={openCodeMap}>Open code map</button></div>}</section>:<>
+          return <button className="route-card" key={r.id} disabled={!handler||outside} title={outside?'Handler is outside the current scope':!handler?'Handler not found in this snapshot':'Show the handler and its outgoing stack on the Code map'} onClick={()=>{if(handler)handler.kind==='PACKAGE'?viewClasses(handler):expandToReveal(handler,{stack:true});}}><span className="tag">{r.http_method}</span><strong>{r.path}</strong><span>{handler?.simpleName||r.handler_qualified}</span><span>{!handler?'Handler not found':outside?'Outside scope':'Explore ↗'}</span></button>;}):<div className="empty-state"><h2>No HTTP routes found</h2><p>Explore packages and classes to find this application's entry points.</p><button onClick={openCodeMap}>Open code map</button></div>}</section>:<>
           <div className={`map-heading${headingCollapsed?' collapsed':''}`} onWheel={onHeadingWheel}>
           <div className="map-heading-collapsible" inert={headingCollapsed} aria-hidden={headingCollapsed}><div className="breadcrumbs"><button onClick={openCodeMap}>{scopeCrumb}</button><span>/</span><span className="breadcrumb-level">{levelWord}</span>{node&&<><span>/</span><button onClick={()=>inspectNode(node,'details')}>{node.simpleName}</button></>}</div><div className="page-heading"><div><h1>{node?node.simpleName:'Understand the whole system'}</h1><p>{node?'Follow the relationships around this part of the codebase.':`${typeCount} types across ${packages.length} packages. Choose a starting point.`}</p></div><button onClick={()=>{const entry=viewState.history[viewState.history.length-1];if(entry)dispatchView({type:'NAVIGATE_BACK',eligibleIds:eligibleFor(entry.level),preserveReviewOnly:!active.present.review,reviewOnlyIds:active.present.review?undefined:reviewOnly(parkedIdsFor(entry.level)||[]),parkedIds:parkedIdsFor(entry.level)});}} disabled={!viewState.history.length}>← Back</button></div></div>
           <div className="graph-toolbar"><select aria-label="Relationship kind" value={kind} onChange={e=>setKind(e.target.value)}><option value="ALL">All dependencies</option>{[...new Set(graph.edges.map(e=>e.kind))].sort().map(k=><option key={k} value={k}>{k.toLowerCase().replaceAll('_',' ')}</option>)}</select>

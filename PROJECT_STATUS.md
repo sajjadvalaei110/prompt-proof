@@ -51,7 +51,13 @@ undo contract (docs/STABLE_GRAPH_INTERACTIONS.md, updated) rather than departing
    the handler (`inspectNode`, never `select`, so a second Explore does not deselect) and roots
    its outgoing stack. The tab switch and expansions are one undo step; inspection and the stack
    root are selection (ADR 0009). A handler outside the current scope is disabled with
-   "Outside scope". An ancestor that cannot open still inspects the handler.
+   "Outside scope"; a route whose handler is missing says "Handler not found". An ancestor that
+   cannot open still inspects the handler. Undoing Explore takes the handler's card off the map,
+   so its stack ends with it (checked in the browser).
+   - Follow-up (review): tree `⌖` / inspector View classes/methods on a card inside collapsed
+     cards opened nothing once `toggleExpand` began requiring a drawn card (before, it recorded an
+     expansion for an undrawn card that never showed). It now opens the ancestors and the card
+     through the same queue, and the whole reveal is one undo step.
 4. **Kind icons**: the cube is replaced by a folder (packages) or an IntelliJ-style letter
    (C I E R @ m c f). The badge keeps the role tint (service/repository/default), so the role cue
    survives; the tree's type rows use the same letters.
@@ -67,10 +73,14 @@ Verification (all run in this session):
 - `./gradlew bootJar`: PASS.
 - Browser, packaged jar on 8095 with an isolated data dir, model URL `http://127.0.0.1:9/v1`,
   headless snap Chromium on 9333, fixtures copied under the session scratchpad:
-  - new `node scripts/verify-step13-ui.mjs <microservice copy>`: **PASS 32/32**, zero page/console
-    errors. Two earlier runs failed for script reasons (the handler was looked up by a name that
-    two methods share; the Entry points tab click is its own undo step). One real defect was found
-    and fixed: switching to the map tab was a separate undo step from the reveal.
+  - new `node scripts/verify-step13-ui.mjs <microservice copy>`: **PASS 36/36** on the final
+    build, zero page/console errors. Earlier runs failed:
+    - for script reasons: a missing CDP preamble, then a duplicate one; the tree walk assumed
+      `com.kipper` was absent; the handler was looked up by a name that two methods share; and the
+      Entry points tab click, which is its own undo step, was miscounted
+    - for product defects, both fixed: switching to the map tab was a separate undo step from the
+      reveal, and the taller card menu was clipped at the bottom of the stage (now lifted to its
+      measured height and checked)
   - `node scripts/verify-explorer-journeys.mjs <microservice copy>` (APP=8095): PASS 51/51.
   - `node scripts/verify-outgoing-stack-ui.mjs <microservice copy> <gitfix> <base oid> <chainfix>
     <journey-candidates copy>` (fixtures generated per the step 12 phase B/C recipe): PASS 81/81.
@@ -80,14 +90,22 @@ Verification (all run in this session):
   expanded package; `04` View source dialog for EventService; `05` two packages expanded from one
   menu action; `07`/`08` cascade and Collapse all; `09`/`11` Entry points, all controller rows
   "Outside scope" once controllers leave the scope; `10` Explore landing with the handler
-  inspected and its stack rooted (1 layer, 2 resources).
+  inspected and its stack rooted (1 layer, 2 resources); `12` tree View methods opening the
+  collapsed controllers package and EventController in place.
+
+- `CHROMIUM=/snap/bin/chromium python3 scripts/verify_hierarchical_pipeline.py` (run twice): FAIL
+  at `verify-hierarchical-ui.mjs:88`, clicking the removed `.segmented button` "Classes" level
+  control. This is the known pre-existing breakage recorded in the package-only view entry. The
+  card-menu scenarios before it passed on this build: open, reopen, outside-click dismiss, and
+  Remove from scope through the menu's first item.
 
 Not run:
 - `./gradlew test`: no backend change.
-- `verify_stable_graph_pipeline.py acceptance`: known broken since the level switcher was removed
-  (see the step 12 phase A entry); `verify_hierarchical_pipeline.py`,
-  `verify_change_edges_pipeline.py`, `verify_git_review_pipeline.py`: they don't touch the menu,
-  tree or entry points.
+- `verify_stable_graph_pipeline.py` (drives `verify-stable-graph-ui.mjs`, which uses the card
+  menu): known broken on the removed level switcher, as above.
+- `verify_change_edges_pipeline.py`, `verify_git_review_pipeline.py`: their UI scripts don't use
+  the card menu, the scope tree's disclosure/toolbar, the route cards or the card icon (grepped).
+  Their level-switcher scenarios are also known broken.
 
 Limits: a queue step whose dispatch the reducer ignores (a stale generation) stays in flight until
 the next expansion change, which then drops it; no case of this was observed.
