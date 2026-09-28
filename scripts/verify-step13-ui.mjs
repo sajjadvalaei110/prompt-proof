@@ -169,13 +169,23 @@ await undo();
 // The only earlier step is opening the Entry points tab itself; undoing it lands on the fresh map.
 await undo();
 check('...the reveal was one step: the next Undo is the tab switch, back to the unexpanded map', await undoDisabled() && (await expandedIds()).length === 0);
-await clickSelector('.workspace-nav button:nth-child(2)');
-// Explore again on an already-inspected handler must not deselect it (reclick guard).
-await waitFor(`!!document.querySelector('.route-card')`, 'entry points again');
-await clickSelector('.route-card:not(:disabled)');
-await waitFor(`${CY}.nodes('.stack-root').length>0`, 'stack rooted again');
+// Explore again on an already-inspected handler must not deselect it. Re-selecting an inspected card
+// is a deselect after 250 ms (App's reclick guard), so the reveal must inspect, never select. Explore
+// once, confirm the precondition, then Explore the same row again and read past that window.
+const inspectedTitle = () => evaluate(`document.querySelector('.inspector .subject-heading h2')?.textContent||''`);
+const exploreFirstRoute = async label => {
+  await clickSelector('.workspace-nav button:nth-child(2)');
+  await waitFor(`!!document.querySelector('.route-card')`, label);
+  await clickSelector('.route-card:not(:disabled)');
+  await waitFor(`!!document.querySelector('.graph-canvas')?._cyreg?.cy && ${CY}.nodes('.stack-root').length>0`, label + ': stack rooted');
+};
+await exploreFirstRoute('entry points again');
 await pause(600);
-check('a second Explore keeps the handler inspected', (await evaluate(`document.querySelector('.inspector .subject-heading h2')?.textContent||''`)).includes(route.handler));
+check('precondition: after one Explore the handler is inspected', (await inspectedTitle()).includes(route.handler));
+await exploreFirstRoute('entry points, second Explore');
+await pause(600);
+check('a second Explore keeps the handler inspected', (await inspectedTitle()).includes(route.handler));
+check('...and keeps its stack rooted', handler && (await evaluate(`${CY}.nodes('.stack-root').map(n=>n.id())`)).includes(handler.id));
 
 // View methods from the tree on a class inside a collapsed package opens the package and the
 // class in place, inspects the class, and is one undo step.

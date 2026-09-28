@@ -121,7 +121,15 @@
       "pass": true
     },
     {
+      "label": "precondition: after one Explore the handler is inspected",
+      "pass": true
+    },
+    {
       "label": "a second Explore keeps the handler inspected",
+      "pass": true
+    },
+    {
+      "label": "...and keeps its stack rooted",
       "pass": true
     },
     {

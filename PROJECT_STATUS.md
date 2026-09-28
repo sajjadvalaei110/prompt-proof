@@ -108,7 +108,34 @@ Not run:
   Their level-switcher scenarios are also known broken.
 
 Codex ultrareview (`/home/sajjad/prompts/step13/review-report.md`): verdict SHIP, one P3 finding.
-The report lists 5 mutations as caught; they were not re-run here.
+The report lists 5 mutations as caught. Each was re-run in a private `git archive` copy (the
+checkout was never mutated):
+- **M1 (the hook ignores the explicit group): NOT caught, contrary to the report.** The
+  step-13 journeys check drives `journeysReducer` directly, so it never calls the hook's `update`.
+  Added "step 13 review: the hook joins explicit-group updates across renders" to
+  `scripts/test-explorer-journeys.mjs`. It uses the existing synchronous React stand-in, with
+  microtask boundaries standing for renders. Result: PASS 51/51 clean; under M1 it fails with
+  "three renders sharing beginGroup() are one undo step".
+- **M2 (`collapseBranch` without recursion): caught** by `test-graph-model.mjs` ("nested packages
+  close with their parent").
+- M3–M5 were run with `verify-step13-ui.mjs`. Each got its own jar, built from the mutated copy
+  (port 8096, snap Chromium on 9334, model URL on closed port 9). A clean control run of the
+  unmutated copy passed first (36/36).
+- **M3 (Explore's completion calls `select` instead of `inspectNode`): NOT caught, contrary to the
+  report** (36/36 under the mutation). The "second Explore" check was vacuous: after the undo
+  sequence before it, the handler was no longer inspected, so `select` just inspected it. The
+  script now Explores, asserts the precondition that the handler is inspected, Explores the same
+  row again, and waits past the 250 ms reclick window. It then checks that the handler is still
+  inspected and still the stack root. Under M3: FAIL "a second Explore keeps the handler
+  inspected" (37/38).
+- **M4 (menu height clamp disabled): caught.** FAIL "the taller menu stays inside the map stage"
+  (37/38). The report's literal `setMenuTop(null)` doesn't compile (`limit` unused, TS6133), so
+  the mutation used was `setMenuTop(limit<-1e9?limit:null)`.
+- **M5 (`toggleExpand` looks up `graph.nodes` instead of the drawn cards): caught.** The first
+  Explore never draws the handler (no `containerId`, so `ownerId: null`), and the run fails at
+  "Timed out: stack rooted" after 23 passing checks.
+- Clean control with the strengthened script: `verify-step13-ui.mjs` **PASS 38/38**.
+  `node scripts/test-explorer-journeys.mjs`: PASS 51. All 12 `scripts/test-*.mjs`: PASS.
 - **P3 "Expand N selected" overcounts a package whose types are all out of scope: rejected after
   verification.** The report says `hasDetailsButton` ignores scope. That's wrong: the canvas cards
   come from `projectDisplayed(..., expansionInput)`, whose `decorate` computes a package's

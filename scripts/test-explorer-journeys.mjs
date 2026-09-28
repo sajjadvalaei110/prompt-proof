@@ -722,4 +722,32 @@ check('step 13: a sequential expand queue shares one explicit group, so its rend
   s = moveCard(s, 8, 'p2', { x: 40, y: 40 });
   assert.equal(active(s).past.length, start + 3);
 });
+// Step 13 review: the hook itself, not just the reducer. A queue dispatches on separate renders, so
+// each dispatch comes after the microtask that closes the ordinary group; only the explicit group
+// from beginGroup() keeps them one undo step. (The reducer check above cannot catch a hook that
+// ignores the explicit group.) One hook instance stands for every render: the stand-in's useRef is
+// not persistent, while React's is, and a render changes nothing else the hook reads here.
+{
+  hook.seed.state = initJourneys(mapJourney(['p1', 'p2', 'p3']));
+  const journeys = hook.useExplorerJourneys(undefined, () => fixtureGraph);
+  const past = () => active(hook.current()).past.length;
+  const nextRender = () => Promise.resolve();
+  const start = past();
+  const move = (id, x) => j => ({ ...j, view: viewReduce(j.view, { type: 'NODE_MOVED', level: 'PACKAGE', id, position: { x, y: 0 }, generation: j.view.generation }) });
+  const group = journeys.beginGroup();
+  journeys.update(move('p1', 11), group);
+  await nextRender();
+  journeys.update(move('p2', 22), group);
+  await nextRender();
+  journeys.dispatchView({ type: 'NODE_MOVED', level: 'PACKAGE', id: 'p3', position: { x: 33, y: 0 }, generation: active(hook.current()).present.view.generation }, false, group);
+  assert.equal(past(), start + 1, 'three renders sharing beginGroup() are one undo step');
+  await nextRender();
+  // Without an explicit group, the same pattern is one step per render.
+  journeys.update(move('p1', 44));
+  await nextRender();
+  journeys.update(move('p2', 55));
+  assert.equal(past(), start + 3, 'ordinary updates on separate renders stay separate steps');
+  hook.seed.state = null;
+  count++; console.log('PASS step 13 review: the hook joins explicit-group updates across renders');
+}
 console.log(`${count} journey checks passed`);
