@@ -241,8 +241,8 @@ A card's stack button, shown on the selected and hovered card, or its "Show outg
 item roots a stack at that card (`docs/OUTGOING_STACK.md`). The walk follows parser relationship
 facts at the root's own granularity (a package root package relations, a class root class
 relations, a method root method calls; user decision 2026-09-25), so a collapsed card never joins
-unrelated relationships of its members. A method root also reaches the types it constructs, calls
-candidate members of or uses (as dead ends), and follows a call to an interface or abstract method
+unrelated relationships of its members. A method root also reaches the types it constructs or
+uses (as dead ends), and follows a call to an interface or abstract method
 on to its in-source implementations (step 12 phase C, ADR 0010). Every drawn card holding something
 the root reaches gets a layer badge at its top-left: its card-hop distance, where a step inside one
 card is free, ranked so the numbers never skip. REMOVED facts are not walked in Changes. Chain routes (drawn routes carrying a chain relationship) get the

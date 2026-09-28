@@ -125,8 +125,9 @@ calls into C.
 - **State:** `outgoingStackRootId: string | null` on the per-tab `Journey`. Since 2026-09-28 this is
   `relationStack: { rootId, direction: 'out' | 'in' } | null`, one value, so switching direction on
   the same root is a selection-only change like re-rooting. It is **outside undo
-  history** (a `TRANSIENT_UPDATE`, like `fullscreen`). Clone tab copies it, and
-  `revalidateJourney.ts` prunes it.
+  history** as a selection-only `UPDATE` (no history entry, redo kept), carried and pruned on
+  undo/redo like selection (ADR 0009); see the implementation note "Outside undo history (accepted
+  deviation ...)" below. Clone tab copies it, and `revalidateJourney.ts` prunes it.
 
 ## Visual treatment
 

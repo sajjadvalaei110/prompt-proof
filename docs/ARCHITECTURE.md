@@ -152,8 +152,9 @@ layering. The pure helper
 `outgoingStack.ts` walks the tab graph's relationship facts at the root's granularity and maps the
 result onto the cards and routes the canvas draws. The walk is a 0-1 BFS with card-hop costs. Method
 roots also reach type targets as dead ends and follow parser OVERRIDES facts reversed (dispatch). It
-counts reached entities with no card as "beyond the map". The analyzer supplies the CANDIDATE calls
-and OVERRIDES facts this relies on (ADR 0010). The journey keeps its pinned
+counts reached entities with no card as "beyond the map". The analyzer supplies the OVERRIDES facts
+this relies on (ADR 0010; candidate calls were withdrawn, ADR 0010 amendment, 2026-09-25).
+The journey keeps its pinned
 root and direction (`relationStack`, one value) outside history like selection (carried and pruned on undo/redo) and also prunes it in the
 reducer when an ordinary update or recapture stops drawing it. App computes the stack from the
 projection in the root's direction (the incoming stack reverses every step), and `GraphCanvas` only
