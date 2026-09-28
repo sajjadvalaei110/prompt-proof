@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import cytoscape from 'cytoscape';
 import { AtlasNode, AtlasEdge, kindSummary, reviewRouteSummary } from './graphModel';
 import { nodeCard, cornerButtons, hasCodeButton, hasDetailsButton, CODE_BUTTON, MIN_CARD_SIZE, CornerAction, CardSize } from './nodeCard';
@@ -136,6 +136,9 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
   // `node` is the card that was right-clicked; null when the menu opened from a marquee.
   // `addedId`: the card this right-click added to the multi-selection (it was not selected before).
   const [contextMenu,setContextMenu]=useState<{node:AtlasNode|null;x:number;y:number;addedId?:string|null}|null>(null);
+  // menuPosition only reserves a fixed height; once the menu is drawn, lift it so its real height
+  // (which grows with the card's actions) stays inside the stage.
+  const [menuTop,setMenuTop]=useState<number|null>(null);
   // The element focused when the keyboard opened the menu: focus returns there when it closes.
   const menuOpenerRef=useRef<HTMLElement|null>(null);
   // The one multi-selection every bulk action works on. Right-click, right-drag marquee,
@@ -566,6 +569,12 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     setContextMenu(null);setHover(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[restoreVersion]);
+  useLayoutEffect(()=>{
+    const menu=menuRef.current,stage=menu?.offsetParent as HTMLElement|null;
+    if(!contextMenu||!menu||!stage){setMenuTop(null);return;}
+    const limit=stage.clientHeight-menu.offsetHeight-8;
+    setMenuTop(contextMenu.y>limit?Math.max(8,limit):null);
+  },[contextMenu]);
   useEffect(()=>{
     if(!contextMenu)return;
     const dismiss=(event:PointerEvent)=>{if(!menuRef.current?.contains(event.target as Node))setContextMenu(null);};
@@ -941,7 +950,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     {resizeGrips.map(g=>{const n=nodes.find(item=>item.id===g.id);return n?<button key={g.id} type="button" className="map-resize-grip" title={`Resize ${n.simpleName}`} aria-label={`Resize ${n.simpleName}. Use arrow keys, hold Shift for larger steps.`} style={{left:g.left,top:g.top,width:g.size,height:g.size}} onPointerDown={e=>startResize(e,g.id)} onKeyDown={e=>gripKeyDown(e,g.id)}/>:null;})}
     {!nodes.length && <div className="canvas-empty">No symbols in this view. Choose another level or clear the filter.</div>}
     {hover&&<div className="edge-hover" style={{left:hover.x,top:hover.y}}><strong>{hover.ready&&<GeminiBadge/>} {hover.title}</strong><p>{hover.description}</p></div>}
-    {contextMenu&&<div ref={menuRef} className="graph-context-menu" role="menu" onKeyDown={menuKeyDown} aria-label={selectedNodes.length>1?`Actions for ${selectedNodes.length} selected resources`:`Actions for ${menuTitle}`} style={{left:contextMenu.x,top:contextMenu.y}}>
+    {contextMenu&&<div ref={menuRef} className="graph-context-menu" role="menu" onKeyDown={menuKeyDown} aria-label={selectedNodes.length>1?`Actions for ${selectedNodes.length} selected resources`:`Actions for ${menuTitle}`} style={{left:contextMenu.x,top:menuTop??contextMenu.y}}>
       <div className="graph-context-menu-heading">{menuTitle}</div>
       <button role="menuitem" className="danger" disabled={!removableNodes.length} title={removalTitle} onClick={removeSelectedFromScope}><span aria-hidden="true">−</span> {removalLabel}</button>
       {menuNode&&menuSelected&&selectedNodes.length>1&&<button role="menuitem" onClick={()=>{setMultiIds(ids=>ids.filter(id=>id!==menuNode.id));setContextMenu(null);}}><span aria-hidden="true">○</span> Deselect {menuNode.simpleName}</button>}

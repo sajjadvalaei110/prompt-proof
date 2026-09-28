@@ -1,0 +1,132 @@
+{
+  "results": [
+    {
+      "label": "fresh journey: Undo disabled",
+      "pass": true
+    },
+    {
+      "label": "package card draws the folder, not the cube",
+      "pass": true
+    },
+    {
+      "label": "package menu offers Expand",
+      "pass": true
+    },
+    {
+      "label": "package menu has no View source",
+      "pass": true
+    },
+    {
+      "label": "the taller menu stays inside the map stage",
+      "pass": true
+    },
+    {
+      "label": "Expand opens the package in place",
+      "pass": true
+    },
+    {
+      "label": "the right-click did not leave the card multi-selected",
+      "pass": true
+    },
+    {
+      "label": "a class card draws C",
+      "pass": true
+    },
+    {
+      "label": "class menu offers Expand and View source",
+      "pass": true
+    },
+    {
+      "label": "View source opens the source dialog for the class",
+      "pass": true
+    },
+    {
+      "label": "expanded package menu offers Collapse",
+      "pass": true
+    },
+    {
+      "label": "Collapse closes the package",
+      "pass": true
+    },
+    {
+      "label": "with two selected, the menu offers \"Expand 2 selected\"",
+      "pass": true
+    },
+    {
+      "label": "both selected packages expand",
+      "pass": true
+    },
+    {
+      "label": "an interface card draws I",
+      "pass": true
+    },
+    {
+      "label": "one Undo reverts the multi-expand entirely",
+      "pass": true
+    },
+    {
+      "label": "...and that was the only undo step",
+      "pass": true
+    },
+    {
+      "label": "the scope tree shows kind badges for types",
+      "pass": true
+    },
+    {
+      "label": "setup: an inner package is open",
+      "pass": true
+    },
+    {
+      "label": "collapsing the root closes it",
+      "pass": true
+    },
+    {
+      "label": "reopening the root shows every nested package collapsed",
+      "pass": true
+    },
+    {
+      "label": "...down to the package that was open before",
+      "pass": true
+    },
+    {
+      "label": "Collapse all closes every branch",
+      "pass": true
+    },
+    {
+      "label": "Explore switches to the Code map",
+      "pass": true
+    },
+    {
+      "label": "Explore reveals the handler method card",
+      "pass": true
+    },
+    {
+      "label": "Explore inspects the handler",
+      "pass": true
+    },
+    {
+      "label": "Explore roots the outgoing stack on the handler",
+      "pass": true
+    },
+    {
+      "label": "one Undo reverts every ancestor expansion of the reveal and returns to Entry points",
+      "pass": true
+    },
+    {
+      "label": "...the reveal was one step: the next Undo is the tab switch, back to the unexpanded map",
+      "pass": true
+    },
+    {
+      "label": "a second Explore keeps the handler inspected",
+      "pass": true
+    },
+    {
+      "label": "with controllers out of scope, every controller route is disabled and labelled",
+      "pass": true
+    },
+    {
+      "label": "no page or console errors",
+      "pass": true
+    }
+  ]
+}

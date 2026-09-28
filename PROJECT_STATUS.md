@@ -1,7 +1,9 @@
 # Project status
-Last updated: 2026-09-25
+Last updated: 2026-09-28
 Active milestone: R6 — Developer comprehension redesign (in progress)
-Current revision: step 12 follow-up (candidate calls reverted, uniform route colour, Changes-mode
+Current revision: step 13 (card menu Expand/Collapse + View source, cascading tree collapse,
+Entry points Explore → outgoing stack, kind icons), on top of
+step 12 follow-up (candidate calls reverted, uniform route colour, Changes-mode
 source-root fix), on top of
 step 12 phases B/C review fixes (analyzer visibility and lexical-receiver rules,
 ADR 0010 amendment; keyboard card menu and stack focus retention), on top of
@@ -23,6 +25,72 @@ toggle with a git-style diff code viewer, exploration tabs with per-tab undo/red
 and selection controls, the R6 change-edges slice (one line per direction,
 directional selection emphasis, file-grouped evidence), in-place card details
 (expand packages/classes) and resizable cards; Step 6A remains unstarted
+
+## Step 13: card menu, tree collapse, entry-point stack, kind icons (2026-09-28)
+
+Source: `~/prompts/step13/simple.txt`, four items. The design was settled in a grilling round;
+"detail view" in item 1 means the read-only source viewer, since the card's "details" button
+already expands it. One commit per item. No ADR: the reveal becoming one undo step refines the
+undo contract (docs/STABLE_GRAPH_INTERACTIONS.md, updated) rather than departing from it.
+
+1. **Card menu** (`GraphCanvas.tsx`): Expand/Collapse follows the right-clicked card's state and
+   applies to every selected card that can make the same change; View source opens the clicked
+   card's source (not on packages, which have no range). The menu is lifted to its measured height,
+   so the taller menu stays inside the stage (it was clipped at the bottom before this fix).
+   - Shared seam: `useExplorerJourneys.beginGroup()` plus an optional explicit group on
+     `update`/`dispatchView`, and an App-level sequential expand queue (one card per render, since
+     each expansion's geometry reads the previous result). The queue is one undo step. A strict
+     queue (a reveal) is dropped when a card cannot be toggled and never resumes; the queue is
+     also cleared on undo/redo, tab/journey switch and graph change.
+   - `toggleExpand` now acts on the drawn card (so a nested reveal records the box it sits in) and
+     returns whether it dispatched.
+2. **Scope tree**: collapsing a branch closes every nested package (`scopeModel.collapseBranch`);
+   **Collapse all** (`collapseAll`) closes the tree and is disabled while a search forces it open.
+   Each is one `treeOpen` edit, so one undo step.
+3. **Entry points → Explore**: switches to the Code map, expands the handler's ancestors, inspects
+   the handler (`inspectNode`, never `select`, so a second Explore does not deselect) and roots
+   its outgoing stack. The tab switch and expansions are one undo step; inspection and the stack
+   root are selection (ADR 0009). A handler outside the current scope is disabled with
+   "Outside scope". An ancestor that cannot open still inspects the handler.
+4. **Kind icons**: the cube is replaced by a folder (packages) or an IntelliJ-style letter
+   (C I E R @ m c f). The badge keeps the role tint (service/repository/default), so the role cue
+   survives; the tree's type rows use the same letters.
+
+Verification (all run in this session):
+- `cd frontend && npm ci && npx tsc -b --force && npm run build`: PASS; the existing Vite
+  chunk-size advisory.
+- `for t in test-graph-model test-explorer-view-state test-graph-placement test-focused-arrangement
+  test-explorer-journeys test-node-card test-source-evidence test-review-model test-outgoing-stack
+  test-expansion-layout test-file-diff test-review-placement; do node scripts/$t.mjs; done`: PASS,
+  all 12 (journeys 50, including the new explicit-group check; graph-model gains the tree-collapse
+  cases; node-card gains the kind-icon cases).
+- `./gradlew bootJar`: PASS.
+- Browser, packaged jar on 8095 with an isolated data dir, model URL `http://127.0.0.1:9/v1`,
+  headless snap Chromium on 9333, fixtures copied under the session scratchpad:
+  - new `node scripts/verify-step13-ui.mjs <microservice copy>`: **PASS 32/32**, zero page/console
+    errors. Two earlier runs failed for script reasons (the handler was looked up by a name that
+    two methods share; the Entry points tab click is its own undo step). One real defect was found
+    and fixed: switching to the map tab was a separate undo step from the reveal.
+  - `node scripts/verify-explorer-journeys.mjs <microservice copy>` (APP=8095): PASS 51/51.
+  - `node scripts/verify-outgoing-stack-ui.mjs <microservice copy> <gitfix> <base oid> <chainfix>
+    <journey-candidates copy>` (fixtures generated per the step 12 phase B/C recipe): PASS 81/81.
+  - The microservice copy's SHA-256 was unchanged and the backend log shows 0 model requests.
+- Screenshots in `docs/evidence/step13/`, inspected: `01` folder icons on package cards; `02`
+  package menu with Expand, no View source, fully inside the stage; `03` C and I letters in an
+  expanded package; `04` View source dialog for EventService; `05` two packages expanded from one
+  menu action; `07`/`08` cascade and Collapse all; `09`/`11` Entry points, all controller rows
+  "Outside scope" once controllers leave the scope; `10` Explore landing with the handler
+  inspected and its stack rooted (1 layer, 2 resources).
+
+Not run:
+- `./gradlew test`: no backend change.
+- `verify_stable_graph_pipeline.py acceptance`: known broken since the level switcher was removed
+  (see the step 12 phase A entry); `verify_hierarchical_pipeline.py`,
+  `verify_change_edges_pipeline.py`, `verify_git_review_pipeline.py`: they don't touch the menu,
+  tree or entry points.
+
+Limits: a queue step whose dispatch the reducer ignores (a stale generation) stays in flight until
+the next expansion change, which then drops it; no case of this was observed.
 
 ## Step 12 follow-up: candidate calls reverted, uniform route colour, Changes-mode edge fix (2026-09-25)
 

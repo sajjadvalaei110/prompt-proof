@@ -446,10 +446,10 @@ export default function App() {
   // joins every dispatch to one explicit history group, so the whole queue is a single undo step.
   // `strict` (a reveal) drops the queue when a card cannot be toggled; otherwise that card is skipped.
   // A dropped queue never resumes: `inFlight` must reach its target state on the very next change.
-  interface ExpandQueue{pending:string[];inFlight:string|null;action:'expand'|'collapse';strict:boolean;group:number;then?:(group:number)=>void}
+  interface ExpandQueue{pending:string[];inFlight:string|null;action:'expand'|'collapse';strict:boolean;group:number;then?:(group:number)=>void;onDrop?:()=>void}
   const expandQueueRef=useRef<ExpandQueue|null>(null);
-  function startExpandQueue(q:Omit<ExpandQueue,'inFlight'|'group'>){
-    const queue={...q,inFlight:null,group:journeys.beginGroup()};
+  function startExpandQueue(q:Omit<ExpandQueue,'inFlight'|'group'>,group=journeys.beginGroup()){
+    const queue={...q,inFlight:null,group};
     expandQueueRef.current=queue;
     advanceExpandQueue(queue);
   }
@@ -461,7 +461,7 @@ export default function App() {
       const n=all.get(id);
       if(n&&!!expansions[id]===(q.action==='expand'))continue;
       if(n&&toggleExpand(n,q.group)){q.inFlight=id;return;}
-      if(q.strict){expandQueueRef.current=null;return;}
+      if(q.strict){expandQueueRef.current=null;q.onDrop?.();return;}
     }
     expandQueueRef.current=null;
     q.then?.(q.group);
@@ -469,7 +469,7 @@ export default function App() {
   useEffect(()=>{
     const q=expandQueueRef.current;
     if(!q||!q.inFlight)return;
-    if(!!expansions[q.inFlight]!==(q.action==='expand')){expandQueueRef.current=null;return;}
+    if(!!expansions[q.inFlight]!==(q.action==='expand')){expandQueueRef.current=null;if(q.strict)q.onDrop?.();return;}
     q.inFlight=null;
     advanceExpandQueue(q);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -480,16 +480,19 @@ export default function App() {
   // Reveal a node buried under expand-in-place ancestors (an HTTP route handler, a deep link) by
   // expanding each ancestor in turn, then inspecting the target -- and, for an entry point, rooting
   // the outgoing stack on it. Inspecting, never `select`: re-selecting the inspected card deselects.
+  // An ancestor that cannot open (not drawn, e.g. beyond the displayed page) still inspects the target.
   function expandToReveal(n:AtlasNode,opts:{stack?:boolean}={}){
     if(!graph)return;
     const all=new Map(graph.nodes.map(item=>[item.id,item]));
     const chain:string[]=[];
     for(let p=n.parentId?all.get(n.parentId):undefined;p;p=p.parentId?all.get(p.parentId):undefined)chain.unshift(p.id);
-    setTab('map');setMobilePane('map');
+    // The switch to the map joins the queue's group: undoing the reveal also returns to where it began.
+    const group=journeys.beginGroup();
+    journeys.update(j=>j.tab==='map'&&j.mobilePane==='map'?j:{...j,tab:'map',mobilePane:'map'},group);
     startExpandQueue({pending:chain,action:'expand',strict:true,then:group=>{
       inspectNode(n,'details',group);
       if(opts.stack)journeys.update(j=>j.outgoingStackRootId===n.id?j:{...j,outgoingStackRootId:n.id},group);
-    }});
+    },onDrop:()=>inspectNode(n,'details')},group);
   }
   // Step 5 (Appendix B): the dedicated focused-arrangement command, wired to canvas double-click
   // (GraphCanvas's dbltap handler) and the inspector's keyboard/touch-accessible "Arrange around
@@ -881,7 +884,11 @@ export default function App() {
       </aside>
       <div className="nav-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize navigation panel. Use arrow keys, hold Shift for larger steps, Home to reset." tabIndex={0} aria-valuenow={Math.round(navWidth??currentNavWidth())} aria-valuemin={NAV_MIN} aria-valuemax={Math.round(navMax())} onPointerDown={startNavResize} onKeyDown={navResizeKeyDown} onDoubleClick={()=>{if(justDraggedNavRef.current){justDraggedNavRef.current=false;return;}resetNavWidth();}} />
       <section className="workspace-content">
-        {tab==='context'&&workspace?<ProjectDocuments key={workspace.id} workspaceId={workspace.id} onChanged={()=>setRevision(r=>r+1)}/>:tab==='routes'?<section className="entry-view"><div className="page-heading"><div><h1>Start with a request</h1><p>Follow an HTTP entry point into its handler and dependencies.</p></div></div>{routes.length?routes.map(r=>{const handler=graph.nodes.find(n=>n.id===r.symbol_version_id);return <button className="route-card" key={r.id} onClick={()=>{if(handler)(handler.kind==='PACKAGE'?viewClasses:expandToReveal)(handler);}}><span className="tag">{r.http_method}</span><strong>{r.path}</strong><span>{handler?.simpleName||r.handler_qualified}</span><span>Explore ↗</span></button>;}):<div className="empty-state"><h2>No HTTP routes found</h2><p>Explore packages and classes to find this application's entry points.</p><button onClick={openCodeMap}>Open code map</button></div>}</section>:<>
+        {tab==='context'&&workspace?<ProjectDocuments key={workspace.id} workspaceId={workspace.id} onChanged={()=>setRevision(r=>r+1)}/>:tab==='routes'?<section className="entry-view"><div className="page-heading"><div><h1>Start with a request</h1><p>Follow an HTTP entry point into its handler and dependencies.</p></div></div>{routes.length?routes.map(r=>{const handler=graph.nodes.find(n=>n.id===r.symbol_version_id);
+          // Explore reveals the handler on the Code map and roots its outgoing stack there. A handler
+          // outside the current scope has no card to reveal, so the row says so instead.
+          const outside=!!handler&&!isNodeInScope(handler,scope,graph);
+          return <button className="route-card" key={r.id} disabled={!handler||outside} title={outside?'Handler is outside the current scope':!handler?'Handler not found in this snapshot':'Show the handler and its outgoing stack on the Code map'} onClick={()=>{if(handler)handler.kind==='PACKAGE'?viewClasses(handler):expandToReveal(handler,{stack:true});}}><span className="tag">{r.http_method}</span><strong>{r.path}</strong><span>{handler?.simpleName||r.handler_qualified}</span><span>{outside?'Outside scope':'Explore ↗'}</span></button>;}):<div className="empty-state"><h2>No HTTP routes found</h2><p>Explore packages and classes to find this application's entry points.</p><button onClick={openCodeMap}>Open code map</button></div>}</section>:<>
           <div className={`map-heading${headingCollapsed?' collapsed':''}`} onWheel={onHeadingWheel}>
           <div className="map-heading-collapsible" inert={headingCollapsed} aria-hidden={headingCollapsed}><div className="breadcrumbs"><button onClick={openCodeMap}>{scopeCrumb}</button><span>/</span><span className="breadcrumb-level">{levelWord}</span>{node&&<><span>/</span><button onClick={()=>inspectNode(node,'details')}>{node.simpleName}</button></>}</div><div className="page-heading"><div><h1>{node?node.simpleName:'Understand the whole system'}</h1><p>{node?'Follow the relationships around this part of the codebase.':`${typeCount} types across ${packages.length} packages. Choose a starting point.`}</p></div><button onClick={()=>{const entry=viewState.history[viewState.history.length-1];if(entry)dispatchView({type:'NAVIGATE_BACK',eligibleIds:eligibleFor(entry.level),preserveReviewOnly:!active.present.review,reviewOnlyIds:active.present.review?undefined:reviewOnly(parkedIdsFor(entry.level)||[]),parkedIds:parkedIdsFor(entry.level)});}} disabled={!viewState.history.length}>← Back</button></div></div>
           <div className="graph-toolbar"><select aria-label="Relationship kind" value={kind} onChange={e=>setKind(e.target.value)}><option value="ALL">All dependencies</option>{[...new Set(graph.edges.map(e=>e.kind))].sort().map(k=><option key={k} value={k}>{k.toLowerCase().replaceAll('_',' ')}</option>)}</select>
