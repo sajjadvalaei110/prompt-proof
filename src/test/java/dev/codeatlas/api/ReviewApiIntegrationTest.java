@@ -117,6 +117,10 @@ class ReviewApiIntegrationTest {
         assertEquals("REVIEW_HEAD", snapshot(headSnapshot).path("purpose").asText());
         assertEquals("published", snapshot(baseSnapshot).path("status").asText());
         assertEquals("published", snapshot(headSnapshot).path("status").asText());
+        String workspaceLanguage = db.queryForObject(
+                "SELECT language FROM workspaces WHERE id=?", String.class, workspace);
+        assertEquals(workspaceLanguage, snapshotLanguage(baseSnapshot));
+        assertEquals(workspaceLanguage, snapshotLanguage(headSnapshot));
         assertEquals(activeSnapshot, db.queryForObject("SELECT active_snapshot_id FROM workspaces WHERE id=?", String.class, workspace));
         assertArrayEquals(indexBefore, Files.readAllBytes(repo.resolve(".git/index")));
         assertEquals(baseOid, git(repo, "rev-parse", "HEAD").trim());
@@ -424,6 +428,10 @@ class ReviewApiIntegrationTest {
 
     private JsonNode snapshot(String id) {
         return mapper.valueToTree(db.queryForMap("SELECT status,purpose FROM snapshots WHERE id=?", id));
+    }
+
+    private String snapshotLanguage(String id) {
+        return db.queryForObject("SELECT language FROM snapshots WHERE id=?", String.class, id);
     }
 
     private JsonNode relationshipEvidence(String snapshot, String relationshipId) throws Exception {

@@ -1,0 +1,1541 @@
+{
+  "workspaceId": "328047a0-0cab-4a19-9a50-b48b679d4302",
+  "initialSnapshotId": "ba4e4465-a2e2-4dae-a6f5-12ee7bde17ce",
+  "baseOid": "4e78cf47e2bae39f8caf51191fb0c3aa7285464f",
+  "fixturePath": "/tmp/code-atlas-git-review-kof56moh/review-fixture",
+  "review": {
+    "schemaVersion": "1",
+    "base": {
+      "snapshotId": "a251db84-facf-48e6-9ac4-decf2c3309a1",
+      "requestedRef": "4e78cf47e2bae39f8caf51191fb0c3aa7285464f",
+      "resolvedRef": "4e78cf47e2bae39f8caf51191fb0c3aa7285464f",
+      "warning": null
+    },
+    "head": {
+      "snapshotId": "b25c1fc4-77ee-4974-9270-739dfa22c06a",
+      "ref": "WORKING_TREE",
+      "headOid": "4e78cf47e2bae39f8caf51191fb0c3aa7285464f",
+      "fingerprint": "865d05e9fa9e625240ac24b8dc4fdae3a5817dbf693fe7fd6ff3b1e21b570225",
+      "capturedAt": "2026-09-24T08:13:57.383293939Z"
+    },
+    "summary": {
+      "addedLines": 17,
+      "removedLines": 8,
+      "changedFiles": 5
+    },
+    "files": [
+      {
+        "path": "review-notes.txt",
+        "status": "ADDED",
+        "addedLines": 1,
+        "removedLines": 0,
+        "javaFile": false
+      },
+      {
+        "path": "src/main/java/review/Hub.java",
+        "status": "MODIFIED",
+        "addedLines": 1,
+        "removedLines": 1,
+        "javaFile": true
+      },
+      {
+        "path": "src/main/java/review/NewDep.java",
+        "status": "ADDED",
+        "addedLines": 8,
+        "removedLines": 0,
+        "javaFile": true
+      },
+      {
+        "path": "src/main/java/review/OldDep.java",
+        "status": "DELETED",
+        "addedLines": 0,
+        "removedLines": 7,
+        "javaFile": true
+      },
+      {
+        "path": "src/main/java/review/UntrackedHelper.java",
+        "status": "ADDED",
+        "addedLines": 7,
+        "removedLines": 0,
+        "javaFile": true
+      }
+    ],
+    "nodeFacts": [
+      {
+        "change": "MODIFIED",
+        "kind": "CLASS",
+        "name": "Hub",
+        "addedLines": 1,
+        "removedLines": 1
+      },
+      {
+        "change": "UNCHANGED",
+        "kind": "CLASS",
+        "name": "KeepDep",
+        "addedLines": 0,
+        "removedLines": 0
+      },
+      {
+        "change": "ADDED",
+        "kind": "CLASS",
+        "name": "NewDep",
+        "addedLines": 5,
+        "removedLines": 0
+      },
+      {
+        "change": "REMOVED",
+        "kind": "CLASS",
+        "name": "OldDep",
+        "addedLines": 0,
+        "removedLines": 5
+      },
+      {
+        "change": "ADDED",
+        "kind": "CLASS",
+        "name": "UntrackedHelper",
+        "addedLines": 5,
+        "removedLines": 0
+      },
+      {
+        "change": "MODIFIED",
+        "kind": "METHOD",
+        "name": "changed",
+        "addedLines": 1,
+        "removedLines": 1
+      },
+      {
+        "change": "UNCHANGED",
+        "kind": "METHOD",
+        "name": "sibling",
+        "addedLines": 0,
+        "removedLines": 0
+      },
+      {
+        "change": "UNCHANGED",
+        "kind": "METHOD",
+        "name": "read",
+        "addedLines": 0,
+        "removedLines": 0
+      },
+      {
+        "change": "ADDED",
+        "kind": "METHOD",
+        "name": "read",
+        "addedLines": 3,
+        "removedLines": 0
+      },
+      {
+        "change": "REMOVED",
+        "kind": "METHOD",
+        "name": "read",
+        "addedLines": 0,
+        "removedLines": 3
+      },
+      {
+        "change": "ADDED",
+        "kind": "METHOD",
+        "name": "label",
+        "addedLines": 3,
+        "removedLines": 0
+      },
+      {
+        "change": "MODIFIED",
+        "kind": "PACKAGE",
+        "name": "review",
+        "addedLines": 16,
+        "removedLines": 8
+      }
+    ],
+    "relationshipFacts": [
+      {
+        "change": "UNCHANGED",
+        "kind": "DEPENDS_ON",
+        "source": "Hub",
+        "target": "KeepDep"
+      },
+      {
+        "change": "ADDED",
+        "kind": "DEPENDS_ON",
+        "source": "Hub",
+        "target": "NewDep"
+      },
+      {
+        "change": "REMOVED",
+        "kind": "DEPENDS_ON",
+        "source": "Hub",
+        "target": "OldDep"
+      },
+      {
+        "change": "ADDED",
+        "kind": "CONSTRUCTS",
+        "source": "changed",
+        "target": "NewDep"
+      },
+      {
+        "change": "REMOVED",
+        "kind": "CONSTRUCTS",
+        "source": "changed",
+        "target": "OldDep"
+      },
+      {
+        "change": "ADDED",
+        "kind": "CALLS",
+        "source": "changed",
+        "target": "read"
+      },
+      {
+        "change": "REMOVED",
+        "kind": "CALLS",
+        "source": "changed",
+        "target": "read"
+      },
+      {
+        "change": "UNCHANGED",
+        "kind": "CONSTRUCTS",
+        "source": "sibling",
+        "target": "KeepDep"
+      },
+      {
+        "change": "UNCHANGED",
+        "kind": "CALLS",
+        "source": "sibling",
+        "target": "read"
+      }
+    ]
+  },
+  "sourceEvidence": {
+    "base": {
+      "path": "src/main/java/review/Hub.java",
+      "exact": false,
+      "hasOldDepCall": true
+    },
+    "head": {
+      "path": "src/main/java/review/Hub.java",
+      "exact": true,
+      "hasFinalWorkingTreeEdit": true
+    },
+    "removedRelation": {
+      "snapshotLabel": "Read-only source from the base snapshot captured for this review · 1 highlighted range in 1 file",
+      "paths": [
+        "src/main/java/review/Hub.java Lines 5"
+      ]
+    },
+    "addedRelation": {
+      "snapshotLabel": "Read-only source from the after-change snapshot captured for this review · 1 highlighted range in 1 file",
+      "paths": [
+        "src/main/java/review/Hub.java Lines 5"
+      ]
+    }
+  },
+  "initialExploration": {
+    "level": "Classes",
+    "selected": "Hub",
+    "nodes": [
+      "7d03dec5-a42c-4f5d-b555-d54db4d55e3a",
+      "a64e66d9-bbeb-4ceb-bdf4-c759eb1c14e5",
+      "e3aa3826-42df-4e9b-a46e-0fc7faa3e376",
+      "fee3bc1e-1708-4aa3-a0d0-d06dd3e47ccc"
+    ],
+    "positions": [
+      {
+        "id": "7d03dec5-a42c-4f5d-b555-d54db4d55e3a",
+        "p": {
+          "x": 721,
+          "y": 103
+        }
+      },
+      {
+        "id": "a64e66d9-bbeb-4ceb-bdf4-c759eb1c14e5",
+        "p": {
+          "x": 1019,
+          "y": 103
+        }
+      },
+      {
+        "id": "e3aa3826-42df-4e9b-a46e-0fc7faa3e376",
+        "p": {
+          "x": 125,
+          "y": 103
+        }
+      },
+      {
+        "id": "fee3bc1e-1708-4aa3-a0d0-d06dd3e47ccc",
+        "p": {
+          "x": 423,
+          "y": 103
+        }
+      }
+    ],
+    "zoom": 0.715530765208297,
+    "pan": {
+      "x": 46.216402300854156,
+      "y": 191.3003311835454
+    }
+  },
+  "checks": [
+    {
+      "label": "initial workspace graph is the after-change snapshot",
+      "pass": true,
+      "detail": {
+        "level": "Classes",
+        "selected": "Hub",
+        "nodes": [
+          "7d03dec5-a42c-4f5d-b555-d54db4d55e3a",
+          "a64e66d9-bbeb-4ceb-bdf4-c759eb1c14e5",
+          "e3aa3826-42df-4e9b-a46e-0fc7faa3e376",
+          "fee3bc1e-1708-4aa3-a0d0-d06dd3e47ccc"
+        ],
+        "positions": [
+          {
+            "id": "7d03dec5-a42c-4f5d-b555-d54db4d55e3a",
+            "p": {
+              "x": 721,
+              "y": 103
+            }
+          },
+          {
+            "id": "a64e66d9-bbeb-4ceb-bdf4-c759eb1c14e5",
+            "p": {
+              "x": 1019,
+              "y": 103
+            }
+          },
+          {
+            "id": "e3aa3826-42df-4e9b-a46e-0fc7faa3e376",
+            "p": {
+              "x": 125,
+              "y": 103
+            }
+          },
+          {
+            "id": "fee3bc1e-1708-4aa3-a0d0-d06dd3e47ccc",
+            "p": {
+              "x": 423,
+              "y": 103
+            }
+          }
+        ],
+        "zoom": 0.715530765208297,
+        "pan": {
+          "x": 46.216402300854156,
+          "y": 191.3003311835454
+        }
+      }
+    },
+    {
+      "label": "versioned comparison response resolves the requested base and pins both snapshots",
+      "pass": true,
+      "detail": {
+        "schemaVersion": "1",
+        "requestedRef": "4e78cf47e2bae39f8caf51191fb0c3aa7285464f",
+        "resolvedRef": "4e78cf47e2bae39f8caf51191fb0c3aa7285464f",
+        "baseSnapshotId": "a251db84-facf-48e6-9ac4-decf2c3309a1",
+        "headSnapshotId": "b25c1fc4-77ee-4974-9270-739dfa22c06a",
+        "headRef": "WORKING_TREE",
+        "headOid": "4e78cf47e2bae39f8caf51191fb0c3aa7285464f",
+        "fingerprint": "865d05e9fa9e625240ac24b8dc4fdae3a5817dbf693fe7fd6ff3b1e21b570225",
+        "capturedAt": "2026-09-24T08:13:57.383293939Z"
+      }
+    },
+    {
+      "label": "line totals include staged, later unstaged, deleted, untracked Java, and non-Java changes",
+      "pass": true,
+      "detail": {
+        "summary": {
+          "addedLines": 17,
+          "removedLines": 8,
+          "changedFiles": 5
+        },
+        "files": [
+          {
+            "path": "review-notes.txt",
+            "status": "ADDED",
+            "addedLines": 1,
+            "removedLines": 0,
+            "javaFile": false
+          },
+          {
+            "path": "src/main/java/review/Hub.java",
+            "status": "MODIFIED",
+            "addedLines": 1,
+            "removedLines": 1,
+            "javaFile": true
+          },
+          {
+            "path": "src/main/java/review/NewDep.java",
+            "status": "ADDED",
+            "addedLines": 8,
+            "removedLines": 0,
+            "javaFile": true
+          },
+          {
+            "path": "src/main/java/review/OldDep.java",
+            "status": "DELETED",
+            "addedLines": 0,
+            "removedLines": 7,
+            "javaFile": true
+          },
+          {
+            "path": "src/main/java/review/UntrackedHelper.java",
+            "status": "ADDED",
+            "addedLines": 7,
+            "removedLines": 0,
+            "javaFile": true
+          }
+        ]
+      }
+    },
+    {
+      "label": "comparison facts identify changed method, same-file unchanged sibling, changed class, package, removed and added types",
+      "pass": true,
+      "detail": [
+        {
+          "change": "MODIFIED",
+          "kind": "CLASS",
+          "name": "Hub",
+          "addedLines": 1,
+          "removedLines": 1
+        },
+        {
+          "change": "UNCHANGED",
+          "kind": "CLASS",
+          "name": "KeepDep",
+          "addedLines": 0,
+          "removedLines": 0
+        },
+        {
+          "change": "ADDED",
+          "kind": "CLASS",
+          "name": "NewDep",
+          "addedLines": 5,
+          "removedLines": 0
+        },
+        {
+          "change": "REMOVED",
+          "kind": "CLASS",
+          "name": "OldDep",
+          "addedLines": 0,
+          "removedLines": 5
+        },
+        {
+          "change": "ADDED",
+          "kind": "CLASS",
+          "name": "UntrackedHelper",
+          "addedLines": 5,
+          "removedLines": 0
+        },
+        {
+          "change": "MODIFIED",
+          "kind": "METHOD",
+          "name": "changed",
+          "addedLines": 1,
+          "removedLines": 1
+        },
+        {
+          "change": "UNCHANGED",
+          "kind": "METHOD",
+          "name": "sibling",
+          "addedLines": 0,
+          "removedLines": 0
+        },
+        {
+          "change": "UNCHANGED",
+          "kind": "METHOD",
+          "name": "read",
+          "addedLines": 0,
+          "removedLines": 0
+        },
+        {
+          "change": "ADDED",
+          "kind": "METHOD",
+          "name": "read",
+          "addedLines": 3,
+          "removedLines": 0
+        },
+        {
+          "change": "REMOVED",
+          "kind": "METHOD",
+          "name": "read",
+          "addedLines": 0,
+          "removedLines": 3
+        },
+        {
+          "change": "ADDED",
+          "kind": "METHOD",
+          "name": "label",
+          "addedLines": 3,
+          "removedLines": 0
+        },
+        {
+          "change": "MODIFIED",
+          "kind": "PACKAGE",
+          "name": "review",
+          "addedLines": 16,
+          "removedLines": 8
+        }
+      ]
+    },
+    {
+      "label": "changed method carries one added and one removed line from final working tree",
+      "pass": true,
+      "detail": {
+        "key": "node:c8dda3dc82fea45a16825f45",
+        "addedLines": 1,
+        "removedLines": 1
+      }
+    },
+    {
+      "label": "parser-owned comparison contains added NewDep, removed OldDep, and retained KeepDep relations",
+      "pass": true,
+      "detail": [
+        {
+          "change": "UNCHANGED",
+          "kind": "DEPENDS_ON",
+          "source": "Hub",
+          "target": "KeepDep"
+        },
+        {
+          "change": "ADDED",
+          "kind": "DEPENDS_ON",
+          "source": "Hub",
+          "target": "NewDep"
+        },
+        {
+          "change": "REMOVED",
+          "kind": "DEPENDS_ON",
+          "source": "Hub",
+          "target": "OldDep"
+        },
+        {
+          "change": "ADDED",
+          "kind": "CONSTRUCTS",
+          "source": "changed",
+          "target": "NewDep"
+        },
+        {
+          "change": "REMOVED",
+          "kind": "CONSTRUCTS",
+          "source": "changed",
+          "target": "OldDep"
+        },
+        {
+          "change": "ADDED",
+          "kind": "CALLS",
+          "source": "changed",
+          "target": "read"
+        },
+        {
+          "change": "REMOVED",
+          "kind": "CALLS",
+          "source": "changed",
+          "target": "read"
+        },
+        {
+          "change": "UNCHANGED",
+          "kind": "CONSTRUCTS",
+          "source": "sibling",
+          "target": "KeepDep"
+        },
+        {
+          "change": "UNCHANGED",
+          "kind": "CALLS",
+          "source": "sibling",
+          "target": "read"
+        }
+      ]
+    },
+    {
+      "label": "retained source evidence is immutable for base and final working tree",
+      "pass": true,
+      "detail": {
+        "basePath": "src/main/java/review/Hub.java",
+        "baseExact": false,
+        "headPath": "src/main/java/review/Hub.java",
+        "headExact": true,
+        "baseSnapshotId": "a251db84-facf-48e6-9ac4-decf2c3309a1",
+        "headSnapshotId": "b25c1fc4-77ee-4974-9270-739dfa22c06a"
+      }
+    },
+    {
+      "label": "Base codebase graph has OldDep and KeepDep without after-change types",
+      "pass": true,
+      "detail": [
+        "Hub",
+        "KeepDep",
+        "OldDep"
+      ]
+    },
+    {
+      "label": "base graph retains the original Hub to KeepDep route",
+      "pass": true,
+      "detail": {
+        "id": "aggregate:[\"review-node:node:5fd8ffae97c0884850e2d4a7\",\"review-node:node:2e9c4cb2320cc31251d1c2a6\"]",
+        "source": "Hub",
+        "target": "KeepDep",
+        "change": null,
+        "color": "rgb(160,174,189)",
+        "arrowColor": "rgb(131,149,169)",
+        "lineStyle": "solid",
+        "sourceId": "review-node:node:5fd8ffae97c0884850e2d4a7",
+        "targetId": "review-node:node:2e9c4cb2320cc31251d1c2a6",
+        "inspected": false,
+        "flowOut": false,
+        "flowIn": false
+      }
+    },
+    {
+      "label": "Base + changes graph contains old, new, untracked and unchanged resources together",
+      "pass": true,
+      "detail": [
+        "Hub",
+        "KeepDep",
+        "NewDep",
+        "OldDep",
+        "UntrackedHelper"
+      ]
+    },
+    {
+      "label": "mixed class cards carry the expected change status",
+      "pass": true,
+      "detail": [
+        {
+          "name": "Hub",
+          "change": "MODIFIED"
+        },
+        {
+          "name": "OldDep",
+          "change": "REMOVED"
+        },
+        {
+          "name": "NewDep",
+          "change": "ADDED"
+        },
+        {
+          "name": "UntrackedHelper",
+          "change": "ADDED"
+        },
+        {
+          "name": "KeepDep",
+          "change": "UNCHANGED"
+        }
+      ]
+    },
+    {
+      "label": "changed class is amber with per-resource +/− line data",
+      "pass": true,
+      "detail": {
+        "background": "rgb(255,244,200)",
+        "added": 1,
+        "removed": 1
+      }
+    },
+    {
+      "label": "added route is green, removed route is red and dashed, retained route matches base color",
+      "pass": true,
+      "detail": {
+        "added": {
+          "id": "aggregate:[\"review-node:node:5fd8ffae97c0884850e2d4a7\",\"review-node:node:1ca91dd116bbfe3eefe1b7a4\",\"ADDED\"]",
+          "source": "Hub",
+          "target": "NewDep",
+          "change": "ADDED",
+          "color": "rgb(22,138,88)",
+          "arrowColor": "rgb(22,138,88)",
+          "lineStyle": "solid",
+          "sourceId": "review-node:node:5fd8ffae97c0884850e2d4a7",
+          "targetId": "review-node:node:1ca91dd116bbfe3eefe1b7a4",
+          "inspected": false,
+          "flowOut": false,
+          "flowIn": false
+        },
+        "removed": {
+          "id": "aggregate:[\"review-node:node:5fd8ffae97c0884850e2d4a7\",\"review-node:node:9fc67f36057528bdc235863b\",\"REMOVED\"]",
+          "source": "Hub",
+          "target": "OldDep",
+          "change": "REMOVED",
+          "color": "rgb(199,69,69)",
+          "arrowColor": "rgb(199,69,69)",
+          "lineStyle": "dashed",
+          "sourceId": "review-node:node:5fd8ffae97c0884850e2d4a7",
+          "targetId": "review-node:node:9fc67f36057528bdc235863b",
+          "inspected": false,
+          "flowOut": false,
+          "flowIn": false
+        },
+        "unchanged": {
+          "id": "aggregate:[\"review-node:node:5fd8ffae97c0884850e2d4a7\",\"review-node:node:2e9c4cb2320cc31251d1c2a6\",\"UNCHANGED\"]",
+          "source": "Hub",
+          "target": "KeepDep",
+          "change": "UNCHANGED",
+          "color": "rgb(160,174,189)",
+          "arrowColor": "rgb(131,149,169)",
+          "lineStyle": "solid",
+          "sourceId": "review-node:node:5fd8ffae97c0884850e2d4a7",
+          "targetId": "review-node:node:2e9c4cb2320cc31251d1c2a6",
+          "inspected": false,
+          "flowOut": false,
+          "flowIn": false
+        },
+        "baseUnchangedColor": "rgb(160,174,189)"
+      }
+    },
+    {
+      "label": "selecting a resource preserves all three relationship styles and the unchanged route",
+      "pass": true,
+      "detail": {
+        "added": {
+          "id": "aggregate:[\"review-node:node:5fd8ffae97c0884850e2d4a7\",\"review-node:node:1ca91dd116bbfe3eefe1b7a4\",\"ADDED\"]",
+          "source": "Hub",
+          "target": "NewDep",
+          "change": "ADDED",
+          "color": "rgb(22,138,88)",
+          "arrowColor": "rgb(22,138,88)",
+          "lineStyle": "dashed",
+          "sourceId": "review-node:node:5fd8ffae97c0884850e2d4a7",
+          "targetId": "review-node:node:1ca91dd116bbfe3eefe1b7a4",
+          "inspected": false,
+          "flowOut": true,
+          "flowIn": false
+        },
+        "removed": {
+          "id": "aggregate:[\"review-node:node:5fd8ffae97c0884850e2d4a7\",\"review-node:node:9fc67f36057528bdc235863b\",\"REMOVED\"]",
+          "source": "Hub",
+          "target": "OldDep",
+          "change": "REMOVED",
+          "color": "rgb(199,69,69)",
+          "arrowColor": "rgb(199,69,69)",
+          "lineStyle": "dashed",
+          "sourceId": "review-node:node:5fd8ffae97c0884850e2d4a7",
+          "targetId": "review-node:node:9fc67f36057528bdc235863b",
+          "inspected": false,
+          "flowOut": true,
+          "flowIn": false
+        },
+        "unchanged": {
+          "id": "aggregate:[\"review-node:node:5fd8ffae97c0884850e2d4a7\",\"review-node:node:2e9c4cb2320cc31251d1c2a6\",\"UNCHANGED\"]",
+          "source": "Hub",
+          "target": "KeepDep",
+          "change": "UNCHANGED",
+          "color": "rgb(29,144,204)",
+          "arrowColor": "rgb(29,144,204)",
+          "lineStyle": "dashed",
+          "sourceId": "review-node:node:5fd8ffae97c0884850e2d4a7",
+          "targetId": "review-node:node:2e9c4cb2320cc31251d1c2a6",
+          "inspected": false,
+          "flowOut": true,
+          "flowIn": false
+        }
+      }
+    },
+    {
+      "label": "desktop review graph stage is reachable in the viewport",
+      "pass": true,
+      "detail": {
+        "stage": {
+          "top": 397.40625,
+          "bottom": 679.96875,
+          "width": 593,
+          "height": 282.5625
+        },
+        "canvas": {
+          "top": 398.40625,
+          "bottom": 678.96875,
+          "width": 593,
+          "height": 280.5625
+        },
+        "viewport": {
+          "width": 1500,
+          "height": 1000
+        },
+        "nodes": 5,
+        "edges": 3,
+        "visible": true
+      }
+    },
+    {
+      "label": "overlay review state survives an independent base-side exploration",
+      "pass": true,
+      "detail": {
+        "before": {
+          "level": "Classes",
+          "selection": "Hub",
+          "nodes": [
+            {
+              "id": "review-node:node:1ca91dd116bbfe3eefe1b7a4",
+              "position": {
+                "x": 721,
+                "y": 103
+              },
+              "inspected": false
+            },
+            {
+              "id": "review-node:node:2e9c4cb2320cc31251d1c2a6",
+              "position": {
+                "x": 423,
+                "y": 103
+              },
+              "inspected": false
+            },
+            {
+              "id": "review-node:node:5fd8ffae97c0884850e2d4a7",
+              "position": {
+                "x": 125,
+                "y": 103
+              },
+              "inspected": true
+            },
+            {
+              "id": "review-node:node:8a5a838c0a3dccca5bb33e37",
+              "position": {
+                "x": 1317,
+                "y": 103
+              },
+              "inspected": false
+            },
+            {
+              "id": "review-node:node:9fc67f36057528bdc235863b",
+              "position": {
+                "x": 1019,
+                "y": 103
+              },
+              "inspected": false
+            }
+          ],
+          "zoom": 0.3480005534800055,
+          "pan": {
+            "x": 45.59160094091601,
+            "y": 130.1559429915594
+          }
+        },
+        "after": {
+          "level": "Classes",
+          "selection": "Hub",
+          "nodes": [
+            {
+              "id": "review-node:node:1ca91dd116bbfe3eefe1b7a4",
+              "position": {
+                "x": 721,
+                "y": 103
+              },
+              "inspected": false
+            },
+            {
+              "id": "review-node:node:2e9c4cb2320cc31251d1c2a6",
+              "position": {
+                "x": 423,
+                "y": 103
+              },
+              "inspected": false
+            },
+            {
+              "id": "review-node:node:5fd8ffae97c0884850e2d4a7",
+              "position": {
+                "x": 125,
+                "y": 103
+              },
+              "inspected": true
+            },
+            {
+              "id": "review-node:node:8a5a838c0a3dccca5bb33e37",
+              "position": {
+                "x": 1317,
+                "y": 103
+              },
+              "inspected": false
+            },
+            {
+              "id": "review-node:node:9fc67f36057528bdc235863b",
+              "position": {
+                "x": 1019,
+                "y": 103
+              },
+              "inspected": false
+            }
+          ],
+          "zoom": 0.3480005534800055,
+          "pan": {
+            "x": 45.59160094091601,
+            "y": 130.1559429915594
+          }
+        }
+      }
+    },
+    {
+      "label": "base review state survives a round trip through the overlay side",
+      "pass": true,
+      "detail": {
+        "before": {
+          "level": "Methods",
+          "selection": "sibling",
+          "nodes": [
+            {
+              "id": "review-node:node:128bb0f95db21f6ce44db8b7",
+              "position": {
+                "x": 721,
+                "y": 92
+              },
+              "inspected": false
+            },
+            {
+              "id": "review-node:node:51c9abbf98622e1e0cf1dddd",
+              "position": {
+                "x": 423,
+                "y": 92
+              },
+              "inspected": true
+            },
+            {
+              "id": "review-node:node:a7c6054728bef35b62cbd147",
+              "position": {
+                "x": 1019,
+                "y": 92
+              },
+              "inspected": false
+            },
+            {
+              "id": "review-node:node:c8dda3dc82fea45a16825f45",
+              "position": {
+                "x": 125,
+                "y": 92
+              },
+              "inspected": false
+            }
+          ],
+          "zoom": 0.4383824298413805,
+          "pan": {
+            "x": 45.74525013073037,
+            "y": 125.66881645459299
+          }
+        },
+        "after": {
+          "level": "Methods",
+          "selection": "sibling",
+          "nodes": [
+            {
+              "id": "review-node:node:128bb0f95db21f6ce44db8b7",
+              "position": {
+                "x": 721,
+                "y": 92
+              },
+              "inspected": false
+            },
+            {
+              "id": "review-node:node:51c9abbf98622e1e0cf1dddd",
+              "position": {
+                "x": 423,
+                "y": 92
+              },
+              "inspected": true
+            },
+            {
+              "id": "review-node:node:a7c6054728bef35b62cbd147",
+              "position": {
+                "x": 1019,
+                "y": 92
+              },
+              "inspected": false
+            },
+            {
+              "id": "review-node:node:c8dda3dc82fea45a16825f45",
+              "position": {
+                "x": 125,
+                "y": 92
+              },
+              "inspected": false
+            }
+          ],
+          "zoom": 0.4383824298413805,
+          "pan": {
+            "x": 45.74525013073037,
+            "y": 125.66881645459299
+          }
+        }
+      }
+    },
+    {
+      "label": "full-screen overlay map fits all changed and retained routes with minimap collapsed",
+      "pass": true,
+      "detail": {
+        "fullscreen": true,
+        "top": 0,
+        "left": 0,
+        "width": 1500,
+        "height": 1000,
+        "minimapExpanded": false,
+        "nodes": 5,
+        "edges": 3
+      }
+    },
+    {
+      "label": "expanded changed resource retains its change label and line counts",
+      "pass": true,
+      "detail": "Hub  ·  2 methods · MODIFIED +1 −1"
+    },
+    {
+      "label": "After changes graph excludes the deleted type and includes staged plus untracked additions",
+      "pass": true,
+      "detail": [
+        "Hub",
+        "KeepDep",
+        "NewDep",
+        "UntrackedHelper"
+      ]
+    },
+    {
+      "label": "changed method is yellow and shows its +1/−1 resource badge",
+      "pass": true,
+      "detail": {
+        "change": "MODIFIED",
+        "background": "rgb(255,244,200)",
+        "added": 1,
+        "removed": 1,
+        "badge": "CHANGED +1 −1"
+      }
+    },
+    {
+      "label": "unchanged sibling method in the same Hub.java stays in the mixed map and keeps normal styling",
+      "pass": true,
+      "detail": {
+        "name": "sibling",
+        "change": "UNCHANGED",
+        "added": 0,
+        "removed": 0
+      }
+    },
+    {
+      "label": "changed package is amber and its card reports added and removed lines",
+      "pass": true,
+      "detail": {
+        "name": "review",
+        "change": "MODIFIED",
+        "added": 16,
+        "removed": 8,
+        "badge": "CHANGED +16 −8"
+      }
+    },
+    {
+      "label": "removed relation selection offers evidence from the base snapshot",
+      "pass": true
+    },
+    {
+      "label": "removed relationship evidence is captured from base source",
+      "pass": true,
+      "detail": {
+        "snapshotLabel": "Read-only source from the base snapshot captured for this review · 1 highlighted range in 1 file",
+        "paths": [
+          "src/main/java/review/Hub.java Lines 5"
+        ],
+        "pinnedNotice": true
+      }
+    },
+    {
+      "label": "added relation selection offers evidence from the changed snapshot",
+      "pass": true
+    },
+    {
+      "label": "added relationship evidence contains final working-tree source",
+      "pass": true,
+      "detail": {
+        "snapshotLabel": "Read-only source from the after-change snapshot captured for this review · 1 highlighted range in 1 file",
+        "paths": [
+          "src/main/java/review/Hub.java Lines 5"
+        ],
+        "pinnedNotice": false
+      }
+    },
+    {
+      "label": "review resource list exposes changed method, removed class and unchanged sibling with line counts",
+      "pass": true,
+      "detail": [
+        {
+          "name": "review.Hub",
+          "text": "Changed\nreview.Hub\n\nclass · +1 −1\n\nView source",
+          "change": "review-change-modified"
+        },
+        {
+          "name": "review.KeepDep",
+          "text": "Unchanged\nreview.KeepDep\n\nclass · +0 −0\n\nView source",
+          "change": "review-change-unchanged"
+        },
+        {
+          "name": "review.NewDep",
+          "text": "Added\nreview.NewDep\n\nclass · +5 −0\n\nView source",
+          "change": "review-change-added"
+        },
+        {
+          "name": "review.OldDep",
+          "text": "Removed\nreview.OldDep\n\nclass · +0 −5\n\nView source",
+          "change": "review-change-removed"
+        },
+        {
+          "name": "review.UntrackedHelper",
+          "text": "Added\nreview.UntrackedHelper\n\nclass · +5 −0\n\nView source",
+          "change": "review-change-added"
+        },
+        {
+          "name": "review.Hub.changed()",
+          "text": "Changed\nreview.Hub.changed()\n\nmethod · +1 −1\n\nView source",
+          "change": "review-change-modified"
+        },
+        {
+          "name": "review.Hub.sibling()",
+          "text": "Unchanged\nreview.Hub.sibling()\n\nmethod · +0 −0\n\nView source",
+          "change": "review-change-unchanged"
+        },
+        {
+          "name": "review.KeepDep.read()",
+          "text": "Unchanged\nreview.KeepDep.read()\n\nmethod · +0 −0\n\nView source",
+          "change": "review-change-unchanged"
+        },
+        {
+          "name": "review.NewDep.read()",
+          "text": "Added\nreview.NewDep.read()\n\nmethod · +3 −0\n\nView source",
+          "change": "review-change-added"
+        },
+        {
+          "name": "review.OldDep.read()",
+          "text": "Removed\nreview.OldDep.read()\n\nmethod · +0 −3\n\nView source",
+          "change": "review-change-removed"
+        },
+        {
+          "name": "review.UntrackedHelper.label()",
+          "text": "Added\nreview.UntrackedHelper.label()\n\nmethod · +3 −0\n\nView source",
+          "change": "review-change-added"
+        },
+        {
+          "name": "review",
+          "text": "Changed\nreview\n\npackage · +16 −8\n\nView source",
+          "change": "review-change-modified"
+        }
+      ]
+    },
+    {
+      "label": "narrow selected review resource opens the embedded details pane",
+      "pass": true,
+      "detail": {
+        "pane": "app-main pane-details",
+        "inspectorWidth": 337,
+        "inspectorHeight": 442
+      }
+    },
+    {
+      "label": "Fit map makes review resources visible after a narrow viewport change",
+      "pass": true,
+      "detail": 5
+    },
+    {
+      "label": "narrow review Map pane has no horizontal page overflow and its graph is reachable",
+      "pass": true,
+      "detail": {
+        "width": 390,
+        "height": 844,
+        "documentWidth": 390,
+        "bodyWidth": 390,
+        "reviewWidth": 375,
+        "reviewClientWidth": 375,
+        "mainWidth": 337,
+        "workspaceWidth": 337,
+        "graphTop": 253.09375,
+        "graphBottom": 493.09375,
+        "graphWidth": 337,
+        "graphHeight": 240,
+        "nodes": 5,
+        "edges": 3
+      }
+    },
+    {
+      "label": "closing review preserves the original exploration map and inspection state",
+      "pass": true,
+      "detail": {
+        "before": {
+          "level": "Classes",
+          "selected": "Hub",
+          "nodes": [
+            "7d03dec5-a42c-4f5d-b555-d54db4d55e3a",
+            "a64e66d9-bbeb-4ceb-bdf4-c759eb1c14e5",
+            "e3aa3826-42df-4e9b-a46e-0fc7faa3e376",
+            "fee3bc1e-1708-4aa3-a0d0-d06dd3e47ccc"
+          ],
+          "positions": [
+            {
+              "id": "7d03dec5-a42c-4f5d-b555-d54db4d55e3a",
+              "p": {
+                "x": 721,
+                "y": 103
+              }
+            },
+            {
+              "id": "a64e66d9-bbeb-4ceb-bdf4-c759eb1c14e5",
+              "p": {
+                "x": 1019,
+                "y": 103
+              }
+            },
+            {
+              "id": "e3aa3826-42df-4e9b-a46e-0fc7faa3e376",
+              "p": {
+                "x": 125,
+                "y": 103
+              }
+            },
+            {
+              "id": "fee3bc1e-1708-4aa3-a0d0-d06dd3e47ccc",
+              "p": {
+                "x": 423,
+                "y": 103
+              }
+            }
+          ],
+          "zoom": 0.715530765208297,
+          "pan": {
+            "x": 46.216402300854156,
+            "y": 191.3003311835454
+          }
+        },
+        "after": {
+          "level": "Classes",
+          "selected": "Hub",
+          "nodes": [
+            "7d03dec5-a42c-4f5d-b555-d54db4d55e3a",
+            "a64e66d9-bbeb-4ceb-bdf4-c759eb1c14e5",
+            "e3aa3826-42df-4e9b-a46e-0fc7faa3e376",
+            "fee3bc1e-1708-4aa3-a0d0-d06dd3e47ccc"
+          ],
+          "positions": [
+            {
+              "id": "7d03dec5-a42c-4f5d-b555-d54db4d55e3a",
+              "p": {
+                "x": 721,
+                "y": 103
+              }
+            },
+            {
+              "id": "a64e66d9-bbeb-4ceb-bdf4-c759eb1c14e5",
+              "p": {
+                "x": 1019,
+                "y": 103
+              }
+            },
+            {
+              "id": "e3aa3826-42df-4e9b-a46e-0fc7faa3e376",
+              "p": {
+                "x": 125,
+                "y": 103
+              }
+            },
+            {
+              "id": "fee3bc1e-1708-4aa3-a0d0-d06dd3e47ccc",
+              "p": {
+                "x": 423,
+                "y": 103
+              }
+            }
+          ],
+          "zoom": 0.715530765208297,
+          "pan": {
+            "x": 46.216402300854156,
+            "y": 191.3003311835454
+          }
+        }
+      }
+    },
+    {
+      "label": "review used no explanation or model-test endpoint",
+      "pass": true,
+      "detail": []
+    },
+    {
+      "label": "browser reports no page exceptions or console errors",
+      "pass": true,
+      "detail": []
+    }
+  ],
+  "pageErrors": [],
+  "network": [
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/?snapshotId=ba4e4465-a2e2-4dae-a6f5-12ee7bde17ce",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/assets/index-BdXJcCxg.js",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/assets/index-BVc-NWkO.css",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/api/workspaces",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/api/snapshots/ba4e4465-a2e2-4dae-a6f5-12ee7bde17ce/graph",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/api/snapshots/ba4e4465-a2e2-4dae-a6f5-12ee7bde17ce/spring/routes",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/api/model-profiles",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/favicon.ico",
+      "status": 500
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/api/workspaces/328047a0-0cab-4a19-9a50-b48b679d4302",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/api/workspaces/328047a0-0cab-4a19-9a50-b48b679d4302/queue-status",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/api/snapshots/ba4e4465-a2e2-4dae-a6f5-12ee7bde17ce/graph",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22280%22%20height%3D%22250%22%20viewBox%3D%220%200%20280%20250%22%3E%3Cg%20font-family%3D%22Segoe%20UI%2C%20Arial%2C%20sans-serif%22%3E%3Cg%20transform%3D%22translate(16%2016)%20scale(1.2)%22%3E%3Crect%20width%3D%2230%22%20height%3D%2230%22%20rx%3D%227%22%20fill%3D%22%23426fa314%22%2F%3E%3Cg%20stroke%3D%22%23426fa3%22%20stroke-width%3D%221.5%22%20fill%3D%22none%22%3E%3Cpath%20d%3D%22M8%207l7-4%207%204v9l-7%204-7-4zM8%207l7%204%207-4M15%2011v9%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3Ctext%20x%3D%2262%22%20y%3D%2240%22%20font-size%3D%2215%22%20fill%3D%22%236c8097%22%3E4%20types%3C%2Ftext%3E%3Ctext%20font-size%3D%2230%22%20font-weight%3D%22600%22%20fill%3D%22%2319334f%22%3E%3Ctspan%20x%3D%2216%22%20y%3D%22109%22%3Ereview%3C%2Ftspan%3E%3C%2Ftext%3E%3Ctext%20x%3D%2216%22%20y%3D%22156%22%20font-size%3D%2213%22%20fill%3D%22%237c8ea3%22%3Ereview%3C%2Ftext%3E%3Crect%20x%3D%2216%22%20y%3D%22170%22%20width%3D%22248%22%20height%3D%2228%22%20rx%3D%225%22%20fill%3D%22%23edf3f8%22%2F%3E%3Ctext%20x%3D%2226%22%20y%3D%22189%22%20font-size%3D%2214%22%20fill%3D%22%234c647f%22%3EHub%3C%2Ftext%3E%3Crect%20x%3D%2216%22%20y%3D%22206%22%20width%3D%22248%22%20height%3D%2228%22%20rx%3D%225%22%20fill%3D%22%23edf3f8%22%2F%3E%3Ctext%20x%3D%2226%22%20y%3D%22225%22%20font-size%3D%2214%22%20fill%3D%22%234c647f%22%3EKeepDep%3C%2Ftext%3E%3C%2Fg%3E%3C%2Fsvg%3E",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/api/workspaces/328047a0-0cab-4a19-9a50-b48b679d4302/queue-status",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/api/snapshots/ba4e4465-a2e2-4dae-a6f5-12ee7bde17ce/graph",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22250%22%20height%3D%22206%22%20viewBox%3D%220%200%20250%20206%22%3E%3Cg%20font-family%3D%22Segoe%20UI%2C%20Arial%2C%20sans-serif%22%3E%3Cg%20transform%3D%22translate(16%2016)%20scale(1.2)%22%3E%3Crect%20width%3D%2230%22%20height%3D%2230%22%20rx%3D%227%22%20fill%3D%22%23398bb314%22%2F%3E%3Cg%20stroke%3D%22%23398bb3%22%20stroke-width%3D%221.5%22%20fill%3D%22none%22%3E%3Cpath%20d%3D%22M8%207l7-4%207%204v9l-7%204-7-4zM8%207l7%204%207-4M15%2011v9%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3Ctext%20x%3D%2262%22%20y%3D%2240%22%20font-size%3D%2215%22%20fill%3D%22%236c8097%22%3Eclass%3C%2Ftext%3E%3Ctext%20font-size%3D%2230%22%20font-weight%3D%22600%22%20fill%3D%22%2319334f%22%3E%3Ctspan%20x%3D%2216%22%20y%3D%22109%22%3EHub%3C%2Ftspan%3E%3C%2Ftext%3E%3Cline%20x1%3D%2216%22%20y1%3D%22142%22%20x2%3D%22234%22%20y2%3D%22142%22%20stroke%3D%22%23e5edf3%22%2F%3E%3Ctext%20x%3D%2216%22%20y%3D%22166%22%20font-size%3D%2214%22%20fill%3D%22%2374859a%22%3Ereview%3C%2Ftext%3E%3Ctext%20x%3D%2216%22%20y%3D%22190%22%20font-size%3D%2215%22%20fill%3D%22%2348637c%22%3E2%20methods%3C%2Ftext%3E%3C%2Fg%3E%3C%2Fsvg%3E",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22250%22%20height%3D%22206%22%20viewBox%3D%220%200%20250%20206%22%3E%3Cg%20font-family%3D%22Segoe%20UI%2C%20Arial%2C%20sans-serif%22%3E%3Cg%20transform%3D%22translate(16%2016)%20scale(1.2)%22%3E%3Crect%20width%3D%2230%22%20height%3D%2230%22%20rx%3D%227%22%20fill%3D%22%23398bb314%22%2F%3E%3Cg%20stroke%3D%22%23398bb3%22%20stroke-width%3D%221.5%22%20fill%3D%22none%22%3E%3Cpath%20d%3D%22M8%207l7-4%207%204v9l-7%204-7-4zM8%207l7%204%207-4M15%2011v9%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3Ctext%20x%3D%2262%22%20y%3D%2240%22%20font-size%3D%2215%22%20fill%3D%22%236c8097%22%3Eclass%3C%2Ftext%3E%3Ctext%20font-size%3D%2230%22%20font-weight%3D%22600%22%20fill%3D%22%2319334f%22%3E%3Ctspan%20x%3D%2216%22%20y%3D%22109%22%3EKeepDep%3C%2Ftspan%3E%3C%2Ftext%3E%3Cline%20x1%3D%2216%22%20y1%3D%22142%22%20x2%3D%22234%22%20y2%3D%22142%22%20stroke%3D%22%23e5edf3%22%2F%3E%3Ctext%20x%3D%2216%22%20y%3D%22166%22%20font-size%3D%2214%22%20fill%3D%22%2374859a%22%3Ereview%3C%2Ftext%3E%3Ctext%20x%3D%2216%22%20y%3D%22190%22%20font-size%3D%2215%22%20fill%3D%22%2348637c%22%3E1%20methods%3C%2Ftext%3E%3C%2Fg%3E%3C%2Fsvg%3E",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22250%22%20height%3D%22206%22%20viewBox%3D%220%200%20250%20206%22%3E%3Cg%20font-family%3D%22Segoe%20UI%2C%20Arial%2C%20sans-serif%22%3E%3Cg%20transform%3D%22translate(16%2016)%20scale(1.2)%22%3E%3Crect%20width%3D%2230%22%20height%3D%2230%22%20rx%3D%227%22%20fill%3D%22%23398bb314%22%2F%3E%3Cg%20stroke%3D%22%23398bb3%22%20stroke-width%3D%221.5%22%20fill%3D%22none%22%3E%3Cpath%20d%3D%22M8%207l7-4%207%204v9l-7%204-7-4zM8%207l7%204%207-4M15%2011v9%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3Ctext%20x%3D%2262%22%20y%3D%2240%22%20font-size%3D%2215%22%20fill%3D%22%236c8097%22%3Eclass%3C%2Ftext%3E%3Ctext%20font-size%3D%2230%22%20font-weight%3D%22600%22%20fill%3D%22%2319334f%22%3E%3Ctspan%20x%3D%2216%22%20y%3D%22109%22%3ENewDep%3C%2Ftspan%3E%3C%2Ftext%3E%3Cline%20x1%3D%2216%22%20y1%3D%22142%22%20x2%3D%22234%22%20y2%3D%22142%22%20stroke%3D%22%23e5edf3%22%2F%3E%3Ctext%20x%3D%2216%22%20y%3D%22166%22%20font-size%3D%2214%22%20fill%3D%22%2374859a%22%3Ereview%3C%2Ftext%3E%3Ctext%20x%3D%2216%22%20y%3D%22190%22%20font-size%3D%2215%22%20fill%3D%22%2348637c%22%3E1%20methods%3C%2Ftext%3E%3C%2Fg%3E%3C%2Fsvg%3E",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22250%22%20height%3D%22206%22%20viewBox%3D%220%200%20250%20206%22%3E%3Cg%20font-family%3D%22Segoe%20UI%2C%20Arial%2C%20sans-serif%22%3E%3Cg%20transform%3D%22translate(16%2016)%20scale(1.2)%22%3E%3Crect%20width%3D%2230%22%20height%3D%2230%22%20rx%3D%227%22%20fill%3D%22%23398bb314%22%2F%3E%3Cg%20stroke%3D%22%23398bb3%22%20stroke-width%3D%221.5%22%20fill%3D%22none%22%3E%3Cpath%20d%3D%22M8%207l7-4%207%204v9l-7%204-7-4zM8%207l7%204%207-4M15%2011v9%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3Ctext%20x%3D%2262%22%20y%3D%2240%22%20font-size%3D%2215%22%20fill%3D%22%236c8097%22%3Eclass%3C%2Ftext%3E%3Ctext%20font-size%3D%2230%22%20font-weight%3D%22600%22%20fill%3D%22%2319334f%22%3E%3Ctspan%20x%3D%2216%22%20y%3D%2292%22%3EUntracked%3C%2Ftspan%3E%3Ctspan%20x%3D%2216%22%20y%3D%22126%22%3EHelper%3C%2Ftspan%3E%3C%2Ftext%3E%3Cline%20x1%3D%2216%22%20y1%3D%22142%22%20x2%3D%22234%22%20y2%3D%22142%22%20stroke%3D%22%23e5edf3%22%2F%3E%3Ctext%20x%3D%2216%22%20y%3D%22166%22%20font-size%3D%2214%22%20fill%3D%22%2374859a%22%3Ereview%3C%2Ftext%3E%3Ctext%20x%3D%2216%22%20y%3D%22190%22%20font-size%3D%2215%22%20fill%3D%22%2348637c%22%3E1%20methods%3C%2Ftext%3E%3C%2Fg%3E%3C%2Fsvg%3E",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/api/snapshots/ba4e4465-a2e2-4dae-a6f5-12ee7bde17ce/symbols/e3aa3826-42df-4e9b-a46e-0fc7faa3e376/explanation",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/api/snapshots/ba4e4465-a2e2-4dae-a6f5-12ee7bde17ce/explanation-evidence/e3aa3826-42df-4e9b-a46e-0fc7faa3e376?subjectType=symbol",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "url": "http://127.0.0.1:60331/api/workspaces/328047a0-0cab-4a19-9a50-b48b679d4302/reviews",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22280%22%20height%3D%22250%22%20viewBox%3D%220%200%20280%20250%22%3E%3Cg%20font-family%3D%22Segoe%20UI%2C%20Arial%2C%20sans-serif%22%3E%3Cg%20transform%3D%22translate(16%2016)%20scale(1.2)%22%3E%3Crect%20width%3D%2230%22%20height%3D%2230%22%20rx%3D%227%22%20fill%3D%22%23426fa314%22%2F%3E%3Cg%20stroke%3D%22%23426fa3%22%20stroke-width%3D%221.5%22%20fill%3D%22none%22%3E%3Cpath%20d%3D%22M8%207l7-4%207%204v9l-7%204-7-4zM8%207l7%204%207-4M15%2011v9%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3Ctext%20x%3D%2262%22%20y%3D%2240%22%20font-size%3D%2215%22%20fill%3D%22%236c8097%22%3E5%20types%3C%2Ftext%3E%3Cg%20transform%3D%22translate(12%2055)%22%3E%3Crect%20width%3D%22113.8%22%20height%3D%2224%22%20rx%3D%2212%22%20fill%3D%22%23fff0b0%22%20stroke%3D%22%23ba862d%22%2F%3E%3Ctext%20x%3D%2210%22%20y%3D%2216%22%20font-size%3D%2211%22%20font-weight%3D%22600%22%20fill%3D%22%23805b12%22%3ECHANGED%20%2B16%20%E2%88%928%3C%2Ftext%3E%3C%2Fg%3E%3Ctext%20font-size%3D%2230%22%20font-weight%3D%22600%22%20fill%3D%22%2319334f%22%3E%3Ctspan%20x%3D%2216%22%20y%3D%22112%22%3Ereview%3C%2Ftspan%3E%3C%2Ftext%3E%3Ctext%20x%3D%2216%22%20y%3D%22192%22%20font-size%3D%2213%22%20fill%3D%22%237c8ea3%22%3Ereview%3C%2Ftext%3E%3Crect%20x%3D%2216%22%20y%3D%22206%22%20width%3D%22248%22%20height%3D%2228%22%20rx%3D%225%22%20fill%3D%22%23edf3f8%22%2F%3E%3Ctext%20x%3D%2226%22%20y%3D%22225%22%20font-size%3D%2214%22%20fill%3D%22%234c647f%22%3EHub%3C%2Ftext%3E%3C%2Fg%3E%3C%2Fsvg%3E",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "url": "http://127.0.0.1:60331/api/workspaces/328047a0-0cab-4a19-9a50-b48b679d4302/reviews",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22280%22%20height%3D%22250%22%20viewBox%3D%220%200%20280%20250%22%3E%3Cg%20font-family%3D%22Segoe%20UI%2C%20Arial%2C%20sans-serif%22%3E%3Cg%20transform%3D%22translate(16%2016)%20scale(1.2)%22%3E%3Crect%20width%3D%2230%22%20height%3D%2230%22%20rx%3D%227%22%20fill%3D%22%23426fa314%22%2F%3E%3Cg%20stroke%3D%22%23426fa3%22%20stroke-width%3D%221.5%22%20fill%3D%22none%22%3E%3Cpath%20d%3D%22M8%207l7-4%207%204v9l-7%204-7-4zM8%207l7%204%207-4M15%2011v9%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3Ctext%20x%3D%2262%22%20y%3D%2240%22%20font-size%3D%2215%22%20fill%3D%22%236c8097%22%3E3%20types%3C%2Ftext%3E%3Ctext%20font-size%3D%2230%22%20font-weight%3D%22600%22%20fill%3D%22%2319334f%22%3E%3Ctspan%20x%3D%2216%22%20y%3D%22109%22%3Ereview%3C%2Ftspan%3E%3C%2Ftext%3E%3Ctext%20x%3D%2216%22%20y%3D%22156%22%20font-size%3D%2213%22%20fill%3D%22%237c8ea3%22%3Ereview%3C%2Ftext%3E%3Crect%20x%3D%2216%22%20y%3D%22170%22%20width%3D%22248%22%20height%3D%2228%22%20rx%3D%225%22%20fill%3D%22%23edf3f8%22%2F%3E%3Ctext%20x%3D%2226%22%20y%3D%22189%22%20font-size%3D%2214%22%20fill%3D%22%234c647f%22%3EHub%3C%2Ftext%3E%3Crect%20x%3D%2216%22%20y%3D%22206%22%20width%3D%22248%22%20height%3D%2228%22%20rx%3D%225%22%20fill%3D%22%23edf3f8%22%2F%3E%3Ctext%20x%3D%2226%22%20y%3D%22225%22%20font-size%3D%2214%22%20fill%3D%22%234c647f%22%3EKeepDep%3C%2Ftext%3E%3C%2Fg%3E%3C%2Fsvg%3E",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22250%22%20height%3D%22206%22%20viewBox%3D%220%200%20250%20206%22%3E%3Cg%20font-family%3D%22Segoe%20UI%2C%20Arial%2C%20sans-serif%22%3E%3Cg%20transform%3D%22translate(16%2016)%20scale(1.2)%22%3E%3Crect%20width%3D%2230%22%20height%3D%2230%22%20rx%3D%227%22%20fill%3D%22%23398bb314%22%2F%3E%3Cg%20stroke%3D%22%23398bb3%22%20stroke-width%3D%221.5%22%20fill%3D%22none%22%3E%3Cpath%20d%3D%22M8%207l7-4%207%204v9l-7%204-7-4zM8%207l7%204%207-4M15%2011v9%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3Ctext%20x%3D%2262%22%20y%3D%2240%22%20font-size%3D%2215%22%20fill%3D%22%236c8097%22%3Eclass%3C%2Ftext%3E%3Ctext%20font-size%3D%2230%22%20font-weight%3D%22600%22%20fill%3D%22%2319334f%22%3E%3Ctspan%20x%3D%2216%22%20y%3D%22109%22%3EOldDep%3C%2Ftspan%3E%3C%2Ftext%3E%3Cline%20x1%3D%2216%22%20y1%3D%22142%22%20x2%3D%22234%22%20y2%3D%22142%22%20stroke%3D%22%23e5edf3%22%2F%3E%3Ctext%20x%3D%2216%22%20y%3D%22166%22%20font-size%3D%2214%22%20fill%3D%22%2374859a%22%3Ereview%3C%2Ftext%3E%3Ctext%20x%3D%2216%22%20y%3D%22190%22%20font-size%3D%2215%22%20fill%3D%22%2348637c%22%3E1%20methods%3C%2Ftext%3E%3C%2Fg%3E%3C%2Fsvg%3E",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22250%22%20height%3D%22206%22%20viewBox%3D%220%200%20250%20206%22%3E%3Cg%20font-family%3D%22Segoe%20UI%2C%20Arial%2C%20sans-serif%22%3E%3Cg%20transform%3D%22translate(16%2016)%20scale(1.2)%22%3E%3Crect%20width%3D%2230%22%20height%3D%2230%22%20rx%3D%227%22%20fill%3D%22%23398bb314%22%2F%3E%3Cg%20stroke%3D%22%23398bb3%22%20stroke-width%3D%221.5%22%20fill%3D%22none%22%3E%3Cpath%20d%3D%22M8%207l7-4%207%204v9l-7%204-7-4zM8%207l7%204%207-4M15%2011v9%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3Ctext%20x%3D%2262%22%20y%3D%2240%22%20font-size%3D%2215%22%20fill%3D%22%236c8097%22%3Eclass%3C%2Ftext%3E%3Cg%20transform%3D%22translate(12%2055)%22%3E%3Crect%20width%3D%22112%22%20height%3D%2224%22%20rx%3D%2212%22%20fill%3D%22%23fff0b0%22%20stroke%3D%22%23ba862d%22%2F%3E%3Ctext%20x%3D%2210%22%20y%3D%2216%22%20font-size%3D%2211%22%20font-weight%3D%22600%22%20fill%3D%22%23805b12%22%3ECHANGED%20%2B1%20%E2%88%921%3C%2Ftext%3E%3C%2Fg%3E%3Ctext%20font-size%3D%2230%22%20font-weight%3D%22600%22%20fill%3D%22%2319334f%22%3E%3Ctspan%20x%3D%2216%22%20y%3D%22112%22%3EHub%3C%2Ftspan%3E%3C%2Ftext%3E%3Cline%20x1%3D%2216%22%20y1%3D%22178%22%20x2%3D%22234%22%20y2%3D%22178%22%20stroke%3D%22%23e5edf3%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22250%22%20height%3D%22206%22%20viewBox%3D%220%200%20250%20206%22%3E%3Cg%20font-family%3D%22Segoe%20UI%2C%20Arial%2C%20sans-serif%22%3E%3Cg%20transform%3D%22translate(16%2016)%20scale(1.2)%22%3E%3Crect%20width%3D%2230%22%20height%3D%2230%22%20rx%3D%227%22%20fill%3D%22%23398bb314%22%2F%3E%3Cg%20stroke%3D%22%23398bb3%22%20stroke-width%3D%221.5%22%20fill%3D%22none%22%3E%3Cpath%20d%3D%22M8%207l7-4%207%204v9l-7%204-7-4zM8%207l7%204%207-4M15%2011v9%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3Ctext%20x%3D%2262%22%20y%3D%2240%22%20font-size%3D%2215%22%20fill%3D%22%236c8097%22%3Eclass%3C%2Ftext%3E%3Cg%20transform%3D%22translate(12%2055)%22%3E%3Crect%20width%3D%22112%22%20height%3D%2224%22%20rx%3D%2212%22%20fill%3D%22%23fff0b0%22%20stroke%3D%22%23ba862d%22%2F%3E%3Ctext%20x%3D%2210%22%20y%3D%2216%22%20font-size%3D%2211%22%20font-weight%3D%22600%22%20fill%3D%22%23805b12%22%3EADDED%20%2B5%20%E2%88%920%3C%2Ftext%3E%3C%2Fg%3E%3Ctext%20font-size%3D%2230%22%20font-weight%3D%22600%22%20fill%3D%22%2319334f%22%3E%3Ctspan%20x%3D%2216%22%20y%3D%22112%22%3ENewDep%3C%2Ftspan%3E%3C%2Ftext%3E%3Cline%20x1%3D%2216%22%20y1%3D%22178%22%20x2%3D%22234%22%20y2%3D%22178%22%20stroke%3D%22%23e5edf3%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22250%22%20height%3D%22206%22%20viewBox%3D%220%200%20250%20206%22%3E%3Cg%20font-family%3D%22Segoe%20UI%2C%20Arial%2C%20sans-serif%22%3E%3Cg%20transform%3D%22translate(16%2016)%20scale(1.2)%22%3E%3Crect%20width%3D%2230%22%20height%3D%2230%22%20rx%3D%227%22%20fill%3D%22%23398bb314%22%2F%3E%3Cg%20stroke%3D%22%23398bb3%22%20stroke-width%3D%221.5%22%20fill%3D%22none%22%3E%3Cpath%20d%3D%22M8%207l7-4%207%204v9l-7%204-7-4zM8%207l7%204%207-4M15%2011v9%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3Ctext%20x%3D%2262%22%20y%3D%2240%22%20font-size%3D%2215%22%20fill%3D%22%236c8097%22%3Eclass%3C%2Ftext%3E%3Cg%20transform%3D%22translate(12%2055)%22%3E%3Crect%20width%3D%22112%22%20height%3D%2224%22%20rx%3D%2212%22%20fill%3D%22%23fff0b0%22%20stroke%3D%22%23ba862d%22%2F%3E%3Ctext%20x%3D%2210%22%20y%3D%2216%22%20font-size%3D%2211%22%20font-weight%3D%22600%22%20fill%3D%22%23805b12%22%3EREMOVED%20%2B0%20%E2%88%925%3C%2Ftext%3E%3C%2Fg%3E%3Ctext%20font-size%3D%2230%22%20font-weight%3D%22600%22%20fill%3D%22%2319334f%22%3E%3Ctspan%20x%3D%2216%22%20y%3D%22112%22%3EOldDep%3C%2Ftspan%3E%3C%2Ftext%3E%3Cline%20x1%3D%2216%22%20y1%3D%22178%22%20x2%3D%22234%22%20y2%3D%22178%22%20stroke%3D%22%23e5edf3%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22250%22%20height%3D%22206%22%20viewBox%3D%220%200%20250%20206%22%3E%3Cg%20font-family%3D%22Segoe%20UI%2C%20Arial%2C%20sans-serif%22%3E%3Cg%20transform%3D%22translate(16%2016)%20scale(1.2)%22%3E%3Crect%20width%3D%2230%22%20height%3D%2230%22%20rx%3D%227%22%20fill%3D%22%23398bb314%22%2F%3E%3Cg%20stroke%3D%22%23398bb3%22%20stroke-width%3D%221.5%22%20fill%3D%22none%22%3E%3Cpath%20d%3D%22M8%207l7-4%207%204v9l-7%204-7-4zM8%207l7%204%207-4M15%2011v9%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3Ctext%20x%3D%2262%22%20y%3D%2240%22%20font-size%3D%2215%22%20fill%3D%22%236c8097%22%3Eclass%3C%2Ftext%3E%3Cg%20transform%3D%22translate(12%2055)%22%3E%3Crect%20width%3D%22112%22%20height%3D%2224%22%20rx%3D%2212%22%20fill%3D%22%23fff0b0%22%20stroke%3D%22%23ba862d%22%2F%3E%3Ctext%20x%3D%2210%22%20y%3D%2216%22%20font-size%3D%2211%22%20font-weight%3D%22600%22%20fill%3D%22%23805b12%22%3EADDED%20%2B5%20%E2%88%920%3C%2Ftext%3E%3C%2Fg%3E%3Ctext%20font-size%3D%2230%22%20font-weight%3D%22600%22%20fill%3D%22%2319334f%22%3E%3Ctspan%20x%3D%2216%22%20y%3D%22112%22%3EUntracked%3C%2Ftspan%3E%3Ctspan%20x%3D%2216%22%20y%3D%22146%22%3EHelper%3C%2Ftspan%3E%3C%2Ftext%3E%3Cline%20x1%3D%2216%22%20y1%3D%22178%22%20x2%3D%22234%22%20y2%3D%22178%22%20stroke%3D%22%23e5edf3%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/api/snapshots/b25c1fc4-77ee-4974-9270-739dfa22c06a/symbols/c068c118-1610-4287-b6e3-93b09afa6ec1/explanation",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/api/snapshots/b25c1fc4-77ee-4974-9270-739dfa22c06a/explanation-evidence/c068c118-1610-4287-b6e3-93b09afa6ec1?subjectType=symbol",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22250%22%20height%3D%22184%22%20viewBox%3D%220%200%20250%20184%22%3E%3Cg%20font-family%3D%22Segoe%20UI%2C%20Arial%2C%20sans-serif%22%3E%3Cg%20transform%3D%22translate(16%2016)%20scale(1.2)%22%3E%3Crect%20width%3D%2230%22%20height%3D%2230%22%20rx%3D%227%22%20fill%3D%22%23398bb314%22%2F%3E%3Cg%20stroke%3D%22%23398bb3%22%20stroke-width%3D%221.5%22%20fill%3D%22none%22%3E%3Cpath%20d%3D%22M8%207l7-4%207%204v9l-7%204-7-4zM8%207l7%204%207-4M15%2011v9%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3Ctext%20x%3D%2262%22%20y%3D%2240%22%20font-size%3D%2215%22%20fill%3D%22%236c8097%22%3Emethod%3C%2Ftext%3E%3Ctext%20font-size%3D%2230%22%20font-weight%3D%22600%22%20fill%3D%22%2319334f%22%3E%3Ctspan%20x%3D%2216%22%20y%3D%22109%22%3Echanged%3C%2Ftspan%3E%3C%2Ftext%3E%3Cline%20x1%3D%2216%22%20y1%3D%22142%22%20x2%3D%22234%22%20y2%3D%22142%22%20stroke%3D%22%23e5edf3%22%2F%3E%3Ctext%20x%3D%2216%22%20y%3D%22166%22%20font-size%3D%2214%22%20fill%3D%22%2374859a%22%3Ereview%3C%2Ftext%3E%3C%2Fg%3E%3C%2Fsvg%3E",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22250%22%20height%3D%22184%22%20viewBox%3D%220%200%20250%20184%22%3E%3Cg%20font-family%3D%22Segoe%20UI%2C%20Arial%2C%20sans-serif%22%3E%3Cg%20transform%3D%22translate(16%2016)%20scale(1.2)%22%3E%3Crect%20width%3D%2230%22%20height%3D%2230%22%20rx%3D%227%22%20fill%3D%22%23398bb314%22%2F%3E%3Cg%20stroke%3D%22%23398bb3%22%20stroke-width%3D%221.5%22%20fill%3D%22none%22%3E%3Cpath%20d%3D%22M8%207l7-4%207%204v9l-7%204-7-4zM8%207l7%204%207-4M15%2011v9%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3Ctext%20x%3D%2262%22%20y%3D%2240%22%20font-size%3D%2215%22%20fill%3D%22%236c8097%22%3Emethod%3C%2Ftext%3E%3Ctext%20font-size%3D%2230%22%20font-weight%3D%22600%22%20fill%3D%22%2319334f%22%3E%3Ctspan%20x%3D%2216%22%20y%3D%22109%22%3Esibling%3C%2Ftspan%3E%3C%2Ftext%3E%3Cline%20x1%3D%2216%22%20y1%3D%22142%22%20x2%3D%22234%22%20y2%3D%22142%22%20stroke%3D%22%23e5edf3%22%2F%3E%3Ctext%20x%3D%2216%22%20y%3D%22166%22%20font-size%3D%2214%22%20fill%3D%22%2374859a%22%3Ereview%3C%2Ftext%3E%3C%2Fg%3E%3C%2Fsvg%3E",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22250%22%20height%3D%22184%22%20viewBox%3D%220%200%20250%20184%22%3E%3Cg%20font-family%3D%22Segoe%20UI%2C%20Arial%2C%20sans-serif%22%3E%3Cg%20transform%3D%22translate(16%2016)%20scale(1.2)%22%3E%3Crect%20width%3D%2230%22%20height%3D%2230%22%20rx%3D%227%22%20fill%3D%22%23398bb314%22%2F%3E%3Cg%20stroke%3D%22%23398bb3%22%20stroke-width%3D%221.5%22%20fill%3D%22none%22%3E%3Cpath%20d%3D%22M8%207l7-4%207%204v9l-7%204-7-4zM8%207l7%204%207-4M15%2011v9%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3Ctext%20x%3D%2262%22%20y%3D%2240%22%20font-size%3D%2215%22%20fill%3D%22%236c8097%22%3Emethod%3C%2Ftext%3E%3Ctext%20font-size%3D%2230%22%20font-weight%3D%22600%22%20fill%3D%22%2319334f%22%3E%3Ctspan%20x%3D%2216%22%20y%3D%22109%22%3Eread%3C%2Ftspan%3E%3C%2Ftext%3E%3Cline%20x1%3D%2216%22%20y1%3D%22142%22%20x2%3D%22234%22%20y2%3D%22142%22%20stroke%3D%22%23e5edf3%22%2F%3E%3Ctext%20x%3D%2216%22%20y%3D%22166%22%20font-size%3D%2214%22%20fill%3D%22%2374859a%22%3Ereview%3C%2Ftext%3E%3C%2Fg%3E%3C%2Fsvg%3E",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/api/snapshots/a251db84-facf-48e6-9ac4-decf2c3309a1/symbols/42881c29-1ee3-4127-b4d0-f24159172502/explanation",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/api/snapshots/a251db84-facf-48e6-9ac4-decf2c3309a1/explanation-evidence/42881c29-1ee3-4127-b4d0-f24159172502?subjectType=symbol",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/api/snapshots/b25c1fc4-77ee-4974-9270-739dfa22c06a/symbols/c068c118-1610-4287-b6e3-93b09afa6ec1/explanation",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/api/snapshots/b25c1fc4-77ee-4974-9270-739dfa22c06a/explanation-evidence/c068c118-1610-4287-b6e3-93b09afa6ec1?subjectType=symbol",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/api/snapshots/a251db84-facf-48e6-9ac4-decf2c3309a1/symbols/42881c29-1ee3-4127-b4d0-f24159172502/explanation",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/api/snapshots/a251db84-facf-48e6-9ac4-decf2c3309a1/explanation-evidence/42881c29-1ee3-4127-b4d0-f24159172502?subjectType=symbol",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/api/snapshots/b25c1fc4-77ee-4974-9270-739dfa22c06a/symbols/c068c118-1610-4287-b6e3-93b09afa6ec1/explanation",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/api/snapshots/b25c1fc4-77ee-4974-9270-739dfa22c06a/explanation-evidence/c068c118-1610-4287-b6e3-93b09afa6ec1?subjectType=symbol",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22250%22%20height%3D%22184%22%20viewBox%3D%220%200%20250%20184%22%3E%3Cg%20font-family%3D%22Segoe%20UI%2C%20Arial%2C%20sans-serif%22%3E%3Cg%20transform%3D%22translate(16%2016)%20scale(1.2)%22%3E%3Crect%20width%3D%2230%22%20height%3D%2230%22%20rx%3D%227%22%20fill%3D%22%23398bb314%22%2F%3E%3Cg%20stroke%3D%22%23398bb3%22%20stroke-width%3D%221.5%22%20fill%3D%22none%22%3E%3Cpath%20d%3D%22M8%207l7-4%207%204v9l-7%204-7-4zM8%207l7%204%207-4M15%2011v9%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3Ctext%20x%3D%2262%22%20y%3D%2240%22%20font-size%3D%2215%22%20fill%3D%22%236c8097%22%3Emethod%3C%2Ftext%3E%3Cg%20transform%3D%22translate(12%2055)%22%3E%3Crect%20width%3D%22112%22%20height%3D%2224%22%20rx%3D%2212%22%20fill%3D%22%23fff0b0%22%20stroke%3D%22%23ba862d%22%2F%3E%3Ctext%20x%3D%2210%22%20y%3D%2216%22%20font-size%3D%2211%22%20font-weight%3D%22600%22%20fill%3D%22%23805b12%22%3ECHANGED%20%2B1%20%E2%88%921%3C%2Ftext%3E%3C%2Fg%3E%3Ctext%20font-size%3D%2230%22%20font-weight%3D%22600%22%20fill%3D%22%2319334f%22%3E%3Ctspan%20x%3D%2216%22%20y%3D%22112%22%3Echanged%3C%2Ftspan%3E%3C%2Ftext%3E%3C%2Fg%3E%3C%2Fsvg%3E",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/api/snapshots/b25c1fc4-77ee-4974-9270-739dfa22c06a/symbols/c068c118-1610-4287-b6e3-93b09afa6ec1/explanation",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/api/snapshots/b25c1fc4-77ee-4974-9270-739dfa22c06a/explanation-evidence/c068c118-1610-4287-b6e3-93b09afa6ec1?subjectType=symbol",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22250%22%20height%3D%22184%22%20viewBox%3D%220%200%20250%20184%22%3E%3Cg%20font-family%3D%22Segoe%20UI%2C%20Arial%2C%20sans-serif%22%3E%3Cg%20transform%3D%22translate(16%2016)%20scale(1.2)%22%3E%3Crect%20width%3D%2230%22%20height%3D%2230%22%20rx%3D%227%22%20fill%3D%22%23398bb314%22%2F%3E%3Cg%20stroke%3D%22%23398bb3%22%20stroke-width%3D%221.5%22%20fill%3D%22none%22%3E%3Cpath%20d%3D%22M8%207l7-4%207%204v9l-7%204-7-4zM8%207l7%204%207-4M15%2011v9%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3Ctext%20x%3D%2262%22%20y%3D%2240%22%20font-size%3D%2215%22%20fill%3D%22%236c8097%22%3Emethod%3C%2Ftext%3E%3Cg%20transform%3D%22translate(12%2055)%22%3E%3Crect%20width%3D%22112%22%20height%3D%2224%22%20rx%3D%2212%22%20fill%3D%22%23fff0b0%22%20stroke%3D%22%23ba862d%22%2F%3E%3Ctext%20x%3D%2210%22%20y%3D%2216%22%20font-size%3D%2211%22%20font-weight%3D%22600%22%20fill%3D%22%23805b12%22%3EADDED%20%2B3%20%E2%88%920%3C%2Ftext%3E%3C%2Fg%3E%3Ctext%20font-size%3D%2230%22%20font-weight%3D%22600%22%20fill%3D%22%2319334f%22%3E%3Ctspan%20x%3D%2216%22%20y%3D%22112%22%3Eread%3C%2Ftspan%3E%3C%2Ftext%3E%3C%2Fg%3E%3C%2Fsvg%3E",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22250%22%20height%3D%22184%22%20viewBox%3D%220%200%20250%20184%22%3E%3Cg%20font-family%3D%22Segoe%20UI%2C%20Arial%2C%20sans-serif%22%3E%3Cg%20transform%3D%22translate(16%2016)%20scale(1.2)%22%3E%3Crect%20width%3D%2230%22%20height%3D%2230%22%20rx%3D%227%22%20fill%3D%22%23398bb314%22%2F%3E%3Cg%20stroke%3D%22%23398bb3%22%20stroke-width%3D%221.5%22%20fill%3D%22none%22%3E%3Cpath%20d%3D%22M8%207l7-4%207%204v9l-7%204-7-4zM8%207l7%204%207-4M15%2011v9%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3Ctext%20x%3D%2262%22%20y%3D%2240%22%20font-size%3D%2215%22%20fill%3D%22%236c8097%22%3Emethod%3C%2Ftext%3E%3Cg%20transform%3D%22translate(12%2055)%22%3E%3Crect%20width%3D%22112%22%20height%3D%2224%22%20rx%3D%2212%22%20fill%3D%22%23fff0b0%22%20stroke%3D%22%23ba862d%22%2F%3E%3Ctext%20x%3D%2210%22%20y%3D%2216%22%20font-size%3D%2211%22%20font-weight%3D%22600%22%20fill%3D%22%23805b12%22%3EREMOVED%20%2B0%20%E2%88%923%3C%2Ftext%3E%3C%2Fg%3E%3Ctext%20font-size%3D%2230%22%20font-weight%3D%22600%22%20fill%3D%22%2319334f%22%3E%3Ctspan%20x%3D%2216%22%20y%3D%22112%22%3Eread%3C%2Ftspan%3E%3C%2Ftext%3E%3C%2Fg%3E%3C%2Fsvg%3E",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22250%22%20height%3D%22184%22%20viewBox%3D%220%200%20250%20184%22%3E%3Cg%20font-family%3D%22Segoe%20UI%2C%20Arial%2C%20sans-serif%22%3E%3Cg%20transform%3D%22translate(16%2016)%20scale(1.2)%22%3E%3Crect%20width%3D%2230%22%20height%3D%2230%22%20rx%3D%227%22%20fill%3D%22%23398bb314%22%2F%3E%3Cg%20stroke%3D%22%23398bb3%22%20stroke-width%3D%221.5%22%20fill%3D%22none%22%3E%3Cpath%20d%3D%22M8%207l7-4%207%204v9l-7%204-7-4zM8%207l7%204%207-4M15%2011v9%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3Ctext%20x%3D%2262%22%20y%3D%2240%22%20font-size%3D%2215%22%20fill%3D%22%236c8097%22%3Emethod%3C%2Ftext%3E%3Cg%20transform%3D%22translate(12%2055)%22%3E%3Crect%20width%3D%22112%22%20height%3D%2224%22%20rx%3D%2212%22%20fill%3D%22%23fff0b0%22%20stroke%3D%22%23ba862d%22%2F%3E%3Ctext%20x%3D%2210%22%20y%3D%2216%22%20font-size%3D%2211%22%20font-weight%3D%22600%22%20fill%3D%22%23805b12%22%3EADDED%20%2B3%20%E2%88%920%3C%2Ftext%3E%3C%2Fg%3E%3Ctext%20font-size%3D%2230%22%20font-weight%3D%22600%22%20fill%3D%22%2319334f%22%3E%3Ctspan%20x%3D%2216%22%20y%3D%22112%22%3Elabel%3C%2Ftspan%3E%3C%2Ftext%3E%3C%2Fg%3E%3C%2Fsvg%3E",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/api/snapshots/a251db84-facf-48e6-9ac4-decf2c3309a1/relationships/08e3c1ae-05f6-4139-954b-e0f7ca3cd6d4/explanation",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/api/snapshots/a251db84-facf-48e6-9ac4-decf2c3309a1/explanation-evidence/08e3c1ae-05f6-4139-954b-e0f7ca3cd6d4?subjectType=relationship",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "url": "http://127.0.0.1:60331/api/snapshots/a251db84-facf-48e6-9ac4-decf2c3309a1/relationships/source",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/api/snapshots/b25c1fc4-77ee-4974-9270-739dfa22c06a/relationships/a7ec5488-5350-4b1e-b645-56f25681ee55/explanation",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/api/snapshots/b25c1fc4-77ee-4974-9270-739dfa22c06a/explanation-evidence/a7ec5488-5350-4b1e-b645-56f25681ee55?subjectType=relationship",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "url": "http://127.0.0.1:60331/api/snapshots/b25c1fc4-77ee-4974-9270-739dfa22c06a/relationships/source",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/api/snapshots/ba4e4465-a2e2-4dae-a6f5-12ee7bde17ce/symbols/e3aa3826-42df-4e9b-a46e-0fc7faa3e376/explanation",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:60331/api/snapshots/ba4e4465-a2e2-4dae-a6f5-12ee7bde17ce/explanation-evidence/e3aa3826-42df-4e9b-a46e-0fc7faa3e376?subjectType=symbol",
+      "status": 200
+    }
+  ],
+  "screenshots": [
+    "review-overlay-desktop.png",
+    "review-overlay-fullscreen.png",
+    "review-removed-source.png",
+    "review-overlay-narrow.png"
+  ]
+}

@@ -26,6 +26,9 @@ tokens/
 # Caches and indexes
 cache/
 indexes/
+__pycache__/
+*.py[cod]
+*.tsbuildinfo
 
 # Application data
 data/

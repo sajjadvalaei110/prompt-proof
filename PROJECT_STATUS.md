@@ -1,11 +1,53 @@
 # Project status
-Last updated: 2026-09-19
+Last updated: 2026-09-30
 Active milestone: R6 — Developer comprehension redesign (in progress)
-Current revision: Exploration tabs, per-tab undo/redo and selection controls (final
-verification), merged on top of the R6 change-edges slice (one line per direction,
-directional selection emphasis, file-grouped evidence), in-place card details (expand
-packages/classes) and resizable cards; Step 6A remains unstarted
+Current revision: Step11 phases 0 and 1 — complete, ready for independent review;
+Java remains the sole shipped language. Go/Dart and stable-map Step 6A remain unstarted.
 
+## Step11 Phase 1 — review remediation complete (2026-09-30)
+
+Bounded acceptance criterion: introduce a language-neutral analysis port and workspace/
+snapshot language identity without changing Java graph facts, evidence or Spring behavior.
+The follow-up review is `/home/sajjad/prompts/step11/review-step-0.md`.
+The review fixes and language boundary are implemented. Backend verification passed:
+135 ordinary tests, the constrained-memory test, and the final three focused tests after
+migration seed cleanup. Frontend build, all nine Node suites and six Python pipelines
+also passed. The final stable-map acceptance gate now passes: 35 scenarios,
+31 inspected screenshots, zero browser runtime errors and unchanged fixture source.
+The prior incomplete S4 failure is retained as a failure. An isolated real-pointer
+reproduction showed that a renderer-valid edge coordinate could hit the minimap
+SVG and pan the map. The harness checks DOM targets before clicking; camera and
+endpoint assertions remain intact. No application change was required.
+
+Final command: `JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java PYTHONDONTWRITEBYTECODE=1 python3 scripts/verify_stable_graph_pipeline.py acceptance`
+— PASS; `build/step11/resumed/stable-final-2026-09-30.log`, run `acceptance-g_rauxtj`.
+`node --check scripts/verify-stable-graph-ui.mjs`, `git diff --check`,
+`git diff --cached --check`, the ADR byte comparison and frozen brief/parser checks
+— PASS. Unaffected suites and the executable package were not rerun/rebuilt on this
+continuation because only the harness and documentation changed.
+
+Durable inspected screenshots now cover import, review, change-edges, hierarchy and
+the synthetic READY explanation inspector, plus the final stable-map run and pointer
+diagnostic. Exact commands, outcomes, local log paths,
+review dispositions and screenshot links are recorded in
+[Step11 verification evidence](docs/evidence/step11/README.md). Existing passing gates
+were preserved on continuation; no live model endpoint was contacted. Phases 0/1
+are complete; the broader R6 milestone remains in progress. The
+[Claude review prompt](docs/STEP11_CLAUDE_REVIEW.md) is ready. The completed changes are prepared for GitHub integration.
+
+
+## Step11 Phase 0 — documentation groundwork complete (2026-09-22)
+
+Bounded acceptance criterion: record the multi-language decision before extracting the
+Java analysis boundary. Copied ADR 0008 verbatim from the supplied step11 directory,
+updated the mission and source-only invariant in AGENTS.md, and documented the planned
+shared analysis port in the architecture module table. Java remains the sole shipped
+language. Phase 1 follows; Go/Dart implementation is outside this request.
+
+Verification: `cmp /home/sajjad/prompts/step11/0008-multi-language-support.md docs/adr/0008-multi-language-support.md`,
+`git diff --exit-code -- docs/BUILD.md`, and `git diff --check` — PASS.
+No runtime checks required for this documentation-only phase. `docs/BUILD_BRIEF.md`
+is absent; read the existing frozen `docs/BUILD.md` instead.
 
 ## Git review views — complete (2026-09-19)
 

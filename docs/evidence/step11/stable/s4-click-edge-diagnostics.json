@@ -1,0 +1,143 @@
+[
+  {
+    "candidateEdgeId": "aggregate:[\"75bb8039-74be-418c-8792-8e412edb75fa\",\"02ae1c05-45f7-46dc-b0f8-88e96cf24c45\"]",
+    "point": {
+      "x": 974.1151192462956,
+      "y": 550.8440884546476
+    },
+    "before": {
+      "x": 974.1151192462956,
+      "y": 550.8440884546476,
+      "elementChain": [
+        {
+          "tag": "CANVAS",
+          "id": null,
+          "className": "",
+          "role": null,
+          "ariaLabel": null
+        },
+        {
+          "tag": "DIV",
+          "id": null,
+          "className": "",
+          "role": null,
+          "ariaLabel": null
+        },
+        {
+          "tag": "DIV",
+          "id": null,
+          "className": "graph-canvas __________cytoscape_container",
+          "role": null,
+          "ariaLabel": "Dependency graph"
+        },
+        {
+          "tag": "DIV",
+          "id": null,
+          "className": "graph-stage",
+          "role": null,
+          "ariaLabel": null
+        },
+        {
+          "tag": "SECTION",
+          "id": null,
+          "className": "workspace-content",
+          "role": null,
+          "ariaLabel": null
+        },
+        {
+          "tag": "MAIN",
+          "id": "exploration-panel",
+          "className": "app-main pane-details",
+          "role": "tabpanel",
+          "ariaLabel": null
+        }
+      ],
+      "pan": {
+        "x": -264.06719054720656,
+        "y": 12.631662269129322
+      },
+      "zoom": 0.6781232075255248,
+      "rendererHits": [
+        {
+          "id": "aggregate:[\"75bb8039-74be-418c-8792-8e412edb75fa\",\"02ae1c05-45f7-46dc-b0f8-88e96cf24c45\"]",
+          "group": "edges",
+          "inspected": false
+        }
+      ],
+      "inspectedEdges": [],
+      "inspectedNodes": [
+        "e96a2d99-3aab-4718-ba0e-c7667f2b72e2"
+      ]
+    },
+    "actualPointerDown": [
+      {
+        "x": 974.1151123046875,
+        "y": 550.8441162109375,
+        "pointerType": "mouse",
+        "targetChain": [
+          {
+            "tag": "CANVAS",
+            "id": null,
+            "className": "",
+            "role": null,
+            "ariaLabel": null
+          },
+          {
+            "tag": "DIV",
+            "id": null,
+            "className": "",
+            "role": null,
+            "ariaLabel": null
+          },
+          {
+            "tag": "DIV",
+            "id": null,
+            "className": "graph-canvas __________cytoscape_container",
+            "role": null,
+            "ariaLabel": "Dependency graph"
+          },
+          {
+            "tag": "DIV",
+            "id": null,
+            "className": "graph-stage",
+            "role": null,
+            "ariaLabel": null
+          },
+          {
+            "tag": "SECTION",
+            "id": null,
+            "className": "workspace-content",
+            "role": null,
+            "ariaLabel": null
+          },
+          {
+            "tag": "MAIN",
+            "id": "exploration-panel",
+            "className": "app-main pane-details",
+            "role": "tabpanel",
+            "ariaLabel": null
+          }
+        ]
+      }
+    ],
+    "after": {
+      "pan": {
+        "x": -264.06719054720656,
+        "y": 12.631662269129322
+      },
+      "zoom": 0.6781232075255248,
+      "rendererHits": [
+        {
+          "id": "aggregate:[\"75bb8039-74be-418c-8792-8e412edb75fa\",\"02ae1c05-45f7-46dc-b0f8-88e96cf24c45\"]",
+          "group": "edges",
+          "inspected": true
+        }
+      ],
+      "inspectedEdges": [
+        "aggregate:[\"75bb8039-74be-418c-8792-8e412edb75fa\",\"02ae1c05-45f7-46dc-b0f8-88e96cf24c45\"]"
+      ],
+      "inspectedNodes": [],
+      "inspectorSubject": "Relationship✕"
+    }
+  }
+]

@@ -1,9 +1,12 @@
 package dev.codeatlas.review;
 
+import dev.codeatlas.analysis.port.AnalysisPortRegistry;
 import dev.codeatlas.analysis.AnalysisService;
 import dev.codeatlas.api.dto.*;
 import dev.codeatlas.config.CodeAtlasProperties;
 import dev.codeatlas.graph.GraphQueryService;
+import dev.codeatlas.storage.WorkspaceRepository;
+import dev.codeatlas.api.dto.WorkspaceResponse;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.stereotype.Service;
@@ -22,15 +25,24 @@ public class ReviewService {
     private final GraphQueryService graphs;
     private final GitReviewSourceAdapter git;
     private final CodeAtlasProperties properties;
+    private final AnalysisPortRegistry portRegistry;
+    private final WorkspaceRepository workspaceRepository;
 
     public ReviewService(JdbcTemplate db, AnalysisService analysis, GraphQueryService graphs,
-                         GitReviewSourceAdapter git, CodeAtlasProperties properties) {
-        this.db = db; this.analysis = analysis; this.graphs = graphs; this.git = git; this.properties = properties;
+                         GitReviewSourceAdapter git, CodeAtlasProperties properties,
+                         AnalysisPortRegistry portRegistry, WorkspaceRepository workspaceRepository) {
+        this.db = db; this.analysis = analysis; this.graphs = graphs; this.git = git;
+        this.properties = properties; this.portRegistry = portRegistry; this.workspaceRepository = workspaceRepository;
     }
 
     public ReviewResponse capture(String workspaceId, ReviewRequest request) {
-        String root = db.query("SELECT canonical_root FROM workspaces WHERE id=?", rs -> rs.next() ? rs.getString(1) : null, workspaceId);
+        WorkspaceResponse workspace = workspaceRepository.findById(workspaceId)
+                .orElseThrow(() -> new IllegalArgumentException("Workspace not found."));
+        String root = workspace.path();
         if (root == null) throw new IllegalArgumentException("Workspace not found.");
+        // Reject an unshipped language before any Git capture, temporary source copy, or review
+        // snapshot is created. AnalysisService validates again from each retained snapshot.
+        String language = portRegistry.require(workspace.language()).language();
         Path repo = Path.of(root).toAbsolutePath().normalize();
         if (!Files.isDirectory(repo.resolve(".git")) && !Files.isRegularFile(repo.resolve(".git"))) {
             throw new IllegalArgumentException("Workspace is not a local Git repository.");
@@ -70,9 +82,9 @@ public class ReviewService {
                 throw new IllegalArgumentException("Working-tree changes occurred while the review was captured; retry the review.");
             }
             String capturedAt = Instant.now().toString();
-            baseSnapshot = createSnapshot(workspaceId, "REVIEW_BASE", "base=" + base.oid());
+            baseSnapshot = createSnapshot(workspaceId, "REVIEW_BASE", "base=" + base.oid(), language);
             analysis.runReviewAnalysis(workspaceId, baseSnapshot, capture.resolve("base"));
-            headSnapshot = createSnapshot(workspaceId, "REVIEW_HEAD", "head=" + headCapture.headOid() + ";fingerprint=" + frozenInput);
+            headSnapshot = createSnapshot(workspaceId, "REVIEW_HEAD", "head=" + headCapture.headOid() + ";fingerprint=" + frozenInput, language);
             analysis.runReviewAnalysis(workspaceId, headSnapshot, capture.resolve("head"));
             diagnostics.addAll(snapshotDiagnostics(baseSnapshot, "BASE"));
             diagnostics.addAll(snapshotDiagnostics(headSnapshot, "HEAD"));
@@ -93,9 +105,9 @@ public class ReviewService {
         }
     }
 
-    private String createSnapshot(String workspaceId, String purpose, String identity) {
+    private String createSnapshot(String workspaceId, String purpose, String identity, String language) {
         String id = UUID.randomUUID().toString();
-        db.update("INSERT INTO snapshots(id,workspace_id,status,purpose,review_identity,created_at) VALUES(?,?, 'staging',?,?,datetime('now'))", id, workspaceId, purpose, identity);
+        db.update("INSERT INTO snapshots(id,workspace_id,status,purpose,review_identity,language,created_at) VALUES(?,?, 'staging',?,?,?,datetime('now'))", id, workspaceId, purpose, identity, language);
         return id;
     }
     private void fail(String snapshot) {

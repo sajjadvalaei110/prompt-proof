@@ -6,7 +6,7 @@ The Code Atlas persistence layer is implemented in SQLite using Flyway versioned
 
 | Entity | Identity and Responsibility |
 |---|---|
-| **Workspace** | UUID primary key, canonical filesystem root path, active snapshot reference (`active_snapshot_id`), and inclusion/exclusion settings. |
+| **Workspace** | UUID primary key, canonical filesystem root path, required single-language identifier (`language`), active snapshot reference (`active_snapshot_id`), and inclusion/exclusion settings. |
 | **Logical Subject** | Stable, workspace-scoped logical key for a type, callable, or relationship (e.g., `com.example.OrderService#placeOrder(Order)`). Enables notes and navigation across snapshots. |
 | **Symbol Version** | Snapshot-scoped occurrence of a symbol. Unique on `(snapshot_id, logical_symbol_key)`. Stores package, name, kind (class, interface, method, etc.), visibility, signature, and module identity. |
 | **Relationship Occurrence** | Snapshot-scoped row linking source and target `symbol_version` rows. Captures kind (`calls`, `injects`, `implements`, `extends`), call-site location, and resolution status (`resolved`, `candidate`, `unresolved`). |
@@ -174,3 +174,12 @@ Document revision invalidation deletes only unfinished staged runs not reference
 any synthesis. Published/stale synthesis artifacts remain auditable; successful full
 explanations are retained and marked STALE. Explicit snapshot deletion necessarily
 removes snapshot-scoped generated outputs but preserves workspace notes/bookmarks.
+
+## Language migration (V012)
+
+`workspaces.language` and `snapshots.language` are `TEXT NOT NULL DEFAULT 'java'`.
+Upgrades backfill existing rows without changing snapshot IDs, active snapshot references,
+graph facts or explanation data. Ordinary and review snapshot creation explicitly persist
+the selected workspace language. Adapter registration controls accepted API values; the
+schema does not restrict future languages to a fixed enum. Java is currently the sole
+shipped adapter.

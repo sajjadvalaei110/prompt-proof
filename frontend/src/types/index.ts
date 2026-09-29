@@ -2,6 +2,7 @@ export interface Workspace {
   id: string;
   name: string;
   path: string;
+  language: Language;
 }
 
 export interface AnalysisJob {
@@ -81,6 +82,8 @@ export interface SearchResult {
 }
 
 export type JobStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+/** Languages exposed by the import contract. Add a value only when its adapter ships. */
+export type Language = 'java';
 export type ExplanationStatus = 'NOT_REQUESTED' | 'QUEUED' | 'RUNNING' | 'READY' | 'STALE' | 'FAILED' | 'PENDING';
 export type ResolutionStatus = 'RESOLVED' | 'CANDIDATE' | 'UNRESOLVED';
 export type SymbolKind = 'PACKAGE' | 'CLASS' | 'METHOD';

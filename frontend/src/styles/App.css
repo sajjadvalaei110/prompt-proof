@@ -159,3 +159,7 @@ h1 { font-size: 25px; letter-spacing: -.7px; line-height: 1.3; font-weight: 650;
   .journey-bar button { font-size: 12px; padding: 7px 9px; }
   .journey-history { flex-basis: 100%; padding-left: 8px; }
 }
+
+.welcome label, .open-project-bar label { min-width: 0; }
+.welcome select, .open-project-bar select { height: 45px; }
+@media(max-width:760px) { .open-project-bar form { flex-direction: column; align-items: stretch; } }

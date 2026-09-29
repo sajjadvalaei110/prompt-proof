@@ -1,4 +1,8 @@
+import type { Language } from '../types';
+
 const API_BASE = '/api';
+
+export type WorkspaceLanguage = Language;
 
 export interface ApiErrorResponse {
   timestamp?: string;
@@ -69,11 +73,11 @@ export const apiClient = {
   getSubjectExplanation:(snapshot: string, id: string, type: string): Promise<any> => requestJson(`${API_BASE}/snapshots/${snapshot}/${type === 'symbol' ? 'symbols' : 'relationships'}/${id}/explanation`),
   getExplanationEvidence: (snapshot: string, id: string, type: string): Promise<any[]> => requestJson(`${API_BASE}/snapshots/${snapshot}/explanation-evidence/${id}?subjectType=${type}`),
 
-  createWorkspace: (path: string): Promise<any> =>
+  createWorkspace: (path: string, language: WorkspaceLanguage = 'java'): Promise<any> =>
     requestJson(`${API_BASE}/workspaces`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path })
+      body: JSON.stringify({ path, language })
     }),
 
   getWorkspace: (id: string): Promise<any> => requestJson(`${API_BASE}/workspaces/${id}`),

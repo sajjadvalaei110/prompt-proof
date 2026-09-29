@@ -1,6 +1,7 @@
 import { SetStateAction, useEffect, useMemo, useRef, useState } from 'react';
 import './styles/App.css';
-import { apiClient } from './api/client';
+import { apiClient, type WorkspaceLanguage } from './api/client';
+import { ImportScreen } from './features/import/ImportScreen';
 import GraphCanvas from './features/explorer/GraphCanvas';
 import { AtlasGraph, AtlasNode, AtlasEdge, Level, isType, ownerAt, getEligibleIds, rankEligibleIds, projectDisplayed, childrenOf, kindSummary } from './features/explorer/graphModel';
 import { ScopeSelection, wholeSystemScope, scopeToLabel, isNodeInScope, isClassInScope, togglePackages, toggleClass } from './features/explorer/scopeModel';
@@ -49,6 +50,7 @@ export function ExplorerApp({ reviewContext, onReviewSource }: ExplorerAppProps 
   const panelId = embedded ? `${instanceKey}-exploration-panel` : 'exploration-panel';
   const params = new URLSearchParams(location.search);
   const [path,setPath]=useState(params.get('path')||''),[workspace,setWorkspace]=useState<any>(()=>reviewContext?.workspace||null),[snapshot,setSnapshot]=useState<string|null>(()=>reviewContext?.snapshot||null);
+  const [language,setLanguage]=useState<WorkspaceLanguage>('java');
   const [graph,setGraph]=useState<AtlasGraph|null>(()=>reviewContext?.graph||null),[routes,setRoutes]=useState<any[]>([]),[recent,setRecent]=useState<any[]>([]);
   const [status,setStatus]=useState('Open a project to begin'),[busy,setBusy]=useState(false),[error,setError]=useState('');
   const journeys=useExplorerJourneys(reviewContext?.graph ? initialViewForGraph(reviewContext.graph) : undefined);
@@ -291,7 +293,7 @@ export function ExplorerApp({ reviewContext, onReviewSource }: ExplorerAppProps 
     const [data,entryPoints]=await Promise.all([apiClient.getGraph(id),apiClient.getSpringRoutes(id)]);
     if(!ws&&!data?.metadata?.workspaceId)throw new Error('Snapshot response is missing workspace metadata; try re-opening the project.');
     const owner=ws||await apiClient.getWorkspace(data.metadata.workspaceId);
-    setWorkspace(owner);setPath(owner.path);setSnapshot(id);setGraph(data);setRoutes(entryPoints);setQueue(null);setStatus('Source analysis ready');setShowOpen(false);
+    setWorkspace(owner);setPath(owner.path);setLanguage(owner.language);setSnapshot(id);setGraph(data);setRoutes(entryPoints);setQueue(null);setStatus('Source analysis ready');setShowOpen(false);
     const placementIn=(g:AtlasGraph,ids:string[]):Record<string,PlacementDims>=>{const all=new Map(g.nodes.map(n=>[n.id,n]));const out:Record<string,PlacementDims>={};for(const id of ids){const n=all.get(id);if(n){const c=nodeCard(n);out[id]={width:c.width,height:c.height,name:n.qualifiedName||n.simpleName};}}return out;};
     const initialPackageIds=rankEligibleIds(data,'PACKAGE',getEligibleIds(data,'PACKAGE',wholeSystemScope()));
     let initialView=explorerViewReducer(initExplorerViewState(),{type:'RESET',level:'PACKAGE',eligibleIds:initialPackageIds,batchSize:Infinity,placement:placementIn(data,initialPackageIds)});
@@ -308,9 +310,9 @@ export function ExplorerApp({ reviewContext, onReviewSource }: ExplorerAppProps 
     historyReplace(id);
   }
   function historyReplace(id:string){const url=new URL(location.href);url.search='';url.searchParams.set('snapshotId',id);window.history.replaceState(null,'',url);}
-  async function analyze(input=path) {
+  async function analyze(input=path, selectedLanguage=language) {
     if(!input.trim()){setError('Enter a repository path accessible to the local server.');return;}
-    setBusy(true);setError('');try{setStatus('Registering project…');const ws=await apiClient.createWorkspace(input.trim());setStatus('Analyzing Java source…');let job=await apiClient.triggerAnalysis(ws.id);while(!['COMPLETED','FAILED','CANCELLED'].includes(job.status)){await new Promise(r=>setTimeout(r,500));job=await apiClient.getJob(job.id);}if(job.status!=='COMPLETED')throw new Error(job.errorMessage||`Analysis ${job.status.toLowerCase()}`);const current=await apiClient.getWorkspace(ws.id);if(!current.activeSnapshotId)throw new Error('Analysis did not publish a snapshot');await loadSnapshot(current.activeSnapshotId,current);setRecent(await apiClient.listWorkspaces());}catch(e:any){setError(e.message);setStatus('Analysis could not finish');}finally{setBusy(false);}
+    setBusy(true);setError('');try{setStatus('Registering project…');const ws=await apiClient.createWorkspace(input.trim(), selectedLanguage);setStatus('Analyzing source…');let job=await apiClient.triggerAnalysis(ws.id);while(!['COMPLETED','FAILED','CANCELLED'].includes(job.status)){await new Promise(r=>setTimeout(r,500));job=await apiClient.getJob(job.id);}if(job.status!=='COMPLETED')throw new Error(job.errorMessage||`Analysis ${job.status.toLowerCase()}`);const current=await apiClient.getWorkspace(ws.id);if(!current.activeSnapshotId)throw new Error('Analysis did not publish a snapshot');await loadSnapshot(current.activeSnapshotId,current);setRecent(await apiClient.listWorkspaces());}catch(e:any){setError(e.message);setStatus('Analysis could not finish');}finally{setBusy(false);}
   }
   useEffect(()=>{
     if(embedded)return;
@@ -605,7 +607,9 @@ export function ExplorerApp({ reviewContext, onReviewSource }: ExplorerAppProps 
     </header>
     {!embedded&&queue?.errorMessage&&<div className="error-banner" role="alert"><span>{queue.errorMessage}</span></div>}
     {!embedded&&error&&<div className="error-banner" role="alert"><span>{error}</span><button onClick={()=>setError('')} aria-label="Dismiss error">✕</button></div>}
-    {!embedded&&(showOpen||!graph)&&<section className={graph?'open-project-bar':'welcome'}><div><span className="welcome-icon">◈</span><h1>{graph?'Open a project':'Find your way through the code.'}</h1><p>Explore the structure. Follow a dependency. Understand why it exists.</p></div><form onSubmit={e=>{e.preventDefault();analyze();}}><label>Local repository path<input value={path} onChange={e=>setPath(e.target.value)} placeholder="/path/to/your/java-project" disabled={busy}/></label><button className="primary" disabled={busy}>{busy?'Analyzing…':'Analyze project'}</button></form><p className="muted">Source-only analysis. Your repository is read-only; no Gradle builds or application code are executed.</p>{recent.length>0&&<div className="recent-projects"><h3>Recent projects</h3>{recent.map(ws=><button key={ws.id} disabled={busy} onClick={()=>{if(ws.activeSnapshotId){setBusy(true);loadSnapshot(ws.activeSnapshotId,ws).catch(e=>setError(e.message)).finally(()=>setBusy(false));}else{setPath(ws.path);analyze(ws.path);}}}><span>▱ {ws.path.split('/').pop()}<small>{ws.path}</small></span><span>Open ↗</span></button>)}</div>}</section>}
+    {!embedded&&(showOpen||!graph)&&<ImportScreen path={path} language={language} busy={busy} graphOpen={!!graph}
+      onPathChange={setPath} onLanguageChange={setLanguage} onSubmit={()=>{void analyze();}} recent={recent}
+      onOpenRecent={ws=>{if(ws.activeSnapshotId){setBusy(true);loadSnapshot(ws.activeSnapshotId,ws).catch(e=>setError(e.message)).finally(()=>setBusy(false));}else{setPath(ws.path);setLanguage(ws.language);void analyze(ws.path,ws.language);}}}/>}
     {graph&&<>{embedded&&contextActive&&(node||edge)&&<div className="review-selection"><strong>{node?.simpleName||kindSummary(edge!)}</strong><span>{edge?`${edge.reviewChange==='ADDED'?'Added':edge.reviewChange==='REMOVED'?'Removed':'Unchanged'} relationship`:'Review resource'}</span>{(edge||node?.kind!=='PACKAGE')&&<button aria-label={`View ${edge?'relationship ':''}source from ${reviewSelectionLabel} snapshot`} onClick={reviewSelectionSource}>{edge?'View evidence':'View source'}</button>}</div>}<div className="journey-bar">
       <div className="journey-tabs" role="tablist" aria-label="Exploration tabs">{journeys.state.tabs.map(t=><div className={`journey-tab ${t.id===active.id?'active':''}`} key={t.id}>
         <button role="tab" id={journeyTabId(t.id)} aria-controls={panelId} aria-selected={t.id===active.id} tabIndex={t.id===active.id?0:-1} onKeyDown={e=>{

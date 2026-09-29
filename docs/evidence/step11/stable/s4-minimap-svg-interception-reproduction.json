@@ -1,0 +1,137 @@
+{
+  "candidateEdgeId": "aggregate:[\"356b8e37-4a1a-479a-9c8d-ac13d68af9a0\",\"5b631b40-9392-4c9a-be49-fd43ce76c238\"]",
+  "scannedEdges": 48,
+  "interceptedRendererValidPoints": 1,
+  "clickedPoint": {
+    "x": 421.58104647355736,
+    "y": 791.9944590032233,
+    "cyCanvasTarget": false,
+    "targetChain": [
+      {
+        "tag": "svg",
+        "id": null,
+        "className": "",
+        "role": "img",
+        "ariaLabel": "Map overview with current viewport"
+      },
+      {
+        "tag": "DIV",
+        "id": null,
+        "className": "minimap ",
+        "role": null,
+        "ariaLabel": null
+      },
+      {
+        "tag": "DIV",
+        "id": null,
+        "className": "graph-stage",
+        "role": null,
+        "ariaLabel": null
+      },
+      {
+        "tag": "SECTION",
+        "id": null,
+        "className": "workspace-content",
+        "role": null,
+        "ariaLabel": null
+      },
+      {
+        "tag": "MAIN",
+        "id": "exploration-panel",
+        "className": "app-main pane-details",
+        "role": "tabpanel",
+        "ariaLabel": null
+      },
+      {
+        "tag": "DIV",
+        "id": null,
+        "className": "app-container",
+        "role": null,
+        "ariaLabel": null
+      }
+    ],
+    "minimapHit": {
+      "point": {
+        "x": 2310.209228515625,
+        "y": 170.54151916503906
+      },
+      "viewport": {
+        "x": 255.06749898497768,
+        "y": -93.83495736906217,
+        "w": 1612.0964271213966,
+        "h": 902.4908647990255
+      },
+      "outsideViewport": true,
+      "distanceFromViewportCenter": 1262.994306520975
+    }
+  },
+  "cameraBefore": {
+    "zoom": 0.5651026729379374,
+    "pan": {
+      "x": -144.1393254560055,
+      "y": 53.026385224274435
+    }
+  },
+  "pointerDown": [
+    {
+      "x": 421.5810546875,
+      "y": 791.9944458007812,
+      "pointerType": "mouse",
+      "targetChain": [
+        {
+          "tag": "svg",
+          "id": null,
+          "className": "",
+          "role": "img",
+          "ariaLabel": "Map overview with current viewport"
+        },
+        {
+          "tag": "DIV",
+          "id": null,
+          "className": "minimap ",
+          "role": null,
+          "ariaLabel": null
+        },
+        {
+          "tag": "DIV",
+          "id": null,
+          "className": "graph-stage",
+          "role": null,
+          "ariaLabel": null
+        },
+        {
+          "tag": "SECTION",
+          "id": null,
+          "className": "workspace-content",
+          "role": null,
+          "ariaLabel": null
+        },
+        {
+          "tag": "MAIN",
+          "id": "exploration-panel",
+          "className": "app-main pane-details",
+          "role": "tabpanel",
+          "ariaLabel": null
+        },
+        {
+          "tag": "DIV",
+          "id": null,
+          "className": "app-container",
+          "role": null,
+          "ariaLabel": null
+        }
+      ]
+    }
+  ],
+  "cameraAfter": {
+    "zoom": 0.5651026729379374,
+    "pan": {
+      "x": -843.9653234049665,
+      "y": 168.96379062223286
+    },
+    "inspectedEdges": [],
+    "inspectorSubject": "class✕"
+  },
+  "cameraChanged": true,
+  "edgeInspected": false
+}

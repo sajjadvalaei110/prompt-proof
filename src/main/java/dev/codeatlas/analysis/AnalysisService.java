@@ -1,7 +1,7 @@
 package dev.codeatlas.analysis;
 
-import com.github.javaparser.StaticJavaParser;
-import com.github.javaparser.ast.CompilationUnit;
+import dev.codeatlas.analysis.port.AnalysisPort;
+import dev.codeatlas.analysis.port.AnalysisPortRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -32,9 +32,7 @@ public class AnalysisService {
     private static final Logger log = LoggerFactory.getLogger(AnalysisService.class);
 
     private final JdbcTemplate jdbcTemplate;
-    private final SourceDiscoveryService discoveryService;
-    private final JavaParserAdapter parserAdapter;
-    private final SpringAnnotationAnalyzer springAnalyzer;
+    private final AnalysisPortRegistry portRegistry;
     /**
      * One transaction per file in the declaration and relationship passes: a file's rows land together or not at
      * all (a failure mid-file no longer leaves partial symbols that break later files), and SQLite commits once per
@@ -43,14 +41,10 @@ public class AnalysisService {
     private final TransactionTemplate fileTransaction;
 
     public AnalysisService(JdbcTemplate jdbcTemplate,
-                           SourceDiscoveryService discoveryService,
-                           JavaParserAdapter parserAdapter,
-                           SpringAnnotationAnalyzer springAnalyzer,
+                           AnalysisPortRegistry portRegistry,
                            PlatformTransactionManager transactionManager) {
         this.jdbcTemplate = jdbcTemplate;
-        this.discoveryService = discoveryService;
-        this.parserAdapter = parserAdapter;
-        this.springAnalyzer = springAnalyzer;
+        this.portRegistry = portRegistry;
         this.fileTransaction = new TransactionTemplate(transactionManager);
     }
 
@@ -59,43 +53,44 @@ public class AnalysisService {
      * Includes change detection against the previous snapshot.
      */
     public synchronized void runAnalysis(String workspaceId, String jobId) {
-        String path = jdbcTemplate.queryForObject(
-                "SELECT canonical_root FROM workspaces WHERE id = ?", String.class, workspaceId);
-
-        // Get previous active snapshot for change detection
-        String previousSnapshotId = null;
+        String snapshotId = null;
+        AnalysisPort adapter = null;
         try {
-            previousSnapshotId = jdbcTemplate.queryForObject(
-                    "SELECT active_snapshot_id FROM workspaces WHERE id = ?", String.class, workspaceId);
-        } catch (Exception e) {
-            // No previous snapshot
-        }
+            Map<String, Object> workspace = jdbcTemplate.queryForMap(
+                    "SELECT canonical_root, language, active_snapshot_id FROM workspaces WHERE id = ?", workspaceId);
+            String path = (String) workspace.get("canonical_root");
+            // Resolve the adapter before creating a staging snapshot. Unsupported language errors
+            // are still recorded on the existing job instead of leaving it RUNNING forever.
+            adapter = portRegistry.require((String) workspace.get("language"));
+            String language = adapter.language();
+            final AnalysisPort runAdapter = adapter;
 
-        // Create new snapshot
-        String snapshotId = UUID.randomUUID().toString();
-        jdbcTemplate.update(
-                "INSERT INTO snapshots (id, workspace_id, status, created_at) VALUES (?, ?, 'staging', datetime('now'))",
-                snapshotId, workspaceId);
-        jdbcTemplate.update("UPDATE jobs SET snapshot_id = ? WHERE id = ?", snapshotId, jobId);
+            String previousSnapshotId = (String) workspace.get("active_snapshot_id");
+            snapshotId = UUID.randomUUID().toString();
+            jdbcTemplate.update(
+                    "INSERT INTO snapshots (id, workspace_id, language, status, created_at) VALUES (?, ?, ?, 'staging', datetime('now'))",
+                    snapshotId, workspaceId, language);
+            jdbcTemplate.update("UPDATE jobs SET snapshot_id = ? WHERE id = ?", snapshotId, jobId);
 
-        try {
             // Phase 1: Discover files
-            List<File> javaFiles = discoveryService.discoverJavaFiles(new File(path));
-            int totalFiles = javaFiles.size();
-            // 3 passes: declarations, relationships, spring analysis
-            jdbcTemplate.update("UPDATE jobs SET total_items = ? WHERE id = ?", totalFiles * 3, jobId);
-            log.info("Analysis started: {} Java files discovered in {}", totalFiles, path);
+            List<File> sourceFiles = adapter.discoverFiles(new File(path));
+            int totalFiles = sourceFiles.size();
+            boolean hasFrameworkPass = adapter.supportsFrameworkPass();
+            int passCount = hasFrameworkPass ? 3 : 2;
+            jdbcTemplate.update("UPDATE jobs SET total_items = ? WHERE id = ?", totalFiles * passCount, jobId);
+            log.info("Analysis started: {} {} files discovered in {}", totalFiles, language, path);
 
             // Phase 2: Parse declarations (Pass 1)
-            parserAdapter.setupSymbolSolver(path);
+            adapter.prepare(path);
             int parsed = 0;
-            for (File file : javaFiles) {
+            for (File file : sourceFiles) {
                 try {
-                    fileTransaction.executeWithoutResult(status -> parserAdapter.parseDeclarations(file, workspaceId, snapshotId));
+                    String currentSnapshotId = snapshotId;
+                    fileTransaction.executeWithoutResult(status -> runAdapter.parseDeclarations(file, workspaceId, currentSnapshotId));
                 } catch (Exception e) {
                     log.warn("Declaration parsing failed for {}: {}", file.getName(), e.getMessage());
                     // The file's transaction rolled back, so none of its rows remain; the relationship pass skips it.
-                    parserAdapter.addDiagnostic(file.getName() + ": declaration parsing failed (" + e.getMessage() + "); file excluded from graph.");
+                    adapter.addDiagnostic(file.getName() + ": declaration parsing failed (" + e.getMessage() + "); file excluded from graph.");
                 }
                 parsed++;
                 if (parsed % 50 == 0) {
@@ -106,12 +101,13 @@ public class AnalysisService {
             log.info("Pass 1 complete: {} declarations parsed", parsed);
 
             // Phase 3: Parse relationships (Pass 2)
-            for (File file : javaFiles) {
+            for (File file : sourceFiles) {
                 try {
-                    fileTransaction.executeWithoutResult(status -> parserAdapter.parseRelationships(file, workspaceId, snapshotId));
+                    String currentSnapshotId = snapshotId;
+                    fileTransaction.executeWithoutResult(status -> runAdapter.parseRelationships(file, workspaceId, currentSnapshotId));
                 } catch (Exception e) {
                     log.warn("Relationship parsing failed for {}: {}", file.getName(), e.getMessage());
-                    parserAdapter.addDiagnostic(file.getName() + ": relationship parsing failed (" + e.getMessage() + "); relationships for this file may be incomplete.");
+                    adapter.addDiagnostic(file.getName() + ": relationship parsing failed (" + e.getMessage() + "); relationships for this file may be incomplete.");
                 }
                 parsed++;
                 if (parsed % 50 == 0) {
@@ -121,38 +117,21 @@ public class AnalysisService {
             jdbcTemplate.update("UPDATE jobs SET completed_items = ? WHERE id = ?", parsed, jobId);
             log.info("Pass 2 complete: relationships extracted");
 
-            // Phase 4: Spring annotation analysis (Pass 3)
-            int springFilesAnalyzed = 0;
-            List<SpringAnnotationAnalyzer.SpringAnalysisResult> springResults = new ArrayList<>();
-            for (File file : javaFiles) {
-                try {
-                    CompilationUnit cu = StaticJavaParser.parse(file);
-                    SpringAnnotationAnalyzer.SpringAnalysisResult result = springAnalyzer.analyze(cu);
-                    if (!result.isEmpty()) {
-                        springResults.add(result);
-                        springFilesAnalyzed++;
-                    }
-                } catch (Exception e) {
-                    log.debug("Spring analysis skipped for {}: {}", file.getName(), e.getMessage());
-                }
-                parsed++;
-                if (parsed % 50 == 0) {
-                    jdbcTemplate.update("UPDATE jobs SET completed_items = ? WHERE id = ?", parsed, jobId);
-                }
+            // Optional adapter-owned framework enrichment (Pass 3 for Java).
+            int frameworkFilesAnalyzed = 0;
+            if (hasFrameworkPass) {
+                int baseProgress = parsed;
+                frameworkFilesAnalyzed = adapter.runFrameworkPass(sourceFiles, workspaceId, snapshotId,
+                        completedFiles -> {
+                            int completed = baseProgress + completedFiles;
+                            if (completed % 50 == 0 || completed == totalFiles * passCount) {
+                                jdbcTemplate.update("UPDATE jobs SET completed_items = ? WHERE id = ?", completed, jobId);
+                            }
+                        });
+                parsed += totalFiles;
+                jdbcTemplate.update("UPDATE jobs SET completed_items = ? WHERE id = ?", parsed, jobId);
+                log.info("Framework pass complete: {} files had framework annotations", frameworkFilesAnalyzed);
             }
-
-            // Sub-pass 4a: Persist all roles, routes, and bean declarations first
-            for (SpringAnnotationAnalyzer.SpringAnalysisResult result : springResults) {
-                springAnalyzer.persistRolesRoutesBeans(snapshotId, workspaceId, result);
-            }
-
-            // Sub-pass 4b: Resolve and persist all injection points now that all components exist in DB
-            for (SpringAnnotationAnalyzer.SpringAnalysisResult result : springResults) {
-                springAnalyzer.persistInjections(snapshotId, result);
-            }
-
-            jdbcTemplate.update("UPDATE jobs SET completed_items = ? WHERE id = ?", parsed, jobId);
-            log.info("Pass 3 complete: {} files had Spring annotations", springFilesAnalyzed);
 
             // Phase 5: Change detection (R4)
             if (previousSnapshotId != null) {
@@ -171,7 +150,7 @@ public class AnalysisService {
                             "relationship_count = ?, file_count = ?, completed_at = datetime('now'), " +
                             "diagnostics = ? WHERE id = ?",
                     symbolCount, relCount, fileCount,
-                    new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(Map.of("routes", routeCount, "injections", injectionCount, "springFiles", springFilesAnalyzed, "warnings", parserAdapter.diagnostics())),
+                    new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(Map.of("routes", routeCount, "injections", injectionCount, "springFiles", frameworkFilesAnalyzed, "warnings", adapter.diagnostics())),
                     snapshotId);
 
             // Atomically publish: update active snapshot
@@ -189,12 +168,14 @@ public class AnalysisService {
 
         } catch (Exception e) {
             log.error("Analysis failed for workspace {}: {}", workspaceId, e.getMessage(), e);
-            jdbcTemplate.update("UPDATE snapshots SET status = 'failed' WHERE id = ?", snapshotId);
+            if (snapshotId != null) {
+                jdbcTemplate.update("UPDATE snapshots SET status = 'failed' WHERE id = ?", snapshotId);
+            }
             jdbcTemplate.update(
                     "UPDATE jobs SET status = 'FAILED', error_message = ?, updated_at = datetime('now') WHERE id = ?",
                     e.getMessage(), jobId);
         } finally {
-            parserAdapter.releaseRunCaches();
+            if (adapter != null) adapter.releaseRunCaches();
         }
     }
 
@@ -204,46 +185,40 @@ public class AnalysisService {
      * explanation invalidation.  The captured tree is owned by the application, never by the target repo.
      */
     public synchronized void runReviewAnalysis(String workspaceId, String snapshotId, Path capturedRoot) {
+        AnalysisPort adapter = null;
         try {
-            List<File> javaFiles = discoveryService.discoverJavaFiles(capturedRoot.toFile());
-            parserAdapter.setupSymbolSolver(capturedRoot.toString());
-            List<SpringAnnotationAnalyzer.SpringAnalysisResult> springResults = new ArrayList<>();
+            String requestedLanguage = jdbcTemplate.queryForObject(
+                    "SELECT language FROM snapshots WHERE id = ? AND workspace_id = ?", String.class,
+                    snapshotId, workspaceId);
+            adapter = portRegistry.require(requestedLanguage);
+            String language = adapter.language();
+            final AnalysisPort runAdapter = adapter;
+            List<File> sourceFiles = adapter.discoverFiles(capturedRoot.toFile());
+            adapter.prepare(capturedRoot.toString());
             List<File> declarationFiles = new ArrayList<>();
-            for (File file : javaFiles) {
+            for (File file : sourceFiles) {
                 try {
-                    fileTransaction.executeWithoutResult(status -> parserAdapter.parseDeclarations(file, workspaceId, snapshotId));
+                    fileTransaction.executeWithoutResult(status -> runAdapter.parseDeclarations(file, workspaceId, snapshotId));
                     if (hasIndexedDeclarations(snapshotId, capturedRoot, file)) declarationFiles.add(file);
                 } catch (Exception e) {
-                    parserAdapter.addDiagnostic(file.getName() + ": declaration parsing failed; file excluded from graph.");
+                    adapter.addDiagnostic(file.getName() + ": declaration parsing failed; file excluded from graph.");
                 }
             }
             for (File file : declarationFiles) {
                 try {
-                    fileTransaction.executeWithoutResult(status -> parserAdapter.parseRelationships(file, workspaceId, snapshotId));
+                    fileTransaction.executeWithoutResult(status -> runAdapter.parseRelationships(file, workspaceId, snapshotId));
                 } catch (Exception e) {
-                    parserAdapter.addDiagnostic(file.getName() + ": relationship parsing failed; relationships may be incomplete.");
+                    adapter.addDiagnostic(file.getName() + ": relationship parsing failed; relationships may be incomplete.");
                 }
             }
-            for (File file : declarationFiles) {
-                try {
-                    CompilationUnit cu = StaticJavaParser.parse(file);
-                    SpringAnnotationAnalyzer.SpringAnalysisResult result = springAnalyzer.analyze(cu);
-                    if (!result.isEmpty()) springResults.add(result);
-                } catch (Exception e) {
-                    parserAdapter.addDiagnostic(file.getName() + ": Spring annotation analysis skipped.");
-                }
-            }
-            for (SpringAnnotationAnalyzer.SpringAnalysisResult result : springResults) {
-                springAnalyzer.persistRolesRoutesBeans(snapshotId, workspaceId, result);
-            }
-            for (SpringAnnotationAnalyzer.SpringAnalysisResult result : springResults) {
-                springAnalyzer.persistInjections(snapshotId, result);
+            if (adapter.supportsFrameworkPass()) {
+                adapter.runFrameworkPass(declarationFiles, workspaceId, snapshotId, ignored -> { });
             }
             int symbolCount = countForSnapshot("symbol_versions", snapshotId);
             int relationshipCount = countForSnapshot("relationship_occurrences", snapshotId);
             int fileCount = countForSnapshot("source_file_versions", snapshotId);
             String diagnostics = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(
-                    Map.of("warnings", parserAdapter.diagnostics(), "reviewCapture", true));
+                    Map.of("warnings", adapter.diagnostics(), "reviewCapture", true, "language", language));
             jdbcTemplate.update("UPDATE snapshots SET status='published', symbol_count=?, relationship_count=?, file_count=?, diagnostics=?, completed_at=datetime('now') WHERE id=?",
                     symbolCount, relationshipCount, fileCount, diagnostics, snapshotId);
             log.info("Review snapshot complete: {} source files, {} symbols, {} relationships", fileCount, symbolCount, relationshipCount);
@@ -251,7 +226,7 @@ public class AnalysisService {
             jdbcTemplate.update("UPDATE snapshots SET status='failed', completed_at=datetime('now') WHERE id=?", snapshotId);
             throw new IllegalArgumentException("Review capture analysis failed (" + e.getClass().getSimpleName() + ").");
         } finally {
-            parserAdapter.releaseRunCaches();
+            if (adapter != null) adapter.releaseRunCaches();
         }
     }
 

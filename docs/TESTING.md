@@ -571,3 +571,51 @@ ADR for that. The concrete need is not yet established: `tsc -b --noEmit` runs o
 build (`npm run build` and `./gradlew bootJar` both invoke it) and already rejects the
 type errors that matter here. If a lint gate is wanted later, it should arrive with an
 ADR naming the rules it enforces and wired into `bootJar` so it can actually fail CI.
+
+## Language boundary regression checks
+
+`AnalysisPortRegistryTest`, `AnalysisServiceDispatchTest`, `JavaAnalysisAdapterTest`,
+`LanguageMigrationTest`, `LanguageMigrationExplanationIntegrationTest`,
+`ReviewServiceLanguageTest`, `WorkspaceLanguageIntegrationTest`, and the updated
+`ReviewApiIntegrationTest` cover adapter dispatch, duplicate registrations,
+V011-to-V012 backfill/non-null constraints, backwards-compatible Java workspace reuse,
+rejection of unshipped languages before snapshots/Git capture, workspace-language propagation
+to both retained review snapshots, Java framework-pass execution,
+visible diagnostics when Spring analysis skips a malformed file, and propagation when recording
+a failed job also fails. The migrated-explanation integration test seeds V011 data, verifies
+its preservation through V012, regenerates with the actual ExplanationService and a synthetic
+mocked ModelClientService, and reads READY/evidence/provenance through MockMvc. It does not
+verify live transport; the separate mock HTTP pipeline exercises local transport. The workspace language API test
+uses its own temporary database. Existing Java
+parser, evidence, review and explanation tests retain their original expectations.
+
+Run `JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java python3 scripts/verify_language_import_pipeline.py`
+after `./gradlew bootJar`. This runner starts an isolated packaged backend and Chromium,
+imports a copied fixture through the real form, checks the Java-only selector and request
+payload, re-analysis, recent projects without snapshots, and graph loading with an unreachable model endpoint. Desktop/mobile
+screenshots and the report are written under `build/language-import/`; inspect them.
+
+`verify_filtering_zoom_settings.py` uses a local rejecting HTTP stub to verify profile
+handling; `verify_hierarchical_pipeline.py` uses synthetic explanation responses. Neither
+is a live-model check. `verify_explanation_pipeline.py --mock` runs its end-to-end
+checks with a deterministic loopback provider, including validated evidence and
+provenance. Without `--mock`, it requires explicitly configured
+`CODEATLAS_MODEL_BASE_URL` and `CODEATLAS_MODEL_MODEL_ID` (and credentials in the environment
+if needed); it has no public-provider fallback. Its source fixture and database are isolated.
+Both explanation and filtering runners use `verification_support.py` for HTTP requests,
+fixture hashes and server lifecycle. Spring and the local stubs bind port zero directly;
+the runner reads the actual Tomcat port and waits for health before making API requests.
+
+When running the broader backend suite locally, set `CODEATLAS_DATA_DIR` to a disposable
+directory because older integration test classes still use the default application property.
+Create that directory first. Step11's exact verification commands and screenshot evidence
+are recorded in [the remediation evidence](evidence/step11/README.md).
+
+The stable-map browser harness checks both Cytoscape renderer hits and
+`document.elementFromPoint` before sending real CDP edge clicks. Renderer geometry
+alone can select a point covered by the minimap or another DOM overlay. The S4
+report records actual pointer targets and camera state for each dispatched click;
+its original before/after camera assertion spans all attempts, without resetting
+the camera. The separate `s4-diagnostic` Node configuration intentionally clicks
+an intercepted minimap SVG point to investigate this failure mode; it is not an
+acceptance pass. Run the normal Python runner with `acceptance` for the full gate.

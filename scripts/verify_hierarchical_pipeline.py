@@ -15,6 +15,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = Path(__file__).resolve().parents[1]
+JAVA = os.environ.get('JAVA', 'java')
 OUTPUT = ROOT / 'build' / 'hierarchy-smoke'
 OUTPUT.mkdir(parents=True, exist_ok=True)
 # Each run has an isolated database/profile; no user data or model configuration is changed.
@@ -106,7 +107,7 @@ def main():
     processes = []
     try:
         with (RUN / 'application.log').open('w') as log:
-            processes.append(subprocess.Popen(['java', '-jar', str(jar), f'--server.port={port}', f'--codeatlas.data-dir={RUN}', f'--codeatlas.model.base-url={model}/v1', '--codeatlas.model.model-id=local-mock-verification', '--codeatlas.model.context-budget=100000', '--codeatlas.model.output-budget=4096'], cwd=ROOT, stdout=log, stderr=subprocess.STDOUT))
+            processes.append(subprocess.Popen([JAVA, '-jar', str(jar), f'--server.port={port}', f'--codeatlas.data-dir={RUN}', f'--codeatlas.model.base-url={model}/v1', '--codeatlas.model.model-id=local-mock-verification', '--codeatlas.model.context-budget=100000', '--codeatlas.model.output-budget=4096'], cwd=ROOT, stdout=log, stderr=subprocess.STDOUT))
         await_url(base + '/api/health')
         with (RUN / 'chromium.log').open('w') as log:
             processes.append(subprocess.Popen([os.environ.get('CHROMIUM', '/snap/bin/chromium'), '--headless=new', '--no-sandbox', '--disable-dev-shm-usage', '--remote-allow-origins=*', f'--remote-debugging-port={debug_port}', f'--user-data-dir={RUN}/chrome', 'about:blank'], stdout=log, stderr=subprocess.STDOUT))

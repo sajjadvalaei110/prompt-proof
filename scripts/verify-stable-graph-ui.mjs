@@ -19,6 +19,7 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 const failures = [];
 const scenarios = [];
 const screenshots = [];
+const pointerDiagnostics = { 's4-click-edge': [] };
 
 async function api(path, body) {
   const r = await fetch(base + path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -175,7 +176,64 @@ async function pointAt(expression) {
   return evaluate(`(()=>{const p=${expression};if(!p)return null;const box=document.querySelector('.graph-canvas').getBoundingClientRect();return{x:box.left+p.x,y:box.top+p.y}})()`);
 }
 const nodePoint = id => pointAt(`(()=>{const n=${CY}.getElementById(${JSON.stringify(id)});return n.length?n.renderedPosition():null})()`);
-const edgePoint = id => pointAt(`(()=>{const e=${CY}.getElementById(${JSON.stringify(id)});return e.length?e.renderedMidpoint():null})()`);
+/**
+ * Return several real, renderer-tested points along an edge.  A midpoint alone
+ * is fragile: a bezier midpoint can be covered by a card, a label, or another
+ * parallel route after the camera moves.  The renderer hit-test only chooses candidates;
+ * the caller still dispatches a real CDP mouse press/release at each point.
+ */
+const edgePoints = id => evaluate(`(()=>{
+  const cy=${CY}, edge=cy.getElementById(${JSON.stringify(id)});
+  if(!edge.length)return [];
+  const box=document.querySelector('.graph-canvas').getBoundingClientRect();
+  const canvas=document.querySelector('.graph-canvas');
+  const w=cy.width(),h=cy.height(), source=edge.source().renderedPosition(), target=edge.target().renderedPosition();
+  const midpoint=edge.renderedMidpoint();
+  const nodeBoxes=cy.nodes().map(n=>n.renderedBoundingBox());
+  const points=[], seen=new Set();
+  const add=(p)=>{
+    if(!p||!Number.isFinite(p.x)||!Number.isFinite(p.y)||p.x<4||p.y<4||p.x>w-4||p.y>h-4)return;
+    // Do not aim at the interior of a card; Cytoscape will correctly route a
+    // pointer there to the node even when the edge passes underneath it.
+    if(nodeBoxes.some(b=>p.x>b.x1+2&&p.x<b.x2-2&&p.y>b.y1+2&&p.y<b.y2-2))return;
+    const key=Math.round(p.x*10)+':'+Math.round(p.y*10);
+    if(seen.has(key))return;
+    // The renderer hit-test uses model coordinates, so convert the rendered
+    // candidate before rejecting a point that cannot reach this edge.  The
+    // acceptance click below remains a real pointer.
+    const pan=cy.pan(),zoom=cy.zoom();
+    const nearest=cy.renderer().findNearestElements((p.x-pan.x)/zoom,(p.y-pan.y)/zoom,true,false);
+    if(!nearest.some(element=>element.id()===edge.id()))return;
+    const clientX=box.left+p.x,clientY=box.top+p.y, domTarget=document.elementFromPoint(clientX,clientY);
+    const targetChain=[];
+    for(let el=domTarget;el&&targetChain.length<6;el=el.parentElement){
+      targetChain.push({tag:el.tagName,id:el.id||null,className:typeof el.className==='string'?el.className:(el.className?.baseVal||''),role:el.getAttribute('role'),ariaLabel:el.getAttribute('aria-label')});
+    }
+    let minimapHit=null;
+    const minimapSvg=domTarget?.closest?.('.minimap svg');
+    if(minimapSvg){
+      const screenPoint=minimapSvg.createSVGPoint();screenPoint.x=clientX;screenPoint.y=clientY;
+      const matrix=minimapSvg.getScreenCTM(), viewport=minimapSvg.querySelectorAll('rect');
+      const viewportRect=viewport.length?viewport[viewport.length-1]:null;
+      if(matrix&&viewportRect){
+        const p=screenPoint.matrixTransform(matrix.inverse());
+        const bounds={x:Number(viewportRect.getAttribute('x')),y:Number(viewportRect.getAttribute('y')),w:Number(viewportRect.getAttribute('width')),h:Number(viewportRect.getAttribute('height'))};
+        const center={x:bounds.x+bounds.w/2,y:bounds.y+bounds.h/2};
+        minimapHit={point:{x:p.x,y:p.y},viewport:bounds,outsideViewport:p.x<bounds.x||p.x>bounds.x+bounds.w||p.y<bounds.y||p.y>bounds.y+bounds.h,distanceFromViewportCenter:Math.hypot(p.x-center.x,p.y-center.y)};
+      }
+    }
+    // Renderer hit testing sees Cytoscape's drawing beneath HTML/SVG overlays. Keep those
+    // points for diagnostics, but only send an acceptance click when the DOM would deliver
+    // the real pointer to one of Cytoscape's own renderer canvases.
+    const cyCanvasTarget=domTarget instanceof HTMLCanvasElement&&domTarget.closest('.graph-canvas')===canvas;
+    seen.add(key);points.push({x:clientX,y:clientY,cyCanvasTarget,targetChain,minimapHit});
+  };
+  add(midpoint);
+  for(const t of [.12,.2,.3,.4,.5,.6,.7,.8,.88])add({x:source.x+(target.x-source.x)*t,y:source.y+(target.y-source.y)*t});
+  const dx=target.x-source.x,dy=target.y-source.y,len=Math.hypot(dx,dy)||1;
+  for(const offset of [-8,-4,4,8])add({x:midpoint.x-dy/len*offset,y:midpoint.y+dx/len*offset});
+  return points;
+})()`);
 
 /**
  * Step 3 changed what "a node to click" means: the camera is no longer auto-fit to whatever is
@@ -203,6 +261,21 @@ async function visibleEdgeCandidates(limit = 12) {
     return pool.slice(0,${limit}).map(e=>e.id());
   })()`);
 }
+
+async function beginPointerTrace() {
+  return evaluate(`(()=>{
+    window.__s4PointerDown=[];
+    document.addEventListener('pointerdown',event=>{
+      const chain=[];
+      for(let el=event.target;el&&chain.length<6;el=el.parentElement){
+        chain.push({tag:el.tagName,id:el.id||null,className:typeof el.className==='string'?el.className:(el.className?.baseVal||''),role:el.getAttribute('role'),ariaLabel:el.getAttribute('aria-label')});
+      }
+      window.__s4PointerDown.push({x:event.clientX,y:event.clientY,pointerType:event.pointerType,targetChain:chain});
+    },true);
+    return true;
+  })()`);
+}
+const takePointerTrace = () => evaluate(`(window.__s4PointerDown||[]).splice(0)`);
 
 async function pressRelease(point, clickCount) {
   await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: point.x, y: point.y, button: 'none', buttons: 0 });
@@ -270,6 +343,51 @@ async function revealClasses(target) {
 
 console.log(`fixture: ${typeCount} types, ${packageCount} packages, edge kinds ${edgeKinds.join('/')}, displayed resolutions ${resolutions.join('/')}, ${unresolvedRelationships} unresolved-target relationships (never projected onto the canvas)`);
 console.log(`mode: ${mode}`);
+
+// Optional causality probe, run as a separate diagnostic configuration. It intentionally clicks
+// a renderer-valid edge coordinate that is intercepted by a DOM overlay, then records whether that
+// actual target changed the camera. Normal acceptance never performs this overlay click.
+if (mode === 's4-diagnostic') {
+  await revealClasses(36);
+  const seed = await pickVisibleNodeId(8);
+  await singleClick(await nodePoint(seed));
+  await pause(400);
+  await panAndZoom();
+  const cameraBefore = await evaluate(`(()=>{const cy=${CY};return {zoom:cy.zoom(),pan:{...cy.pan()}}})()`);
+  const candidates = await visibleEdgeCandidates(1000);
+  const intercepted = [];
+  for (const id of candidates) {
+    for (const point of await edgePoints(id)) {
+      if (!point.cyCanvasTarget && point.minimapHit?.outsideViewport) intercepted.push({ candidateEdgeId:id, point });
+    }
+  }
+  intercepted.sort((a,b)=>b.point.minimapHit.distanceFromViewportCenter-a.point.minimapHit.distanceFromViewportCenter);
+  const selected = intercepted[0];
+  assert.ok(selected, `no renderer-valid edge point landed on the minimap SVG outside its current viewport; scanned ${candidates.length} edges`);
+  await beginPointerTrace();
+  await singleClick(selected.point);
+  const pointerDown = await takePointerTrace();
+  const cameraAfter = await evaluate(`(()=>{const cy=${CY};return {zoom:cy.zoom(),pan:{...cy.pan()},inspectedEdges:cy.edges('.inspected').map(e=>e.id()),inspectorSubject:(document.querySelector('.inspector-top')?.textContent||'').replace(/\\s+/g,' ').trim()}})()`);
+  const result = {
+    candidateEdgeId:selected.candidateEdgeId,
+    scannedEdges:candidates.length,
+    interceptedRendererValidPoints:intercepted.length,
+    clickedPoint:selected.point,
+    cameraBefore,
+    pointerDown,
+    cameraAfter,
+    cameraChanged:cameraBefore.zoom!==cameraAfter.zoom||cameraBefore.pan.x!==cameraAfter.pan.x||cameraBefore.pan.y!==cameraAfter.pan.y,
+    edgeInspected:cameraAfter.inspectedEdges.includes(selected.candidateEdgeId)
+  };
+  await fs.writeFile(`${output}/s4-minimap-svg-interception-reproduction.json`, JSON.stringify(result, null, 2));
+  await screenshot('s4-minimap-svg-interception-after');
+  console.log(`  S4 overlay-interception reproduction: ${JSON.stringify(result)}`);
+  assert.ok(selected.point.targetChain.some(el => el.tag.toUpperCase() === 'SVG') && selected.point.targetChain.some(el => String(el.className).includes('minimap')), `predicted target was not inside the minimap SVG: ${JSON.stringify(selected.point.targetChain)}`);
+  assert.ok(pointerDown[0]?.targetChain?.some(el => el.tag.toUpperCase() === 'SVG') && pointerDown[0]?.targetChain?.some(el => String(el.className).includes('minimap')), `actual pointerdown did not land inside the minimap SVG: ${JSON.stringify(pointerDown)}`);
+  assert.ok(result.cameraChanged, 'an actual edge-targeted pointer intercepted by the minimap SVG outside the viewport changes the camera');
+  socket.close();
+  process.exit(0);
+}
 
 // ---------------------------------------------------------------------------
 // S1 — click a class card while only the initial 12 are displayed.
@@ -395,12 +513,47 @@ console.log(`mode: ${mode}`);
   const before = await state();
   const candidates = await visibleEdgeCandidates(12);
   let clicked = null;
+  const blockedCandidates = [];
+  await beginPointerTrace();
   for (const id of candidates) {
-    const point = await edgePoint(id);
-    if (!point) continue;
-    await singleClick(point);
-    if (await evaluate(`(document.querySelector('.inspector-top')?.textContent||'').includes('Relationship')`)) { clicked = id; break; }
+    for (const point of await edgePoints(id)) {
+      if (!point.cyCanvasTarget) {
+        blockedCandidates.push({ candidateEdgeId:id, point });
+        continue;
+      }
+      const beforeClick = await evaluate(`(()=>{
+        const cy=${CY}, x=${point.x}, y=${point.y};
+        const canvas=document.querySelector('.graph-canvas'), box=canvas.getBoundingClientRect();
+        const target=document.elementFromPoint(x,y);
+        const describe=el=>el?{tag:el.tagName,id:el.id||null,className:typeof el.className==='string'?el.className:(el.className?.baseVal||''),role:el.getAttribute('role'),ariaLabel:el.getAttribute('aria-label')}:null;
+        const chain=[];for(let el=target;el&&chain.length<6;el=el.parentElement)chain.push(describe(el));
+        const pan={x:cy.pan().x,y:cy.pan().y},zoom=cy.zoom();
+        const rendered={x:x-box.left,y:y-box.top};
+        const hits=cy.renderer().findNearestElements((rendered.x-pan.x)/zoom,(rendered.y-pan.y)/zoom,true,false).map(el=>({id:el.id(),group:el.group(),inspected:el.hasClass('inspected')}));
+        return {x,y,elementChain:chain,pan,zoom,rendererHits:hits,inspectedEdges:cy.edges('.inspected').map(e=>e.id()),inspectedNodes:cy.nodes('.inspected').map(n=>n.id())};
+      })()`);
+      await singleClick(point);
+      const actualPointerDown = await takePointerTrace();
+      const afterClick = await evaluate(`(()=>{
+        const cy=${CY}, x=${point.x}, y=${point.y};
+        const box=document.querySelector('.graph-canvas').getBoundingClientRect(),pan={x:cy.pan().x,y:cy.pan().y},zoom=cy.zoom();
+        const rendered={x:x-box.left,y:y-box.top};
+        const hits=cy.renderer().findNearestElements((rendered.x-pan.x)/zoom,(rendered.y-pan.y)/zoom,true,false).map(el=>({id:el.id(),group:el.group(),inspected:el.hasClass('inspected')}));
+        return {pan,zoom,rendererHits:hits,inspectedEdges:cy.edges('.inspected').map(e=>e.id()),inspectedNodes:cy.nodes('.inspected').map(n=>n.id()),inspectorSubject:(document.querySelector('.inspector-top')?.textContent||'').replace(/\\s+/g,' ').trim()};
+      })()`);
+      pointerDiagnostics['s4-click-edge'].push({ candidateEdgeId:id, point:{x:point.x,y:point.y}, before:beforeClick, actualPointerDown, after:afterClick });
+      console.log(`  S4 click attempt ${pointerDiagnostics['s4-click-edge'].length}: ${JSON.stringify(pointerDiagnostics['s4-click-edge'].at(-1))}`);
+      if (await evaluate(`(document.querySelector('.inspector-top')?.textContent||'').includes('Relationship')`)) { clicked = id; break; }
+    }
+    if (clicked) break;
   }
+  await fs.writeFile(`${output}/s4-click-edge-diagnostics.json`, JSON.stringify(pointerDiagnostics['s4-click-edge'], null, 2));
+  await fs.writeFile(`${output}/s4-click-edge-target-filter.json`, JSON.stringify({
+    scannedCandidates:candidates,
+    blockedRendererValidPoints:blockedCandidates,
+    dispatchedClicks:pointerDiagnostics['s4-click-edge']
+  }, null, 2));
+  if (blockedCandidates.length) console.log(`  S4 skipped ${blockedCandidates.length} renderer-valid edge point(s) intercepted by DOM overlays; evidence: s4-click-edge-target-filter.json`);
   assert.ok(clicked, 'a real pointer click landed on an edge');
   // The inspected line's own endpoints must be emphasized (.neighbor), never dimmed with the rest of
   // the map. closedNeighborhood() on an edge yields only the edge, so this regressed silently once:
@@ -540,25 +693,27 @@ console.log(`mode: ${mode}`);
   // One line now carries every kind between its ordered pair (kindCounts), so filtering to any kind
   // the line contains keeps it drawn (thinner). This case needs a kind the clicked line does NOT
   // contain, so only a line with such a kind available is an eligible candidate.
-  let clickedId = null, clickedKind = null, otherKind = null;
+  let clickedId = null, clickedKind = null, otherKind = null, skippedOverlayPoints = 0;
   for (const id of candidates) {
     const lineKinds = await evaluate(`Object.keys(${CY}.getElementById(${JSON.stringify(id)}).data('kindCounts')||{})`);
     const absent = edgeKinds.find(k => !lineKinds.includes(k));
     if (!absent) continue;
-    const point = await edgePoint(id);
-    if (!point) continue;
-    await singleClick(point);
-    if (await evaluate(`(document.querySelector('.inspector-top')?.textContent||'').includes('Relationship')`)) {
-      // Overlapping bezier lines mean the click can land on a neighbour of the intended candidate,
-      // so take the line the canvas actually selected as the subject and re-derive its kinds from
-      // that. Only accept it if it still has an absent kind to filter to; otherwise keep looking.
-      const landed = await evaluate(`(()=>{const sel=${CY}.edges('.inspected');if(sel.length!==1)return null;const e=sel[0];return {id:e.id(),kind:e.data('kind'),kinds:Object.keys(e.data('kindCounts')||{})};})()`);
-      if (!landed) continue;
-      const absentOnLanded = edgeKinds.find(k => !landed.kinds.includes(k));
-      if (!absentOnLanded) continue;
-      clickedId = landed.id; clickedKind = landed.kind; otherKind = absentOnLanded;
-      break;
+    for (const point of await edgePoints(id)) {
+      if (!point.cyCanvasTarget) { skippedOverlayPoints++; continue; }
+      await singleClick(point);
+      if (await evaluate(`(document.querySelector('.inspector-top')?.textContent||'').includes('Relationship')`)) {
+        // Overlapping bezier lines mean the click can land on a neighbour of the intended candidate,
+        // so take the line the canvas actually selected as the subject and re-derive its kinds from
+        // that. Only accept it if it still has an absent kind to filter to; otherwise keep looking.
+        const landed = await evaluate(`(()=>{const sel=${CY}.edges('.inspected');if(sel.length!==1)return null;const e=sel[0];return {id:e.id(),kind:e.data('kind'),kinds:Object.keys(e.data('kindCounts')||{})};})()`);
+        if (!landed) continue;
+        const absentOnLanded = edgeKinds.find(k => !landed.kinds.includes(k));
+        if (!absentOnLanded) continue;
+        clickedId = landed.id; clickedKind = landed.kind; otherKind = absentOnLanded;
+        break;
+      }
     }
+    if (clickedId) break;
   }
   assert.ok(clickedId, 'a real pointer click landed on an edge (with at least one kind it does not contain) for the filter-survival case');
   const before = await state();
@@ -569,7 +724,7 @@ console.log(`mode: ${mode}`);
   const inspectorIdle = await evaluate(`!!document.querySelector('.inspector.idle')`);
   const after = await state();
   const d = delta(before, after);
-  d.clickedKind = clickedKind; d.filteredToKind = otherKind; d.notice = notice;
+  d.clickedKind = clickedKind; d.filteredToKind = otherKind; d.notice = notice; d.skippedOverlayPoints = skippedOverlayPoints;
   const checks = [
     ['inspector stays open, not idle', !inspectorIdle],
     ['relationship content is still shown', inspectorSubject.includes('Relationship')],
@@ -1524,12 +1679,14 @@ console.log(`mode: ${mode}`);
   await until(async () => (await evaluate(`${CY}.nodes().length`)) > 1, 'Packages level populated');
   await probe(); await resetCounters();
   const candidates = await visibleEdgeCandidates(12);
-  let clickedId = null;
+  let clickedId = null, skippedOverlayPoints = 0;
   for (const id of candidates) {
-    const point = await edgePoint(id);
-    if (!point) continue;
-    await singleClick(point);
-    if (await evaluate(`(document.querySelector('.inspector-top')?.textContent||'').includes('Relationship')`)) { clickedId = id; break; }
+    for (const point of await edgePoints(id)) {
+      if (!point.cyCanvasTarget) { skippedOverlayPoints++; continue; }
+      await singleClick(point);
+      if (await evaluate(`(document.querySelector('.inspector-top')?.textContent||'').includes('Relationship')`)) { clickedId = id; break; }
+    }
+    if (clickedId) break;
   }
   assert.ok(clickedId, 'a real pointer click landed on a Packages-level edge for the level-switch survival case');
   const before = await state();
@@ -1549,7 +1706,7 @@ console.log(`mode: ${mode}`);
     ['Back is available (Step 5 review remediation A1/B1: the edge inspection still pushed a history entry under the level it was actually inspected at)', backAvailable],
     ['a single Back both undoes the level switch and restores the edge inspection', afterBack.level === 'Packages' && afterBack.inspectorOpen && (afterBack.inspectorSubject || '').includes('Relationship')]
   ];
-  record('edge-inspection-cleared-then-recovered-across-level-switch', before, afterBack, { ...d, backAvailable, afterBackLevel: afterBack.level, afterBackInspectorOpen: afterBack.inspectorOpen }, { baseline: checks, acceptance: checks });
+  record('edge-inspection-cleared-then-recovered-across-level-switch', before, afterBack, { ...d, backAvailable, afterBackLevel: afterBack.level, afterBackInspectorOpen: afterBack.inspectorOpen, skippedOverlayPoints }, { baseline: checks, acceptance: checks });
   await screenshot('s19-edge-inspection-recovered-after-level-switch-back');
 }
 

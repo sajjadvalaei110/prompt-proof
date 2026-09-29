@@ -39,7 +39,7 @@ The backend enforces strict modular separation across domain boundaries:
 | Module | Responsibility |
 |---|---|
 | `workspace` | Project root registration, path traversal validation, file filtering (includes/excludes), trust boundaries. |
-| `analysis` | JavaParser integration, symbol extraction, type solving, relationship extraction, exact evidence coordinate calculation. |
+| `analysis` | Per-language adapters behind a shared analysis port (Java/JavaParser today): source discovery hooks, symbol extraction, type solving, relationship extraction and exact evidence coordinates. Go and Dart adapters are deferred. |
 | `analysis` (Spring heuristics) | Heuristic recognition of Spring stereotypes (`@Service`, `@Repository`, `@RestController`), constructor injection, `@Qualifier`, `@Bean`, and HTTP routes. Implemented by `analysis/SpringAnnotationAnalyzer.java`; this is not a separate top-level package. |
 | `graph` | Graph querying, neighborhood traversal, package/class aggregation, search, cycle detection, and filtering. |
 | `explanations` | Context construction, prompt generation, JSON response schema validation, claim basis attribution, and explanation caching. |
@@ -48,6 +48,34 @@ The backend enforces strict modular separation across domain boundaries:
 | `storage` | SQLite connection management, Flyway migrations, database constraints, and repository data access. |
 | `api` | REST endpoints, SSE stream handlers, DTO validation, and structured error responses. |
 | `review` | Read-only local Git capture, isolated before/after analysis and deterministic snapshot comparison. |
+
+---
+
+### Language analysis boundary
+
+`analysis.port.AnalysisPort` supplies discovery, preparation, declaration and relationship
+passes, optional framework enrichment, diagnostics, and cache cleanup. `AnalysisPortRegistry` selects a shipped adapter
+by the workspace's normalized language identifier. `JavaAnalysisAdapter` delegates to the
+unchanged JavaParser implementation and existing evidence/storage schema. Both ordinary
+analysis and retained-source Git review use the same synchronized analysis service;
+per-file transactions and cleanup on failure remain in place. `SpringAnnotationAnalyzer`
+stays Java-specific inside `JavaAnalysisAdapter`; the shared orchestration invokes its
+optional framework hook without branching on a language name. Roles/routes/beans are
+persisted before injection resolution, and skipped Spring files remain visible in diagnostics.
+
+The port preserves the existing persistence-backed two-pass contract: adapters write
+declarations first, then relationships and their evidence through the current graph
+schema. It does not introduce another in-memory fact representation. Each relationship
+must retain its resolution status and evidence coordinates; model explanations never
+participate in extraction. In the current implementation those operations live in
+`JavaParserAdapter`; the older `SymbolExtractor`, `RelationshipExtractor` and
+`EvidenceCollector` classes are empty placeholders, not additional extraction engines.
+
+V012 adds required `language` fields to workspaces and snapshots, backfilling `java`.
+Workspace creation accepts a language and returns it; omitted/blank values retain the
+Java default, and unsupported values are rejected before registration. Review snapshots
+copy the workspace language. The import form offers only Java; Go and Dart adapters
+have not shipped. See [ADR 0008](adr/0008-multi-language-support.md).
 
 ---
 

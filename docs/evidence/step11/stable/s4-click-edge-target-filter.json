@@ -1,0 +1,160 @@
+{
+  "scannedCandidates": [
+    "aggregate:[\"75bb8039-74be-418c-8792-8e412edb75fa\",\"02ae1c05-45f7-46dc-b0f8-88e96cf24c45\"]",
+    "aggregate:[\"776ca2f7-4848-4d2c-93f4-b2b796919ef1\",\"02ae1c05-45f7-46dc-b0f8-88e96cf24c45\"]",
+    "aggregate:[\"72fca0a5-e9a5-41ae-b589-c9ae9801364f\",\"02ae1c05-45f7-46dc-b0f8-88e96cf24c45\"]",
+    "aggregate:[\"1ab01bf9-2564-4d92-9a19-b2dd352f807b\",\"37f0f0b0-19a8-492e-b161-4cae2a7f6628\"]",
+    "aggregate:[\"b3a1b501-653e-4f69-af9e-04c8e3689447\",\"37f0f0b0-19a8-492e-b161-4cae2a7f6628\"]",
+    "aggregate:[\"66621fb6-8b93-4b8f-8c50-8af3c090d6d3\",\"37f0f0b0-19a8-492e-b161-4cae2a7f6628\"]",
+    "aggregate:[\"1dde13bf-bd5c-4e38-a230-e6cc7a8f34ae\",\"0a763638-3179-48b3-ae5d-4c2996f3023c\"]",
+    "aggregate:[\"b07269f6-796e-44e9-9556-b53c80a23e89\",\"0a763638-3179-48b3-ae5d-4c2996f3023c\"]",
+    "aggregate:[\"83b6d4a6-490a-4fae-ae6f-64e1def240b1\",\"0a763638-3179-48b3-ae5d-4c2996f3023c\"]",
+    "aggregate:[\"776ca2f7-4848-4d2c-93f4-b2b796919ef1\",\"75bb8039-74be-418c-8792-8e412edb75fa\"]",
+    "aggregate:[\"0a763638-3179-48b3-ae5d-4c2996f3023c\",\"6ce571e5-d448-4a3b-adf2-7b2ae2fcd250\"]",
+    "aggregate:[\"6ce571e5-d448-4a3b-adf2-7b2ae2fcd250\",\"83b6d4a6-490a-4fae-ae6f-64e1def240b1\"]"
+  ],
+  "blockedRendererValidPoints": [],
+  "dispatchedClicks": [
+    {
+      "candidateEdgeId": "aggregate:[\"75bb8039-74be-418c-8792-8e412edb75fa\",\"02ae1c05-45f7-46dc-b0f8-88e96cf24c45\"]",
+      "point": {
+        "x": 974.1151192462956,
+        "y": 550.8440884546476
+      },
+      "before": {
+        "x": 974.1151192462956,
+        "y": 550.8440884546476,
+        "elementChain": [
+          {
+            "tag": "CANVAS",
+            "id": null,
+            "className": "",
+            "role": null,
+            "ariaLabel": null
+          },
+          {
+            "tag": "DIV",
+            "id": null,
+            "className": "",
+            "role": null,
+            "ariaLabel": null
+          },
+          {
+            "tag": "DIV",
+            "id": null,
+            "className": "graph-canvas __________cytoscape_container",
+            "role": null,
+            "ariaLabel": "Dependency graph"
+          },
+          {
+            "tag": "DIV",
+            "id": null,
+            "className": "graph-stage",
+            "role": null,
+            "ariaLabel": null
+          },
+          {
+            "tag": "SECTION",
+            "id": null,
+            "className": "workspace-content",
+            "role": null,
+            "ariaLabel": null
+          },
+          {
+            "tag": "MAIN",
+            "id": "exploration-panel",
+            "className": "app-main pane-details",
+            "role": "tabpanel",
+            "ariaLabel": null
+          }
+        ],
+        "pan": {
+          "x": -264.06719054720656,
+          "y": 12.631662269129322
+        },
+        "zoom": 0.6781232075255248,
+        "rendererHits": [
+          {
+            "id": "aggregate:[\"75bb8039-74be-418c-8792-8e412edb75fa\",\"02ae1c05-45f7-46dc-b0f8-88e96cf24c45\"]",
+            "group": "edges",
+            "inspected": false
+          }
+        ],
+        "inspectedEdges": [],
+        "inspectedNodes": [
+          "e96a2d99-3aab-4718-ba0e-c7667f2b72e2"
+        ]
+      },
+      "actualPointerDown": [
+        {
+          "x": 974.1151123046875,
+          "y": 550.8441162109375,
+          "pointerType": "mouse",
+          "targetChain": [
+            {
+              "tag": "CANVAS",
+              "id": null,
+              "className": "",
+              "role": null,
+              "ariaLabel": null
+            },
+            {
+              "tag": "DIV",
+              "id": null,
+              "className": "",
+              "role": null,
+              "ariaLabel": null
+            },
+            {
+              "tag": "DIV",
+              "id": null,
+              "className": "graph-canvas __________cytoscape_container",
+              "role": null,
+              "ariaLabel": "Dependency graph"
+            },
+            {
+              "tag": "DIV",
+              "id": null,
+              "className": "graph-stage",
+              "role": null,
+              "ariaLabel": null
+            },
+            {
+              "tag": "SECTION",
+              "id": null,
+              "className": "workspace-content",
+              "role": null,
+              "ariaLabel": null
+            },
+            {
+              "tag": "MAIN",
+              "id": "exploration-panel",
+              "className": "app-main pane-details",
+              "role": "tabpanel",
+              "ariaLabel": null
+            }
+          ]
+        }
+      ],
+      "after": {
+        "pan": {
+          "x": -264.06719054720656,
+          "y": 12.631662269129322
+        },
+        "zoom": 0.6781232075255248,
+        "rendererHits": [
+          {
+            "id": "aggregate:[\"75bb8039-74be-418c-8792-8e412edb75fa\",\"02ae1c05-45f7-46dc-b0f8-88e96cf24c45\"]",
+            "group": "edges",
+            "inspected": true
+          }
+        ],
+        "inspectedEdges": [
+          "aggregate:[\"75bb8039-74be-418c-8792-8e412edb75fa\",\"02ae1c05-45f7-46dc-b0f8-88e96cf24c45\"]"
+        ],
+        "inspectedNodes": [],
+        "inspectorSubject": "Relationship✕"
+      }
+    }
+  ]
+}

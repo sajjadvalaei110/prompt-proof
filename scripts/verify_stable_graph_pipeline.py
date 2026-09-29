@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_SOURCE = ROOT / 'test-fixtures' / 'stable-graph-fixture'
 OUTPUT = ROOT / 'build' / 'stable-graph'
 JAR = ROOT / 'build' / 'libs' / 'code-atlas-0.1.0-SNAPSHOT.jar'
+JAVA = os.environ.get('JAVA', 'java')
 
 
 def free_port():
@@ -75,7 +76,7 @@ def main():
     try:
         with (run / 'application.log').open('w') as log:
             processes.append(subprocess.Popen(
-                ['java', '-jar', str(JAR), f'--server.port={port}', f'--codeatlas.data-dir={run}',
+                [JAVA, '-jar', str(JAR), f'--server.port={port}', f'--codeatlas.data-dir={run}',
                  f'--codeatlas.model.base-url=http://127.0.0.1:{offline_model_port}/v1',
                  '--codeatlas.model.model-id=offline-unreachable'],
                 cwd=ROOT, stdout=log, stderr=subprocess.STDOUT))
