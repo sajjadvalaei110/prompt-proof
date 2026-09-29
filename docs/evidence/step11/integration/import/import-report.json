@@ -1,0 +1,31 @@
+{
+  "pass": true,
+  "picker": {
+    "options": [
+      {
+        "value": "java",
+        "text": "Java"
+      }
+    ],
+    "value": "java",
+    "label": "LanguageJava"
+  },
+  "requests": [
+    {
+      "path": "/tmp/code-atlas-language-fixture-_040nqau/spring-project",
+      "language": "java"
+    },
+    {
+      "path": "/tmp/code-atlas-language-fixture-_040nqau/spring-project",
+      "language": "java"
+    },
+    {
+      "path": "/tmp/code-atlas-language-fixture-_040nqau/spring-project/src/main/java",
+      "language": "java"
+    }
+  ],
+  "pageErrors": [],
+  "workspaceLanguage": "java",
+  "reanalysis": true,
+  "recentWithoutSnapshot": true
+}

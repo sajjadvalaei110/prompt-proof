@@ -53,8 +53,11 @@ Selection dimming does not make a relationship filtered out.
 | Change a relationship filter | Update displayed edges | Preserved | Preserved |
 | Fit map, zoom, pan, minimap navigation | Navigate the existing arrangement | Preserved | Changes intentionally |
 | Expand tree, inspect source, close inspector, receive explanation updates, resize panes | Update the relevant UI | Preserved | Preserved |
+| Toggle Changes | Switch review styling and retained-source inspection for the current map | Preserve the current scope, surviving card positions, expansion and sizes; do not restore a separate mode's old arrangement | Preserved |
 | Details (⊞) on a package or class card | Expand the card in place into a box of its in-scope types or its methods; routes resolve to the deepest visible card | Cards right of / below the card shift by the box's growth (cascading through enclosing boxes), clamped against any sibling that did not itself shift on that axis so it is never crossed; others preserved | Preserved |
 | Collapse (⊟) an expanded card | Return to a card at the box's top-left corner, closing nested expansions | Cards right of / below the box shift back by the shrink, with the same clamp as expand (review remediation F-01: an earlier per-card rule could pull a shifted sibling across one that stayed put) | Preserved |
+| Card menu (right-click) Expand / Collapse / View source | Expand or collapse the card; with the card in a multi-selection, every selected card that can make the same change. View source opens the read-only source of the clicked card | Same as Details / Collapse for each card, applied one card after another; the whole action is **one** undo step | Preserved |
+| Entry points → Explore | Switch to the Code map, expand the handler's ancestors, inspect the handler and root its outgoing stack. A handler outside the current scope cannot be explored (the row says "Outside scope") | Same as Details for each ancestor; the tab switch and all expansions are **one** undo step (inspection and the stack root are selection, ADR 0009) | Preserved |
 | Resize a card or expanded box (corner grip) | Change its size; a card keeps its top-left corner. Escape or a cancelled gesture reverts to the pre-drag size, dispatching nothing | On release, cards right of / below it shift by the size change, clamped the same way as expand/collapse | Preserved |
 
 Initial placement in a new snapshot or a never-visited abstraction level creates
@@ -76,13 +79,31 @@ the tab strip.
 
 **Undo** / **Redo** restores exploration actions, including scope edits, card movement,
 resizing, expansion and source-dialog open/close. Ctrl/Cmd Z undoes; Ctrl/Cmd Shift Z or
-Ctrl Y redoes. Text inputs retain their native editing shortcuts. History holds up to
+Ctrl Y redoes. Selection is not an exploration action
+([ADR 0009](adr/0009-selection-outside-undo-history.md)): inspecting a resource or route,
+choosing an occurrence, multi-selecting and clearing selection never create an undo entry
+and never discard redo. The inspector's Back keeps its own trail. A Back that also drops
+cards that are no longer eligible is recorded; otherwise it is only a selection change. Undo and redo leave the current selection in place. They drop
+only what the restored map no longer draws: an inspected card, an inspected route,
+multi-selected cards and Back-trail entries for cards and routes that were on the map before
+the step, so Back cannot return to a card that undo removed. A selection that was never on the
+map, such as a tree pick inside a collapsed package, is kept. A double-click is an inspection
+plus one arrangement entry, so one undo reverts the arrangement and keeps the card inspected.
+When one action both edits and selects (removing the selected card from scope, say), the
+edit is recorded and the selection changes alongside it. Text inputs retain their native editing shortcuts. History holds up to
 200 actions per tab and ten recently closed tabs, for this page session and snapshot.
 Backend work, notes/documents and model settings are outside exploration history.
+Fullscreen, the Map overview disclosure and the dedicated zoom-in/zoom-out buttons are
+also outside history: they remain at their current values while undoing or redoing another
+action. Each dedicated zoom click is three former 1.2× steps (1.728× in, reciprocal out).
+Wheel/pinch/pan and Fit map remain camera-navigation history.
 
 **Clear selection**, clicking empty canvas, or Escape clears inspection and selected
-cards without changing scope, geometry or camera. Menus, resize cancellation and modal
-dialogs handle Escape first. Clicking an already-inspected resource also deselects it.
+cards without changing scope, geometry or camera, and without adding an undo entry. With
+nothing selected it does nothing (it does not switch the mobile pane either).
+Menus, resize cancellation and modal dialogs handle Escape first. While a relation stack
+(outgoing or incoming) is shown, Escape ends the stack first and leaves the selection; the next Escape clears it. Clicking an
+already-inspected resource also deselects it.
 
 ## Story 1 — Inspect without losing my place
 
@@ -93,20 +114,26 @@ Acceptance:
 
 - Single-click immediately opens the appropriate inspector without changing scope,
   abstraction level, displayed node IDs, display limit, node coordinates, or pan/zoom.
-- Selected cards get a stronger outline. Revised 2026-09-16 (change-edges): outgoing
-  visible routes turn sky blue and incoming routes red, with dashes animated from source
-  to target and a pulsing glow; related resources get a halo by direction — light blue
-  (selection points at them), light red (they point at the selection), purple (both).
-  Emphasis never overrides a route's strength width. Unrelated resources may be gently
-  dimmed but remain readable and selectable. Do not resize cards to highlight. Motion
-  is skipped under `prefers-reduced-motion`; colors remain.
-- Preserve arrow direction, candidate/unresolved distinction (a shorter dash pattern
-  while highlighted), resolution meaning, and explanation indicators while highlighting.
+- Selected cards get a stronger outline. Revised 2026-09-23 (ADR 0008): route
+  colors and line patterns keep their ordinary or Changes meaning when a resource is
+  selected. Repeated, route-width-aware arrowheads move from source to target along the
+  selected resource's routes, clear labels and terminal arrows, follow compound/self-loop
+  control points, and are masked off cards. Related resources get an indigo incoming halo, cyan outgoing halo, or one
+  hard-split ring with indigo on the left and cyan on the right for both directions.
+  Emphasis never overrides a route's strength width. Unrelated resources dim to 0.5
+  opacity but remain readable and selectable. Do not resize cards to highlight. Motion
+  is skipped under `prefers-reduced-motion`; direction marks and colors remain, and a
+  resized card or container redraws its static ring immediately.
+- Preserve terminal arrow direction, candidate/unresolved line pattern,
+  resolution meaning, and explanation indicators while highlighting.
   Hidden edges never contribute neighbors.
 - Edge selection highlights only that relationship and its endpoints. Clicking
   another element or clearing selection updates emphasis without layout or fitting.
 - Tree labels and checkboxes have separate hit targets. Labels inspect; checkboxes
   change scope; disclosure controls only expand/collapse the tree.
+  Collapsing a tree branch also collapses every package nested in it, so reopening it
+  shows them closed; **Collapse all** closes the whole tree (disabled while a search
+  forces it open). Each is one undo step.
 - Inspecting a resource outside the current map opens its details without injecting
   it into scope or changing levels. State "Not shown in the current map" where useful.
 
@@ -130,9 +157,14 @@ Acceptance:
 - Provide **Arrange around this resource** as a keyboard/touch-accessible equivalent
   in the inspector or resource action menu. It invokes this same command, not a third
   arrangement mode. Disable it when the resource is absent from the current map.
-- Keep drill-down separate and clearly named, such as **View methods** or **View
-  classes**. These navigate to a level while preserving scope and restoring that
-  level's existing arrangement if available.
+- There is no separate class/method level to drill into (ADR 0007): the map is
+  package-only. **View methods**/**View classes** (tree `⌖`, inspector buttons, deep
+  links) expand the target's card in place, opening its collapsed containers first
+  (`graphModel.revealContainers`: the package, then a member's own type; a nested type sits
+  in its package's box, so its outer class is never opened), instead of switching levels,
+  then select it; the whole reveal is one undo step. An already-expanded container,
+  ungrouped ones included, is never toggled, and a step that cannot land ends the reveal. Entry-point
+  route cards reveal the handler method and root its outgoing stack (see the table above).
 
 ## Story 3 — Reorder the map I am actually viewing
 
@@ -156,7 +188,9 @@ Acceptance:
   (source, target) pair at the active level, carrying every kind and resolution
   state between them; width follows occurrence count (log-scaled), the line is
   dashed if any occurrence is uncertain, and the kind breakdown stays in the label
-  and inspector. A→B and B→A remain two routes.
+  and inspector. A→B and B→A remain two routes. (Revised 2026-09-25, ADR 0008
+  amendment: uncertain routes are no longer dashed or amber; resolution stays in
+  the hover text and the inspector.)
 - With the same displayed graph and starting positions, results are deterministic.
   Repeated activation after settling must not make the map drift or oscillate.
 - Keep the previous arrangement if computation fails. Show "Couldn't reorder the
@@ -210,6 +244,68 @@ Acceptance:
   arrangement. Returning from source, settings, or project context also preserves it.
 - Explanation polling updates text and badges without changing membership or layout.
 
+### Outgoing relation stack (2026-09-24)
+
+A card's stack button, shown on the selected and hovered card, or its "Show outgoing stack" menu
+item roots a stack at that card (`docs/OUTGOING_STACK.md`). The walk follows parser relationship
+facts at the root's own granularity (a package root package relations, a class root class
+relations, a method root method calls; user decision 2026-09-25), so a collapsed card never joins
+unrelated relationships of its members. A method root also reaches the types it constructs or
+uses (as dead ends), and follows a call to an interface or abstract method
+on to its in-source implementations (step 12 phase C, ADR 0010). Every drawn card holding something
+the root reaches gets a layer badge at its top-left: its card-hop distance, where a step inside one
+card is free, ranked so the numbers never skip. REMOVED facts are not walked in Changes. Chain routes (drawn routes carrying a chain relationship) get the
+selected-route dashes and cyan underlay with their factual colors, chain cards a static cyan
+outline, cards inside a reached expanded box stay lit without a badge, every card of the root set
+takes the root look, and everything else is muted. The root stays pinned
+while the selection moves, and its button stays pressed with the tooltip "Outgoing stack: N layers
+· M resources" (plus "· K beyond the map" when the chain leads to K things with no card on the map,
+where it stops), which the inspector repeats for the root. Since 2026-09-28 the tooltip also appends
+what the next press does (" (click for incoming)" / " (click to hide)"); the inspector line does not. Layers recompute live on filter or scope
+changes; expanding a downstream card does not change them. The stack ends on the button (the root's third press since 2026-09-28) or its menu item, on Escape (after menus and
+before clearing selection), or when the root leaves the map (scope removal, collapse, level switch,
+undo, Changes recapture), and it never comes back on its own. Turning it on or off adds no undo
+entry and never moves cards or the camera.
+
+Incoming stack (2026-09-28): the root's button has three states, outgoing, then incoming, then off;
+another card's button always starts outgoing there. The card menu offers "Show/Hide outgoing stack"
+and "Show/Hide incoming stack" directly. The incoming stack is the exact mirror over reversed facts
+(so an interface root reaches its implementors, and a method is reached from the callers of the
+method it overrides). It uses the same badges, outlines, route dashes and muting, in the incoming
+halo's indigo instead of cyan; the root keeps its teal look. Its line reads "Incoming stack: N
+layers · M resources". Switching direction adds no undo entry, and Escape ends either direction.
+
+Keyboard: the stack toggle is a focusable button (Enter or Space), and it keeps focus when it
+changes state or turns the stack off, even on a card that is no longer selected or hovered. Shift+F10 or the
+ContextMenu key opens the card menu, either on a focused corner button or with a card selected
+and the page focused. The menu opens at the card with focus on its first item; the arrow keys,
+Home and End move through it, and Escape or an action returns focus to where it was opened. A
+keyboard-opened menu adds nothing to the multi-selection, and a card that a right-click added only
+to open the menu leaves the multi-selection when the menu roots the stack.
+
+### Ungroup (2026-09-28, ADR 0011)
+
+An expanded package or class box has an Ungroup button (two slots left of its collapse square)
+and an "Ungroup X" card-menu item. Ungroup hides the box and leaves its children where they are
+as free cards. It draws nothing and catches no click, and the children, their routes and anything
+expanded inside them are unchanged. Freed cards can be dragged anywhere on the map. Their package or
+class membership never changes by where they are dropped.
+
+Make-room, double-click arrangement and the relation stack treat freed cards as individual cards,
+never as one invisible block. The hidden card is off the map for selection and stacks. Any card or
+inner box inside a hidden one offers "Collapse into X" (the nearest hidden one) in its card menu,
+which brings X back as a collapsed card centred on its children and moves nothing else. Both are one
+undo step each, and both work in Changes mode. Every method card's sub-line names its class first:
+`OwningClass · last.two.package`.
+
+With step 13's card menu (merged 2026-09-28) the menu items run in this order: Remove from scope,
+Deselect X (in a multi-selection), the two stack items, Expand/Collapse, Ungroup X (an expanded,
+visible box), Collapse into X (anything inside a hidden box), View source, Deselect/Clear. The
+menu's Collapse never targets a hidden box (a hidden box is neither drawn nor selectable, and its
+way back is Collapse into). Every collapse, the ⊟ square, the menu's Collapse and Collapse into,
+goes through `collapseInJourney`, so cards drawn inside leave the multi-selection in the same undo
+entry. The menu never opens on a hidden box, from the pointer or the keyboard.
+
 ## Delivery and validation
 
 Implement stable selection/page state first, incremental canvas updates second, then
@@ -232,3 +328,19 @@ Keyboard/touch equivalents and reduced motion need explicit verification.
 This proposal was checked against the existing R6 scope boundary, build brief
 (`docs/BUILD.md`; `docs/BUILD_BRIEF.md` is absent), architecture, and ADRs 0001/0003.
 Runtime tests and screenshots are deferred to implementation: no UI code changed.
+
+### Selection motion revision (2026-09-24)
+
+Selected-resource routes now animate native dashes toward the target, with thin
+incoming indigo / outgoing cyan margins matching related-resource borders. Line
+and terminal-arrow colors retain their factual meanings, including Changes colors.
+UNKNOWN review routes stay dotted. Deselecting restores the original pattern;
+reduced motion leaves static patterns. See ADR 0008's amendment.
+
+### Direct edge inspection (2026-09-24)
+
+Clicking an edge highlights its line, terminal arrow, label and underlay in black,
+including in Changes mode, to avoid confusing selection with an added relation.
+This temporary direct-inspection override takes precedence over review colors;
+deselection restores the factual colors. Selecting a resource still preserves
+its attached edges' factual colors and uses directional margins.

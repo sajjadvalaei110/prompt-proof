@@ -54,7 +54,10 @@ The backend enforces strict modular separation across domain boundaries:
 ### Language analysis boundary
 
 `analysis.port.AnalysisPort` supplies discovery, preparation, declaration and relationship
-passes, optional framework enrichment, diagnostics, and cache cleanup. `AnalysisPortRegistry` selects a shipped adapter
+passes, optional cross-file relationship linking and framework enrichment, diagnostics,
+and cache cleanup. Review preparation accepts the captured source root and the original
+workspace root so Java symbol resolution retains the workspace layout. Cross-file
+linking runs in one transaction; the Java adapter supplies the existing OVERRIDES pass. `AnalysisPortRegistry` selects a shipped adapter
 by the workspace's normalized language identifier. `JavaAnalysisAdapter` delegates to the
 unchanged JavaParser implementation and existing evidence/storage schema. Both ordinary
 analysis and retained-source Git review use the same synchronized analysis service;
@@ -150,14 +153,26 @@ the prior snapshot's symbol IDs are no longer a valid boundary.
 ### Exploration tabs and undo history
 
 `explorerJourney.ts` owns independent, in-memory exploration tabs around the existing
-`explorerViewState` reducer. Each tab retains its scope, per-level geometry and expanded
-cards, inspection/navigation, relationship filter, tree disclosures, search, source-dialog
-subject, multi-selection, occurrence choice and pane controls. New tabs start from the
+`explorerViewState` reducer. Each tab's history retains its scope, per-level geometry and
+expanded cards, relationship filter, tree disclosures, search, source-dialog subject and pane
+controls. Fullscreen, Map overview and
+button zoom remain per-tab/current-view values but are rebased across history rather than
+creating or being restored by undo/redo. Selection (inspected subject, occurrence, Back
+trail, multi-selection) is outside history too (ADR 0009). An `UPDATE` that changes only
+selection, optionally with the tree reveal, search reset and pane that accompany a click,
+replaces `present` without a history entry. `UNDO`/`REDO` carry the current selection into
+the restored entry and prune it with `revalidateJourney.pruneRestoredSelection`, which
+compares the cards and routes drawn before and after the step and drops inspected,
+multi-selected and Back-trail subjects that left the map. App passes a `graphFor`
+lookup so that comparison uses each journey's real graph. New tabs start from the
 snapshot's initial view; clones share immutable values and inherit both undo and redo
 branches. Closing a tab retains its history among the ten most recently closed tabs.
 
 `useExplorerJourneys` groups synchronous updates from a user action into one history
-entry (up to 200 per tab). Initial camera fitting updates the baseline without creating
+entry (up to 200 per tab). An action that needs several renders (a sequential expand
+queue: the card menu's Expand/Collapse on a selection, Entry points → Explore, View
+classes/methods into collapsed cards) takes an explicit group from `beginGroup()` and passes
+it to each update, so it is still one entry; any other update in between starts its own. Initial camera fitting updates the baseline without creating
 an undo step. Pending camera changes flush before navigation commands. Tab IDs are never
 reused across snapshot resets, so an old callback cannot edit a replacement snapshot.
 `<main>` is keyed on the active tab's ID, so switching tabs remounts it and restores that
@@ -166,10 +181,33 @@ from the navigation pane or inspector): only `GraphCanvas` consumes a `restoreVe
 counter, via its own effect, to resync Cytoscape's live positions/camera to the restored
 tab state. Ordinary inspection and filtering preserve the mounted canvas untouched.
 
+The outgoing relation stack and its incoming mirror (`docs/OUTGOING_STACK.md`) follow the same
+layering. The pure helper
+`outgoingStack.ts` walks the tab graph's relationship facts at the root's granularity and maps the
+result onto the cards and routes the canvas draws. The walk is a 0-1 BFS with card-hop costs. Method
+roots also reach type targets as dead ends and follow parser OVERRIDES facts reversed (dispatch). It
+counts reached entities with no card as "beyond the map". The analyzer supplies the OVERRIDES facts
+this relies on (ADR 0010; candidate calls were withdrawn, ADR 0010 amendment, 2026-09-25).
+The journey keeps its pinned
+root and direction (`relationStack`, one value) outside history like selection (carried and pruned on undo/redo) and also prunes it in the
+reducer when an ordinary update or recapture stops drawing it. App computes the stack from the
+projection in the root's direction (the incoming stack reverses every step), and `GraphCanvas` only
+applies classes and draws layer badges on its direction overlay, cyan or indigo by direction.
+It never moves cards or the camera.
+
+Ungroup (ADR 0011) is an expansion whose box is hidden (`ExpansionState.hidden` →
+`projectDisplayed`'s `hiddenBox`), not a change of level or membership. The pure layout helpers
+look through a hidden box to its children: `expansionLayout.roomMoves` for make-room (App's
+expand/collapse/resize), `focusedArrangement.arrangeDisplayed` for double-click arrangement, and
+`outgoingStack`, which hands a hidden box's layer to its freed cards. `revalidateJourney` counts a
+hidden card as off the map. `GraphCanvas` only styles it invisible and inert.
+
 Renderer inputs must not alias saved state: Cytoscape retains and mutates coordinates
 passed to `add()`, so `GraphCanvas` copies positions at that boundary. Parser graph data,
 explanation responses, project documents, settings and backend jobs stay outside history.
-Undo restores exploration state; it does not reverse server operations. Tabs/history are
+Undo restores exploration state; it does not reverse server operations. Zooming with the
+dedicated +/− buttons, toggling fullscreen and toggling Map overview do not consume an undo
+step and stay unchanged while another action is undone or redone. Tabs/history are
 discarded on reload or loading a new analysis snapshot. DOM scroll offsets, text selection,
 transient menus and disclosures inside generated explanations are not stored.
 
@@ -186,12 +224,31 @@ into independent retained-source snapshots without publishing either as the norm
 workspace snapshot. A deterministic comparison supplies versioned resource and
 relationship changes; the model is not involved.
 
-The frontend projects base, overlay and after graphs from the same comparison.
-Display identities do not replace actual snapshot subject IDs: source evidence
-requests retain their side. Overlay relationship aggregation also retains change
-status, allowing added and removed occurrences between the same displayed resources
-to remain independently inspectable. Unchanged exploration uses the existing graph
-projection and rendering conventions.
+The frontend projects only the Base+changes overlay from the comparison and draws
+it directly on the ordinary Code map -- there is no separate review page, report
+or legend. A **Changes** toggle in the graph toolbar swaps the active tab's graph
+between the workspace's ordinary snapshot and the overlay; whether a tab shows
+changes is per-tab state carried in its exploration journey (`explorerJourney.ts`),
+so `+ New tab` opens beside the current tab in the same mode and `Clone tab`
+copies it along with layout and undo/redo history, and toggling itself is one
+undoable step. Display identities do not replace actual snapshot subject IDs:
+source evidence requests retain their side. Overlay relationship aggregation also
+retains change status, allowing added and removed occurrences between the same
+displayed resources to remain independently inspectable. Unchanged exploration
+uses the existing graph projection and rendering conventions.
+
+The Changes toggle retains one current exploration state per tab. Unambiguous
+comparison declarations reuse their ordinary map display identities, so the
+renderer preserves surviving cards and their geometry. Review source identities
+remain pinned to the captured base/head snapshots. Mode changes do not restore
+separate parked layouts; review-only resources remain distinguishable from the
+ordinary analysis snapshot. See the layout-continuity addendum in ADR 0006.
+
+Opening a changed file's code (or its relationship evidence) renders a git-style
+diff (`features/source/fileDiff.ts` builds unified/split rows from the
+comparison's retained `git diff --unified=0` hunks and both snapshots' whole-file
+content, fetched via `GET /api/snapshots/{id}/files/source`) instead of plain
+highlighted source.
 
 - **Source-Only Analysis**: Analyzes Java code statically without running Gradle tasks, build plugins, or compilers. The analyzed repository is strictly read-only and untrusted.
 - **Modular Monolith**: Kept as a single deployable application to eliminate distributed network complexity and minimize resource footprint.
@@ -230,7 +287,7 @@ can stale dependent results; newly available unrelated prose does not.
 The active React `InspectorPanel` implements all inspector types. Graph statuses
 refresh through the graph API; Cytoscape updates card/edge display data without
 recreating the canvas or resetting its viewport. Shared sparkle styling is purely
-a READY marker and preserves relationship resolution styling.
+a READY marker. Routes are not styled by resolution (ADR 0008 amendment, 2026-09-25).
 
 Architecture preparation never constructs a complete inventory String or purpose
 Map. It retains one page/fan-in/class batch, persists validated work immediately,

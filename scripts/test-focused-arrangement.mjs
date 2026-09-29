@@ -13,7 +13,7 @@ const stripLocalImport = (src, name) => src.replace(new RegExp(`import \\{[^}]*\
 const placementModule = compile('../frontend/src/features/explorer/graphPlacement.ts');
 const arrangementModule = stripLocalImport(compile('../frontend/src/features/explorer/focusedArrangement.ts'), 'graphPlacement');
 const compiled = placementModule + '\n' + arrangementModule;
-const { arrangeAroundResource } = await import('data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'));
+const { arrangeAroundResource, arrangeDisplayed } = await import('data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'));
 
 let passCount = 0;
 function check(label, fn) { fn(); passCount++; }
@@ -151,6 +151,82 @@ check('A2: within-group sort order is a fixed ordinal comparator, not locale-col
   const positions = arrangeAroundResource(cards, [], 'focus', zero);
   assert.ok('p.AirCarrier'.localeCompare('p.airCarrier') > 0, 'sanity check: localeCompare disagrees with ordinal for this pair under en-US');
   assert.ok(positions.upper1.x < positions.lower1.x, 'AirCarrier (ordinal-first, uppercase sorts before lowercase) must be placed further left in the unrelated row');
+});
+
+
+// --- Step 14 (ADR 0011): arranging the displayed map looks through ungrouped (hidden) boxes ---
+const box = (x, y, w = 250, h = 128) => ({ x1: x - w / 2, y1: y - h / 2, x2: x + w / 2, y2: y + h / 2 });
+const mapCard = (id, x, y, extra = {}) => ({ id, containerId: null, qualifiedName: id, box: box(x, y), position: { x, y }, ...extra });
+
+check('arrangeDisplayed with no expansions matches arrangeAroundResource on the same cards', () => {
+  const cards = [mapCard('a', 0, 0), mapCard('b', 900, 0), mapCard('c', 0, 900)];
+  const edges = [{ sourceId: 'a', targetId: 'b' }];
+  const result = arrangeDisplayed(cards, edges, 'a');
+  const plain = arrangeAroundResource(cards.map(c => ({ id: c.id, width: 250, height: 128, qualifiedName: c.id })), edges, 'a', { x: 0, y: 0 });
+  assert.deepEqual(result, { positions: plain, childPositions: {} });
+});
+
+check('freed classes of a hidden package arrange individually and are stored under it', () => {
+  // Hidden package P holds A and B; top-level Q. A calls B and Q.
+  const cards = [
+    { id: 'P', containerId: null, expanded: true, hidden: true, qualifiedName: 'P', box: { x1: -125, y1: -64, x2: 3125, y2: 64 }, position: { x: 0, y: 0 } },
+    { id: 'A', containerId: 'P', qualifiedName: 'p.A', box: box(0, 0), position: { x: 0, y: 0 } },
+    { id: 'B', containerId: 'P', qualifiedName: 'p.B', box: box(3000, 0), position: { x: 3000, y: 0 } },
+    mapCard('Q', 1500, 1500),
+  ];
+  const edges = [{ sourceId: 'A', targetId: 'B' }, { sourceId: 'A', targetId: 'Q' }];
+  const result = arrangeDisplayed(cards, edges, 'A');
+  assert.ok(result);
+  assert.equal(result.positions.P, undefined, 'the hidden box is not a card of its own');
+  assert.deepEqual(result.childPositions.P.A, { x: 0, y: 0 }, 'the focus keeps its place');
+  const right = 125 + 96 + 125;
+  // The right column sorts by qualified name ('Q' before 'p.B', ordinal order).
+  assert.deepEqual(result.positions.Q, { x: right, y: -(128 + 48) / 2 });
+  assert.deepEqual(result.childPositions.P.B, { x: right, y: (128 + 48) / 2 }, 'B stacks right of A, as a card of its own');
+});
+
+check('a visible box inside a hidden package moves as one unit, carrying its methods', () => {
+  // Hidden P holds expanded class C (methods m1, m2) and class D. D calls into m1, so D -> C.
+  const cards = [
+    { id: 'P', containerId: null, expanded: true, hidden: true, qualifiedName: 'P', box: { x1: -500, y1: -500, x2: 2000, y2: 500 }, position: { x: 0, y: 0 } },
+    { id: 'C', containerId: 'P', expanded: true, qualifiedName: 'p.C', box: { x1: -100, y1: -100, x2: 100, y2: 100 }, position: { x: 0, y: 0 } },
+    { id: 'm1', containerId: 'C', qualifiedName: 'p.C.m1', box: box(-40, 0, 60, 60), position: { x: -40, y: 0 } },
+    { id: 'm2', containerId: 'C', qualifiedName: 'p.C.m2', box: box(40, 0, 60, 60), position: { x: 40, y: 0 } },
+    { id: 'D', containerId: 'P', qualifiedName: 'p.D', box: box(1500, 0), position: { x: 1500, y: 0 } },
+  ];
+  const result = arrangeDisplayed(cards, [{ sourceId: 'D', targetId: 'm1' }], 'D');
+  assert.ok(result);
+  // D -> m1 counts as D -> C (C's box is the unit): C is D's only outgoing card, one column right.
+  const cx = 1500 + 125 + 96 + 100;
+  assert.deepEqual(result.childPositions.P.C, { x: cx, y: 0 });
+  assert.deepEqual(result.childPositions.C, { m1: { x: -40 + cx, y: 0 }, m2: { x: 40 + cx, y: 0 } }, 'the methods move with their class box');
+  assert.deepEqual(result.childPositions.P.D, { x: 1500, y: 0 });
+});
+
+check('the focus may sit deep inside a visible box inside a hidden one: its unit is that box', () => {
+  const cards = [
+    { id: 'P', containerId: null, expanded: true, hidden: true, qualifiedName: 'P', box: { x1: 0, y1: 0, x2: 10, y2: 10 }, position: { x: 0, y: 0 } },
+    { id: 'C', containerId: 'P', expanded: true, qualifiedName: 'p.C', box: { x1: -100, y1: -100, x2: 100, y2: 100 }, position: { x: 0, y: 0 } },
+    { id: 'm1', containerId: 'C', qualifiedName: 'p.C.m1', box: box(0, 0, 60, 60), position: { x: 0, y: 0 } },
+  ];
+  const result = arrangeDisplayed(cards, [], 'm1');
+  assert.deepEqual(result.childPositions.P, { C: { x: 0, y: 0 } });
+  assert.deepEqual(result.childPositions.C, { m1: { x: 0, y: 0 } }, 'the focus itself stays where it is');
+  assert.equal(arrangeDisplayed(cards, [], 'P'), null, 'a hidden box cannot be the focus');
+});
+
+check('a visible expanded box moves by its box offset: its stored anchor (not its box centre) and its children shift together', () => {
+  // X's stored position is its collapse anchor (box top-left plus half its collapsed card), which is
+  // not its box centre (1000, 0). F -> X puts X's box centre one column right of F: x = 125 + 96 + 100.
+  const cards = [
+    mapCard('F', 0, 0),
+    { id: 'X', containerId: null, expanded: true, qualifiedName: 'X', box: { x1: 900, y1: -100, x2: 1100, y2: 100 }, position: { x: 1025, y: -36 } },
+    { id: 'k', containerId: 'X', qualifiedName: 'X.k', box: box(1000, 0, 60, 60), position: { x: 1000, y: 0 } },
+  ];
+  const result = arrangeDisplayed(cards, [{ sourceId: 'F', targetId: 'k' }], 'F');
+  const dx = 321 - 1000;
+  assert.deepEqual(result.positions.X, { x: 1025 + dx, y: -36 }, 'the anchor keeps its offset from the box (deliberate since step 14)');
+  assert.deepEqual(result.childPositions.X, { k: { x: 1000 + dx, y: 0 } });
 });
 
 console.log(`test-focused-arrangement: ${passCount} checks passed`);

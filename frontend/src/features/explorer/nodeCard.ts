@@ -1,4 +1,5 @@
 import type { AtlasNode } from './graphModel';
+import { REVIEW_CHANGE_PALETTE } from '../review/reviewPalette';
 const xml = (s: string) => s.replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&apos;'}[c]!));
 // Approximate glyph advance in em for a proportional sans-serif (Segoe UI / Arial / DejaVu fallback),
 // deliberately on the wide side so an estimated fit never overflows in the widest fallback font.
@@ -65,6 +66,16 @@ export function cornerButtons(node: AtlasNode): { action: CornerAction; right: n
   if (hasDetailsButton(node)) out.push({ action: 'details', right, top: CODE_BUTTON.top, size: CODE_BUTTON.size });
   return out;
 }
+/** The kind glyph in a card's (and a tree row's) top-left badge: a folder for packages, otherwise
+ * an IntelliJ-style letter. The badge tint stays the role colour, so the letter alone carries the kind. */
+const KIND_LETTERS: Record<string, string> = { CLASS: 'C', INTERFACE: 'I', ENUM: 'E', RECORD: 'R', ANNOTATION: '@', METHOD: 'm', CONSTRUCTOR: 'c', FIELD: 'f' };
+export function kindIcon(kind: string): { folder: true } | { folder: false; letter: string } {
+  if (kind === 'PACKAGE') return { folder: true };
+  return { folder: false, letter: KIND_LETTERS[kind] ?? 'C' };
+}
+/** The same folder outline the scope tree draws, in the 16-unit box it was drawn for. */
+export const FOLDER_PATH = 'M1.8 4.3c0-.72.58-1.3 1.3-1.3h2.85l1.2 1.4h5.75c.72 0 1.3.58 1.3 1.3v5.7c0 .72-.58 1.3-1.3 1.3H3.1c-.72 0-1.3-.58-1.3-1.3V4.3z';
+
 export interface CardSize { width: number; height: number }
 /** The card's size when the user has not resized it. */
 export function defaultCardSize(node: AtlasNode): CardSize {
@@ -95,15 +106,17 @@ export function nodeCard(node: AtlasNode, size?: CardSize) {
   // Fit the complete change string to the available card width so large line counts never run out
   // of the rounded badge. Base/head graphs omit reviewChange and therefore retain the ordinary card.
   const reviewChange=node.reviewChange&&node.reviewChange!=='UNCHANGED' ? node.reviewChange : null;
+  // UNKNOWN: the declaration's file did not parse on one side, so a line delta would be meaningless.
+  const unknown=reviewChange==='UNKNOWN';
   const reviewText=reviewChange==='ADDED'?'ADDED':reviewChange==='REMOVED'?'REMOVED':'CHANGED';
-  const reviewCounts=`+${node.reviewAddedLines||0} −${node.reviewRemovedLines||0}`;
-  const reviewLabel=`${reviewText} ${reviewCounts}`;
+  const reviewLabel=unknown?'NOT ANALYZED':`${reviewText} +${node.reviewAddedLines||0} −${node.reviewRemovedLines||0}`;
   const reviewWidth=Math.min(Math.max(112,reviewLabel.length*6.2+27),Math.max(112,width-24));
   // Scale the label before falling back to an ellipsis: line totals remain readable together even
   // when a package contains many changed declarations.
   const reviewFont=Math.max(7,Math.min(11,(reviewWidth-18)/(reviewLabel.length*.58)));
+  const badgeTone=unknown?REVIEW_CHANGE_PALETTE.UNKNOWN:reviewChange==='ADDED'?REVIEW_CHANGE_PALETTE.ADDED:reviewChange==='REMOVED'?REVIEW_CHANGE_PALETTE.REMOVED:REVIEW_CHANGE_PALETTE.MODIFIED;
   const review=reviewChange
-    ? `<g transform="translate(12 55)"><rect width="${reviewWidth}" height="24" rx="12" fill="#fff0b0" stroke="#ba862d"/><text x="10" y="16" font-size="${reviewFont}" font-weight="600" fill="#805b12">${xml(fitText(reviewLabel,reviewFont,reviewWidth-18))}</text></g>` : '';
+    ? `<g transform="translate(12 55)"><rect width="${reviewWidth}" height="24" rx="12" fill="${badgeTone.badgeFill}" stroke="${badgeTone.border}"${unknown?' stroke-dasharray="4 3"':''}/><text x="10" y="16" font-size="${reviewFont}" font-weight="600" fill="${badgeTone.text}">${xml(fitText(reviewLabel,reviewFont,reviewWidth-18))}</text></g>` : '';
   // Top row: kind icon, subtitle, then (right-aligned) the sparkle and the corner button area.
   const corners=cornerButtons(node);
   const codeLeft=corners.length?width-Math.max(...corners.map(c=>c.right+c.size)):width-12;
@@ -112,6 +125,10 @@ export function nodeCard(node: AtlasNode, size?: CardSize) {
   const name=pkg?node.simpleName.split('.').pop()!:node.simpleName;
   const role=node.roles?.[0]?.toLowerCase().replaceAll('_',' ') || node.kind.toLowerCase();
   const color=pkg?'#426fa3':node.roles?.includes('SERVICE')?'#16888a':node.roles?.includes('REPOSITORY')?'#596cba':'#398bb3';
+  const icon=kindIcon(node.kind);
+  const kindGlyph=icon.folder
+    ?`<path transform="translate(5 5) scale(1.25)" d="${FOLDER_PATH}" stroke="${color}" stroke-width="1.2" stroke-linejoin="round" fill="none"/>`
+    :`<text x="15" y="20.5" text-anchor="middle" font-size="16" font-weight="700" fill="${color}">${xml(icon.letter)}</text>`;
   const subtitle=pkg?`${node.memberCount||0} types`:role;
   const inner=width-32;
   const nameLines=wrapText(name,NAME_SIZE,inner,2);
@@ -125,8 +142,12 @@ export function nodeCard(node: AtlasNode, size?: CardSize) {
   const rows=[] as string[];
   const rowStart=170+reviewOffset;
   for(const n of node.memberNames||[]){const y=rowStart+rows.length*36;if(y+28+8>height)break;rows.push(n);}
+  // Where the card lives: a method names its class first (ADR 0011), so one freed from an ungrouped
+  // class still says where it belongs; fitText cuts from the end, so the class name survives.
+  const pkgTail=node.packageName?.split('.').slice(-2).join('.')||'';
+  const placeLine=method&&node.ownerName?[node.ownerName,pkgTail].filter(Boolean).join(' · '):pkgTail||node.qualifiedName||'';
   const lower=pkg?(fits(156+reviewOffset)?`<text x="16" y="${156+reviewOffset}" font-size="13" fill="#7c8ea3">${xml(fitText(node.qualifiedName||node.simpleName,13,inner))}</text>`:'')+rows.map((n,i)=>`<rect x="16" y="${rowStart+i*36}" width="${inner}" height="28" rx="5" fill="#edf3f8"/><text x="26" y="${189+reviewOffset+i*36}" font-size="14" fill="#4c647f">${xml(fitText(n,14,inner-20))}</text>`).join(''):
-    (fits(142+reviewOffset)?`<line x1="16" y1="${142+reviewOffset}" x2="${width-16}" y2="${142+reviewOffset}" stroke="#e5edf3"/>`:'')+(fits(166+reviewOffset)?`<text x="16" y="${166+reviewOffset}" font-size="14" fill="#74859a">${xml(fitText(node.packageName?.split('.').slice(-2).join('.')||node.qualifiedName||'',14,inner))}</text>`:'')+(!method&&fits(190+reviewOffset)?`<text x="16" y="${190+reviewOffset}" font-size="15" fill="#48637c">${node.memberCount||0} methods</text>`:'');
-  const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><g font-family="Segoe UI, Arial, sans-serif"><g transform="translate(16 16) scale(1.2)"><rect width="30" height="30" rx="7" fill="${color}14"/><g stroke="${color}" stroke-width="1.5" fill="none"><path d="M8 7l7-4 7 4v9l-7 4-7-4zM8 7l7 4 7-4M15 11v9"/></g></g><text x="62" y="40" font-size="15" fill="#6c8097">${xml(fitText(subtitle,15,(ready?sparkleX:codeLeft)-62-8))}</text>${review}${nameSvg}${lower}${sparkle}</g></svg>`;
+    (fits(142+reviewOffset)?`<line x1="16" y1="${142+reviewOffset}" x2="${width-16}" y2="${142+reviewOffset}" stroke="#e5edf3"/>`:'')+(fits(166+reviewOffset)?`<text x="16" y="${166+reviewOffset}" font-size="14" fill="#74859a">${xml(fitText(placeLine,14,inner))}</text>`:'')+(!method&&fits(190+reviewOffset)?`<text x="16" y="${190+reviewOffset}" font-size="15" fill="#48637c">${node.memberCount||0} methods</text>`:'');
+  const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><g font-family="Segoe UI, Arial, sans-serif"><g transform="translate(16 16) scale(1.2)"><rect width="30" height="30" rx="7" fill="${color}14"/>${kindGlyph}</g><text x="62" y="40" font-size="15" fill="#6c8097">${xml(fitText(subtitle,15,(ready?sparkleX:codeLeft)-62-8))}</text>${review}${nameSvg}${lower}${sparkle}</g></svg>`;
   return { image: 'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg), width,height };
 }

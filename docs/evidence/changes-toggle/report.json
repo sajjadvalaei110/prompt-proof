@@ -1,0 +1,2042 @@
+{
+  "checks": [
+    {
+      "label": "package-only explorer has no removed graph-level switcher",
+      "pass": true
+    },
+    {
+      "label": "initial map includes the two fixture packages",
+      "pass": true,
+      "detail": {
+        "nodes": [
+          {
+            "key": "review",
+            "name": "review",
+            "kind": "PACKAGE",
+            "expanded": false,
+            "parent": null,
+            "x": 140,
+            "y": 125,
+            "change": null
+          },
+          {
+            "key": "support",
+            "name": "support",
+            "kind": "PACKAGE",
+            "expanded": false,
+            "parent": null,
+            "x": 468,
+            "y": 125,
+            "change": null
+          }
+        ],
+        "zoom": 1,
+        "pan": {
+          "x": 151.5,
+          "y": 133
+        }
+      }
+    },
+    {
+      "label": "ordinary mode accepts an actual keyboard resize of a survivor leaf",
+      "pass": true,
+      "detail": {
+        "before": {
+          "id": "25dbe673-9487-4aa4-bbbf-660d41ddaf3a",
+          "key": "review.Hub.changed()",
+          "name": "changed",
+          "kind": "METHOD",
+          "change": null,
+          "expanded": false,
+          "parent": "review.Hub",
+          "position": {
+            "x": 495,
+            "y": 180
+          },
+          "cardSize": {
+            "width": 250,
+            "height": 184
+          },
+          "minSize": {
+            "width": 0,
+            "height": 0
+          },
+          "renderedSize": {
+            "width": 250,
+            "height": 184
+          },
+          "children": [],
+          "drawn": true,
+          "background": "rgb(255,255,255)"
+        },
+        "after": {
+          "id": "25dbe673-9487-4aa4-bbbf-660d41ddaf3a",
+          "key": "review.Hub.changed()",
+          "name": "changed",
+          "kind": "METHOD",
+          "change": null,
+          "expanded": false,
+          "parent": "review.Hub",
+          "position": {
+            "x": 500,
+            "y": 180
+          },
+          "cardSize": {
+            "width": 260,
+            "height": 184
+          },
+          "minSize": {
+            "width": 0,
+            "height": 0
+          },
+          "renderedSize": {
+            "width": 260,
+            "height": 184
+          },
+          "children": [],
+          "drawn": true,
+          "background": "rgb(255,255,255)"
+        }
+      }
+    },
+    {
+      "label": "ordinary map records the edited layout, camera, selection and narrowed scope",
+      "pass": true,
+      "detail": {
+        "state": {
+          "nodes": [
+            {
+              "key": "review",
+              "name": "review",
+              "kind": "PACKAGE",
+              "expanded": true,
+              "parent": null,
+              "x": 641,
+              "y": 299,
+              "change": null
+            },
+            {
+              "key": "review.BrokenClient",
+              "name": "BrokenClient",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 169,
+              "y": 147,
+              "change": null
+            },
+            {
+              "key": "review.Hub",
+              "name": "Hub",
+              "kind": "CLASS",
+              "expanded": true,
+              "parent": "review",
+              "x": 683,
+              "y": 201,
+              "change": null
+            },
+            {
+              "key": "review.Hub.changed()",
+              "name": "changed",
+              "kind": "METHOD",
+              "expanded": false,
+              "parent": "review.Hub",
+              "x": 583,
+              "y": 221,
+              "change": null
+            },
+            {
+              "key": "review.Hub.sibling()",
+              "name": "sibling",
+              "kind": "METHOD",
+              "expanded": false,
+              "parent": "review.Hub",
+              "x": 787,
+              "y": 180,
+              "change": null
+            },
+            {
+              "key": "review.KeepDep",
+              "name": "KeepDep",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 1113,
+              "y": 147,
+              "change": null
+            },
+            {
+              "key": "review.NewDep",
+              "name": "NewDep",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 169,
+              "y": 451,
+              "change": null
+            },
+            {
+              "key": "review.UntrackedHelper",
+              "name": "UntrackedHelper",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 451,
+              "y": 451,
+              "change": null
+            }
+          ],
+          "zoom": 1.08,
+          "pan": {
+            "x": -2.5,
+            "y": 59
+          }
+        },
+        "supportScope": {
+          "label": "Add package support to scope",
+          "checked": false,
+          "mixed": false,
+          "aria": "false"
+        },
+        "selected": "Hub"
+      }
+    },
+    {
+      "label": "ordinary mode accepts a leaf position and camera edit before first activation",
+      "pass": true,
+      "detail": {
+        "before": {
+          "node": {
+            "id": "25dbe673-9487-4aa4-bbbf-660d41ddaf3a",
+            "key": "review.Hub.changed()",
+            "name": "changed",
+            "kind": "METHOD",
+            "change": null,
+            "expanded": false,
+            "parent": "review.Hub",
+            "position": {
+              "x": 500,
+              "y": 180
+            },
+            "cardSize": {
+              "width": 260,
+              "height": 184
+            },
+            "minSize": {
+              "width": 0,
+              "height": 0
+            },
+            "renderedSize": {
+              "width": 260,
+              "height": 184
+            },
+            "children": [],
+            "drawn": true,
+            "background": "rgb(255,255,255)"
+          },
+          "zoom": 1,
+          "pan": {
+            "x": -39.5,
+            "y": 78
+          }
+        },
+        "after": {
+          "node": {
+            "id": "25dbe673-9487-4aa4-bbbf-660d41ddaf3a",
+            "key": "review.Hub.changed()",
+            "name": "changed",
+            "kind": "METHOD",
+            "change": null,
+            "expanded": false,
+            "parent": "review.Hub",
+            "position": {
+              "x": 583,
+              "y": 221
+            },
+            "cardSize": {
+              "width": 260,
+              "height": 184
+            },
+            "minSize": {
+              "width": 0,
+              "height": 0
+            },
+            "renderedSize": {
+              "width": 260,
+              "height": 184
+            },
+            "children": [],
+            "drawn": true,
+            "background": "rgb(255,255,255)"
+          },
+          "zoom": 1.08,
+          "pan": {
+            "x": -2.5,
+            "y": 59
+          }
+        }
+      }
+    },
+    {
+      "label": "first Changes toggle preserves map membership, positions, camera and expansion tree",
+      "pass": true,
+      "detail": {
+        "differences": [],
+        "ordinary": {
+          "nodes": [
+            {
+              "key": "review",
+              "name": "review",
+              "kind": "PACKAGE",
+              "expanded": true,
+              "parent": null,
+              "x": 641,
+              "y": 299,
+              "change": null
+            },
+            {
+              "key": "review.BrokenClient",
+              "name": "BrokenClient",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 169,
+              "y": 147,
+              "change": null
+            },
+            {
+              "key": "review.Hub",
+              "name": "Hub",
+              "kind": "CLASS",
+              "expanded": true,
+              "parent": "review",
+              "x": 683,
+              "y": 201,
+              "change": null
+            },
+            {
+              "key": "review.Hub.changed()",
+              "name": "changed",
+              "kind": "METHOD",
+              "expanded": false,
+              "parent": "review.Hub",
+              "x": 583,
+              "y": 221,
+              "change": null
+            },
+            {
+              "key": "review.Hub.sibling()",
+              "name": "sibling",
+              "kind": "METHOD",
+              "expanded": false,
+              "parent": "review.Hub",
+              "x": 787,
+              "y": 180,
+              "change": null
+            },
+            {
+              "key": "review.KeepDep",
+              "name": "KeepDep",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 1113,
+              "y": 147,
+              "change": null
+            },
+            {
+              "key": "review.NewDep",
+              "name": "NewDep",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 169,
+              "y": 451,
+              "change": null
+            },
+            {
+              "key": "review.UntrackedHelper",
+              "name": "UntrackedHelper",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 451,
+              "y": 451,
+              "change": null
+            }
+          ],
+          "zoom": 1.08,
+          "pan": {
+            "x": -2.5,
+            "y": 59
+          }
+        },
+        "review": {
+          "nodes": [
+            {
+              "key": "review",
+              "name": "review",
+              "kind": "PACKAGE",
+              "expanded": true,
+              "parent": null,
+              "x": 641,
+              "y": 418,
+              "change": "MODIFIED"
+            },
+            {
+              "key": "review.Broken",
+              "name": "Broken",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 169,
+              "y": 689,
+              "change": "UNKNOWN"
+            },
+            {
+              "key": "review.BrokenClient",
+              "name": "BrokenClient",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 169,
+              "y": 147,
+              "change": "UNCHANGED"
+            },
+            {
+              "key": "review.Hub",
+              "name": "Hub",
+              "kind": "CLASS",
+              "expanded": true,
+              "parent": "review",
+              "x": 683,
+              "y": 201,
+              "change": "MODIFIED"
+            },
+            {
+              "key": "review.Hub.changed()",
+              "name": "changed",
+              "kind": "METHOD",
+              "expanded": false,
+              "parent": "review.Hub",
+              "x": 583,
+              "y": 221,
+              "change": "MODIFIED"
+            },
+            {
+              "key": "review.Hub.sibling()",
+              "name": "sibling",
+              "kind": "METHOD",
+              "expanded": false,
+              "parent": "review.Hub",
+              "x": 787,
+              "y": 180,
+              "change": "MODIFIED"
+            },
+            {
+              "key": "review.KeepDep",
+              "name": "KeepDep",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 1113,
+              "y": 147,
+              "change": "UNCHANGED"
+            },
+            {
+              "key": "review.NewDep",
+              "name": "NewDep",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 169,
+              "y": 451,
+              "change": "ADDED"
+            },
+            {
+              "key": "review.OldDep",
+              "name": "OldDep",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 451,
+              "y": 689,
+              "change": "REMOVED"
+            },
+            {
+              "key": "review.UntrackedHelper",
+              "name": "UntrackedHelper",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 451,
+              "y": 451,
+              "change": "ADDED"
+            }
+          ],
+          "zoom": 1.08,
+          "pan": {
+            "x": -2.5,
+            "y": 59
+          }
+        }
+      }
+    },
+    {
+      "label": "first Changes toggle preserves the selected resource and package scope",
+      "pass": true,
+      "detail": {
+        "selected": "Hub",
+        "supportScope": {
+          "label": "Add package support to scope",
+          "checked": false,
+          "mixed": false,
+          "aria": "false"
+        }
+      }
+    },
+    {
+      "label": "first Changes toggle keeps the same canvas and surviving Cytoscape node objects",
+      "pass": true,
+      "detail": {
+        "canvasSame": true,
+        "canvasElementSame": true,
+        "nodes": {
+          "review": {
+            "id": "f7564625-9f67-4f83-a513-d7ebc3baf695",
+            "same": true
+          },
+          "Hub": {
+            "id": "ba83e25f-4ec9-461c-9129-faaec8151a13",
+            "same": true
+          },
+          "KeepDep": {
+            "id": "89771022-9a62-427e-9af8-e0f021352f6c",
+            "same": true
+          },
+          "changed": {
+            "id": "25dbe673-9487-4aa4-bbbf-660d41ddaf3a",
+            "same": true
+          }
+        }
+      }
+    },
+    {
+      "label": "review overlay changes styling/facts while retaining the same resource",
+      "pass": true,
+      "detail": {
+        "id": "ba83e25f-4ec9-461c-9129-faaec8151a13",
+        "key": "review.Hub",
+        "name": "Hub",
+        "kind": "CLASS",
+        "change": "MODIFIED",
+        "expanded": true,
+        "parent": "review",
+        "position": {
+          "x": 682.5,
+          "y": 200.5
+        },
+        "cardSize": {
+          "width": 250,
+          "height": 206
+        },
+        "minSize": {
+          "width": 0,
+          "height": 0
+        },
+        "renderedSize": {
+          "width": 462.40000000000003,
+          "height": 228.39999999999998
+        },
+        "children": [
+          "review.Hub.changed()",
+          "review.Hub.sibling()"
+        ],
+        "drawn": true,
+        "added": 2,
+        "removed": 2,
+        "background": "rgb(255,244,200)"
+      }
+    },
+    {
+      "label": "review colors remain parser-owned (added green and removed red)",
+      "pass": true,
+      "detail": {
+        "added": {
+          "id": "aggregate:[\"ba83e25f-4ec9-461c-9129-faaec8151a13\",\"b5b7e037-4c20-4cbe-bda8-a3622e42d32f\",\"ADDED\"]",
+          "source": "review.Hub",
+          "target": "review.NewDep",
+          "change": "ADDED",
+          "color": "rgb(22,138,88)",
+          "lineStyle": "solid"
+        },
+        "removed": {
+          "id": "aggregate:[\"ba83e25f-4ec9-461c-9129-faaec8151a13\",\"review-node:node:9fc67f36057528bdc235863b\",\"REMOVED\"]",
+          "source": "review.Hub",
+          "target": "review.OldDep",
+          "change": "REMOVED",
+          "color": "rgb(199,69,69)",
+          "lineStyle": "dashed"
+        }
+      }
+    },
+    {
+      "label": "overlay keeps parser uncertainty visible as an unknown dotted route/card",
+      "pass": true,
+      "detail": {
+        "route": {
+          "id": "aggregate:[\"25541e60-ee64-4d31-a19f-ce5909c09957\",\"review-node:node:e0f30fdf7dbe38a7f98f8231\",\"UNKNOWN\"]",
+          "source": "review.BrokenClient",
+          "target": "review.Broken",
+          "change": "UNKNOWN",
+          "color": "rgb(186,134,45)",
+          "lineStyle": "dotted"
+        },
+        "card": {
+          "id": "review-node:node:e0f30fdf7dbe38a7f98f8231",
+          "key": "review.Broken",
+          "name": "Broken",
+          "kind": "CLASS",
+          "change": "UNKNOWN",
+          "expanded": false,
+          "parent": "review",
+          "position": {
+            "x": 169,
+            "y": 689
+          },
+          "cardSize": {
+            "width": 250,
+            "height": 206
+          },
+          "minSize": {
+            "width": 0,
+            "height": 0
+          },
+          "renderedSize": {
+            "width": 250,
+            "height": 206
+          },
+          "children": [],
+          "drawn": true,
+          "added": 0,
+          "removed": 1,
+          "background": "rgb(255,255,255)"
+        }
+      }
+    },
+    {
+      "label": "comparison retains a removed whole-package fact for the scope boundary",
+      "pass": true,
+      "detail": {
+        "change": "REMOVED",
+        "base": {
+          "id": "609cee1b-ff7d-41f6-9c79-246ac4ff11ce",
+          "kind": "PACKAGE",
+          "qualifiedName": "legacy",
+          "simpleName": "legacy",
+          "module": null,
+          "roles": [],
+          "responsibilitySummary": "Analyzed package",
+          "explanationStatus": "NOT_REQUESTED",
+          "parentId": null
+        }
+      }
+    },
+    {
+      "label": "overlay retains removed, added and unchanged resource facts beside the ordinary survivors",
+      "pass": true,
+      "detail": {
+        "removed": {
+          "id": "review-node:node:9fc67f36057528bdc235863b",
+          "key": "review.OldDep",
+          "name": "OldDep",
+          "kind": "CLASS",
+          "change": "REMOVED",
+          "expanded": false,
+          "parent": "review",
+          "position": {
+            "x": 451,
+            "y": 689
+          },
+          "cardSize": {
+            "width": 250,
+            "height": 206
+          },
+          "minSize": {
+            "width": 0,
+            "height": 0
+          },
+          "renderedSize": {
+            "width": 250,
+            "height": 206
+          },
+          "children": [],
+          "drawn": true,
+          "added": 0,
+          "removed": 5,
+          "background": "rgb(253,236,236)"
+        },
+        "added": {
+          "id": "b5b7e037-4c20-4cbe-bda8-a3622e42d32f",
+          "key": "review.NewDep",
+          "name": "NewDep",
+          "kind": "CLASS",
+          "change": "ADDED",
+          "expanded": false,
+          "parent": "review",
+          "position": {
+            "x": 169,
+            "y": 451
+          },
+          "cardSize": {
+            "width": 250,
+            "height": 206
+          },
+          "minSize": {
+            "width": 0,
+            "height": 0
+          },
+          "renderedSize": {
+            "width": 250,
+            "height": 206
+          },
+          "children": [],
+          "drawn": true,
+          "added": 5,
+          "removed": 0,
+          "background": "rgb(233,248,239)"
+        },
+        "untracked": {
+          "id": "b463bd1d-074b-4103-bb2b-e8cab3657694",
+          "key": "review.UntrackedHelper",
+          "name": "UntrackedHelper",
+          "kind": "CLASS",
+          "change": "ADDED",
+          "expanded": false,
+          "parent": "review",
+          "position": {
+            "x": 451,
+            "y": 451
+          },
+          "cardSize": {
+            "width": 250,
+            "height": 206
+          },
+          "minSize": {
+            "width": 0,
+            "height": 0
+          },
+          "renderedSize": {
+            "width": 250,
+            "height": 206
+          },
+          "children": [],
+          "drawn": true,
+          "added": 5,
+          "removed": 0,
+          "background": "rgb(233,248,239)"
+        },
+        "unchanged": {
+          "id": "89771022-9a62-427e-9af8-e0f021352f6c",
+          "key": "review.KeepDep",
+          "name": "KeepDep",
+          "kind": "CLASS",
+          "change": "UNCHANGED",
+          "expanded": false,
+          "parent": "review",
+          "position": {
+            "x": 1113,
+            "y": 147
+          },
+          "cardSize": {
+            "width": 250,
+            "height": 206
+          },
+          "minSize": {
+            "width": 0,
+            "height": 0
+          },
+          "renderedSize": {
+            "width": 250,
+            "height": 206
+          },
+          "children": [],
+          "drawn": true,
+          "added": 0,
+          "removed": 0,
+          "background": "rgb(255,255,255)"
+        }
+      }
+    },
+    {
+      "label": "added, removed and modified resource fills are distinct",
+      "pass": true,
+      "detail": {
+        "added": "rgb(233,248,239)",
+        "removed": "rgb(253,236,236)",
+        "modified": "rgb(255,244,200)"
+      }
+    },
+    {
+      "label": "overlay keeps real removed and unknown resources drawn on the scoped map",
+      "pass": true,
+      "detail": {
+        "removed": {
+          "id": "review-node:node:9fc67f36057528bdc235863b",
+          "key": "review.OldDep",
+          "name": "OldDep",
+          "kind": "CLASS",
+          "change": "REMOVED",
+          "expanded": false,
+          "parent": "review",
+          "position": {
+            "x": 451,
+            "y": 689
+          },
+          "cardSize": {
+            "width": 250,
+            "height": 206
+          },
+          "minSize": {
+            "width": 0,
+            "height": 0
+          },
+          "renderedSize": {
+            "width": 250,
+            "height": 206
+          },
+          "children": [],
+          "drawn": true,
+          "added": 0,
+          "removed": 5,
+          "background": "rgb(253,236,236)"
+        },
+        "unknown": {
+          "id": "review-node:node:e0f30fdf7dbe38a7f98f8231",
+          "key": "review.Broken",
+          "name": "Broken",
+          "kind": "CLASS",
+          "change": "UNKNOWN",
+          "expanded": false,
+          "parent": "review",
+          "position": {
+            "x": 169,
+            "y": 689
+          },
+          "cardSize": {
+            "width": 250,
+            "height": 206
+          },
+          "minSize": {
+            "width": 0,
+            "height": 0
+          },
+          "renderedSize": {
+            "width": 250,
+            "height": 206
+          },
+          "children": [],
+          "drawn": true,
+          "added": 0,
+          "removed": 1,
+          "background": "rgb(255,255,255)"
+        },
+        "excludedPackages": []
+      }
+    },
+    {
+      "label": "overlay aggregates occurrences by endpoint and change status without merging statuses",
+      "pass": true,
+      "detail": [
+        "review.BrokenClient->review.Broken|UNKNOWN",
+        "review.Broken->review.KeepDep|UNKNOWN",
+        "review.Hub->review.KeepDep|UNCHANGED",
+        "review.Hub->review.NewDep|ADDED",
+        "review.Hub->review.OldDep|REMOVED",
+        "review.Hub.changed()->review.NewDep|ADDED",
+        "review.Hub.changed()->review.OldDep|REMOVED",
+        "review.Hub.sibling()->review.KeepDep|UNCHANGED",
+        "review.Hub.sibling()->review.KeepDep|REMOVED"
+      ]
+    },
+    {
+      "label": "overlay keeps removed and unchanged routes separate for the same endpoint pair",
+      "pass": true,
+      "detail": [
+        {
+          "pair": "review.Hub.sibling()->review.KeepDep",
+          "statuses": [
+            "UNCHANGED",
+            "REMOVED"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "Changes inspection opens a unified diff for a changed file",
+      "pass": true,
+      "detail": {
+        "heading": "Hub",
+        "addRows": 2,
+        "delRows": 2,
+        "hasDiff": true,
+        "hasSplitTable": false,
+        "layoutButtons": [
+          {
+            "text": "Unified",
+            "pressed": "true"
+          },
+          {
+            "text": "Split",
+            "pressed": "false"
+          }
+        ],
+        "plainLines": 0,
+        "open": true
+      }
+    },
+    {
+      "label": "review source inspection can switch to split diff",
+      "pass": true
+    },
+    {
+      "label": "an open review diff does not refetch pinned source during unrelated renders",
+      "pass": true,
+      "detail": {
+        "sourceRequestsBefore": 1,
+        "sourceRequestsAfter": 1
+      }
+    },
+    {
+      "label": "selection preserves every factual review route style",
+      "pass": true,
+      "detail": {
+        "before": [
+          {
+            "id": "aggregate:[\"25541e60-ee64-4d31-a19f-ce5909c09957\",\"review-node:node:e0f30fdf7dbe38a7f98f8231\",\"UNKNOWN\"]",
+            "source": "review.BrokenClient",
+            "target": "review.Broken",
+            "change": "UNKNOWN",
+            "color": "rgb(186,134,45)",
+            "arrow": "rgb(167,121,41)",
+            "glow": "rgb(0,0,0)",
+            "flowIn": false,
+            "flowOut": false,
+            "lineStyle": "dotted",
+            "dashPattern": "6 3"
+          },
+          {
+            "id": "aggregate:[\"review-node:node:e0f30fdf7dbe38a7f98f8231\",\"89771022-9a62-427e-9af8-e0f021352f6c\",\"UNKNOWN\"]",
+            "source": "review.Broken",
+            "target": "review.KeepDep",
+            "change": "UNKNOWN",
+            "color": "rgb(186,134,45)",
+            "arrow": "rgb(167,121,41)",
+            "glow": "rgb(0,0,0)",
+            "flowIn": false,
+            "flowOut": false,
+            "lineStyle": "dotted",
+            "dashPattern": "6 3"
+          },
+          {
+            "id": "aggregate:[\"ba83e25f-4ec9-461c-9129-faaec8151a13\",\"89771022-9a62-427e-9af8-e0f021352f6c\",\"UNCHANGED\"]",
+            "source": "review.Hub",
+            "target": "review.KeepDep",
+            "change": "UNCHANGED",
+            "color": "rgb(170,182,196)",
+            "arrow": "rgb(118,134,152)",
+            "glow": "rgb(0,0,0)",
+            "flowIn": false,
+            "flowOut": false,
+            "lineStyle": "solid",
+            "dashPattern": "6 3"
+          },
+          {
+            "id": "aggregate:[\"ba83e25f-4ec9-461c-9129-faaec8151a13\",\"b5b7e037-4c20-4cbe-bda8-a3622e42d32f\",\"ADDED\"]",
+            "source": "review.Hub",
+            "target": "review.NewDep",
+            "change": "ADDED",
+            "color": "rgb(22,138,88)",
+            "arrow": "rgb(20,124,79)",
+            "glow": "rgb(0,0,0)",
+            "flowIn": false,
+            "flowOut": false,
+            "lineStyle": "solid",
+            "dashPattern": "6 3"
+          },
+          {
+            "id": "aggregate:[\"ba83e25f-4ec9-461c-9129-faaec8151a13\",\"review-node:node:9fc67f36057528bdc235863b\",\"REMOVED\"]",
+            "source": "review.Hub",
+            "target": "review.OldDep",
+            "change": "REMOVED",
+            "color": "rgb(199,69,69)",
+            "arrow": "rgb(179,62,62)",
+            "glow": "rgb(0,0,0)",
+            "flowIn": false,
+            "flowOut": false,
+            "lineStyle": "dashed",
+            "dashPattern": "6 3"
+          },
+          {
+            "id": "aggregate:[\"25dbe673-9487-4aa4-bbbf-660d41ddaf3a\",\"b5b7e037-4c20-4cbe-bda8-a3622e42d32f\",\"ADDED\"]",
+            "source": "review.Hub.changed()",
+            "target": "review.NewDep",
+            "change": "ADDED",
+            "color": "rgb(22,138,88)",
+            "arrow": "rgb(20,124,79)",
+            "glow": "rgb(0,0,0)",
+            "flowIn": false,
+            "flowOut": false,
+            "lineStyle": "solid",
+            "dashPattern": "6 3"
+          },
+          {
+            "id": "aggregate:[\"25dbe673-9487-4aa4-bbbf-660d41ddaf3a\",\"review-node:node:9fc67f36057528bdc235863b\",\"REMOVED\"]",
+            "source": "review.Hub.changed()",
+            "target": "review.OldDep",
+            "change": "REMOVED",
+            "color": "rgb(199,69,69)",
+            "arrow": "rgb(179,62,62)",
+            "glow": "rgb(0,0,0)",
+            "flowIn": false,
+            "flowOut": false,
+            "lineStyle": "dashed",
+            "dashPattern": "6 3"
+          },
+          {
+            "id": "aggregate:[\"0cf8fe54-d2a1-4117-9243-9e1836de37b1\",\"89771022-9a62-427e-9af8-e0f021352f6c\",\"UNCHANGED\"]",
+            "source": "review.Hub.sibling()",
+            "target": "review.KeepDep",
+            "change": "UNCHANGED",
+            "color": "rgb(170,182,196)",
+            "arrow": "rgb(118,134,152)",
+            "glow": "rgb(0,0,0)",
+            "flowIn": false,
+            "flowOut": false,
+            "lineStyle": "solid",
+            "dashPattern": "6 3"
+          },
+          {
+            "id": "aggregate:[\"0cf8fe54-d2a1-4117-9243-9e1836de37b1\",\"89771022-9a62-427e-9af8-e0f021352f6c\",\"REMOVED\"]",
+            "source": "review.Hub.sibling()",
+            "target": "review.KeepDep",
+            "change": "REMOVED",
+            "color": "rgb(199,69,69)",
+            "arrow": "rgb(179,62,62)",
+            "glow": "rgb(0,0,0)",
+            "flowIn": false,
+            "flowOut": false,
+            "lineStyle": "dashed",
+            "dashPattern": "6 3"
+          }
+        ],
+        "selected": [
+          {
+            "id": "aggregate:[\"25541e60-ee64-4d31-a19f-ce5909c09957\",\"review-node:node:e0f30fdf7dbe38a7f98f8231\",\"UNKNOWN\"]",
+            "source": "review.BrokenClient",
+            "target": "review.Broken",
+            "change": "UNKNOWN",
+            "color": "rgb(186,134,45)",
+            "arrow": "rgb(167,121,41)",
+            "glow": "rgb(0,0,0)",
+            "flowIn": false,
+            "flowOut": false,
+            "lineStyle": "dotted",
+            "dashPattern": "6 3"
+          },
+          {
+            "id": "aggregate:[\"review-node:node:e0f30fdf7dbe38a7f98f8231\",\"89771022-9a62-427e-9af8-e0f021352f6c\",\"UNKNOWN\"]",
+            "source": "review.Broken",
+            "target": "review.KeepDep",
+            "change": "UNKNOWN",
+            "color": "rgb(186,134,45)",
+            "arrow": "rgb(167,121,41)",
+            "glow": "rgb(186,134,45)",
+            "flowIn": true,
+            "flowOut": false,
+            "lineStyle": "dotted",
+            "dashPattern": "6 3"
+          },
+          {
+            "id": "aggregate:[\"ba83e25f-4ec9-461c-9129-faaec8151a13\",\"89771022-9a62-427e-9af8-e0f021352f6c\",\"UNCHANGED\"]",
+            "source": "review.Hub",
+            "target": "review.KeepDep",
+            "change": "UNCHANGED",
+            "color": "rgb(170,182,196)",
+            "arrow": "rgb(118,134,152)",
+            "glow": "rgb(170,182,196)",
+            "flowIn": true,
+            "flowOut": false,
+            "lineStyle": "solid",
+            "dashPattern": "6 3"
+          },
+          {
+            "id": "aggregate:[\"ba83e25f-4ec9-461c-9129-faaec8151a13\",\"b5b7e037-4c20-4cbe-bda8-a3622e42d32f\",\"ADDED\"]",
+            "source": "review.Hub",
+            "target": "review.NewDep",
+            "change": "ADDED",
+            "color": "rgb(22,138,88)",
+            "arrow": "rgb(20,124,79)",
+            "glow": "rgb(0,0,0)",
+            "flowIn": false,
+            "flowOut": false,
+            "lineStyle": "solid",
+            "dashPattern": "6 3"
+          },
+          {
+            "id": "aggregate:[\"ba83e25f-4ec9-461c-9129-faaec8151a13\",\"review-node:node:9fc67f36057528bdc235863b\",\"REMOVED\"]",
+            "source": "review.Hub",
+            "target": "review.OldDep",
+            "change": "REMOVED",
+            "color": "rgb(199,69,69)",
+            "arrow": "rgb(179,62,62)",
+            "glow": "rgb(0,0,0)",
+            "flowIn": false,
+            "flowOut": false,
+            "lineStyle": "dashed",
+            "dashPattern": "6 3"
+          },
+          {
+            "id": "aggregate:[\"25dbe673-9487-4aa4-bbbf-660d41ddaf3a\",\"b5b7e037-4c20-4cbe-bda8-a3622e42d32f\",\"ADDED\"]",
+            "source": "review.Hub.changed()",
+            "target": "review.NewDep",
+            "change": "ADDED",
+            "color": "rgb(22,138,88)",
+            "arrow": "rgb(20,124,79)",
+            "glow": "rgb(0,0,0)",
+            "flowIn": false,
+            "flowOut": false,
+            "lineStyle": "solid",
+            "dashPattern": "6 3"
+          },
+          {
+            "id": "aggregate:[\"25dbe673-9487-4aa4-bbbf-660d41ddaf3a\",\"review-node:node:9fc67f36057528bdc235863b\",\"REMOVED\"]",
+            "source": "review.Hub.changed()",
+            "target": "review.OldDep",
+            "change": "REMOVED",
+            "color": "rgb(199,69,69)",
+            "arrow": "rgb(179,62,62)",
+            "glow": "rgb(0,0,0)",
+            "flowIn": false,
+            "flowOut": false,
+            "lineStyle": "dashed",
+            "dashPattern": "6 3"
+          },
+          {
+            "id": "aggregate:[\"0cf8fe54-d2a1-4117-9243-9e1836de37b1\",\"89771022-9a62-427e-9af8-e0f021352f6c\",\"UNCHANGED\"]",
+            "source": "review.Hub.sibling()",
+            "target": "review.KeepDep",
+            "change": "UNCHANGED",
+            "color": "rgb(170,182,196)",
+            "arrow": "rgb(118,134,152)",
+            "glow": "rgb(170,182,196)",
+            "flowIn": true,
+            "flowOut": false,
+            "lineStyle": "solid",
+            "dashPattern": "6 3"
+          },
+          {
+            "id": "aggregate:[\"0cf8fe54-d2a1-4117-9243-9e1836de37b1\",\"89771022-9a62-427e-9af8-e0f021352f6c\",\"REMOVED\"]",
+            "source": "review.Hub.sibling()",
+            "target": "review.KeepDep",
+            "change": "REMOVED",
+            "color": "rgb(199,69,69)",
+            "arrow": "rgb(179,62,62)",
+            "glow": "rgb(199,69,69)",
+            "flowIn": true,
+            "flowOut": false,
+            "lineStyle": "dashed",
+            "dashPattern": "6 3"
+          }
+        ]
+      }
+    },
+    {
+      "label": "unchanged incoming route stays light gray when selected",
+      "pass": true,
+      "detail": {
+        "id": "aggregate:[\"ba83e25f-4ec9-461c-9129-faaec8151a13\",\"89771022-9a62-427e-9af8-e0f021352f6c\",\"UNCHANGED\"]",
+        "source": "review.Hub",
+        "target": "review.KeepDep",
+        "change": "UNCHANGED",
+        "color": "rgb(170,182,196)",
+        "arrow": "rgb(118,134,152)",
+        "glow": "rgb(170,182,196)",
+        "flowIn": true,
+        "flowOut": false,
+        "lineStyle": "solid",
+        "dashPattern": "6 3"
+      }
+    },
+    {
+      "label": "direction overlay and animated chevron phase are active",
+      "pass": true
+    },
+    {
+      "label": "removed resource source stays pinned as all removed lines",
+      "pass": true,
+      "detail": {
+        "heading": "OldDep",
+        "addRows": 0,
+        "delRows": 8,
+        "hasDiff": true,
+        "hasSplitTable": true,
+        "layoutButtons": [
+          {
+            "text": "Unified",
+            "pressed": "false"
+          },
+          {
+            "text": "Split",
+            "pressed": "true"
+          }
+        ],
+        "plainLines": 0,
+        "open": true
+      }
+    },
+    {
+      "label": "Changes mode accepts a later leaf position and camera edit",
+      "pass": true,
+      "detail": {
+        "before": {
+          "node": {
+            "id": "25dbe673-9487-4aa4-bbbf-660d41ddaf3a",
+            "key": "review.Hub.changed()",
+            "name": "changed",
+            "kind": "METHOD",
+            "change": "MODIFIED",
+            "expanded": false,
+            "parent": "review.Hub",
+            "position": {
+              "x": 583,
+              "y": 221
+            },
+            "cardSize": {
+              "width": 260,
+              "height": 184
+            },
+            "minSize": {
+              "width": 0,
+              "height": 0
+            },
+            "renderedSize": {
+              "width": 260,
+              "height": 184
+            },
+            "children": [],
+            "drawn": true,
+            "added": 1,
+            "removed": 1,
+            "background": "rgb(255,244,200)"
+          },
+          "zoom": 0.5450473816378847,
+          "pan": {
+            "x": 108.03814996980276,
+            "y": 53.19689437939371
+          }
+        },
+        "after": {
+          "node": {
+            "id": "25dbe673-9487-4aa4-bbbf-660d41ddaf3a",
+            "key": "review.Hub.changed()",
+            "name": "changed",
+            "kind": "METHOD",
+            "change": "MODIFIED",
+            "expanded": false,
+            "parent": "review.Hub",
+            "position": {
+              "x": 536,
+              "y": 250
+            },
+            "cardSize": {
+              "width": 260,
+              "height": 184
+            },
+            "minSize": {
+              "width": 0,
+              "height": 0
+            },
+            "renderedSize": {
+              "width": 260,
+              "height": 184
+            },
+            "children": [],
+            "drawn": true,
+            "added": 1,
+            "removed": 1,
+            "background": "rgb(255,244,200)"
+          },
+          "zoom": 0.5450473816378847,
+          "pan": {
+            "x": 85.03814996980276,
+            "y": 84.19689437939371
+          }
+        }
+      }
+    },
+    {
+      "label": "turning Changes off preserves the later layout and camera edit",
+      "pass": true,
+      "detail": {
+        "differences": [],
+        "review": {
+          "nodes": [
+            {
+              "key": "review",
+              "name": "review",
+              "kind": "PACKAGE",
+              "expanded": true,
+              "parent": null,
+              "x": 641,
+              "y": 418,
+              "change": "MODIFIED"
+            },
+            {
+              "key": "review.Broken",
+              "name": "Broken",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 169,
+              "y": 689,
+              "change": "UNKNOWN"
+            },
+            {
+              "key": "review.BrokenClient",
+              "name": "BrokenClient",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 169,
+              "y": 147,
+              "change": "UNCHANGED"
+            },
+            {
+              "key": "review.Hub",
+              "name": "Hub",
+              "kind": "CLASS",
+              "expanded": true,
+              "parent": "review",
+              "x": 659,
+              "y": 215,
+              "change": "MODIFIED"
+            },
+            {
+              "key": "review.Hub.changed()",
+              "name": "changed",
+              "kind": "METHOD",
+              "expanded": false,
+              "parent": "review.Hub",
+              "x": 536,
+              "y": 250,
+              "change": "MODIFIED"
+            },
+            {
+              "key": "review.Hub.sibling()",
+              "name": "sibling",
+              "kind": "METHOD",
+              "expanded": false,
+              "parent": "review.Hub",
+              "x": 787,
+              "y": 180,
+              "change": "MODIFIED"
+            },
+            {
+              "key": "review.KeepDep",
+              "name": "KeepDep",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 1113,
+              "y": 147,
+              "change": "UNCHANGED"
+            },
+            {
+              "key": "review.NewDep",
+              "name": "NewDep",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 169,
+              "y": 451,
+              "change": "ADDED"
+            },
+            {
+              "key": "review.OldDep",
+              "name": "OldDep",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 451,
+              "y": 689,
+              "change": "REMOVED"
+            },
+            {
+              "key": "review.UntrackedHelper",
+              "name": "UntrackedHelper",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 451,
+              "y": 451,
+              "change": "ADDED"
+            }
+          ],
+          "zoom": 0.545,
+          "pan": {
+            "x": 85.04,
+            "y": 84.2
+          }
+        },
+        "ordinary": {
+          "nodes": [
+            {
+              "key": "review",
+              "name": "review",
+              "kind": "PACKAGE",
+              "expanded": true,
+              "parent": null,
+              "x": 641,
+              "y": 299,
+              "change": null
+            },
+            {
+              "key": "review.BrokenClient",
+              "name": "BrokenClient",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 169,
+              "y": 147,
+              "change": null
+            },
+            {
+              "key": "review.Hub",
+              "name": "Hub",
+              "kind": "CLASS",
+              "expanded": true,
+              "parent": "review",
+              "x": 659,
+              "y": 215,
+              "change": null
+            },
+            {
+              "key": "review.Hub.changed()",
+              "name": "changed",
+              "kind": "METHOD",
+              "expanded": false,
+              "parent": "review.Hub",
+              "x": 536,
+              "y": 250,
+              "change": null
+            },
+            {
+              "key": "review.Hub.sibling()",
+              "name": "sibling",
+              "kind": "METHOD",
+              "expanded": false,
+              "parent": "review.Hub",
+              "x": 787,
+              "y": 180,
+              "change": null
+            },
+            {
+              "key": "review.KeepDep",
+              "name": "KeepDep",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 1113,
+              "y": 147,
+              "change": null
+            },
+            {
+              "key": "review.NewDep",
+              "name": "NewDep",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 169,
+              "y": 451,
+              "change": null
+            },
+            {
+              "key": "review.UntrackedHelper",
+              "name": "UntrackedHelper",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 451,
+              "y": 451,
+              "change": null
+            }
+          ],
+          "zoom": 0.545,
+          "pan": {
+            "x": 85.04,
+            "y": 84.2
+          }
+        }
+      }
+    },
+    {
+      "label": "turning Changes off preserves scope and selection",
+      "pass": true,
+      "detail": {
+        "selected": "Hub",
+        "supportScope": {
+          "label": "Add package support to scope",
+          "checked": false,
+          "mixed": false,
+          "aria": "false"
+        }
+      }
+    },
+    {
+      "label": "turning Changes off keeps the same canvas and surviving Cytoscape node objects",
+      "pass": true,
+      "detail": {
+        "canvasSame": true,
+        "canvasElementSame": true,
+        "nodes": {
+          "review": {
+            "id": "f7564625-9f67-4f83-a513-d7ebc3baf695",
+            "same": true
+          },
+          "Hub": {
+            "id": "ba83e25f-4ec9-461c-9129-faaec8151a13",
+            "same": true
+          },
+          "KeepDep": {
+            "id": "89771022-9a62-427e-9af8-e0f021352f6c",
+            "same": true
+          },
+          "changed": {
+            "id": "25dbe673-9487-4aa4-bbbf-660d41ddaf3a",
+            "same": true
+          }
+        }
+      }
+    },
+    {
+      "label": "turning Changes off clears review facts from existing canvas elements",
+      "pass": true,
+      "detail": {
+        "staleNodes": [],
+        "staleEdges": []
+      }
+    },
+    {
+      "label": "undo restores Changes mode and its preserved layout in one step",
+      "pass": true,
+      "detail": {
+        "differences": [],
+        "state": {
+          "nodes": [
+            {
+              "key": "review",
+              "name": "review",
+              "kind": "PACKAGE",
+              "expanded": true,
+              "parent": null,
+              "x": 641,
+              "y": 418,
+              "change": "MODIFIED"
+            },
+            {
+              "key": "review.Broken",
+              "name": "Broken",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 169,
+              "y": 689,
+              "change": "UNKNOWN"
+            },
+            {
+              "key": "review.BrokenClient",
+              "name": "BrokenClient",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 169,
+              "y": 147,
+              "change": "UNCHANGED"
+            },
+            {
+              "key": "review.Hub",
+              "name": "Hub",
+              "kind": "CLASS",
+              "expanded": true,
+              "parent": "review",
+              "x": 659,
+              "y": 215,
+              "change": "MODIFIED"
+            },
+            {
+              "key": "review.Hub.changed()",
+              "name": "changed",
+              "kind": "METHOD",
+              "expanded": false,
+              "parent": "review.Hub",
+              "x": 536,
+              "y": 250,
+              "change": "MODIFIED"
+            },
+            {
+              "key": "review.Hub.sibling()",
+              "name": "sibling",
+              "kind": "METHOD",
+              "expanded": false,
+              "parent": "review.Hub",
+              "x": 787,
+              "y": 180,
+              "change": "MODIFIED"
+            },
+            {
+              "key": "review.KeepDep",
+              "name": "KeepDep",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 1113,
+              "y": 147,
+              "change": "UNCHANGED"
+            },
+            {
+              "key": "review.NewDep",
+              "name": "NewDep",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 169,
+              "y": 451,
+              "change": "ADDED"
+            },
+            {
+              "key": "review.OldDep",
+              "name": "OldDep",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 451,
+              "y": 689,
+              "change": "REMOVED"
+            },
+            {
+              "key": "review.UntrackedHelper",
+              "name": "UntrackedHelper",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 451,
+              "y": 451,
+              "change": "ADDED"
+            }
+          ],
+          "zoom": 0.545,
+          "pan": {
+            "x": 85.04,
+            "y": 84.2
+          }
+        }
+      }
+    },
+    {
+      "label": "redo restores ordinary mode without resetting the layout",
+      "pass": true,
+      "detail": {
+        "differences": [],
+        "state": {
+          "nodes": [
+            {
+              "key": "review",
+              "name": "review",
+              "kind": "PACKAGE",
+              "expanded": true,
+              "parent": null,
+              "x": 641,
+              "y": 299,
+              "change": null
+            },
+            {
+              "key": "review.BrokenClient",
+              "name": "BrokenClient",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 169,
+              "y": 147,
+              "change": null
+            },
+            {
+              "key": "review.Hub",
+              "name": "Hub",
+              "kind": "CLASS",
+              "expanded": true,
+              "parent": "review",
+              "x": 659,
+              "y": 215,
+              "change": null
+            },
+            {
+              "key": "review.Hub.changed()",
+              "name": "changed",
+              "kind": "METHOD",
+              "expanded": false,
+              "parent": "review.Hub",
+              "x": 536,
+              "y": 250,
+              "change": null
+            },
+            {
+              "key": "review.Hub.sibling()",
+              "name": "sibling",
+              "kind": "METHOD",
+              "expanded": false,
+              "parent": "review.Hub",
+              "x": 787,
+              "y": 180,
+              "change": null
+            },
+            {
+              "key": "review.KeepDep",
+              "name": "KeepDep",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 1113,
+              "y": 147,
+              "change": null
+            },
+            {
+              "key": "review.NewDep",
+              "name": "NewDep",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 169,
+              "y": 451,
+              "change": null
+            },
+            {
+              "key": "review.UntrackedHelper",
+              "name": "UntrackedHelper",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 451,
+              "y": 451,
+              "change": null
+            }
+          ],
+          "zoom": 0.545,
+          "pan": {
+            "x": 85.04,
+            "y": 84.2
+          }
+        }
+      }
+    },
+    {
+      "label": "ordinary inspection has plain source behavior after Changes is off",
+      "pass": true,
+      "detail": {
+        "heading": "Hub",
+        "addRows": 0,
+        "delRows": 0,
+        "hasDiff": false,
+        "hasSplitTable": false,
+        "layoutButtons": [],
+        "plainLines": 12,
+        "open": true
+      }
+    },
+    {
+      "label": "entering Changes closes an open ordinary symbol source dialog",
+      "pass": true
+    },
+    {
+      "label": "a second toggle-on restores the edited review layout",
+      "pass": true,
+      "detail": {
+        "differences": []
+      }
+    },
+    {
+      "label": "new tab inherits only the current mode, with its own exploration state",
+      "pass": true
+    },
+    {
+      "label": "second tab can switch mode without changing its sibling tab",
+      "pass": true,
+      "detail": {
+        "nodes": [
+          {
+            "key": "review",
+            "name": "review",
+            "kind": "PACKAGE",
+            "expanded": false,
+            "parent": null,
+            "x": 468,
+            "y": 125,
+            "change": null
+          },
+          {
+            "key": "support",
+            "name": "support",
+            "kind": "PACKAGE",
+            "expanded": false,
+            "parent": null,
+            "x": 796,
+            "y": 125,
+            "change": null
+          }
+        ],
+        "zoom": 0.874,
+        "pan": {
+          "x": 46.49,
+          "y": 169.25
+        }
+      }
+    },
+    {
+      "label": "switching tabs restores the first tab mode and layout independently",
+      "pass": true,
+      "detail": {
+        "differences": [],
+        "first": {
+          "nodes": [
+            {
+              "key": "review",
+              "name": "review",
+              "kind": "PACKAGE",
+              "expanded": true,
+              "parent": null,
+              "x": 641,
+              "y": 418,
+              "change": "MODIFIED"
+            },
+            {
+              "key": "review.Broken",
+              "name": "Broken",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 169,
+              "y": 689,
+              "change": "UNKNOWN"
+            },
+            {
+              "key": "review.BrokenClient",
+              "name": "BrokenClient",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 169,
+              "y": 147,
+              "change": "UNCHANGED"
+            },
+            {
+              "key": "review.Hub",
+              "name": "Hub",
+              "kind": "CLASS",
+              "expanded": true,
+              "parent": "review",
+              "x": 659,
+              "y": 215,
+              "change": "MODIFIED"
+            },
+            {
+              "key": "review.Hub.changed()",
+              "name": "changed",
+              "kind": "METHOD",
+              "expanded": false,
+              "parent": "review.Hub",
+              "x": 536,
+              "y": 250,
+              "change": "MODIFIED"
+            },
+            {
+              "key": "review.Hub.sibling()",
+              "name": "sibling",
+              "kind": "METHOD",
+              "expanded": false,
+              "parent": "review.Hub",
+              "x": 787,
+              "y": 180,
+              "change": "MODIFIED"
+            },
+            {
+              "key": "review.KeepDep",
+              "name": "KeepDep",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 1113,
+              "y": 147,
+              "change": "UNCHANGED"
+            },
+            {
+              "key": "review.NewDep",
+              "name": "NewDep",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 169,
+              "y": 451,
+              "change": "ADDED"
+            },
+            {
+              "key": "review.OldDep",
+              "name": "OldDep",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 451,
+              "y": 689,
+              "change": "REMOVED"
+            },
+            {
+              "key": "review.UntrackedHelper",
+              "name": "UntrackedHelper",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 451,
+              "y": 451,
+              "change": "ADDED"
+            }
+          ],
+          "zoom": 0.545,
+          "pan": {
+            "x": 85.04,
+            "y": 84.2
+          }
+        },
+        "restored": {
+          "nodes": [
+            {
+              "key": "review",
+              "name": "review",
+              "kind": "PACKAGE",
+              "expanded": true,
+              "parent": null,
+              "x": 641,
+              "y": 418,
+              "change": "MODIFIED"
+            },
+            {
+              "key": "review.Broken",
+              "name": "Broken",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 169,
+              "y": 689,
+              "change": "UNKNOWN"
+            },
+            {
+              "key": "review.BrokenClient",
+              "name": "BrokenClient",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 169,
+              "y": 147,
+              "change": "UNCHANGED"
+            },
+            {
+              "key": "review.Hub",
+              "name": "Hub",
+              "kind": "CLASS",
+              "expanded": true,
+              "parent": "review",
+              "x": 659,
+              "y": 215,
+              "change": "MODIFIED"
+            },
+            {
+              "key": "review.Hub.changed()",
+              "name": "changed",
+              "kind": "METHOD",
+              "expanded": false,
+              "parent": "review.Hub",
+              "x": 536,
+              "y": 250,
+              "change": "MODIFIED"
+            },
+            {
+              "key": "review.Hub.sibling()",
+              "name": "sibling",
+              "kind": "METHOD",
+              "expanded": false,
+              "parent": "review.Hub",
+              "x": 787,
+              "y": 180,
+              "change": "MODIFIED"
+            },
+            {
+              "key": "review.KeepDep",
+              "name": "KeepDep",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 1113,
+              "y": 147,
+              "change": "UNCHANGED"
+            },
+            {
+              "key": "review.NewDep",
+              "name": "NewDep",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 169,
+              "y": 451,
+              "change": "ADDED"
+            },
+            {
+              "key": "review.OldDep",
+              "name": "OldDep",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 451,
+              "y": 689,
+              "change": "REMOVED"
+            },
+            {
+              "key": "review.UntrackedHelper",
+              "name": "UntrackedHelper",
+              "kind": "CLASS",
+              "expanded": false,
+              "parent": "review",
+              "x": 451,
+              "y": 451,
+              "change": "ADDED"
+            }
+          ],
+          "zoom": 0.545,
+          "pan": {
+            "x": 85.04,
+            "y": 84.2
+          }
+        },
+        "selected": "Hub"
+      }
+    },
+    {
+      "label": "Recompare preserves ordinary relationship inspection",
+      "pass": true
+    },
+    {
+      "label": "Recompare preserves an open ordinary relationship source dialog",
+      "pass": true
+    }
+  ],
+  "pageErrors": [],
+  "network": 65,
+  "reviewResponses": 2
+}

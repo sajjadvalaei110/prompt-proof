@@ -114,6 +114,7 @@ public class AnalysisService {
                     jdbcTemplate.update("UPDATE jobs SET completed_items = ? WHERE id = ?", parsed, jobId);
                 }
             }
+            linkOverrides(adapter, snapshotId);
             jdbcTemplate.update("UPDATE jobs SET completed_items = ? WHERE id = ?", parsed, jobId);
             log.info("Pass 2 complete: relationships extracted");
 
@@ -183,8 +184,13 @@ public class AnalysisService {
      * Indexes a private, already-captured source tree for a review.  This shares the parser lock with
      * ordinary analysis, but deliberately has no job, change detection, active-snapshot update, or
      * explanation invalidation.  The captured tree is owned by the application, never by the target repo.
+     * {@code workspaceRoot} is the workspace the tree was captured from; source roots are found by its layout.
      */
     public synchronized void runReviewAnalysis(String workspaceId, String snapshotId, Path capturedRoot) {
+        runReviewAnalysis(workspaceId, snapshotId, capturedRoot, capturedRoot);
+    }
+
+    public synchronized void runReviewAnalysis(String workspaceId, String snapshotId, Path capturedRoot, Path workspaceRoot) {
         AnalysisPort adapter = null;
         try {
             String requestedLanguage = jdbcTemplate.queryForObject(
@@ -194,7 +200,7 @@ public class AnalysisService {
             String language = adapter.language();
             final AnalysisPort runAdapter = adapter;
             List<File> sourceFiles = adapter.discoverFiles(capturedRoot.toFile());
-            adapter.prepare(capturedRoot.toString());
+            adapter.prepare(capturedRoot.toString(), workspaceRoot);
             List<File> declarationFiles = new ArrayList<>();
             for (File file : sourceFiles) {
                 try {
@@ -211,6 +217,7 @@ public class AnalysisService {
                     adapter.addDiagnostic(file.getName() + ": relationship parsing failed; relationships may be incomplete.");
                 }
             }
+            linkOverrides(adapter, snapshotId);
             if (adapter.supportsFrameworkPass()) {
                 adapter.runFrameworkPass(declarationFiles, workspaceId, snapshotId, ignored -> { });
             }
@@ -227,6 +234,16 @@ public class AnalysisService {
             throw new IllegalArgumentException("Review capture analysis failed (" + e.getClass().getSimpleName() + ").");
         } finally {
             if (adapter != null) adapter.releaseRunCaches();
+        }
+    }
+
+    /** ADR 0010: OVERRIDES facts need every file's relationship pass first; one transaction. */
+    private void linkOverrides(AnalysisPort adapter, String snapshotId) {
+        try {
+            fileTransaction.executeWithoutResult(status -> adapter.linkRelationships(snapshotId));
+        } catch (Exception e) {
+            log.warn("OVERRIDES linking failed: {}", e.getMessage());
+            adapter.addDiagnostic("OVERRIDES linking failed (" + e.getMessage() + "); no OVERRIDES facts were added.");
         }
     }
 

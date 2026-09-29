@@ -45,4 +45,39 @@ assert.equal(identities.displayBySymbolId.bh, 'review-node:hub');
 assert.equal(identities.displayBySymbolId.hh, 'review-node:hub');
 assert.equal(identities.relationships.hr2.id, 'hr2', 'raw added occurrence ID remains the source API identity');
 assert.equal(overlayGraph.edges.find(x => x.id === 'hr2').sourceId, 'review-node:hub', 'graph endpoints use display IDs while occurrence identity stays raw');
+const ordinary = { nodes: [node('op', 'app'), node('oh', 'Hub', 'op'), node('on', 'NewClient', 'op')], edges: [] };
+const aligned = projectReviewGraph(review, 'OVERLAY', ordinary);
+assert.equal(aligned.nodes.find(x => x.comparisonKey === 'pkg').id, 'op', 'unchanged package keeps the ordinary display ID');
+assert.equal(aligned.nodes.find(x => x.comparisonKey === 'hub').id, 'oh', 'modified class keeps the ordinary display ID');
+assert.equal(aligned.nodes.find(x => x.comparisonKey === 'new').id, 'on', 'head-only class aligns when the ordinary graph already contains it');
+assert.equal(aligned.nodes.find(x => x.comparisonKey === 'old').id, 'review-node:old', 'base-only class retains a review identity');
+assert.equal(aligned.sourceToDisplay.get('bh'), 'oh');
+assert.equal(aligned.sourceToDisplay.get('hh'), 'oh');
+assert.ok(aligned.edges.some(x => x.change === 'REMOVED' && x.sourceId === 'oh' && x.targetId === 'review-node:old'));
+assert.ok(aligned.edges.some(x => x.change === 'ADDED' && x.sourceId === 'oh' && x.targetId === 'on'));
+const alignedIdentity = reviewSourceIdentityMaps(review, 'OVERLAY', aligned);
+assert.equal(alignedIdentity.symbols.oh.id, 'hh', 'aligned display IDs still resolve source calls to the head snapshot');
+assert.equal(alignedIdentity.symbols.oh.snapshotId, 'head');
+const displayOf = (comparison, graph, key) => projectReviewGraph(comparison, 'OVERLAY', graph).nodes.find(n => n.comparisonKey === key).id;
+const duplicateOrdinary = { ...ordinary, nodes: [...ordinary.nodes, node('other-hub', 'Hub', 'op')] };
+assert.equal(displayOf(review, duplicateOrdinary, 'hub'), 'review-node:hub', 'duplicate ordinary declarations must not be guessed');
+const duplicateReview = { ...review, nodes: [...review.nodes, { comparisonKey: 'hub-copy', change: 'ADDED', head: node('hh2', 'Hub', 'hp') }] };
+for (const rows of [duplicateReview.nodes, [...duplicateReview.nodes].reverse()]) {
+  const comparison = { ...duplicateReview, nodes: rows };
+  assert.equal(displayOf(comparison, ordinary, 'hub'), 'review-node:hub', 'duplicate review rows must not be matched by order');
+  assert.equal(displayOf(comparison, ordinary, 'hub-copy'), 'review-node:hub-copy');
+}
+const duplicateParent = { ...ordinary, nodes: [...ordinary.nodes, node('other-pkg', 'app')] };
+assert.equal(displayOf(review, duplicateParent, 'hub'), 'review-node:hub', 'a unique child of an ambiguous parent must not be falsely aligned');
+assert.equal(displayOf({ ...review, nodes: [...review.nodes].reverse() }, ordinary, 'hub'), 'oh', 'parent alignment must not depend on row order');
+const differentModule = { ...ordinary, nodes: ordinary.nodes.map(n => n.id === 'oh' ? { ...n, module: 'other' } : n) };
+assert.equal(displayOf(review, differentModule, 'hub'), 'review-node:hub', 'declarations in different modules must not share geometry');
+for (const mode of ['BASE', 'HEAD']) {
+  const projection = projectReviewGraph(review, mode, ordinary);
+  const identities = reviewSourceIdentityMaps(review, mode, projection);
+  const included = mode === 'BASE' ? 'bh' : 'hh', excluded = mode === 'BASE' ? 'hh' : 'bh';
+  assert.equal(identities.displayBySymbolId[included], 'review-node:hub');
+  assert.equal(identities.displayBySymbolId[excluded], undefined, 'side-only projection must not expose the other side');
+  assert.equal(projection.sourceToDisplay.has(excluded), false);
+}
 console.log('PASS: review base/head/overlay side selection, pinned snapshots, display remapping, and occurrence-preserving routes');

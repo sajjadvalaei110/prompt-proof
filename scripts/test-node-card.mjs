@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 const require=createRequire(new URL('../frontend/package.json',import.meta.url));
 const ts=require('typescript');
-const compiled=ts.transpileModule(fs.readFileSync(new URL('../frontend/src/features/explorer/nodeCard.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.ES2022,target:ts.ScriptTarget.ES2022}}).outputText;
+const palette=fs.readFileSync(new URL('../frontend/src/features/review/reviewPalette.ts',import.meta.url),'utf8');
+const card=fs.readFileSync(new URL('../frontend/src/features/explorer/nodeCard.ts',import.meta.url),'utf8').replace("import { REVIEW_CHANGE_PALETTE } from '../review/reviewPalette';",'');
+const compiled=ts.transpileModule(`${palette}\n${card}`,{compilerOptions:{module:ts.ModuleKind.ES2022,target:ts.ScriptTarget.ES2022}}).outputText;
 const {wrapText,fitText,nodeCard}=await import('data:text/javascript;base64,'+Buffer.from(compiled).toString('base64'));
 
 // Card name metrics used by nodeCard(): 30px font, 250px card minus 32px padding.
@@ -30,6 +32,12 @@ for(const line of wrapText('事件通知服务控制器管理类实现工厂',SI
 
 // The card still renders for such names.
 assert.match(nodeCard({id:'x',kind:'CLASS',simpleName:'事件通知服务控制器'}).image,/^data:image\/svg\+xml/);
+for (const [change, fill, stroke] of [
+  ['ADDED','#d7f3e3','#168a58'], ['REMOVED','#fbdada','#c74545'], ['MODIFIED','#fff0b0','#ba862d']
+]) {
+  const image=decodeURIComponent(nodeCard({id:'review',kind:'CLASS',simpleName:'Review',reviewChange:change}).image);
+  assert.ok(image.includes(`fill="${fill}" stroke="${stroke}"`),`${change} badge uses its own change color`);
+}
 console.log('nodeCard tests: PASS');
 
 // Resizing: the default size is unchanged output; a taller package shows more member rows; a short one drops lower lines.
@@ -48,3 +56,36 @@ console.log('nodeCard tests: PASS');
   assert.equal(hasDetailsButton({kind:'CLASS',memberCount:1,detailCount:0}),false,'a class holding only a nested type has nothing to expand into');
   console.log('nodeCard resize/corner tests: PASS');
 }
+
+// Step 14 (ADR 0011): a method card names its owning class before the package, so a method freed
+// from an ungrouped class still says where it lives. Long lines lose the package end first.
+{
+  const text=img=>decodeURIComponent(img).replaceAll('&apos;',"'");
+  const method=text(nodeCard({id:'m',kind:'METHOD',simpleName:'place',ownerName:'OrderService',packageName:'com.shop.order.service'}).image);
+  assert.ok(method.includes('>OrderService · order.service<'),'class, then the last two package segments');
+  const long=text(nodeCard({id:'m2',kind:'METHOD',simpleName:'place',ownerName:'OrderFulfilmentCoordinator',packageName:'com.shop.fulfilment.orchestration'}).image);
+  assert.match(long,/>OrderFulfilmentCoordinator · [^<]*…</,'the class name survives the ellipsis');
+  const cls=text(nodeCard({id:'c',kind:'CLASS',simpleName:'OrderService',ownerName:'ignored',packageName:'com.shop.order.service'}).image);
+  assert.ok(cls.includes('>order.service<'),'a class card keeps its package line');
+  console.log('nodeCard method owner line: PASS');
+}
+
+// Step 13: the top-left badge names the kind -- a folder for packages, a distinct letter otherwise.
+{
+  const {kindIcon}=await import('data:text/javascript;base64,'+Buffer.from(compiled).toString('base64'));
+  const letters={CLASS:'C',INTERFACE:'I',ENUM:'E',RECORD:'R',ANNOTATION:'@',METHOD:'m',CONSTRUCTOR:'c',FIELD:'f'};
+  assert.equal(new Set(Object.values(letters)).size,Object.keys(letters).length,'kind letters are distinct');
+  assert.deepEqual(kindIcon('PACKAGE'),{folder:true});
+  for(const [kind,letter] of Object.entries(letters)){
+    assert.deepEqual(kindIcon(kind),{folder:false,letter},kind);
+    const svg=decodeURIComponent(nodeCard({id:kind,kind,simpleName:'Thing'}).image);
+    assert.ok(svg.includes(`font-weight="700" fill="#398bb3">${letter==='@'?'@':letter}</text>`),`${kind} card draws its letter`);
+    assert.ok(!svg.includes('M8 7l7-4 7 4'),`${kind} card no longer draws the cube`);
+  }
+  const pkg=decodeURIComponent(nodeCard({id:'p',kind:'PACKAGE',simpleName:'com.acme'}).image);
+  assert.ok(pkg.includes('M1.8 4.3')&&!pkg.includes('M8 7l7-4 7 4'),'package card draws the folder');
+  // The role tint survives: a service keeps its teal badge whatever its kind letter.
+  const svc=decodeURIComponent(nodeCard({id:'s',kind:'INTERFACE',simpleName:'Svc',roles:['SERVICE']}).image);
+  assert.ok(svc.includes('fill="#16888a">I</text>'),'service interface: teal I');
+}
+console.log('node card: kind icons ok');

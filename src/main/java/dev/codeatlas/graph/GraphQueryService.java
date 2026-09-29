@@ -114,6 +114,12 @@ public class GraphQueryService {
         metadata.put("workspaceId", jdbcTemplate.queryForObject("SELECT workspace_id FROM snapshots WHERE id = ?", String.class, snapshotId));
         metadata.put("unresolvedRelationships", jdbcTemplate.queryForList("SELECT id, source_symbol_id AS sourceId, unresolved_target AS unresolvedTarget, kind, resolution, reason FROM relationship_occurrences WHERE snapshot_id = ? AND target_symbol_id IS NULL ORDER BY kind, id", snapshotId));
         metadata.put("unresolvedCount", jdbcTemplate.queryForObject("SELECT COUNT(*) FROM relationship_occurrences WHERE snapshot_id = ? AND target_symbol_id IS NULL", Integer.class, snapshotId));
+        // Files stored for this snapshot that contributed no declaration: the parser could not read them, so
+        // every type they declare is absent from the graph. Kept explicit so a missing class is never silent.
+        metadata.put("unanalyzedFiles", jdbcTemplate.queryForList(
+                "SELECT f.relative_path FROM source_file_versions f WHERE f.snapshot_id = ? AND NOT EXISTS " +
+                        "(SELECT 1 FROM evidence e JOIN symbol_evidence se ON se.evidence_id = e.id WHERE e.source_file_version_id = f.id) " +
+                        "ORDER BY f.relative_path", String.class, snapshotId));
         metadata.put("nodeCount", nodes.size());
         metadata.put("edgeCount", edges.size());
         metadata.put("omittedCount", 0);
@@ -208,6 +214,7 @@ public class GraphQueryService {
             case INJECTS -> "Spring dependency injection" + (reason != null ? " via " + reason : "");
             case DECLARES_BEAN -> "Factory method produces this bean";
             case HANDLES_ROUTE -> "HTTP endpoint handler";
+            case OVERRIDES -> "Overrides or implements the supertype method; calls to it may dispatch here";
             default -> kind.name() + " relationship";
         };
     }

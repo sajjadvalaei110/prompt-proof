@@ -34,6 +34,14 @@ public interface AnalysisPort {
     /** Prepare parser/type-resolution state for a run rooted at {@code workspacePath}. */
     void prepare(String workspacePath);
 
+    /** Prepare a captured tree while retaining the original workspace layout for resolution. */
+    default void prepare(String capturedPath, java.nio.file.Path workspaceRoot) {
+        prepare(capturedPath);
+    }
+
+    /** Optional cross-file relationship linking after all relationship passes, inside one transaction. */
+    default void linkRelationships(String snapshotId) { }
+
     /** Index declarations and their exact source evidence for one file. */
     void parseDeclarations(File file, String workspaceId, String snapshotId);
 

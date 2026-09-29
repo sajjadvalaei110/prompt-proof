@@ -55,9 +55,11 @@ export function placeMissingChildren(topLeft: Point, placed: PlacedCard[], missi
 /**
  * An expanded card's box around its children's boxes; null when it has no children to wrap.
  * `minSize` is the inner (padding-free) minimum, as Cytoscape's min-width/min-height take it.
+ * A `hidden` (ungrouped, ADR 0011) box draws nothing, so it is exactly its children's bounds.
  */
-export function containerBox(children: Box[], minSize: Size | null): Box | null {
+export function containerBox(children: Box[], minSize: Size | null, hidden = false): Box | null {
   if (!children.length) return null;
+  if (hidden) return { x1: Math.min(...children.map(b => b.x1)), y1: Math.min(...children.map(b => b.y1)), x2: Math.max(...children.map(b => b.x2)), y2: Math.max(...children.map(b => b.y2)) };
   const x1 = Math.min(...children.map(b => b.x1)) - CONTAINER_PADDING, y1 = Math.min(...children.map(b => b.y1)) - CONTAINER_PADDING;
   const x2 = Math.max(...children.map(b => b.x2)) + CONTAINER_PADDING, y2 = Math.max(...children.map(b => b.y2)) + CONTAINER_PADDING;
   return { x1, y1, x2: Math.max(x2, x1 + (minSize?.width ?? 0) + 2 * CONTAINER_PADDING), y2: Math.max(y2, y1 + (minSize?.height ?? 0) + 2 * CONTAINER_PADDING) };
@@ -109,4 +111,76 @@ export function roomShifts(siblings: Box[], before: Box, after: Box): (Point | n
   // dy is clamped against dy=0 siblings that overlap in x, using dx already clamped above.
   clampAxis(dy, dy, 'y1', 'y2', overlapsOn(dx, 'x'));
   return siblings.map((_, i) => (dx[i] || dy[i] ? { x: dx[i], y: dy[i] } : null));
+}
+
+/** One drawn card for `roomMoves`: its current box and stored center, and where it sits. */
+export interface RoomCard {
+  id: string;
+  /** The expanded card it is drawn inside, or null on the map itself. */
+  containerId: string | null;
+  expanded?: boolean;
+  /** An ungrouped box (ADR 0011): its children stand as free cards in its place. */
+  hidden?: boolean;
+  box: Box;
+  /** Stored center; a card without one (derived by the renderer) is not moved. */
+  position?: Point;
+  /** An expanded card's user-resized inner minimum. */
+  minSize?: Size | null;
+}
+
+/**
+ * The moves that make room when card `id`'s box changes from `before` to `after` (expand, collapse,
+ * resize): its siblings shift by `roomShifts`, carrying whatever they contain, and when it sits in an
+ * expanded box that box's resulting change makes room around it in turn, up to the map itself.
+ *
+ * An ungrouped (hidden) box is looked through, never used: its children count as siblings of the
+ * cards around the box, and the cascade continues at the nearest visible container. Its own bounds
+ * span wherever its children were dragged, so using them would shove cards that are nowhere near.
+ * Moves are returned by owner: `positions` for cards on the map, `childPositions[container]` for
+ * cards inside an expanded box (a freed child is stored under its hidden parent).
+ */
+export function roomMoves(cards: RoomCard[], id: string, before: Box, after: Box): { positions: Record<string, Point>; childPositions: Record<string, Record<string, Point>> } {
+  const byId = new Map<string, RoomCard>(), byContainer = new Map<string | null, RoomCard[]>();
+  for (const k of cards) {
+    byId.set(k.id, k);
+    const list = byContainer.get(k.containerId);
+    if (list) list.push(k); else byContainer.set(k.containerId, [k]);
+  }
+  const kidsOf = (c: string | null) => byContainer.get(c) || [];
+  // A container's cards with every hidden box replaced by its own cards, recursively.
+  const layer = (c: string | null): RoomCard[] => kidsOf(c).flatMap(k => (k.hidden ? layer(k.id) : [k]));
+  const visibleContainer = (c: string | null) => { while (c !== null && byId.get(c)?.hidden) c = byId.get(c)!.containerId; return c; };
+  const moves = { positions: {} as Record<string, Point>, childPositions: {} as Record<string, Record<string, Point>> };
+  const translate = (k: RoomCard, d: Point) => {
+    if (k.position) {
+      const q = { x: k.position.x + d.x, y: k.position.y + d.y };
+      if (k.containerId !== null) (moves.childPositions[k.containerId] ??= {})[k.id] = q; else moves.positions[k.id] = q;
+    }
+    if (k.expanded) for (const inner of kidsOf(k.id)) translate(inner, d);
+  };
+  const start = byId.get(id);
+  if (!start) return moves;
+  for (let current = start.id, parent = visibleContainer(start.containerId); ;) {
+    // Siblings shift together (roomShifts), not independently: a sibling that qualifies for a shift
+    // is clamped against any row/column-mate that does not, so a large collapse can never pull it
+    // back across one that stayed put (F-01).
+    const siblings = layer(parent).filter(k => k.id !== current);
+    const boxes = siblings.map(k => k.box);
+    const shifts = roomShifts(boxes, before, after);
+    const shifted = new Map<string, Box>();
+    siblings.forEach((sibling, i) => {
+      const d = shifts[i];
+      if (d) { translate(sibling, d); const b = boxes[i]; shifted.set(sibling.id, { x1: b.x1 + d.x, y1: b.y1 + d.y, x2: b.x2 + d.x, y2: b.y2 + d.y }); }
+    });
+    const container = parent === null ? undefined : byId.get(parent);
+    if (!container) return moves;
+    const containerBefore = container.box;
+    const nextAfter = containerBox(layer(container.id).map(k => (k.id === current ? after : shifted.get(k.id) || k.box)), container.minSize || null);
+    if (!nextAfter) return moves;
+    // The container's own box did not change, so nothing further up the hierarchy can have changed
+    // either: stop the cascade here instead of walking every remaining ancestor (F-11).
+    const unchanged = Math.abs(nextAfter.x1 - containerBefore.x1) < 0.5 && Math.abs(nextAfter.y1 - containerBefore.y1) < 0.5 && Math.abs(nextAfter.x2 - containerBefore.x2) < 0.5 && Math.abs(nextAfter.y2 - containerBefore.y2) < 0.5;
+    if (unchanged) return moves;
+    before = containerBefore; after = nextAfter; current = container.id; parent = visibleContainer(container.containerId);
+  }
 }

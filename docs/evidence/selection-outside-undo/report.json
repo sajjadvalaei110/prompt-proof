@@ -1,0 +1,208 @@
+{
+  "results": [
+    {
+      "label": "initial camera fit creates no undo entry",
+      "pass": true
+    },
+    {
+      "label": "selecting a package opens its inspector",
+      "pass": true
+    },
+    {
+      "label": "selecting creates no undo entry",
+      "pass": true
+    },
+    {
+      "label": "clicking the inspected package deselects it",
+      "pass": true
+    },
+    {
+      "label": "clear selection removes inspection",
+      "pass": true
+    },
+    {
+      "label": "Escape clears inspection",
+      "pass": true
+    },
+    {
+      "label": "empty canvas clears inspection",
+      "pass": true
+    },
+    {
+      "label": "the whole click sequence left undo history empty",
+      "pass": true
+    },
+    {
+      "label": "new tab has independent initial map and no inspection/history",
+      "pass": true
+    },
+    {
+      "label": "switch restores pending camera and inspection",
+      "pass": true
+    },
+    {
+      "label": "clone carries exact map and inspection",
+      "pass": true
+    },
+    {
+      "label": "clone includes the original undo history",
+      "pass": true
+    },
+    {
+      "label": "undo in clone leaves original camera untouched",
+      "pass": true
+    },
+    {
+      "label": "package expansion reveals child cards",
+      "pass": true
+    },
+    {
+      "label": "undo expansion restores every card and camera",
+      "pass": true
+    },
+    {
+      "label": "redo expansion restores child geometry",
+      "pass": true
+    },
+    {
+      "label": "expanding a clone cannot mutate original coordinates",
+      "pass": true
+    },
+    {
+      "label": "expanded card survives tab round trip",
+      "pass": true
+    },
+    {
+      "label": "keyboard card resize changes geometry",
+      "pass": true
+    },
+    {
+      "label": "undo resize restores geometry",
+      "pass": true
+    },
+    {
+      "label": "redo resize restores geometry",
+      "pass": true
+    },
+    {
+      "label": "drag changes the child position",
+      "pass": true
+    },
+    {
+      "label": "undo drag restores original positions",
+      "pass": true
+    },
+    {
+      "label": "redo drag restores moved positions",
+      "pass": true
+    },
+    {
+      "label": "source opens from the inspected class",
+      "pass": true
+    },
+    {
+      "label": "undo restores a closed source dialog",
+      "pass": true
+    },
+    {
+      "label": "keyboard undo works with source dialog open",
+      "pass": true
+    },
+    {
+      "label": "keyboard redo reopens source",
+      "pass": true
+    },
+    {
+      "label": "scope removal hides package and expanded children",
+      "pass": true
+    },
+    {
+      "label": "undo scope edit restores expanded children and positions",
+      "pass": true
+    },
+    {
+      "label": "map overview can collapse",
+      "pass": true
+    },
+    {
+      "label": "map overview can reopen without history",
+      "pass": true
+    },
+    {
+      "label": "ctrl-click inspects and multi-selects the card",
+      "pass": true
+    },
+    {
+      "label": "Escape clears inspected and multi-selected cards",
+      "pass": true
+    },
+    {
+      "label": "selection changes keep the redo branch",
+      "pass": true
+    },
+    {
+      "label": "the card is inspected and multi-selected again before the redo",
+      "pass": true
+    },
+    {
+      "label": "redo that removes the selected card clears its inspection and multi-selection",
+      "pass": true
+    },
+    {
+      "label": "undo restores the card but not the pruned selection",
+      "pass": true
+    },
+    {
+      "label": "reopen restores closed tab geometry and inspection",
+      "pass": true
+    },
+    {
+      "label": "reopen retains redo history",
+      "pass": true
+    },
+    {
+      "label": "double-click inspects the card and arranges the map around it",
+      "pass": true
+    },
+    {
+      "label": "one undo reverts the whole arrangement",
+      "pass": true
+    },
+    {
+      "label": "undoing the arrangement leaves the double-clicked card inspected",
+      "pass": true
+    },
+    {
+      "label": "full screen opens",
+      "pass": true
+    },
+    {
+      "label": "undo ignores full screen",
+      "pass": true
+    },
+    {
+      "label": "redo ignores full screen",
+      "pass": true
+    },
+    {
+      "label": "view-only map controls stay current through undo",
+      "pass": true
+    },
+    {
+      "label": "one zoom-in click is three former 1.2x steps",
+      "pass": true
+    },
+    {
+      "label": "one zoom-out click is the reciprocal three-step change",
+      "pass": true
+    },
+    {
+      "label": "narrow screen has no page overflow",
+      "pass": true
+    },
+    {
+      "label": "no page or console errors",
+      "pass": true
+    }
+  ]
+}

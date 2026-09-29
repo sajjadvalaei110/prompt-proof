@@ -79,19 +79,22 @@ const key = async (key, modifiers = 0) => {
 const services=byName('com.kipper.eventsmicroservice.services');
 const firstTab=await tabLabel();
 check('initial camera fit creates no undo entry', await evaluate(`document.querySelector('.journey-history button[title^="Undo"]').disabled`));
-await evaluate(`${CY}.getElementById('${services.id}').emit('tap');0`);await pause(350);
+// ADR 0009: selection is a pointer, not an exploration edit, so none of these clicks is undoable.
+const undoDisabled = () => evaluate(`document.querySelector('.journey-history button[title^="Undo"]').disabled`);
+const tapServices = async () => { await evaluate(`${CY}.getElementById('${services.id}').emit('tap');0`); await pause(350); };
+await tapServices();
 check('selecting a package opens its inspector', (await selected())===services.simpleName);
-await undo();check('one undo reverses selection and its tree reveal', await selected()===null);
-await redo();check('redo restores inspection', (await selected())===services.simpleName);
-await evaluate(`${CY}.getElementById('${services.id}').emit('tap');0`);await pause(350);
+check('selecting creates no undo entry', await undoDisabled());
+await tapServices();
 check('clicking the inspected package deselects it', await selected()===null);
-await undo();await button('Clear selection');
+await tapServices();await button('Clear selection');
 check('clear selection removes inspection', await selected()===null);
-await undo();await key('Escape');
+await tapServices();await key('Escape');
 check('Escape clears inspection', await selected()===null);
-await undo();await evaluate(`${CY}.emit('tap');0`);await pause(350);
+await tapServices();await evaluate(`${CY}.emit('tap');0`);await pause(350);
 check('empty canvas clears inspection', await selected()===null);
-await undo();
+check('the whole click sequence left undo history empty', await undoDisabled());
+await tapServices();
 
 // A pending camera debounce must be committed to the old tab before switching.
 await evaluate(`${CY}.zoom(0.8);${CY}.pan({x:91,y:67});0`);
@@ -154,31 +157,55 @@ check('scope removal hides package and expanded children', !(await geometryState
 await undo();await checkGeometry('undo scope edit restores expanded children and positions',beforeScope);
 
 await clickSelector('.minimap-title');
-check('map overview collapse is recorded',await evaluate(`document.querySelector('.minimap').classList.contains('collapsed')`));
-await undo();check('undo restores map overview',await evaluate(`!document.querySelector('.minimap').classList.contains('collapsed')`));
+check('map overview can collapse',await evaluate(`document.querySelector('.minimap').classList.contains('collapsed')`));
+await clickSelector('.minimap-title');
+check('map overview can reopen without history',await evaluate(`!document.querySelector('.minimap').classList.contains('collapsed')`));
 
 // Multi-selection and inspection clear together as one keyboard action.
 await evaluate(`${CY}.getElementById('${leaf.id}').emit({type:'tap',originalEvent:{ctrlKey:true}});0`);await pause(350);
 const selectedCount=await evaluate(`document.querySelector('.selection-bar strong')?.textContent`);
 const selectedSubject=await selected();
+check('ctrl-click inspects and multi-selects the card',selectedSubject===leaf.simpleName && !!selectedCount);
 await key('Escape');check('Escape clears inspected and multi-selected cards',await selected()===null && await evaluate(`!document.querySelector('.selection-bar')`));
-await undo();check('one undo restores both inspection and multi-selection',await selected()===selectedSubject && await evaluate(`document.querySelector('.selection-bar strong')?.textContent`)===selectedCount);
-await redo();await undo();
+check('selection changes keep the redo branch',await evaluate(`!document.querySelector('.journey-history button[title^="Redo"]').disabled`));
+// A ctrl-tap only toggles the multi-selection, so inspect with a plain tap first: the redo below
+// must find both an inspection and a multi-selection to prune, or its check would pass vacuously.
+await evaluate(`${CY}.getElementById('${leaf.id}').emit('tap');0`);await pause(350);
+await evaluate(`${CY}.getElementById('${leaf.id}').emit({type:'tap',originalEvent:{ctrlKey:true}});0`);await pause(350);
+check('the card is inspected and multi-selected again before the redo',await selected()===leaf.simpleName && await evaluate(`!!document.querySelector('.selection-bar')`));
+await redo();
+check('redo that removes the selected card clears its inspection and multi-selection',!(await geometryState()).nodes.some(n=>n.id===leaf.id) && await selected()===null && await evaluate(`!document.querySelector('.selection-bar')`));
+await undo();
+check('undo restores the card but not the pruned selection',(await geometryState()).nodes.some(n=>n.id===leaf.id) && await selected()===null);
 const beforeClose=await geometryState(), beforeSubject=await selected();
 await clickSelector(`[aria-label="Close ${clone}"]`);await button('Reopen closed tab');
 const reopenedGeometry=await geometryState();
 check('reopen restores closed tab geometry and inspection',await tabLabel()===clone && same(reopenedGeometry,beforeClose) && await selected()===beforeSubject,
   same(reopenedGeometry,beforeClose)?undefined:{expected:beforeClose,actual:reopenedGeometry});
-await redo();check('reopen retains redo history',await selected()===null && await evaluate(`!document.querySelector('.selection-bar')`));
+await redo();check('reopen retains redo history',!(await geometryState()).nodes.some(n=>n.id===services.id));
+
+// ADR 0009: a double-click is an inspection (outside history) plus one arrangement entry.
+const arrangeTarget=await evaluate(`${CY}.nodes().filter(n=>!n.isParent()).last().id()`);
+const beforeArrange=await geometryState();
+await evaluate(`${CY}.getElementById('${arrangeTarget}').emit('tap');0`);await pause(60);
+await evaluate(`${CY}.getElementById('${arrangeTarget}').emit('tap');${CY}.getElementById('${arrangeTarget}').emit('dbltap');0`);await pause(700);
+const arrangedSubject=await selected();
+check('double-click inspects the card and arranges the map around it',!!arrangedSubject && !same(await geometryState(),beforeArrange));
+await undo();
+await checkGeometry('one undo reverts the whole arrangement',beforeArrange);
+check('undoing the arrangement leaves the double-clicked card inspected',await selected()===arrangedSubject);
 
 await clickSelector('[aria-label="Full screen"]');
 check('full screen opens',await evaluate(`!!document.querySelector('.graph-stage.fullscreen')`));
 await key('z',2);
-check('undo exits full screen',await evaluate(`!document.querySelector('.graph-stage.fullscreen')`));
+check('undo ignores full screen',await evaluate(`!!document.querySelector('.graph-stage.fullscreen')`));
 await key('z',10);
-check('redo restores full screen',await evaluate(`!!document.querySelector('.graph-stage.fullscreen')`));
-await clickSelector('.minimap-title');await key('z',2);
-check('undo inside full screen preserves full screen and overview',await evaluate(`!!document.querySelector('.graph-stage.fullscreen')&&!document.querySelector('.minimap').classList.contains('collapsed')`));
+check('redo ignores full screen',await evaluate(`!!document.querySelector('.graph-stage.fullscreen')`));
+await clickSelector('.minimap-title');
+const zoomBefore=await camera();await clickSelector('[aria-label="Zoom in"]');const zoomIn=await camera();await clickSelector('[aria-label="Zoom out"]');const zoomOut=await camera();await key('z',2);
+check('view-only map controls stay current through undo',await evaluate(`!!document.querySelector('.graph-stage.fullscreen')&&document.querySelector('.minimap').classList.contains('collapsed')`)&&Math.abs((await camera()).z-zoomOut.z)<.001);
+check('one zoom-in click is three former 1.2x steps',Math.abs(zoomIn.z-zoomBefore.z*(1.2**3))<.001,{before:zoomBefore.z,after:zoomIn.z});
+check('one zoom-out click is the reciprocal three-step change',Math.abs(zoomOut.z-zoomIn.z/(1.2**3))<.001,{before:zoomIn.z,after:zoomOut.z});
 if(await evaluate(`!!document.querySelector('[aria-label="Exit full screen"]')`))await clickSelector('[aria-label="Exit full screen"]');
 await shot('journeys-desktop');
 

@@ -1,0 +1,300 @@
+{
+ "edges": [
+  {
+   "id": "aggregate:[\"7e06e7c5-9edd-4edb-9d2d-1588cc41ff03\",\"aa2905d3-1ffe-4dbc-b5c5-4b740207514c\"]",
+   "s": "Hub",
+   "t": "Dep",
+   "w": 5.411032383086407,
+   "rendered": 5.411032383086407,
+   "n": 7,
+   "kinds": {
+    "CALLS": 4,
+    "CONSTRUCTS": 1,
+    "USES_TYPE": 1,
+    "DEPENDS_ON": 1
+   },
+   "label": "calls ×4 · +3",
+   "color": "rgb(170,182,196)",
+   "arrow": "rgb(118,134,152)",
+   "lineStyle": "solid",
+   "dashPattern": "6 3",
+   "glow": "rgb(0,0,0)"
+  },
+  {
+   "id": "aggregate:[\"7e06e7c5-9edd-4edb-9d2d-1588cc41ff03\",\"5dbad6d1-7d70-4316-adc4-58d5abc94259\"]",
+   "s": "Hub",
+   "t": "Peer",
+   "w": 4.2,
+   "rendered": 4.2,
+   "n": 4,
+   "kinds": {
+    "CALLS": 1,
+    "CONSTRUCTS": 1,
+    "DEPENDS_ON": 1,
+    "USES_TYPE": 1
+   },
+   "label": "calls · +3",
+   "color": "rgb(170,182,196)",
+   "arrow": "rgb(118,134,152)",
+   "lineStyle": "solid",
+   "dashPattern": "6 3",
+   "glow": "rgb(0,0,0)"
+  },
+  {
+   "id": "aggregate:[\"e960255c-9ed4-4b99-9289-644cdef9838c\",\"7e06e7c5-9edd-4edb-9d2d-1588cc41ff03\"]",
+   "s": "Caller",
+   "t": "Hub",
+   "w": 4.2,
+   "rendered": 4.2,
+   "n": 4,
+   "kinds": {
+    "CALLS": 1,
+    "CONSTRUCTS": 1,
+    "USES_TYPE": 1,
+    "DEPENDS_ON": 1
+   },
+   "label": "calls · +3",
+   "color": "rgb(170,182,196)",
+   "arrow": "rgb(118,134,152)",
+   "lineStyle": "solid",
+   "dashPattern": "6 3",
+   "glow": "rgb(0,0,0)"
+  },
+  {
+   "id": "aggregate:[\"5dbad6d1-7d70-4316-adc4-58d5abc94259\",\"7e06e7c5-9edd-4edb-9d2d-1588cc41ff03\"]",
+   "s": "Peer",
+   "t": "Hub",
+   "w": 3.5774437510817343,
+   "rendered": 3.5774437510817343,
+   "n": 3,
+   "kinds": {
+    "DEPENDS_ON": 1,
+    "USES_TYPE": 1,
+    "CALLS": 1
+   },
+   "label": "calls · +2",
+   "color": "rgb(170,182,196)",
+   "arrow": "rgb(118,134,152)",
+   "lineStyle": "solid",
+   "dashPattern": "6 3",
+   "glow": "rgb(0,0,0)"
+  }
+ ],
+ "selection": {
+  "nodes": [
+   {
+    "n": "demo",
+    "c": [],
+    "outline": "rgb(153,153,153)",
+    "border": "rgb(108,121,182)",
+    "borderStyle": "dashed"
+   },
+   {
+    "n": "Caller",
+    "c": [
+     "rel-in"
+    ],
+    "outline": "rgb(99,102,241)",
+    "border": "rgb(99,102,241)",
+    "borderStyle": "dashed"
+   },
+   {
+    "n": "Dep",
+    "c": [
+     "rel-out"
+    ],
+    "outline": "rgb(14,165,233)",
+    "border": "rgb(14,165,233)",
+    "borderStyle": "solid"
+   },
+   {
+    "n": "Hub",
+    "c": [],
+    "outline": "rgb(153,153,153)",
+    "border": "rgb(7,136,140)",
+    "borderStyle": "solid"
+   },
+   {
+    "n": "Loner",
+    "c": [
+     "muted"
+    ],
+    "outline": "rgb(153,153,153)",
+    "border": "rgb(130,147,168)",
+    "borderStyle": "solid"
+   },
+   {
+    "n": "Peer",
+    "c": [
+     "rel-both"
+    ],
+    "outline": "rgb(153,153,153)",
+    "border": "rgb(100,116,139)",
+    "borderStyle": "double"
+   }
+  ],
+  "edges": [
+   {
+    "id": "aggregate:[\"7e06e7c5-9edd-4edb-9d2d-1588cc41ff03\",\"aa2905d3-1ffe-4dbc-b5c5-4b740207514c\"]",
+    "e": "Hub->Dep",
+    "c": [
+     "flow-out"
+    ],
+    "color": "rgb(170,182,196)",
+    "arrow": "rgb(118,134,152)",
+    "lineStyle": "dashed",
+    "dashPattern": "8 5",
+    "glow": "rgb(14,165,233)"
+   },
+   {
+    "id": "aggregate:[\"7e06e7c5-9edd-4edb-9d2d-1588cc41ff03\",\"5dbad6d1-7d70-4316-adc4-58d5abc94259\"]",
+    "e": "Hub->Peer",
+    "c": [
+     "flow-out"
+    ],
+    "color": "rgb(170,182,196)",
+    "arrow": "rgb(118,134,152)",
+    "lineStyle": "dashed",
+    "dashPattern": "8 5",
+    "glow": "rgb(14,165,233)"
+   },
+   {
+    "id": "aggregate:[\"e960255c-9ed4-4b99-9289-644cdef9838c\",\"7e06e7c5-9edd-4edb-9d2d-1588cc41ff03\"]",
+    "e": "Caller->Hub",
+    "c": [
+     "flow-in"
+    ],
+    "color": "rgb(170,182,196)",
+    "arrow": "rgb(118,134,152)",
+    "lineStyle": "dashed",
+    "dashPattern": "8 5",
+    "glow": "rgb(99,102,241)"
+   },
+   {
+    "id": "aggregate:[\"5dbad6d1-7d70-4316-adc4-58d5abc94259\",\"7e06e7c5-9edd-4edb-9d2d-1588cc41ff03\"]",
+    "e": "Peer->Hub",
+    "c": [
+     "flow-in"
+    ],
+    "color": "rgb(170,182,196)",
+    "arrow": "rgb(118,134,152)",
+    "lineStyle": "dashed",
+    "dashPattern": "8 5",
+    "glow": "rgb(99,102,241)"
+   }
+  ]
+ },
+ "animation": {
+  "a1": {
+   "phase": 7.488000000000003,
+   "offset": -7.488000000000003,
+   "outline": 7.00315319385834,
+   "glow": 0.34009459581575024,
+   "overlay": true
+  },
+  "a2": {
+   "phase": 14.985000000000001,
+   "offset": -14.985000000000001,
+   "outline": 7.775599362936129,
+   "glow": 0.3632679808880839,
+   "overlay": true
+  },
+  "a3": {
+   "phase": 20.98350000000001,
+   "offset": -20.98350000000001,
+   "outline": 8.312177261390737,
+   "glow": 0.37936531784172217,
+   "overlay": true
+  }
+ },
+ "overlay": {
+  "rings": [
+   {
+    "nodeId": "5dbad6d1-7d70-4316-adc4-58d5abc94259",
+    "x": 661,
+    "y": 408.5,
+    "width": 263,
+    "height": 219,
+    "leftColor": "#6366F1",
+    "rightColor": "#0EA5E9"
+   }
+  ],
+  "draws": 20,
+  "leftPainted": true,
+  "rightPainted": true,
+  "cardAlpha": 0,
+  "layers": {
+   "overlay": "1",
+   "minimap": "2",
+   "zoom": "2"
+  }
+ },
+ "afterClose": {
+  "classes": 0,
+  "leaked": 0,
+  "phase": 0,
+  "painted": false
+ },
+ "edgeEndpoints": {
+  "names": [
+   "Dep",
+   "Hub"
+  ],
+  "neighbor": true,
+  "muted": false
+ },
+ "edgeInspector": {
+  "heading": "↗\nHub → Dep\n\ncalls ×4 · constructs · depends on · uses type",
+  "kinds": [
+   "calls 4",
+   "constructs 1",
+   "depends on 1",
+   "uses type 1"
+  ],
+  "options": [
+   "calls 1 of 4",
+   "calls 2 of 4",
+   "calls 3 of 4",
+   "calls 4 of 4",
+   "constructs 1 of 1",
+   "uses type 1 of 1",
+   "depends on 1 of 1"
+  ],
+  "button": [
+   "View source evidence (all 7)",
+   "View selected occurrence only"
+  ]
+ },
+ "evidenceAll": {
+  "sub": "Read-only source from the analyzed snapshot · 5 highlighted ranges in 1 file",
+  "files": [
+   {
+    "path": "src/main/java/demo/Hub.java 5 ranges · lines 4, 8, 10, 11, 16",
+    "highlighted": [
+     "4:constructs, depends on, uses type",
+     "8:calls, depends on",
+     "10:calls, depends on",
+     "11:calls, depends on",
+     "16:calls, depends on"
+    ]
+   }
+  ]
+ },
+ "evidenceSingleDependsOn": [
+  {
+   "path": "src/main/java/demo/Hub.java 5 ranges · lines 4, 8, 10, 11, 16",
+   "highlighted": 5
+  }
+ ],
+ "occurrenceAfterFilter": {
+  "selected": "calls 4 of 4",
+  "options": [
+   "calls 1 of 4",
+   "calls 2 of 4",
+   "calls 3 of 4",
+   "calls 4 of 4"
+  ],
+  "notice": ""
+ },
+ "pageErrors": []
+}

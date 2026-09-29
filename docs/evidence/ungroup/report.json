@@ -1,0 +1,136 @@
+{
+  "results": [
+    {
+      "label": "setup: the fixture has the services package with EventService and EmailServiceClient",
+      "pass": true
+    },
+    {
+      "label": "an expanded box shows the Ungroup button left of its stack toggle and collapse square, without overlap",
+      "pass": true
+    },
+    {
+      "label": "before ungrouping, the box is drawn",
+      "pass": true
+    },
+    {
+      "label": "Ungroup hides the box: no fill, border, outline, underlay or label, and no pointer events",
+      "pass": true
+    },
+    {
+      "label": "the freed classes stay where they were, still inside services",
+      "pass": true
+    },
+    {
+      "label": "the hidden box has no corner buttons of its own",
+      "pass": true
+    },
+    {
+      "label": "no route is drawn to the hidden box; routes attach to the freed classes",
+      "pass": true
+    },
+    {
+      "label": "the minimap does not draw the hidden box",
+      "pass": true
+    },
+    {
+      "label": "a hidden package picked from the tree stays hidden with no emphasis on the map",
+      "pass": true
+    },
+    {
+      "label": "the inspector says the package is ungrouped and offers neither an arrangement nor \"View classes\"",
+      "pass": true
+    },
+    {
+      "label": "the keyboard card menu does not open on the hidden package",
+      "pass": true
+    },
+    {
+      "label": "a freed class is dragged far away on its own",
+      "pass": true
+    },
+    {
+      "label": "a top-level card can sit inside the hidden box area and stays top-level",
+      "pass": true
+    },
+    {
+      "label": "a click there reaches that card, not the hidden box",
+      "pass": true
+    },
+    {
+      "label": "undoing the domain drag leaves the freed class where it was dragged",
+      "pass": true
+    },
+    {
+      "label": "a freed class menu offers \"Collapse into services\" (and no Ungroup, since it is not a box)",
+      "pass": true
+    },
+    {
+      "label": "services is a collapsed card again, centred on where its classes were",
+      "pass": true
+    },
+    {
+      "label": "the right-clicked class did not stay in the multi-selection",
+      "pass": true
+    },
+    {
+      "label": "undo brings back the hidden box with its classes where they were",
+      "pass": true
+    },
+    {
+      "label": "redo collapses it again",
+      "pass": true
+    },
+    {
+      "label": "the expanded box menu offers \"Ungroup services\"",
+      "pass": true
+    },
+    {
+      "label": "Ungroup from the menu hides the box, with no selection outline left on it",
+      "pass": true
+    },
+    {
+      "label": "the class box is hidden and its methods stay inside it",
+      "pass": true
+    },
+    {
+      "label": "a freed method card names its class first: \"EventService · <package tail>\"",
+      "pass": true
+    },
+    {
+      "label": "a freed method menu offers only its nearest hidden parent",
+      "pass": true
+    },
+    {
+      "label": "arranging around a freed class keeps it in place and moves freed methods individually, not the hidden box as one block",
+      "pass": true
+    },
+    {
+      "label": "Collapse into EventService brings it back as a collapsed card inside the still-hidden services, and its methods leave the map",
+      "pass": true
+    },
+    {
+      "label": "a method multi-selected before the collapse is not selected again when its class re-expands",
+      "pass": true
+    },
+    {
+      "label": "Changes: a MODIFIED package ungroups and its change fill and border are hidden too",
+      "pass": true
+    },
+    {
+      "label": "fresh map: services is a collapsed card",
+      "pass": true
+    },
+    {
+      "label": "tree ⌖ on a class in a collapsed package expands the package, then the class, and inspects the class",
+      "pass": true
+    },
+    {
+      "label": "a ?selectedSymbol= deep link to a method draws it inside its class box inside its package box, inspected",
+      "pass": true
+    },
+    {
+      "label": "no page or console errors",
+      "pass": true
+    }
+  ]
+}

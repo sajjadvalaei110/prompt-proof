@@ -1,16 +1,20 @@
 import { ScopeSelection, isNodeInScope } from './scopeModel';
 export interface AtlasNode { id: string; simpleName: string; qualifiedName?: string; kind: string; parentId?: string; roles?: string[]; responsibilitySummary?: string; explanationStatus?: string; memberNames?: string[]; memberCount?: number; packageName?: string;
   /** A comparison overlay may mark a parser-owned resource; ordinary exploration leaves this absent. */
-  reviewChange?: 'ADDED' | 'MODIFIED' | 'REMOVED' | 'UNCHANGED'; reviewSnapshotId?: string; reviewSide?: 'base' | 'head'; reviewSourceId?: string; reviewAddedLines?: number; reviewRemovedLines?: number;
+  reviewChange?: 'ADDED' | 'MODIFIED' | 'REMOVED' | 'UNCHANGED' | 'UNKNOWN'; reviewSnapshotId?: string; reviewSide?: 'base' | 'head'; reviewSourceId?: string; reviewAddedLines?: number; reviewRemovedLines?: number;
   /** How many cards expanding this card would show before scope: a package's types, a type's methods and constructors. */
   detailCount?: number;
   /** Set on a projected card drawn inside an expanded card: the id of that container card. */
   containerId?: string;
   /** Set on a projected card that is currently expanded into a container of its children. */
-  expanded?: boolean }
+  expanded?: boolean;
+  /** An ungrouped expanded card: its box is not drawn and it takes no pointer events (ADR 0011). */
+  hiddenBox?: boolean;
+  /** A method/constructor card's owning class name, shown on the card (ADR 0011). */
+  ownerName?: string }
 export interface AtlasEdge { id: string; sourceId: string; targetId: string | null; kind: string; resolution: string; descriptiveLabel?: string; occurrenceCount?: number; occurrenceIds?: string[]; hoverSummary?: string; explanationStatus?: string;
   /** Kept in the aggregate key for review overlay facts, so added/removed routes cannot cancel out. */
-  reviewChange?: 'ADDED' | 'REMOVED' | 'UNCHANGED'; reviewSnapshotId?: string; reviewSide?: 'base' | 'head';
+  reviewChange?: 'ADDED' | 'REMOVED' | 'UNCHANGED' | 'UNKNOWN'; reviewSnapshotId?: string; reviewSide?: 'base' | 'head';
   /** Review occurrence metadata; ordinary graph edges leave these absent. */
   reviewSourceId?: string;
   /** Aggregate-only (see aggregateEdges): per-occurrence kinds aligned with occurrenceIds, per-kind counts, distinct resolutions present, and the computed line width. */
@@ -110,11 +114,14 @@ function decorate(byParent: Map<string, AtlasNode[]>, all: Map<string, AtlasNode
   const detailCount = n.kind === 'PACKAGE'
     ? (packageTypes.get(n.id) || []).filter(m => !scope || isNodeInScope(m, scope, graph)).length
     : isType(n) ? members.filter(m => m.kind === 'METHOD' || m.kind === 'CONSTRUCTOR').length : 0;
-  return { ...n, memberNames: members.slice(0, 12).map(m => m.simpleName), memberCount: members.length, detailCount, packageName: pkg?.qualifiedName };
+  // A method card names its owning class (ADR 0011): freed from an ungrouped class, it has no box to say so.
+  const ownerName = n.kind === 'METHOD' || n.kind === 'CONSTRUCTOR' ? ownerAt(n, 'CLASS', all)?.simpleName : undefined;
+  return { ...n, memberNames: members.slice(0, 12).map(m => m.simpleName), memberCount: members.length, detailCount, packageName: pkg?.qualifiedName, ...(ownerName ? { ownerName } : {}) };
 }
 
-/** One expanded card: `ownerId` is the container it is drawn inside, or null for a top-level card. */
-export interface ExpansionSpec { id: string; ownerId: string | null }
+/** One expanded card: `ownerId` is the container it is drawn inside, or null for a top-level card.
+ * `hidden` marks an ungrouped card whose box is not drawn (ADR 0011). */
+export interface ExpansionSpec { id: string; ownerId: string | null; hidden?: boolean }
 
 /** Only packages and types expand: a package into its types, a type into its methods and constructors. */
 export const isExpandable = (n: AtlasNode) => n.kind === 'PACKAGE' || isType(n);
@@ -132,7 +139,19 @@ export function childrenOf(graph: AtlasGraph, container: AtlasNode, scope: Scope
   return [];
 }
 
-/** Uncertainty rank: the aggregate's representative resolution is the least certain one present, so a single candidate/unresolved occurrence keeps the whole line visibly uncertain. */
+/**
+ * The containers to open, outermost first, so that `node` is drawn: its package box, then (for a
+ * method or constructor only) its owning type's box. A package box holds nested types side by side
+ * with their outer type (childrenOf), so a nested type's outer class is never one of them.
+ */
+export function revealContainers(node: AtlasNode, all: Map<string, AtlasNode>): AtlasNode[] {
+  const pkg = ownerAt(node, 'PACKAGE', all);
+  const out = pkg && pkg.id !== node.id ? [pkg] : [];
+  const type = node.kind === 'METHOD' || node.kind === 'CONSTRUCTOR' ? ownerAt(node, 'CLASS', all) : undefined;
+  return type ? [...out, type] : out;
+}
+
+/** Uncertainty rank: the aggregate's representative resolution is the least certain one present, so a single candidate/unresolved occurrence is never reported as resolved (hover text, inspector). The line itself is not styled by resolution (ADR 0008 amendment, 2026-09-25). */
 const RESOLUTION_RANK: Record<string, number> = { RESOLVED: 0, CANDIDATE: 1, UNRESOLVED: 2 };
 const worseResolution = (a: string, b: string) => ((RESOLUTION_RANK[b] ?? 2) > (RESOLUTION_RANK[a] ?? 2) ? b : a);
 
@@ -184,10 +203,27 @@ export const sortedKindCounts = (edge: AtlasEdge): [string, number][] =>
   Object.entries(edge.kindCounts || { [edge.kind]: edge.occurrenceCount || 1 }).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 
 /** "calls ×3 · injects" -- kinds by descending count, capped to `limit` kinds with a "+n" tail. */
+/** The hover sentence for a review route's own change status; '' outside the overlay. */
+export function reviewRouteSummary(edge: AtlasEdge): string {
+  if (!edge.reviewChange) return '';
+  const unknown = edge.reviewChange === 'UNKNOWN'
+    ? ' A declaring file did not parse on one side, so this relationship\'s fate is unknown.' : '';
+  return ` Change: ${edge.reviewChange.toLowerCase()}.${unknown}`;
+}
 export function kindSummary(edge: AtlasEdge, limit = Infinity) {
   const kinds = sortedKindCounts(edge);
   const shown = kinds.slice(0, limit).map(([kind, count]) => kind.toLowerCase().replaceAll('_', ' ') + (count > 1 ? ` ×${count}` : ''));
   return shown.join(' · ') + (kinds.length > limit ? ` · +${kinds.length - limit}` : '');
+}
+
+const AGGREGATE_ROUTE_PREFIX = 'aggregate:';
+/** The card IDs an aggregateEdges route ID joins, or null for any other (raw relationship) ID. */
+export function aggregateRouteEndpoints(id: string): [string, string] | null {
+  if (!id.startsWith(AGGREGATE_ROUTE_PREFIX)) return null;
+  try {
+    const key: unknown = JSON.parse(id.slice(AGGREGATE_ROUTE_PREFIX.length));
+    return Array.isArray(key) && typeof key[0] === 'string' && typeof key[1] === 'string' ? [key[0], key[1]] : null;
+  } catch { return null; }
 }
 
 /**
@@ -202,7 +238,9 @@ export function kindSummary(edge: AtlasEdge, limit = Infinity) {
  * occurrence is READY the least settled status present wins (FAILED > RUNNING > STALE > QUEUED =
  * PENDING > NOT_REQUESTED, see dominantExplanationStatus) so a failure is never masked by an unrequested
  * sibling. The ID keys on endpoints only, so a filter change that removes some kinds keeps the same
- * ID (thinner line) and one that removes all kinds removes the route.
+ * ID (thinner line) and one that removes all kinds removes the route. In the review overlay the key
+ * also carries `reviewChange`, so added, removed, unknown and unchanged routes between the same two
+ * cards stay separate lines rather than cancelling out into one.
  *
  * An endpoint first resolves to its owner at the page's level, which must be displayed. When that
  * owner is expanded, it resolves further down to the deepest visible card on the endpoint's own
@@ -247,7 +285,7 @@ function aggregateEdges(graph: AtlasGraph, level: Level, all: Map<string, AtlasN
       group.resolution = worseResolution(group.resolution, e.resolution);
       group.explanationStatus = dominantExplanationStatus(group.explanationStatus, e.explanationStatus);
     }
-    else grouped.set(key, { ...e, id: `aggregate:${key}`, sourceId: source, targetId: target, occurrenceIds: [e.id], occurrenceKinds: [e.kind], occurrenceCount: 1, kindCounts: { [e.kind]: 1 }, resolutions: [e.resolution] });
+    else grouped.set(key, { ...e, id: `${AGGREGATE_ROUTE_PREFIX}${key}`, sourceId: source, targetId: target, occurrenceIds: [e.id], occurrenceKinds: [e.kind], occurrenceCount: 1, kindCounts: { [e.kind]: 1 }, resolutions: [e.resolution] });
   }
   const edges = [...grouped.values()];
   for (const edge of edges) { edge.kind = sortedKindCounts(edge)[0][0]; edge.strengthWidth = strengthWidth(edge.occurrenceCount || 1); }
@@ -269,11 +307,12 @@ export function projectDisplayed(graph: AtlasGraph, level: Level, displayedIds: 
   const byParent = childrenByParent(graph);
   const packageTypes = typesByOwnerPackage(graph, all);
   const owners = new Map<string, string | null>((expansion?.expansions || []).map(e => [e.id, e.ownerId]));
+  const hidden = new Set((expansion?.expansions || []).filter(e => e.hidden).map(e => e.id));
   const containerOf = new Map<string, string>(), expanded = new Set<string>();
   const nodes: AtlasNode[] = [];
   const visit = (n: AtlasNode, containerId: string | null) => {
     const isExpanded = level !== 'METHOD' && owners.has(n.id) && owners.get(n.id) === containerId && isExpandable(n);
-    nodes.push({ ...decorate(byParent, all, packageTypes, graph, n, expansion?.scope), ...(containerId ? { containerId } : {}), ...(isExpanded ? { expanded: true } : {}) });
+    nodes.push({ ...decorate(byParent, all, packageTypes, graph, n, expansion?.scope), ...(containerId ? { containerId } : {}), ...(isExpanded ? { expanded: true } : {}), ...(isExpanded && hidden.has(n.id) ? { hiddenBox: true } : {}) });
     if (containerId) containerOf.set(n.id, containerId);
     if (!isExpanded) return;
     expanded.add(n.id);

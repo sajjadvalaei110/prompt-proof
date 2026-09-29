@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Packaged end-to-end Git review acceptance using a disposable Git fixture.
+"""Packaged end-to-end acceptance for the Git-review-on-the-Code-map feature (Changes toggle,
+per-tab review mode across New tab/Clone tab, collapsible map-heading, git-style diff viewer).
 
 The fixture is created at runtime with a committed base, a staged modification and new class,
 an unstaged deletion, and untracked Java and non-Java files. The packaged application imports and
-analyzes it through the workspace API; Chromium then opens the actual Review changes UI. The
+analyzes it through the workspace API; Chromium then opens the actual Code-map Changes UI. The
 workspace and its Git index are hashed before and after the full run to catch writes to the source
 repository. The app database, browser profile, logs, report, and screenshots live in an isolated
 output directory. No user repository or model endpoint is used.
@@ -106,7 +107,7 @@ public class Hub {
     }
 
     public String sibling() {
-        return new KeepDep().read();
+        return new KeepDep().read(1) + new KeepDep().read(2) + new support.Stable().value();
     }
 }
 ''')
@@ -121,14 +122,58 @@ public class OldDep {
     write(fixture, 'src/main/java/review/KeepDep.java', '''package review;
 
 public class KeepDep {
+    public String read(int n) {
+        return "kept" + n;
+    }
+}
+''')
+    # A file that parses in the base and not in the working tree: its declarations and relationships
+    # are unknown after the change, never "removed" (they may well still be there).
+    write(fixture, 'src/main/java/review/Broken.java', '''package review;
+
+public class Broken {
     public String read() {
-        return "kept";
+        return new KeepDep().read(1);
+    }
+}
+''')
+    write(fixture, 'src/main/java/review/BrokenClient.java', '''package review;
+
+public class BrokenClient {
+    public String use() {
+        return new Broken().read();
+    }
+}
+''')
+    # A second package gives the browser acceptance a real scope edit to preserve while the
+    # review overlay changes colors and source-inspection behavior. It remains unchanged across
+    # the comparison so the package itself is a stable parser fact.
+    write(fixture, 'src/main/java/support/Stable.java', '''package support;
+
+public class Stable {
+    public String value() {
+        return "stable";
+    }
+}
+''')
+    # A whole base-only package exercises the scope boundary for review-only resources. The
+    # comparison must retain its REMOVED package fact, while the browser's narrowed review scope
+    # must not resurrect that package merely because it is review-only.
+    write(fixture, 'src/main/java/legacy/Retired.java', '''package legacy;
+
+public class Retired {
+    public String value() {
+        return "retired";
     }
 }
 ''')
     git(fixture, 'add', 'src/main/java')
     git(fixture, 'commit', '--quiet', '-m', 'review fixture base')
     base_oid = git(fixture, 'rev-parse', 'HEAD')
+    # Leave the whole legacy package present only in the pinned base snapshot. The active working
+    # tree must omit it so the ordinary map starts with review/support while the overlay can prove
+    # that its removed package fact is still scope-filtered.
+    (fixture / 'src/main/java/legacy/Retired.java').unlink()
 
     # Keep the base and changed relation visible in the exact changed method; the sibling keeps
     # one original route in the mixed view for a color and selection regression check.
@@ -140,7 +185,7 @@ public class Hub {
     }
 
     public String sibling() {
-        return new KeepDep().read();
+        return new KeepDep().read(1);
     }
 }
 ''')
@@ -163,7 +208,7 @@ public class Hub {
     }
 
     public String sibling() {
-        return new KeepDep().read();
+        return new KeepDep().read(1);
     }
 }
 ''')
@@ -173,6 +218,14 @@ public class Hub {
 public class UntrackedHelper {
     public String label() {
         return "untracked";
+    }
+}
+''')
+    write(fixture, 'src/main/java/review/Broken.java', '''package review;
+
+public class Broken {
+    public String read() {
+        return  new KeepDep().read(1)
     }
 }
 ''')
@@ -278,7 +331,7 @@ def main():
         print(f"Workspace {workspace['id']} analyzed as snapshot {snapshot}")
 
         # The UI owns the comparison request in this test. The Node script must submit the base
-        # ref through the user's Review changes form instead of pre-seeding a comparison via API.
+        # ref through the Code-map Changes controls instead of pre-seeding a comparison via API.
         result = subprocess.run(
             ['node', str(ROOT / 'scripts/verify-git-review-ui.mjs'), base, debug,
              workspace['id'], snapshot, base_oid, str(fixture), str(run)],
@@ -298,10 +351,6 @@ def main():
             report = json.loads(report_path.read_text())
             print(f"Checks: {sum(1 for check in report.get('checks', []) if check.get('pass'))}/"
                   f"{len(report.get('checks', []))}; page errors: {len(report.get('pageErrors', []))}")
-            summary = report.get('review', {}).get('summary', {})
-            print(f"Change summary: +{summary.get('addedLines', '?')} "
-                  f"-{summary.get('removedLines', '?')} lines; "
-                  f"{summary.get('changedFiles', '?')} files")
         screenshots = sorted(path.name for path in run.glob('*.png'))
         print(f"Screenshots ({len(screenshots)}): {', '.join(screenshots)}")
         print(f'Report and screenshots: {run}')
@@ -309,7 +358,7 @@ def main():
         print(f'Git index SHA-256: {before_index_hash} (unchanged)')
         if result.returncode != 0:
             raise SystemExit(f'Git review browser acceptance failed (exit {result.returncode}). Evidence: {run}')
-        print('PASS (Git review): runtime Git fixture, actual Review changes UI, source/index unchanged, no model requests.')
+        print('PASS (Review map): runtime Git fixture, Changes toggle on the Code map, per-tab review mode, collapsible heading, diff viewer, source/index unchanged, no model requests.')
     finally:
         model_server.shutdown()
         model_server.server_close()

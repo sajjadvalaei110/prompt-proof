@@ -28,21 +28,47 @@ public class JavaParserAdapter {
     /** Record type id -> its declared canonical constructor, when a call's argument count alone identifies it. */
     private final Map<String, CanonicalConstructor> recordCanonicalConstructors = new HashMap<>();
     private record CanonicalConstructor(String id, int arity) {}
+    /**
+     * Run-level facts for {@link #linkOverrides} (ADR 0010), merged in per file only once that file's relationship
+     * pass succeeded: each type's in-source direct supertypes and each type's declared methods.
+     */
+    private final Map<String, List<String>> supertypesByType = new HashMap<>();
+    private final Map<String, List<MethodFacts>> methodsByType = new HashMap<>();
+    /**
+     * A declared method. {@code parameters}: each parameter's identity, the indexed in-source type it resolves to
+     * ({@code #<id>}) or else its erased name as written ({@code java.util.List<String>} is {@code List}).
+     * {@code overridable}: not static or private. {@code packagePrivate}: no access modifier outside an interface.
+     */
+    private record MethodFacts(String id, String name, List<String> parameters, boolean overridable, boolean packagePrivate, String packageName, Site site) {}
+    /** An evidence range with its snippet, not yet stored. */
+    private record Site(String fileId, int beginLine, int beginColumn, int endLine, int endColumn, String snippet) {}
     public List<String> diagnostics() { return List.copyOf(diagnostics); }
     public void addDiagnostic(String message) { diagnostics.add(message); }
     public JavaParserAdapter(JdbcTemplate db) { this.db = db; }
 
-    public void setupSymbolSolver(String workspacePath) {
+    public void setupSymbolSolver(String workspacePath) { setupSymbolSolver(workspacePath, Path.of(workspacePath)); }
+
+    /**
+     * Prepares the symbol solver for {@code analyzedPath}. A directory is a source root when its path, laid out under
+     * {@code layoutRoot} instead of {@code analyzedPath}, ends with {@code src/main/java} or {@code src/test/java}. An
+     * ordinary analysis passes its own path. A review capture passes the workspace root it was captured from: the
+     * capture lives under {@code capture-*}/{@code base|head}, so without this a repository rooted at a {@code src}
+     * directory (its {@code main/java} and {@code test/java} completed by the root's own name) found no source roots
+     * in review, the solver saw no in-source types, and the Changes comparison lost every fact that needs it.
+     */
+    public void setupSymbolSolver(String analyzedPath, Path layoutRoot) {
         diagnostics.clear();
         relationshipLookups.clear();
         indexedTypeNames.clear();
         typesWithConstructors.clear();
         recordCanonicalConstructors.clear();
-        root = Path.of(workspacePath).toAbsolutePath().normalize();
+        clearOverrideFacts();
+        root = Path.of(analyzedPath).toAbsolutePath().normalize();
+        Path layout = layoutRoot.toAbsolutePath().normalize();
         CombinedTypeSolver solver = new CombinedTypeSolver(new ReflectionTypeSolver());
         try (var paths = Files.walk(root)) {
             List<Path> roots = paths.filter(Files::isDirectory)
-                .filter(p -> p.endsWith("src/main/java") || p.endsWith("src/test/java"))
+                .filter(p -> { Path logical = layout.resolve(root.relativize(p)); return logical.endsWith("src/main/java") || logical.endsWith("src/test/java"); })
                 .filter(p -> !Files.isSymbolicLink(p)).sorted().toList();
             if (roots.isEmpty()) solver.add(new JavaParserTypeSolver(root));
             else for (Path path : roots) solver.add(new JavaParserTypeSolver(path));
@@ -150,7 +176,8 @@ public class JavaParserAdapter {
     }
     private void linkSymbol(String id, String ev) { db.update("INSERT INTO symbol_evidence VALUES (?, ?)", id, ev); }
     /** {@code lines} is the file split once per pass, not per evidence site. */
-    private String evidence(String fileId, Node node, String[] lines) {
+    private String evidence(String fileId, Node node, String[] lines) { return evidence(site(fileId, node, lines)); }
+    private static Site site(String fileId, Node node, String[] lines) {
         var range = node.getRange().orElseThrow();
         StringBuilder snippet = new StringBuilder();
         for (int line = range.begin.line; line <= range.end.line; line++) {
@@ -160,9 +187,12 @@ public class JavaParserAdapter {
             snippet.append(text, Math.min(start, end), end);
             if (line < range.end.line) snippet.append('\n');
         }
+        return new Site(fileId, range.begin.line, range.begin.column, range.end.line, range.end.column, snippet.toString());
+    }
+    private String evidence(Site site) {
         String id = UUID.randomUUID().toString();
         db.update("INSERT INTO evidence (id, source_file_version_id, start_line, start_column, end_line, end_column, snippet) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            id, fileId, range.begin.line, range.begin.column, range.end.line, range.end.column, snippet.toString());
+            id, site.fileId(), site.beginLine(), site.beginColumn(), site.endLine(), site.endColumn(), site.snippet());
         return id;
     }
     private String relationship(String snap, String source, String target, String unresolved, String kind, String ev) {
@@ -189,9 +219,10 @@ public class JavaParserAdapter {
      * A type constructing itself from such code is not an edge.
      * Type references resolve through the symbol solver, then deterministic Java name lookup (enclosing types,
      * single-type and single-static imports, same package, a unique on-demand import); only indexed targets become
-     * edges, so JDK/library types add no noise. Method targets are never guessed: an unresolvable call (for example a
-     * Lombok-generated getter) stays an UNRESOLVED CALLS occurrence, while its receiver's statically declared type
-     * still yields the class-level DEPENDS_ON.
+     * edges, so JDK/library types add no noise. Method targets are never guessed: a call the symbol solver cannot
+     * resolve (for example a Lombok-generated getter) stays an UNRESOLVED CALLS occurrence, while its receiver's
+     * statically declared type still yields the class-level DEPENDS_ON (candidate calls were withdrawn: ADR 0010,
+     * 2026-09-25 amendment).
      */
     public void parseRelationships(File file, String workspaceId, String snapshotId) {
         try {
@@ -207,14 +238,20 @@ public class JavaParserAdapter {
             Map<String, String> dependsOnByPair = new HashMap<>();
             Map<String, String> usesTypeByPair = new HashMap<>();
             Map<TypeDeclaration<?>, Owned> ownedByType = ownedByType(cu);
+            Map<String, List<String>> fileSupertypes = new HashMap<>();
+            Map<String, List<MethodFacts>> fileMethods = new HashMap<>();
             for (TypeDeclaration<?> type : cu.findAll(TypeDeclaration.class)) {
                 String owner = type.getFullyQualifiedName().orElse("");
                 String ownerId = lookup(snapshotId, owner);
                 if (ownerId == null) continue;
                 Scope scope = new Scope(cu, snapshotId, owner, ownerId, fileId, lines, enclosingTypeNames(type));
                 Owned owned = ownedByType.getOrDefault(type, new Owned());
-                for (ClassOrInterfaceType t : extendedTypes(type)) supertype(scope, dependsOnByPair, t, "EXTENDS");
-                for (ClassOrInterfaceType t : implementedTypes(type)) supertype(scope, dependsOnByPair, t, "IMPLEMENTS");
+                List<String> supertypes = new ArrayList<>();
+                for (ClassOrInterfaceType t : extendedTypes(type)) supertypes.add(supertype(scope, dependsOnByPair, t, "EXTENDS"));
+                for (ClassOrInterfaceType t : implementedTypes(type)) supertypes.add(supertype(scope, dependsOnByPair, t, "IMPLEMENTS"));
+                supertypes.removeIf(Objects::isNull);
+                fileSupertypes.put(ownerId, supertypes);
+                fileMethods.put(ownerId, methodFacts(scope, type));
 
                 for (MethodCallExpr call : owned.calls) {
                     String caller = sourceFor(scope, type, call);
@@ -297,7 +334,85 @@ public class JavaParserAdapter {
                     usesType(scope, type, usesTypeByPair, dependsOnByPair, access, typeId);
                 }
             }
+            supertypesByType.putAll(fileSupertypes);
+            methodsByType.putAll(fileMethods);
         } catch (Exception e) { throw new IllegalStateException("Relationship indexing failed for " + file.getName(), e); }
+    }
+
+    /**
+     * ADR 0010 post-pass, run once after every file's relationship pass, when the whole in-source type hierarchy is
+     * known: OVERRIDES (RESOLVED) from each in-source method to every in-source supertype method (direct or
+     * inherited) it overrides or implements: same name and the same parameter types, neither static nor private. A
+     * parameter is its resolved in-source type, else its erased name as written; a type resolved on one side only
+     * never matches (F1). A package-private supertype method is overridden only from its own package (JLS 8.4.8.1).
+     * Its evidence is the overriding method's name. Unresolved calls are left untouched (candidate calls were
+     * withdrawn by the 2026-09-25 amendment).
+     */
+    public void linkOverrides(String snapshotId) {
+        for (var entry : methodsByType.entrySet()) {
+            List<String> ancestors = ancestors(entry.getKey());
+            if (ancestors.isEmpty()) continue;
+            for (MethodFacts method : entry.getValue()) {
+                if (!method.overridable()) continue;
+                for (String ancestor : ancestors) for (MethodFacts overridden : methodsByType.getOrDefault(ancestor, List.of())) {
+                    if (!overridden.overridable() || !overridden.name().equals(method.name()) || !overridden.parameters().equals(method.parameters())) continue;
+                    // A package-private method is not inherited outside its package, so it cannot be overridden there (JLS 8.4.8.1).
+                    if (overridden.packagePrivate() && !overridden.packageName().equals(method.packageName())) continue;
+                    String id = UUID.randomUUID().toString();
+                    db.update("INSERT INTO relationship_occurrences (id, snapshot_id, source_symbol_id, target_symbol_id, kind, resolution, reason) VALUES (?, ?, ?, ?, 'OVERRIDES', 'RESOLVED', ?)",
+                        id, snapshotId, method.id(), overridden.id(), "Same name and parameter types as the in-source supertype method; calls to it may dispatch here at runtime");
+                    db.update("INSERT INTO relationship_evidence VALUES (?, ?)", id, evidence(method.site()));
+                }
+            }
+        }
+        clearOverrideFacts();
+    }
+
+    /** The in-source supertypes of a type, transitively, nearest first. */
+    private List<String> ancestors(String typeId) {
+        Set<String> seen = new LinkedHashSet<>();
+        Deque<String> queue = new ArrayDeque<>(supertypesByType.getOrDefault(typeId, List.of()));
+        while (!queue.isEmpty()) {
+            String next = queue.removeFirst();
+            if (next.equals(typeId) || !seen.add(next)) continue;
+            queue.addAll(supertypesByType.getOrDefault(next, List.of()));
+        }
+        return new ArrayList<>(seen);
+    }
+
+    private void clearOverrideFacts() {
+        supertypesByType.clear();
+        methodsByType.clear();
+    }
+
+    private List<MethodFacts> methodFacts(Scope scope, TypeDeclaration<?> type) {
+        List<MethodFacts> facts = new ArrayList<>();
+        String packageName = scope.cu().getPackageDeclaration().map(p -> p.getNameAsString()).orElse("");
+        // Interface and annotation members are implicitly public.
+        boolean implicitlyPublic = type instanceof ClassOrInterfaceDeclaration c && c.isInterface() || type instanceof AnnotationDeclaration;
+        for (MethodDeclaration m : type.getMethods()) {
+            String id = lookup(scope.snapshotId(), methodName(scope.owner(), m));
+            if (id == null) continue;
+            List<String> parameters = m.getParameters().stream().map(p -> parameterKey(scope, p.getType()) + (p.isVarArgs() ? "[]" : "")).toList();
+            boolean packagePrivate = !implicitlyPublic && m.getAccessSpecifier() == AccessSpecifier.NONE;
+            facts.add(new MethodFacts(id, m.getNameAsString(), parameters, !m.isStatic() && !m.isPrivate(),
+                packagePrivate, packageName, site(scope.fileId(), m.getName(), scope.lines())));
+        }
+        return facts;
+    }
+
+    /**
+     * A parameter's identity for override matching: {@code #<id>} of the indexed in-source type it resolves to, else
+     * its name as written without type arguments or qualifier ({@code java.util.List<String>} is {@code List}). The
+     * two forms never compare equal, so a type that resolves on one side only is not an override (ADR 0010, F1).
+     */
+    private String parameterKey(Scope scope, com.github.javaparser.ast.type.Type type) {
+        if (type instanceof com.github.javaparser.ast.type.ArrayType array) return parameterKey(scope, array.getComponentType()) + "[]";
+        if (type instanceof ClassOrInterfaceType named) {
+            String id = resolveType(scope, named);
+            return id != null ? "#" + id : named.getNameAsString();
+        }
+        return type.asString();
     }
 
     /** Per-type extraction context. {@code lines} is the file content split once. */
@@ -339,11 +454,12 @@ public class JavaParserAdapter {
     }
 
     /** EXTENDS/IMPLEMENTS from the type itself, also summarized by the class-level DEPENDS_ON with the same evidence. */
-    private void supertype(Scope scope, Map<String, String> dependsOnByPair, ClassOrInterfaceType supertype, String kind) {
+    private String supertype(Scope scope, Map<String, String> dependsOnByPair, ClassOrInterfaceType supertype, String kind) {
         String targetId = resolveType(scope, supertype);
         String ev = evidence(scope.fileId(), supertype, scope.lines());
         relationship(scope.snapshotId(), scope.ownerId(), targetId, supertype.asString(), kind, ev);
         dependsOn(scope, dependsOnByPair, targetId, ev);
+        return targetId;
     }
 
     /** Qualified names of {@code type} and each named type that lexically encloses it, innermost first. */
@@ -555,6 +671,7 @@ public class JavaParserAdapter {
         indexedTypeNames.clear();
         typesWithConstructors.clear();
         recordCanonicalConstructors.clear();
+        clearOverrideFacts();
     }
 
     /** Relationship-pass symbol lookup. All declarations exist before this pass starts, so results are cached per run. */

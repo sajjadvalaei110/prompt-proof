@@ -1,0 +1,436 @@
+{
+  "results": [
+    {
+      "label": "setup: a redo branch exists before the stack scenario",
+      "pass": true
+    },
+    {
+      "label": "the selected card shows the stack button, not pressed",
+      "pass": true
+    },
+    {
+      "label": "activating roots the stack at the card: pressed button (its next press shows incoming) with the summary tooltip",
+      "pass": true
+    },
+    {
+      "label": "badges number every reached card by its package-level card-hop distance (independent oracle)",
+      "pass": true
+    },
+    {
+      "label": "badges cover every layer 1..N",
+      "pass": true
+    },
+    {
+      "label": "the root keeps its inspected look and gets no badge; chain cards get the static outline",
+      "pass": true
+    },
+    {
+      "label": "the tooltip counts layers and resources (and anything beyond the map)",
+      "pass": true
+    },
+    {
+      "label": "the inspector shows the same summary for the inspected root",
+      "pass": true
+    },
+    {
+      "label": "outgoing: badges and chain outlines are cyan, and no route takes the incoming underlay",
+      "pass": true
+    },
+    {
+      "label": "cards outside the chain are muted, chain cards are not",
+      "pass": true
+    },
+    {
+      "label": "the chain routes are exactly the drawn routes carrying a chain fact step",
+      "pass": true
+    },
+    {
+      "label": "every chain route runs between chain cards and moves with the selected-route dashes",
+      "pass": true
+    },
+    {
+      "label": "route dashes and badge borders animate while the stack is active",
+      "pass": true
+    },
+    {
+      "label": "activating the stack creates no undo entry (redo survives)",
+      "pass": true
+    },
+    {
+      "label": "activating the stack moves no card and keeps the camera",
+      "pass": true
+    },
+    {
+      "label": "selecting a layer-2 card keeps the stack rooted at the original card",
+      "pass": true
+    },
+    {
+      "label": "the selected layer-2 card is inspected on top of its badge",
+      "pass": true
+    },
+    {
+      "label": "the inspector follows the selection and shows no stack summary",
+      "pass": true
+    },
+    {
+      "label": "selecting inside the stack moves no card and keeps the camera",
+      "pass": true
+    },
+    {
+      "label": "expanding a chain card keeps package-level layers identical (and the oracle agrees)",
+      "pass": true
+    },
+    {
+      "label": "the expanded chain box carries the badge; the cards inside it carry none",
+      "pass": true
+    },
+    {
+      "label": "the cards inside the expanded chain box are covered: not muted, no chain outline",
+      "pass": true
+    },
+    {
+      "label": "after the expansion the chain routes still match the oracle",
+      "pass": true
+    },
+    {
+      "label": "undoing the expansion keeps the stack and restores the original layers",
+      "pass": true
+    },
+    {
+      "label": "expanded root: the root set is the root, its types and their methods",
+      "pass": true
+    },
+    {
+      "label": "expanded root: every layer-0 card, nested ones included, gets the root look",
+      "pass": true
+    },
+    {
+      "label": "expanded root: layer-0 cards get no badge, no chain outline and are not muted",
+      "pass": true
+    },
+    {
+      "label": "expanded root: layers are unchanged and match the oracle; the pressed toggle stays on the root only",
+      "pass": true
+    },
+    {
+      "label": "undoing the root expansions keeps the stack with its original layers",
+      "pass": true
+    },
+    {
+      "label": "Escape ends the stack: no badges, stack classes, pressed button or chain routes",
+      "pass": true
+    },
+    {
+      "label": "the first Escape keeps the selection",
+      "pass": true
+    },
+    {
+      "label": "ending the stack creates no undo entry (redo survives)",
+      "pass": true
+    },
+    {
+      "label": "ending the stack moves no card and keeps the camera",
+      "pass": true
+    },
+    {
+      "label": "a second Escape clears the selection",
+      "pass": true
+    },
+    {
+      "label": "setup: some drawn package has an incoming stack at least two layers deep",
+      "pass": true
+    },
+    {
+      "label": "the second press shows the incoming stack: pressed, indigo, its next press hides it",
+      "pass": true
+    },
+    {
+      "label": "incoming badges number every card that leads to the root by card-hop distance (independent oracle)",
+      "pass": true
+    },
+    {
+      "label": "incoming badges cover every layer 1..N",
+      "pass": true
+    },
+    {
+      "label": "incoming badges, chain outlines and route underlays are indigo (HALO.in)",
+      "pass": true
+    },
+    {
+      "label": "incoming chain routes are exactly the drawn routes carrying a reversed chain step; none take the outgoing underlay",
+      "pass": true
+    },
+    {
+      "label": "incoming: the root keeps its teal root look and gets no badge",
+      "pass": true
+    },
+    {
+      "label": "incoming: the tooltip and inspector read \"Incoming stack: ...\"",
+      "pass": true
+    },
+    {
+      "label": "incoming: cards outside the chain are muted, chain cards are not",
+      "pass": true
+    },
+    {
+      "label": "switching to incoming creates no undo entry (redo survives)",
+      "pass": true
+    },
+    {
+      "label": "switching to incoming moves no card and keeps the camera",
+      "pass": true
+    },
+    {
+      "label": "incoming: selecting a layer-1 card keeps the incoming stack pinned to its root",
+      "pass": true
+    },
+    {
+      "label": "the button of another card starts a fresh outgoing stack there, even while incoming is shown",
+      "pass": true
+    },
+    {
+      "label": "the cycle reaches incoming again on the root",
+      "pass": true
+    },
+    {
+      "label": "the third press ends the stack: no badges, stack classes or pressed button; the toggle offers outgoing again",
+      "pass": true
+    },
+    {
+      "label": "the whole cycle created no undo entry (redo survives)",
+      "pass": true
+    },
+    {
+      "label": "the whole cycle moved no card and kept the camera",
+      "pass": true
+    },
+    {
+      "label": "the context menu offers both directions directly",
+      "pass": true
+    },
+    {
+      "label": "\"Show incoming stack\" roots the incoming stack straight from off",
+      "pass": true
+    },
+    {
+      "label": "the menu then offers \"Hide incoming stack\" and \"Show outgoing stack\"",
+      "pass": true
+    },
+    {
+      "label": "\"Show outgoing stack\" switches the same root to outgoing directly",
+      "pass": true
+    },
+    {
+      "label": "Escape ends an incoming stack and keeps the selection",
+      "pass": true
+    },
+    {
+      "label": "a second Escape clears the selection after an incoming stack",
+      "pass": true
+    },
+    {
+      "label": "the context menu offers \"Show outgoing stack\"",
+      "pass": true
+    },
+    {
+      "label": "the context-menu item starts the stack",
+      "pass": true
+    },
+    {
+      "label": "rooting the stack from the menu leaves no multi-selection behind (the right-click added the card only to open the menu)",
+      "pass": true
+    },
+    {
+      "label": "the context menu then offers \"Hide outgoing stack\" (and \"Show incoming stack\")",
+      "pass": true
+    },
+    {
+      "label": "Escape closes an open menu before it ends the stack",
+      "pass": true
+    },
+    {
+      "label": "the stack button is keyboard operable (focus + Enter)",
+      "pass": true
+    },
+    {
+      "label": "Shift+F10 on a focused corner button opens the card menu with \"Show outgoing stack\", focus on its first item",
+      "pass": true
+    },
+    {
+      "label": "the keyboard-opened menu sits at the card, as a right-click on it would place it",
+      "pass": true
+    },
+    {
+      "label": "opening the menu from the keyboard adds nothing to the multi-selection",
+      "pass": true
+    },
+    {
+      "label": "ArrowDown moves focus to the next menu item",
+      "pass": true
+    },
+    {
+      "label": "Escape closes the keyboard-opened menu and returns focus to the corner button",
+      "pass": true
+    },
+    {
+      "label": "that Escape closed only the menu: the card stays selected",
+      "pass": true
+    },
+    {
+      "label": "the ContextMenu key opens the same menu",
+      "pass": true
+    },
+    {
+      "label": "Enter on \"Show outgoing stack\" starts the stack from the keyboard menu",
+      "pass": true
+    },
+    {
+      "label": "after the menu action focus is back on the card's toggle, now pressed",
+      "pass": true
+    },
+    {
+      "label": "Enter on the focused outgoing toggle switches to incoming and keeps focus on it",
+      "pass": true
+    },
+    {
+      "label": "keyboard deactivation on an unselected, unhovered root keeps focus on its toggle, now unpressed",
+      "pass": true
+    },
+    {
+      "label": "the retained toggle turns the stack back on",
+      "pass": true
+    },
+    {
+      "label": "\"Deselect\" from the menu removes only that card; the other right-clicked card stays selected",
+      "pass": true
+    },
+    {
+      "label": "badges keep a legible minimum size at low zoom",
+      "pass": true
+    },
+    {
+      "label": "reduced motion keeps the stack dashed but static",
+      "pass": true
+    },
+    {
+      "label": "narrow screen has no page overflow with a stack active",
+      "pass": true
+    },
+    {
+      "label": "the 375 px map pane still draws the layer badges",
+      "pass": true
+    },
+    {
+      "label": "Changes: a REMOVED route is not walked (C is reached through the added B -> C only)",
+      "pass": true
+    },
+    {
+      "label": "Changes: the REMOVED route is not a chain route and is muted",
+      "pass": true
+    },
+    {
+      "label": "Changes: chain routes keep their factual line colors (ADR 0008), direction lives in the cyan underlay",
+      "pass": true
+    },
+    {
+      "label": "Changes: a changed root keeps its factual change fill under the stack-root look",
+      "pass": true
+    },
+    {
+      "label": "chain fixture, package root app.a: b 1, c 2, d 2 (package-level walk)",
+      "pass": true
+    },
+    {
+      "label": "chain fixture, package root: b -> c and b -> d are both chain routes",
+      "pass": true
+    },
+    {
+      "label": "chain fixture, class root P: b 1 and c 2 through Q.q2 -> T.t at class level (oracle agrees)",
+      "pass": true
+    },
+    {
+      "label": "chain fixture, class root P: d is not reached (the old collapsed-hub false positive is gone)",
+      "pass": true
+    },
+    {
+      "label": "chain fixture, class root P: the drawn b -> d route is muted and not a chain route; b -> c is one",
+      "pass": true
+    },
+    {
+      "label": "chain fixture, class root P: the root look is on P only, inside the unmuted app.a box",
+      "pass": true
+    },
+    {
+      "label": "chain fixture, method root m: b 1 only; c and d are not reached (oracle agrees)",
+      "pass": true
+    },
+    {
+      "label": "chain fixture, method root m: neither b -> c nor b -> d is a chain route",
+      "pass": true
+    },
+    {
+      "label": "chain fixture, incoming package root app.d: b 1, a 2 (package-level mirror; oracle agrees)",
+      "pass": true
+    },
+    {
+      "label": "chain fixture, incoming class root U: b 1 only; a is not reached through the collapsed b card (oracle agrees)",
+      "pass": true
+    },
+    {
+      "label": "journey fixture: the controller method's call stays UNRESOLVED (no CALLS/CANDIDATE anywhere) and MailNotifier has an OVERRIDES fact",
+      "pass": true
+    },
+    {
+      "label": "journey, package root api: service 1, dto 1, domain 2; pricing is not reached (literal and oracle)",
+      "pass": true
+    },
+    {
+      "label": "journey, package root api: chain routes match the oracle",
+      "pass": true
+    },
+    {
+      "label": "journey, class root SignupController: service 1, dto 1, domain 2 (literal and oracle)",
+      "pass": true
+    },
+    {
+      "label": "journey, method root register: only its parameter type, dto 1; the unresolved call is not walked (literal and oracle)",
+      "pass": true
+    },
+    {
+      "label": "journey, method root register: chain routes match the oracle; the summary counts 1 layer and 1 resource",
+      "pass": true
+    },
+    {
+      "label": "journey, method root SignupService.register: Notifier/dto/domain 1, MailNotifier 2; EventStore not reached (literal and oracle)",
+      "pass": true
+    },
+    {
+      "label": "journey: the drawn MailNotifier -> Notifier (OVERRIDES) route is a chain route, and all chain routes match the oracle",
+      "pass": true
+    },
+    {
+      "label": "journey: badges cover every layer 1..2 with no gap",
+      "pass": true
+    },
+    {
+      "label": "journey, domain out of scope: the stack stays rooted and layers drop domain (literal and oracle)",
+      "pass": true
+    },
+    {
+      "label": "journey, domain out of scope: the oracle counts one entity beyond the map (the Event type)",
+      "pass": true
+    },
+    {
+      "label": "journey, domain out of scope: the inspector reads \"2 layers · 3 resources · 1 beyond the map\"",
+      "pass": true
+    },
+    {
+      "label": "journey, domain out of scope: the pressed toggle tooltip reads the same line",
+      "pass": true
+    },
+    {
+      "label": "no page or console errors",
+      "pass": true
+    }
+  ]
+}

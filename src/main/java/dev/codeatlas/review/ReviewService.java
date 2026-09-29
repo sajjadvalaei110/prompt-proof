@@ -57,7 +57,8 @@ public class ReviewService {
         GitReviewSourceAdapter.Diff rawDiff = git.diff(repo, base.oid());
         List<GitReviewSourceAdapter.FileDelta> files = rawDiff.files();
         Map<String, List<GitReviewSourceAdapter.Hunk>> hunks = rawDiff.hunks();
-        List<ReviewResponse.ReviewFile> responseFiles = files.stream().map(f -> new ReviewResponse.ReviewFile(f.path(), f.status(), f.added(), f.removed(), f.javaFile(), f.lineCountsAvailable())).toList();
+        List<ReviewResponse.ReviewFile> responseFiles = files.stream().map(f -> new ReviewResponse.ReviewFile(f.path(), f.status(), f.added(), f.removed(), f.javaFile(), f.lineCountsAvailable(),
+                hunks.getOrDefault(f.path(), List.of()).stream().map(h -> new ReviewResponse.ReviewHunk(h.oldStart(), h.oldCount(), h.newStart(), h.newCount())).toList())).toList();
         files.stream().filter(f -> !f.lineCountsAvailable()).forEach(f -> diagnostics.add(new ReviewResponse.ReviewDiagnostic(
                 "WARNING", "LINE_COUNTS_UNAVAILABLE", "Physical line counts are unavailable for binary file " + f.path() + ".")));
         int additions = files.stream().mapToInt(GitReviewSourceAdapter.FileDelta::added).sum();
@@ -83,9 +84,9 @@ public class ReviewService {
             }
             String capturedAt = Instant.now().toString();
             baseSnapshot = createSnapshot(workspaceId, "REVIEW_BASE", "base=" + base.oid(), language);
-            analysis.runReviewAnalysis(workspaceId, baseSnapshot, capture.resolve("base"));
+            analysis.runReviewAnalysis(workspaceId, baseSnapshot, capture.resolve("base"), repo);
             headSnapshot = createSnapshot(workspaceId, "REVIEW_HEAD", "head=" + headCapture.headOid() + ";fingerprint=" + frozenInput, language);
-            analysis.runReviewAnalysis(workspaceId, headSnapshot, capture.resolve("head"));
+            analysis.runReviewAnalysis(workspaceId, headSnapshot, capture.resolve("head"), repo);
             diagnostics.addAll(snapshotDiagnostics(baseSnapshot, "BASE"));
             diagnostics.addAll(snapshotDiagnostics(headSnapshot, "HEAD"));
             Comparison comparison = compare(baseSnapshot, headSnapshot, hunks, diagnostics);
@@ -123,7 +124,9 @@ public class ReviewService {
     }
 
     private record NodeFact(GraphNode graph, String identity, String path, String snippet, int start, int end) {}
-    private record EdgeFact(GraphEdge graph, String identity, boolean changedSite, String location) {}
+    /** {@code siteKey} identifies the occurrence's own evidence text (its call/use site), distinct from the
+     * structural relationship key it is grouped under -- see {@link #edges} and {@link #compare}. */
+    private record EdgeFact(GraphEdge graph, String source, String target, String siteKey, boolean changedSite, String location) {}
     private record Comparison(List<ReviewResponse.ReviewNode> nodes, List<ReviewResponse.ReviewRelationship> relationships) {}
 
     private Comparison compare(String base, String head, Map<String, List<GitReviewSourceAdapter.Hunk>> hunks,
@@ -133,11 +136,18 @@ public class ReviewService {
         Map<String, LineCounts> baseCounts = counts(base, before.values(), hunks, true);
         Map<String, LineCounts> headCounts = counts(head, after.values(), hunks, false);
         Set<String> keys = new TreeSet<>(); keys.addAll(before.keySet()); keys.addAll(after.keySet());
+        // A file stored on a side without any indexed declaration failed to parse there, so a declaration missing
+        // on that side is unknown, not added/removed. Derived from stored facts, not diagnostic text.
+        Set<String> baseUnanalyzed = unanalyzedFiles(base), headUnanalyzed = unanalyzedFiles(head);
+        Map<String, Set<String>> basePackages = packageFiles(base), headPackages = packageFiles(head);
+        Set<String> unknown = new HashSet<>();
         List<ReviewResponse.ReviewNode> nodes = new ArrayList<>();
         for (String key : keys) {
             NodeFact a = before.get(key), b = after.get(key);
             LineCounts old = baseCounts.getOrDefault(key, LineCounts.ZERO), newer = headCounts.getOrDefault(key, LineCounts.ZERO);
-            String status = a == null ? "ADDED" : b == null ? "REMOVED" :
+            boolean missingUnknown = a == null ? unanalyzedOn(b, headPackages, baseUnanalyzed) : b == null && unanalyzedOn(a, basePackages, headUnanalyzed);
+            if (missingUnknown) unknown.add(key);
+            String status = missingUnknown ? "UNKNOWN" : a == null ? "ADDED" : b == null ? "REMOVED" :
                     (!Objects.equals(a.snippet(), b.snippet()) || (a.graph().kind().name().equals("PACKAGE") && (old.removed > 0 || newer.added > 0))) ? "MODIFIED" : "UNCHANGED";
             nodes.add(new ReviewResponse.ReviewNode(opaque("node", key), status,
                     "UNCHANGED".equals(status) ? 0 : newer.added, "UNCHANGED".equals(status) ? 0 : old.removed,
@@ -148,14 +158,51 @@ public class ReviewService {
         Set<String> edgeKeys = new TreeSet<>(); edgeKeys.addAll(baseEdges.keySet()); edgeKeys.addAll(headEdges.keySet());
         List<ReviewResponse.ReviewRelationship> relationships = new ArrayList<>();
         for (String key : edgeKeys) {
+            // Two-phase matching within one structural relationship (source->target|kind|resolution -- a resolution
+            // change is a real change and stays in the key). Phase 1 pairs occurrences whose evidence text is
+            // identical as UNCHANGED: the same call/use site, unmoved in substance. Phase 2 pairs whatever is left
+            // over, one base occurrence to one head occurrence in the existing deterministic order (unchanged-site
+            // occurrences first, then by location, then by id), also as UNCHANGED: the relationship still exists
+            // with the same multiplicity even though a remaining site's own evidence text changed (for example an
+            // edited call argument, or another use added elsewhere) -- the edited member/class is already surfaced
+            // as MODIFIED by node comparison. Only a genuine surplus of occurrences on one side becomes REMOVED/ADDED.
             List<EdgeFact> left = new ArrayList<>(baseEdges.getOrDefault(key, List.of()));
             List<EdgeFact> right = new ArrayList<>(headEdges.getOrDefault(key, List.of()));
-            int pair = Math.min(left.size(), right.size());
-            for (int i = 0; i < pair; i++) relationships.add(new ReviewResponse.ReviewRelationship(opaque("relationship", key + "#" + i), "UNCHANGED", left.get(i).graph(), right.get(i).graph()));
-            for (int i = pair; i < left.size(); i++) relationships.add(new ReviewResponse.ReviewRelationship(opaque("relationship", key + "#old" + i), "REMOVED", left.get(i).graph(), null));
-            for (int i = pair; i < right.size(); i++) relationships.add(new ReviewResponse.ReviewRelationship(opaque("relationship", key + "#new" + i), "ADDED", null, right.get(i).graph()));
+            List<EdgeFact> leftoverLeft = new ArrayList<>(left), leftoverRight = new ArrayList<>(right);
+            List<EdgeFact[]> matched = new ArrayList<>();
+            for (EdgeFact l : left) {
+                int at = indexOfSameSite(leftoverRight, l.siteKey());
+                if (at < 0) continue;
+                matched.add(new EdgeFact[] {l, leftoverRight.remove(at)});
+                leftoverLeft.remove(l);
+            }
+            int pair = Math.min(leftoverLeft.size(), leftoverRight.size());
+            for (int i = 0; i < pair; i++) matched.add(new EdgeFact[] {leftoverLeft.get(i), leftoverRight.get(i)});
+            int i = 0;
+            for (EdgeFact[] m : matched) relationships.add(new ReviewResponse.ReviewRelationship(opaque("relationship", key + "#" + (i++)), "UNCHANGED", m[0].graph(), m[1].graph()));
+            for (int j = pair; j < leftoverLeft.size(); j++) relationships.add(new ReviewResponse.ReviewRelationship(opaque("relationship", key + "#old" + j), surplus(leftoverLeft.get(j), unknown, "REMOVED"), leftoverLeft.get(j).graph(), null));
+            for (int j = pair; j < leftoverRight.size(); j++) relationships.add(new ReviewResponse.ReviewRelationship(opaque("relationship", key + "#new" + j), surplus(leftoverRight.get(j), unknown, "ADDED"), null, leftoverRight.get(j).graph()));
         }
         return new Comparison(List.copyOf(nodes), List.copyOf(relationships));
+    }
+    /** An unmatched occurrence touching an unknown declaration may still exist on the unparsed side. */
+    private static String surplus(EdgeFact fact, Set<String> unknown, String change) {
+        return unknown.contains(fact.source()) || unknown.contains(fact.target()) ? "UNKNOWN" : change;
+    }
+    private static boolean unanalyzedOn(NodeFact present, Map<String, Set<String>> presentPackages, Set<String> otherUnanalyzed) {
+        if (present.graph().kind().name().equals("PACKAGE")) {
+            Set<String> files = presentPackages.getOrDefault(present.graph().qualifiedName(), Set.of());
+            return !files.isEmpty() && otherUnanalyzed.containsAll(files);
+        }
+        return present.path() != null && otherUnanalyzed.contains(present.path());
+    }
+    private Set<String> unanalyzedFiles(String snapshot) {
+        return new HashSet<>(db.queryForList("SELECT f.relative_path FROM source_file_versions f WHERE f.snapshot_id=? AND NOT EXISTS " +
+                "(SELECT 1 FROM evidence e JOIN symbol_evidence se ON se.evidence_id=e.id WHERE e.source_file_version_id=f.id)", String.class, snapshot));
+    }
+    private static int indexOfSameSite(List<EdgeFact> candidates, String siteKey) {
+        for (int i = 0; i < candidates.size(); i++) if (candidates.get(i).siteKey().equals(siteKey)) return i;
+        return -1;
     }
 
     private Map<String, NodeFact> nodes(String snapshot, List<ReviewResponse.ReviewDiagnostic> diagnostics, String side) {
@@ -240,9 +287,13 @@ public class ReviewService {
         for (GraphEdge edge : graph.values()) {
             String source = idToIdentity.get(edge.sourceId()), target = idToIdentity.get(edge.targetId());
             if (source == null || target == null) { diagnostics.add(new ReviewResponse.ReviewDiagnostic("WARNING", "PARTIAL_RELATIONSHIP_" + side, "A relationship has an unavailable declaration identity.")); continue; }
+            // Structural key: a resolution change is a real change and stays in the key, but the evidence text does
+            // not -- see the two-phase matching in compare(), which is what actually decides UNCHANGED vs
+            // REMOVED/ADDED per occurrence within this structural group.
+            String structural = source + "->" + target + "|" + edge.kind() + "|" + edge.resolution();
             List<String> evidence = new ArrayList<>(snippets.getOrDefault(edge.id(), List.of())); Collections.sort(evidence);
-            String identity = source + "->" + target + "|" + edge.kind() + "|" + edge.resolution() + "|" + evidence.stream().map(text -> text.length() + ":" + text).collect(java.util.stream.Collectors.joining());
-            result.computeIfAbsent(identity, k -> new ArrayList<>()).add(new EdgeFact(edge, identity, changedSites.contains(edge.id()), locations.getOrDefault(edge.id(), "")));
+            String siteKey = evidence.stream().map(text -> text.length() + ":" + text).collect(java.util.stream.Collectors.joining());
+            result.computeIfAbsent(structural, k -> new ArrayList<>()).add(new EdgeFact(edge, source, target, siteKey, changedSites.contains(edge.id()), locations.getOrDefault(edge.id(), "")));
         }
         result.values().forEach(list -> list.sort(Comparator.comparing(EdgeFact::changedSite).thenComparing(EdgeFact::location).thenComparing(e -> e.graph().id())));
         return result;

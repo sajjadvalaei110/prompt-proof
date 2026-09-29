@@ -1,8 +1,1836 @@
 # Project status
 Last updated: 2026-09-30
 Active milestone: R6 — Developer comprehension redesign (in progress)
-Current revision: Step11 phases 0 and 1 — complete, ready for independent review;
-Java remains the sole shipped language. Go/Dart and stable-map Step 6A remain unstarted.
+Current revision: Step11 language-neutral Java analysis integrated with step 14 Ungroup (an expanded box's box hidden, its children kept as free cards,
+ADR 0011) merged with main's step 13 (card menu Expand/Collapse + View source, cascading tree
+collapse, Entry points Explore → outgoing stack, kind icons), both on top of
+incoming relation stack (the stack button's second press, docs/OUTGOING_STACK.md
+"Incoming stack"), on top of
+step 12 follow-up (candidate calls reverted, uniform route colour, Changes-mode
+source-root fix), on top of
+step 12 phases B/C review fixes (analyzer visibility and lexical-receiver rules,
+ADR 0010 amendment; keyboard card menu and stack focus retention), on top of
+step 12 phase C (full outgoing journey from any root: candidate calls and
+OVERRIDES facts, ADR 0010; type targets, dispatch, card-hop layers and the beyond-the-map count in
+the stack), on top of
+step 12 phase B follow-ups (fact-level stack traversal at the root's granularity,
+root look for the whole root set), on top of
+step 12 phase B, the outgoing relation stack (docs/OUTGOING_STACK.md), on top of
+step 12 phase A review remediation, on top of selection outside undo
+history (step 12 phase A, ADR 0009), on top of
+selected-edge moving dashes and directional margins, with
+view-only map controls excluded from undo/redo with stronger zoom steps,
+on top of selection direction and change-color redesign (Step 10 backlog, step one)
+and Changes-mode layout continuity (step zero),
+with the package-only exploration view (Class/Method level view removed,
+see below), Git review merged into the Code map as a per-tab Changes
+toggle with a git-style diff code viewer, exploration tabs with per-tab undo/redo
+and selection controls, the R6 change-edges slice (one line per direction,
+directional selection emphasis, file-grouped evidence), in-place card details
+(expand packages/classes) and resizable cards; Step 6A remains unstarted
+
+## Step11 GitHub integration with Step12–14 (2026-09-30)
+
+Bounded acceptance criterion: merge the completed language analysis boundary into
+GitHub's current default `main` while preserving its 24 newer commits and shipped
+package-only explorer, Changes mode, stacks, history and Ungroup behavior. There is
+no remote `master` branch. Original Step11 work is committed as `b32093c`; upstream
+baseline is `e77efab`. Conflicts combine language dispatch with original-workspace
+review resolution and cross-file OVERRIDES linking. Both distinctly named ADR 0008
+files are preserved; the supplied multi-language ADR is byte-identical.
+
+Integration checks: backend 166 tests PASS; all 13 Node suites PASS; frontend build
+and independent forced TypeScript/build check PASS; real language-import browser
+PASS; current Ungroup browser 33/33 PASS. All 15 screenshots inspected. Packaging
+and constrained-memory validation are recorded with final outcomes in
+[the integration report](docs/evidence/step11/integration/README.md), along with
+exact commands, artifact paths, skipped checks and limits. The historical Step11
+stable-map pass is pre-integration evidence, not a current package-only UI gate.
+
+
+## Step 14: Ungroup, an expanded box hidden (2026-09-28)
+
+Branch `feat/step14-ungroup`. The user asked for a package to "vanish and give all its classes to
+the higher level", and the same for a class and its methods. The design was settled in a grilling
+session and recorded in ADR 0011: a hidden expansion, not a promotion.
+
+- **Model.** `ExpansionState.hidden` and `UNGROUP_RESOURCE` (explorerViewState), with the pure
+  helper `nearestHiddenAncestor`. `projectDisplayed` flags `hiddenBox`. A hidden card is off the
+  map for undo/redo selection pruning and stack-root pruning (`revalidateJourney`), and
+  `sameExpansionMembership` compares the flag.
+- **Layout.** `expansionLayout.roomMoves` is the make-room cascade moved out of App as a pure
+  function; it looks through hidden boxes and stops at the nearest visible container.
+  `containerBox(..., hidden)` has no padding and ignores a stale minimum.
+  `focusedArrangement.arrangeDisplayed` is App's arrangement moved out as a pure function, with
+  freed cards as individual units.
+- **Stack.** `outgoingStack` gets rule 9: a hidden box's layer goes to its freed cards.
+- **Canvas.** An invisible, inert hidden-box style is declared last. There is an Ungroup corner
+  button and an "Ungroup X" menu item on an expanded box, and "Collapse into X" (nearest hidden
+  ancestor, centred on its children, no make-room) on anything inside one. Hidden boxes are
+  skipped by the minimap, marquee and box-select, and emphasis classes are stripped from them.
+- **Method cards.** They read `OwningClass · last.two.package` (`ownerName` from `decorate`).
+- **Bugs found by the browser run and fixed.**
+  - A collapsed card stayed invisible: Cytoscape `data()` merges, so a stale `hiddenBox` was kept.
+    The flag is now always written.
+  - A hidden box related to the inspected card pulsed a halo: the pulse is a style bypass. Emphasis
+    classes are now stripped from hidden boxes.
+- **Found in review and fixed.**
+  - A hidden card picked outside the canvas (tree "View classes", search, Back) was the canvas
+    selection. It lit nothing and muted every card, and the keyboard menu could open on it and
+    root a stack at an invisible card. Now the canvas treats it as undrawn, the keyboard menu
+    refuses it, and the inspector reports `UNGROUPED`: "Ungrouped on the map", with Arrange
+    disabled.
+  - The stack's layer handoff now runs on raw distances before ranking (`depth` stays
+    `rank.size`), so badge numbers cannot skip.
+- **Deliberate behaviour change.** Double-click arrangement of a visible expanded top-level box
+  moves its stored anchor by the box offset. The old `arrangeAround` stored the box centre. This
+  matches the drag anchor rule and is pinned by a focused-arrangement check where the anchor and
+  the centre differ.
+- **Deviation from the plan.** The plan named `verify_stable_graph_pipeline.py acceptance` for the
+  browser checks. That suite is still broken by the ADR 0007 level switcher (see earlier entries),
+  so a dedicated `scripts/verify_ungroup_pipeline.py` + `verify-ungroup-ui.mjs` was added instead.
+
+Checks (this entry's tree):
+- `for t in scripts/test-*.mjs; do node "$t" >/dev/null && echo "PASS $t" || echo "FAIL $t"; done`:
+  12/12 PASS. New checks:
+  - view-state 73 (7 new);
+  - journeys 56 (3 new);
+  - expansion-layout: 4 new blocks;
+  - focused-arrangement 17 (5 new);
+  - outgoing-stack 43 (2 new);
+  - graph-model: 2 new blocks;
+  - node-card: 1 new block.
+- `cd frontend && npx tsc -b --force && npm run build`: PASS.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar`: PASS.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew test`: PASS, 21 classes, 150 tests, 0
+  failures. No backend source changed.
+- `git diff --check`: clean.
+- `PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH python3 scripts/verify_ungroup_pipeline.py`:
+  28/28 PASS (run `build/ungroup/run-rol33uhc`). Both fixture copies hashed unchanged, model URL on
+  a closed port. Earlier runs failed on the two app bugs above and on three test-side issues:
+  - the centre measured with halo-inclusive bounding boxes;
+  - a card left over the restored package;
+  - the ellipsized label expectation.
+- `verify-outgoing-stack-ui.mjs` regression: 108/108 PASS, run twice (before and after the review
+  fixes). It ran through the `isolated4.sh`
+  harness copied to the session scratchpad and pointed at this checkout (jar on 8095, Chromium on
+  9333). `stop` reported all four fixtures unchanged, 0 model requests and the ports free.
+- Evidence `docs/evidence/ungroup/01..08` was inspected:
+  - 01: services has no box, and its two classes stand free with their routes.
+  - 01b: services picked from the tree: the "Ungrouped on the map" notice, Arrange disabled,
+    nothing muted, no box.
+  - 02: EventService is dragged away, and domain sits in the old area and is inspected.
+  - 03: EmailServiceClient's menu shows "Collapse into com.kipper.eventsmicroservice.services".
+  - 04: services is back as a collapsed card.
+  - 05: after the menu Ungroup, no outline is left.
+  - 06: EventService's five methods are free, reading "EventService · eventsmicros…".
+  - 07: the arrangement around EmailServiceClient places the methods individually.
+  - 08: in Changes, the MODIFIED services box is hidden and EventService keeps its CHANGED badge.
+- Not run:
+  - `verify_stable_graph_pipeline.py`: known broken by ADR 0007, see above.
+  - The hierarchical, change-edges and git-review pipelines: they don't touch expansion
+    geometry, arrangement or stack layers.
+  - `./gradlew constrainedMemoryTest`: no backend change.
+- Not retaken, by user decision: existing screenshots for other features, whose method cards now
+  show the class name.
+
+### Review remediation (2026-09-28)
+
+Fixes for the adversarial review of step 14 (14 findings). The report's "disproved claims" in its
+§7 point at the expand-in-place sentences about the tree ⌖, the inspector, entry points and the
+deep link ("Repurposed the four former level-switch triggers..."). Those sentences come from the
+ADR 0007-era entry "Package-only exploration view — Class/Method level view removed (2026-09-22)",
+not from step 14. The defects were already on `main` (findings 1, 2, and 6's ⊟ case) and are
+fixed here all the same.
+
+- **1 (pre-existing).** `toggleExpand` dispatched `ownerId: null` for a graph node from the tree,
+  inspector or reveal chain, so the reducer rejected every class. It now resolves the card as drawn
+  (`projected.nodes`), does nothing for an undrawn card, and returns whether the change lands
+  (checked with the pure reducer).
+  - The tree ⌖ / inspector "View methods" (`revealChildren`) and entry-point cards
+    (`expandToReveal`) open the containers from the new `graphModel.revealContainers`: the
+    package, then, for a method or constructor, its own type. A nested type's outer class is never
+    opened.
+  - One pending mechanism serves both. A step that cannot land, or expansions that change without
+    it, ends the reveal instead of waiting forever.
+- **2 (pre-existing).** The deep link walked the raw `parentId` chain and read a class's position
+  from the top-level positions. It now uses `revealContainers`, reads a type's position from its
+  package's `childPositions`, and passes that package as `ownerId`.
+- **3.** `outgoingStack` `repOf`: a hidden box represents only itself. This is checked before the
+  representative cache, so an earlier lookup of the box cannot leak. An undrawn member counts
+  beyond the map.
+- **4.** The browser check for individual arrangement now requires at least two different
+  displacement vectors among the freed methods.
+- **5.** Incoming rule-9 unit checks (hidden package; hidden class inside a hidden package).
+- **6 (⊟ pre-existing).** Both collapses go through `explorerJourney.collapseInJourney`, which
+  drops every card drawn inside from `multiIds` in the same update: one undo entry.
+- **7.** The inspector hides "View classes ↗" / "View methods ↗" when `mapStatus` is `UNGROUPED`.
+  The browser step 1b check now also asserts that no "View classes ↗" button is offered.
+- **8.** `outgoingStack` returns null for a hidden root.
+- **9.** `revalidateJourney.displayedMap` passes `hidden` to `projectDisplayed`; the post-filter
+  stays.
+- **10.** The expansion-layout check adds R at `box(2500, 0)`, moving to x 2850.
+- **11.** The focused-arrangement check asserts `childPositions.C` is `{ m1: { x: 0, y: 0 } }`.
+- **12.** Browser step 6b clicks "Collapse into EventService" (after the arrangement step). It
+  checks that EventService is a collapsed card inside the still-hidden services and its methods
+  are gone. Re-expanding it shows that the multi-selected method did not come back selected.
+- **13.** The browser check compares the rects: Ungroup is left of the stack toggle (the box is
+  selected through the tree so the toggle is drawn), which is left of the collapse square, on one
+  row without overlap.
+- **14.** `cornerHit` returns null for a hidden box.
+- **New browser coverage for 1 and 2.** From a fresh map, the tree ⌖ "View methods of
+  EventService" opens services, then EventService, and inspects it. A
+  `?selectedSymbol=<method id>` link draws the method inside EventService inside services, and
+  inspects it.
+
+Tests added:
+- graph-model: the `revealContainers` block;
+- outgoing-stack 48 (5 new): an undrawn class in a hidden package; the cache order; a hidden root;
+  two incoming rule-9 cases;
+- journeys 59 (3 new): collapse prunes multi-selection, expanded and ungrouped, one undo entry;
+  rejected collapse unchanged;
+- expansion-layout: R;
+- focused-arrangement: `childPositions.C`.
+
+The finding-3, cache-order and hidden-root checks were seen failing before the fix: the first
+against the unfixed file, the other two by temporarily reverting their part of the fix. The
+incoming, R and `childPositions.C` checks are coverage and passed on first run.
+
+Checks:
+- `for t in scripts/test-*.mjs; do node "$t" >/dev/null && echo "PASS $t" || echo "FAIL $t"; done`:
+  12/12 PASS.
+- `cd frontend && npx tsc -b --force && npm run build`: PASS.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar -q`: PASS.
+- `PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH python3 scripts/verify_ungroup_pipeline.py`:
+  33/33 PASS (run `build/ungroup/run-oolybsdq`, copied to `docs/evidence/ungroup/`), fixtures
+  hashed unchanged.
+  - Earlier runs of the edited verifier failed on test-side issues, which were fixed:
+    - the stack toggle is only drawn on a selected card;
+    - a header click landed on a route;
+    - the tree label is the short package name;
+    - a button needed zoom.
+  - One run showed a "1 selected" bar in 06b that the four later runs did not. The new
+    multi-selection check asserts the state that the later runs showed.
+- `verify-outgoing-stack-ui.mjs` through the `isolated4.sh` harness: 108/108 PASS. `stop`
+  reported all four fixtures unchanged, 0 model requests and the ports free.
+- `git diff --check`: clean.
+- Evidence inspected (`docs/evidence/ungroup/`):
+  - 01–08 were re-inspected from this run and show what the step-14 list above describes. 01 now
+    lists services under "Recently viewed", because step 1 selects it through the tree;
+  - 01b now has no "View classes ↗" button;
+  - 06b: EventService is collapsed again, with no selection bar;
+  - 09: services and EventService expanded, EventService inspected;
+  - 10: createEvent inside EventService inside services, inspected.
+- Not run:
+  - `./gradlew test`: no backend change;
+  - `verify_stable_graph_pipeline.py`: broken by ADR 0007;
+  - the hierarchical, change-edges and git-review pipelines: untouched areas.
+  - The new browser checks for findings 1/2 were not run against the unfixed App.tsx. That would
+    need a rebuild of the old frontend; the failure was traced by code reading and the reducer
+    rejection is pinned in the report's reproduction.
+- Independent re-verification after the remediation, on the same tree, by the reviewing session:
+  - Node tests: 12/12 PASS (journeys 59, stack 48, arrangement 17, view-state 73).
+  - `npx tsc -b --force` and `npm run build`: PASS; `bootJar`: PASS.
+  - `./gradlew test`: 150 tests, 0 failures. This closes the "not run" item above.
+  - `verify_ungroup_pipeline.py`: 33/33 (run `build/ungroup/run-27jbhcwm`); fixtures unchanged.
+  - `verify-outgoing-stack-ui.mjs`: 108/108, through the scratchpad `isolated4.sh`. All four
+    fixtures unchanged, 0 model requests, ports free.
+  - `git diff --check`: clean.
+  - Screenshots 01b, 06b, 09 and 10 of that run were inspected and match the claims above.
+  - The review glue (`toggleExpand`, `revealStep`, `collapseInJourney`) and the `repOf` hidden-box
+    rule were read line by line. `collapse` via `journeys.update` is equivalent to the former
+    `dispatchView` path, plus the multi-selection pruning.
+
+### Merge with step 13 (2026-09-28)
+
+`git merge origin/main` (`0b59123`, step 13) into `feat/step14-ungroup` after committing step 14
+(`ef2a2be`). This is a merge, not a rebase. Conflicts were in `App.tsx`, `GraphCanvas.tsx`,
+`nodeCard.ts`, `scripts/test-explorer-journeys.mjs`, `test-graph-model.mjs`, `test-node-card.mjs`,
+`docs/TESTING.md` and this file.
+- **One reveal mechanism.** Main's sequential expand queue (`startExpandQueue`/`advanceExpandQueue`,
+  one explicit history group, `strict` drop, cleared on undo/redo, tab and graph change) is the
+  only one. Step 14's `revealStep`/`pendingRevealRef` are gone. The queue now takes step 14's
+  rules:
+  - `revealChildren` and `expandToReveal` build their chain from `graphModel.revealContainers`,
+    not the raw `parentId` walk, so a nested type's outer class is never opened;
+  - the queue skips any card already in `expansions`, so a hidden (ungrouped) container is never
+    toggled;
+  - `toggleExpand` resolves the card as drawn (both sides agreed), so no nested card is sent
+    with `ownerId: null`. It also keeps step 14's reducer pre-check, now for collapse too: a
+    step whose action the reducer would reject returns false, and a strict queue ends then
+    instead of waiting;
+  - Explore keeps main's behaviour: it inspects (never `select`s) the handler and roots an
+    outgoing stack. `revealChildren` keeps step 14's rule that an inspected target is
+    deselected only when nothing needs opening. Main deselected it always.
+  - The deep link in `loadSnapshot` is step 14's (package, then class, position read from the
+    package's `childPositions`).
+- **Collapse.** `toggleExpand`'s collapse goes through `collapse(action, group)` →
+  `collapseInJourney`. The ⊟ square, the menu's Collapse (through the queue, in its group) and
+  Collapse into therefore all prune `multiIds` in the same undo entry.
+- **Card menu.** The order is: Remove, Deselect X, both stack items, Expand/Collapse, Ungroup X,
+  Collapse into X, View source, Deselect. Main's `canToggle` excludes a hidden box, so Collapse
+  never targets one. Collapse into uses main's `menuSingle` (the same right-click cleanup it had
+  inline). Ungroup keeps its own handler, which already drops the box from `multiIds`. Collapse
+  comes before Collapse into, which step 13's `menuClick('Collapse')` (`includes` match) relies
+  on. The keyboard menu and the refusal on a hidden box are unchanged.
+- **Cards.** Main's kind glyph (`kindGlyph`) and step 14's `placeLine` are both kept. The letter
+  sits in the top-left badge and the owner line at y 166, so they don't overlap (ungroup shot 06).
+- **Interaction fixed test-first.** Main's `toggleExpandMany` dropped a collapse target whose
+  graph `parentId` chain held another target. A nested type is drawn beside its outer class in
+  the package box, so "Collapse 2 selected" on an outer class and its nested type left the nested
+  type expanded. The new pure `explorerViewState.collapseTargets` walks drawn containment
+  (`containerId`) instead. Its check failed first (`collapseTargets is not a function`), then
+  passed: view-state 73 → 74. No browser fixture reaches this case.
+- **Verifier fix.** `verify-ungroup-ui.mjs` step 1b failed on the first merged run: "Timed out:
+  services inspected from the tree". Step 13's tree toolbar (Collapse all, with the scope label
+  on its own row) moves the tree down about 25 px, so the services row sat clipped under "Recently
+  viewed" and the click landed there. `centerOf` now scrolls navigation elements into view
+  (`block: 'nearest'`). Canvas overlays are never scrolled.
+- **Docs.** `TESTING.md` (journeys 61, view-state 74), `STABLE_GRAPH_INTERACTIONS.md` (menu
+  order, reveal rules), ADR 0011 (the reveal now runs through the queue). The other doc sections
+  from both sides merged cleanly and are kept.
+
+Verification (all run on the merged tree):
+- `cd frontend && npm ci && npx tsc -b --force && npm run build`: PASS (the usual chunk-size
+  advisory).
+- `for t in scripts/test-*.mjs; …`: 12/12 PASS. Journeys 61 (53 + step 14's 6 + step 13's 2),
+  view-state 74, outgoing-stack 48, focused-arrangement 17.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar test`: PASS, 21 classes, 150
+  tests, 0 failures.
+- `PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH python3 scripts/verify_ungroup_pipeline.py`:
+  33/33 PASS (run `build/ungroup/run-buoz3p6l`, copied to `docs/evidence/ungroup/`); fixtures
+  unchanged, model URL on a closed port.
+- `isolated4.sh` harness (jar on 8095, Chromium on 9333), one start/stop per suite:
+  - `verify-outgoing-stack-ui.mjs`: 108/108;
+  - `verify-step13-ui.mjs`: 41/41. That is main's final count after its lead review; 38 was the
+    earlier figure.
+  - `verify-explorer-journeys.mjs`: 51/51 (run after the merge commit, since collapse grouping
+    now goes through `journeys.update(fn, group)`).
+  - After each run, `stop` reported all four fixtures unchanged, 0 model requests and the ports
+    free.
+- `git diff --check`: clean.
+- Screenshots inspected:
+  - ungroup 01: services has no box, its two classes stand free;
+  - ungroup 01b: notice, Arrange disabled, no box, no "View classes";
+  - ungroup 02: EventService dragged away, domain in the old area and inspected;
+  - ungroup 03: menu order Remove, stacks, Expand, "Collapse into …services", View source,
+    Deselect;
+  - ungroup 04: services a collapsed card again;
+  - ungroup 05: no outline left;
+  - ungroup 06: `m` badges and "EventService · eventsmicros…" without overlap;
+  - ungroup 06b: EventService collapsed, no selection bar;
+  - ungroup 07: freed methods placed individually;
+  - ungroup 08: EventService CHANGED, no services box;
+  - ungroup 09: services and EventService expanded, EventService inspected;
+  - ungroup 10: createEvent inside EventService inside services, inspected;
+  - step 13 02: package menu Remove, both stacks, Expand, Deselect;
+  - step 13 10: the handler inspected, "Outgoing stack: 1 layer · 2 resources";
+  - step 13 12: controllers and EventController opened in place, EventController inspected.
+- Not run:
+  - `verify_stable_graph_pipeline.py` and the hierarchical, change-edges and git-review
+    pipelines: known broken by ADR 0007, or untouched areas, as before;
+  - `./gradlew constrainedMemoryTest`: no backend change.
+  - `docs/evidence/step13/` was not refreshed. Its method cards predate step 14's owner line.
+- Limits: main's note on a queue step whose dispatch the reducer ignores still stands. The
+  pre-check reads the rendered `viewState`, so it can't see an update made earlier in the same
+  tick.
+
+## Step 13: card menu, tree collapse, entry-point stack, kind icons (2026-09-28)
+
+Source: `~/prompts/step13/simple.txt`, four items. The design was settled in a grilling round;
+"detail view" in item 1 means the read-only source viewer, since the card's "details" button
+already expands it. One commit per item. No ADR: the reveal becoming one undo step refines the
+undo contract (docs/STABLE_GRAPH_INTERACTIONS.md, updated) rather than departing from it.
+
+1. **Card menu** (`GraphCanvas.tsx`): Expand/Collapse follows the right-clicked card's state and
+   applies to every selected card that can make the same change; View source opens the clicked
+   card's source (not on packages, which have no range). The menu is lifted to its measured height,
+   so the taller menu stays inside the stage (it was clipped at the bottom before this fix).
+   - Shared seam: `useExplorerJourneys.beginGroup()` plus an optional explicit group on
+     `update`/`dispatchView`, and an App-level sequential expand queue (one card per render, since
+     each expansion's geometry reads the previous result). The queue is one undo step. A strict
+     queue (a reveal) is dropped when a card cannot be toggled and never resumes; the queue is
+     also cleared on undo/redo, tab/journey switch and graph change.
+   - `toggleExpand` now acts on the drawn card (so a nested reveal records the box it sits in) and
+     returns whether it dispatched.
+2. **Scope tree**: collapsing a branch closes every nested package (`scopeModel.collapseBranch`);
+   **Collapse all** (`collapseAll`) closes the tree and is disabled while a search forces it open.
+   Each is one `treeOpen` edit, so one undo step.
+3. **Entry points → Explore**: switches to the Code map, expands the handler's ancestors, inspects
+   the handler (`inspectNode`, never `select`, so a second Explore does not deselect) and roots
+   its outgoing stack. The tab switch and expansions are one undo step; inspection and the stack
+   root are selection (ADR 0009). A handler outside the current scope is disabled with
+   "Outside scope"; a route whose handler is missing says "Handler not found". An ancestor that
+   cannot open still inspects the handler. Undoing Explore takes the handler's card off the map,
+   so its stack ends with it (checked in the browser).
+   - Follow-up (review): tree `⌖` / inspector View classes/methods on a card inside collapsed
+     cards opened nothing once `toggleExpand` began requiring a drawn card (before, it recorded an
+     expansion for an undrawn card that never showed). It now opens the ancestors and the card
+     through the same queue, and the whole reveal is one undo step.
+4. **Kind icons**: the cube is replaced by a folder (packages) or an IntelliJ-style letter
+   (C I E R @ m c f). The badge keeps the role tint (service/repository/default), so the role cue
+   survives; the tree's type rows use the same letters.
+
+Verification (all run in this session):
+- `cd frontend && npm ci && npx tsc -b --force && npm run build`: PASS; the existing Vite
+  chunk-size advisory.
+- `for t in test-graph-model test-explorer-view-state test-graph-placement test-focused-arrangement
+  test-explorer-journeys test-node-card test-source-evidence test-review-model test-outgoing-stack
+  test-expansion-layout test-file-diff test-review-placement; do node scripts/$t.mjs; done`: PASS,
+  all 12 (journeys 50, including the new explicit-group check; graph-model gains the tree-collapse
+  cases; node-card gains the kind-icon cases).
+- `./gradlew bootJar`: PASS.
+- Browser, packaged jar on 8095 with an isolated data dir, model URL `http://127.0.0.1:9/v1`,
+  headless snap Chromium on 9333, fixtures copied under the session scratchpad:
+  - new `node scripts/verify-step13-ui.mjs <microservice copy>`: **PASS 36/36** on the final
+    build, zero page/console errors. Earlier runs failed:
+    - for script reasons: a missing CDP preamble, then a duplicate one; the tree walk assumed
+      `com.kipper` was absent; the handler was looked up by a name that two methods share; and the
+      Entry points tab click, which is its own undo step, was miscounted
+    - for product defects, both fixed: switching to the map tab was a separate undo step from the
+      reveal, and the taller card menu was clipped at the bottom of the stage (now lifted to its
+      measured height and checked)
+  - `node scripts/verify-explorer-journeys.mjs <microservice copy>` (APP=8095): PASS 51/51.
+  - `node scripts/verify-outgoing-stack-ui.mjs <microservice copy> <gitfix> <base oid> <chainfix>
+    <journey-candidates copy>` (fixtures generated per the step 12 phase B/C recipe): PASS 81/81.
+  - The microservice copy's SHA-256 was unchanged and the backend log shows 0 model requests.
+- Screenshots in `docs/evidence/step13/`, inspected: `01` folder icons on package cards; `02`
+  package menu with Expand, no View source, fully inside the stage; `03` C and I letters in an
+  expanded package; `04` View source dialog for EventService; `05` two packages expanded from one
+  menu action; `07`/`08` cascade and Collapse all; `09`/`11` Entry points, all controller rows
+  "Outside scope" once controllers leave the scope; `10` Explore landing with the handler
+  inspected and its stack rooted (1 layer, 2 resources); `12` tree View methods opening the
+  collapsed controllers package and EventController in place.
+
+- `CHROMIUM=/snap/bin/chromium python3 scripts/verify_hierarchical_pipeline.py` (run twice): FAIL
+  at `verify-hierarchical-ui.mjs:88`, clicking the removed `.segmented button` "Classes" level
+  control. This is the known pre-existing breakage recorded in the package-only view entry. The
+  card-menu scenarios before it passed on this build: open, reopen, outside-click dismiss, and
+  Remove from scope through the menu's first item.
+
+Not run:
+- `./gradlew test`: no backend change.
+- `verify_stable_graph_pipeline.py` (drives `verify-stable-graph-ui.mjs`, which uses the card
+  menu): known broken on the removed level switcher, as above.
+- `verify_change_edges_pipeline.py`, `verify_git_review_pipeline.py`: their UI scripts don't use
+  the card menu, the scope tree's disclosure/toolbar, the route cards or the card icon (grepped).
+  Their level-switcher scenarios are also known broken.
+
+Codex ultrareview (`/home/sajjad/prompts/step13/review-report.md`): verdict SHIP, one P3 finding.
+The report lists 5 mutations as caught. Each was re-run in a private `git archive` copy (the
+checkout was never mutated):
+- **M1 (the hook ignores the explicit group): NOT caught, contrary to the report.** The
+  step-13 journeys check drives `journeysReducer` directly, so it never calls the hook's `update`.
+  Added "step 13 review: the hook joins explicit-group updates across renders" to
+  `scripts/test-explorer-journeys.mjs`. It uses the existing synchronous React stand-in, with
+  microtask boundaries standing for renders. Result: PASS 51/51 clean; under M1 it fails with
+  "three renders sharing beginGroup() are one undo step".
+- **M2 (`collapseBranch` without recursion): caught** by `test-graph-model.mjs` ("nested packages
+  close with their parent").
+- M3–M5 were run with `verify-step13-ui.mjs`. Each got its own jar, built from the mutated copy
+  (port 8096, snap Chromium on 9334, model URL on closed port 9). A clean control run of the
+  unmutated copy passed first (36/36).
+- **M3 (Explore's completion calls `select` instead of `inspectNode`): NOT caught, contrary to the
+  report** (36/36 under the mutation). The "second Explore" check was vacuous: after the undo
+  sequence before it, the handler was no longer inspected, so `select` just inspected it. The
+  script now Explores, asserts the precondition that the handler is inspected, Explores the same
+  row again, and waits past the 250 ms reclick window. It then checks that the handler is still
+  inspected and still the stack root. Under M3: FAIL "a second Explore keeps the handler
+  inspected" (37/38).
+- **M4 (menu height clamp disabled): caught.** FAIL "the taller menu stays inside the map stage"
+  (37/38). The report's literal `setMenuTop(null)` doesn't compile (`limit` unused, TS6133), so
+  the mutation used was `setMenuTop(limit<-1e9?limit:null)`.
+- **M5 (`toggleExpand` looks up `graph.nodes` instead of the drawn cards): caught.** The first
+  Explore never draws the handler (no `containerId`, so `ownerId: null`), and the run fails at
+  "Timed out: stack rooted" after 23 passing checks.
+- Clean control with the strengthened script: `verify-step13-ui.mjs` **PASS 38/38**.
+  `node scripts/test-explorer-journeys.mjs`: PASS 51. All 12 `scripts/test-*.mjs`: PASS.
+- **P3 "Expand N selected" overcounts a package whose types are all out of scope: rejected after
+  verification.** The report says `hasDetailsButton` ignores scope. That's wrong: the canvas cards
+  come from `projectDisplayed(..., expansionInput)`, whose `decorate` computes a package's
+  `detailCount` from the same in-scope types that `childrenOf` returns (`graphModel.ts`, already
+  pinned at `test-graph-model.mjs` "detailCount … custom scope"). The scenario also can't occur,
+  because a package whose types are all out of scope is unchecked and therefore not drawn.
+  - Added an invariant check to `scripts/test-graph-model.mjs`: for every drawn card under
+    whole-system and four custom scopes, `detailCount > 0` iff `childrenOf` is non-empty.
+  - Mutation: dropping the scope filter from `decorate` turns the suite red. The file was restored
+    and `git diff` is clean.
+  - `node scripts/test-graph-model.mjs`: PASS.
+
+Limits: a queue step whose dispatch the reducer ignores (a stale generation) stays in flight until
+the next expansion change, which then drops it; no case of this was observed.
+
+### Merge of main (incoming stack) into step13 (2026-09-28)
+
+`git merge origin/main` (639ed08, PR #1 incoming relation stack) into `step13`, a merge and not a
+rebase. Conflicts were in `App.tsx`, `GraphCanvas.tsx`, `docs/OUTGOING_STACK.md` and this file.
+- The card menu keeps main's two stack items ("Show/Hide outgoing stack", "Show/Hide incoming
+  stack", `onToggleStack(id, direction)`). Each one now runs through step 13's `menuSingle`, which
+  does the right-click `addedId` cleanup that main had inlined, so the cleanup happens once.
+  Expand/Collapse and View source follow them.
+- GraphCanvas takes main's `stackRoot`/`onCycleStack`/`onToggleStack` plus step 13's
+  `onToggleExpandMany`. App passes `onToggleExpandMany={toggleExpandMany}` alongside main's props.
+- Entry points → Explore used to set `outgoingStackRootId`. It now sets main's
+  `relationStack: { rootId, direction: 'out' }` explicitly, so it replaces an incoming stack or a
+  stack on another root, and it is a no-op only when that exact outgoing stack is already shown.
+- The step 13 journey check in `scripts/test-explorer-journeys.mjs` used the removed
+  `outgoingStackRootId` field and was moved to `relationStack`.
+- `docs/OUTGOING_STACK.md` "Activation and lifetime" keeps main's three-state button and both menu
+  items, and adds the Explore bullet using `relationStack` terms.
+
+Verification:
+- `cd frontend && npx tsc -b --force && npm run build`: PASS (node_modules was present, so `npm ci`
+  was not run).
+- `for t in scripts/test-*.mjs; do node "$t" …; done`: all 12 PASS. `test-explorer-journeys.mjs`
+  reports 55 checks.
+- `./gradlew bootJar -q`: PASS.
+- Browser suites ran against an isolated jar on 8097 (closed model port 9) and headless Chromium on
+  9335:
+  - `verify-step13-ui.mjs`: **38/38**
+  - `verify-explorer-journeys.mjs`: **51/51**
+  - `verify-outgoing-stack-ui.mjs` (microservice copy, generated git fixture, chain fixture, fresh
+    `journey-candidates` copy): **108/108**, the same count as main's report
+  - The microservice fixture's hash was unchanged afterwards. Both processes were stopped by their
+    saved PIDs, and ports 8097 and 9335 were free.
+- Screenshots inspected: the stack suite's `17-keyboard-menu` and `in-01-incoming-stack`, and step
+  13's `02-package-menu` and `10-entry-explore-stack`. The menu shows both stack items, then
+  Expand, then Deselect. The Explore stack reads "Outgoing stack: 1 layer · 2 resources".
+- Not run: backend `./gradlew test` (no backend change on either side) and the Python
+  `verify_*_pipeline.py` suites.
+
+Lead review of the merge, run independently of the merge run above:
+- Checked by reading: merge parents `2732813` + `639ed08`; no conflict markers; no remaining
+  `outgoingStackRootId`/`onToggleOutgoingStack` in `frontend/src` or `scripts`. `relationStack` is
+  still classified as selection (`explorerJourney.ts` `selectionChanged`/`isSelectionOnly`), so
+  Explore stays one undo step.
+- Gap closed: `verify-step13-ui.mjs` had no check on the stack's direction. Three checks were added:
+  1. the first Explore's stack is outgoing (inspector summary `^Outgoing stack:`);
+  2. setup: the handler's card menu "Show incoming stack" gives `^Incoming stack:`;
+  3. the second Explore turns it back to outgoing.
+- `npx tsc -b --force`: PASS. All 12 `scripts/test-*.mjs`: PASS (journeys 55). `./gradlew bootJar`:
+  up to date with the merged source.
+- Fresh isolated run (jar on 8098, closed model port 9, headless Chromium on 9336):
+  `verify-step13-ui.mjs` **41/41**; `verify-explorer-journeys.mjs` **51/51**;
+  `verify-outgoing-stack-ui.mjs` **108/108**. The fixture hash was unchanged, there were 0
+  `chat/completions`, both processes were stopped by PID, and the ports were free.
+- Evidence regenerated from this run: `docs/evidence/step13/` and
+  `docs/evidence/outgoing-stack/`, with the incoming `in-*` images and report copy in
+  `docs/evidence/incoming-stack/` following main's layout. Inspected `step13/02-package-menu`
+  (Remove, both stack items, Expand, Deselect, all inside the stage) and
+  `outgoing-stack/17-keyboard-menu` (the same items on the keyboard path).
+
+## Incoming relation stack (2026-09-28)
+
+User request: the mirror of the outgoing stack (a BFS over incoming edges), on the same button:
+first press outgoing, second press incoming, third press off. The incoming stack uses the
+incoming-selection color (`HALO.in`, `#6366F1`). Six decisions came out of a grilling round, all
+recommendations accepted, and are recorded in `docs/OUTGOING_STACK.md` §"Incoming stack":
+- another card's button starts outgoing there
+- the menu has two direct items
+- Escape ends either direction
+- purple is used for the badges, outlines, route underlay and pressed button, while the root stays
+  teal
+- the incoming stack is an exact mirror, so an interface root reaches its implementors
+- the wording is "Incoming stack: N layers · M resources"
+
+No ADR: `docs/BUILD.md` does not mention an incoming stack, and the outgoing spec had listed it as
+anticipated future work.
+
+- **State.** `Journey.outgoingStackRootId` became `relationStack: { rootId, direction } | null`,
+  one value, so the ADR 0009 selection-only classification, the undo/redo carry, pruning and Clone
+  all cover the direction unchanged. `cycleRelationStack` (button) and `toggleRelationStack`
+  (menu) are pure transitions in `explorerJourney.ts`.
+- **Traversal.** `outgoingStack.ts` is unchanged apart from `StackDirection` and
+  `stackSummary(stack, direction)`. `direction: 'in'` already reversed every kept step.
+- **UI.**
+  - `GraphCanvas`: the three-state button (aria-label names the next action, `data-stack-direction`)
+    and two menu items (⇶ / ⇇).
+  - Incoming styling: `stack-member stack-in` outlines, `flow-in` chain routes and indigo badges on
+    the overlay (the overlay scratch now records each badge's color).
+  - CSS: `.map-stack-button.active.incoming` and `.stack-summary.incoming`.
+- **Tests.**
+  - `test-explorer-journeys.mjs`: 49 → 53 checks. New: cycle and menu transitions; a direction
+    switch adds no entry, keeps redo, and survives undo/redo; incoming pruning; Clone copies the
+    direction.
+  - `test-outgoing-stack.mjs`: 34 → 41 checks. New: the summary prefix; the collapsed-hub mirror at
+    class and package level; reversed dispatch; no terminal types for a method root; an interface
+    root reaching implementors; beyond the map.
+  - `verify-outgoing-stack-ui.mjs`: 81 → 108 checks. The oracle takes a direction. The outgoing
+    label, tooltip and focus expectations were updated for the three states. The B4 keyboard
+    scenario now goes outgoing → incoming (focus kept) → off. The new incoming scenarios are
+    described in `docs/TESTING.md`.
+- **Docs.** `OUTGOING_STACK.md`, `STABLE_GRAPH_INTERACTIONS.md`, `ARCHITECTURE.md` §5, `TESTING.md`,
+  and an ADR 0009 note on the field rename.
+
+Checks (this entry's tree):
+- `for t in scripts/test-*.mjs; do node "$t" >/dev/null && echo "PASS $t" || echo "FAIL $t"; done`:
+  12/12 PASS.
+- `cd frontend && npx tsc -b --force && npm run build`: PASS.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar`: PASS.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew test`: PASS, 21 classes, 150 tests, 0
+  failures. No backend source changed.
+- `git diff --check`: clean.
+- Browser: the `isolated4.sh` harness copied to the session scratchpad, pointed at this checkout
+  (jar on 8095 with its own data dir, model URL `http://127.0.0.1:9/v1`, snap Chromium on 9333,
+  fixtures copied and hashed). Command: `BACKEND=http://127.0.0.1:8095 APP=http://127.0.0.1:8095
+  DEBUG=http://127.0.0.1:9333 OUT=<run>/evidence node scripts/verify-outgoing-stack-ui.mjs
+  <run>/fixture <run>/gitfix <base oid> <run>/chainfix <run>/journeyfix`.
+  - Result: 108/108 PASS (run `run-Ydw7`). `stop` reported all four fixtures unchanged, 0 model
+    requests and the ports free.
+  - Two earlier runs failed in the new chain-fixture checks, for test reasons. Card app.d sat under
+    the inspector panel, so the button clicks missed. After centring it, a and b were off screen,
+    so their badges were not drawn (by design). The script now centres the root, then fits the map
+    (view-only) before reading badges.
+- Evidence:
+  - `docs/evidence/incoming-stack/in-01..04` were inspected:
+    - dtos root: controllers, services and domain are 1, repositories 2. Indigo badges, outlines,
+      routes, pressed button and inspector line; the root stays teal.
+    - The layer-1 selection keeps the root.
+    - Chain package root app.d: b 1, and the a box 2 with its children covered.
+    - Class root U: b 1 only, a muted.
+  - `docs/evidence/outgoing-stack/` was refreshed from the same run, and these were inspected:
+    - 01 and 05: the outgoing stack is still cyan, with the pressed cyan toggle.
+    - 07: Changes mode, with cyan badges, change fills kept and the green ADDED route.
+    - 17: the menu offers both "Show outgoing stack" and "Show incoming stack".
+    - 18: after outgoing → incoming → off, the focus ring stays on the unpressed toggle while
+      another card is selected.
+
+    The other outgoing screenshots show scenarios this change did not touch and were not
+    re-inspected.
+- Known limits:
+  - Direction is shown by colour (cyan against indigo), the tooltip, the aria-label and the
+    inspector line. Badges, outlines and the pressed button have no non-colour cue, unlike the
+    selection halos (outgoing solid, incoming dashed, WCAG 2.1 SC 1.4.1). `AGENTS.md` does not
+    require one, and the user chose colour. A dashed incoming outline would be a small follow-up.
+  - `data-testid="outgoing-stack-summary"` keeps its name for both directions, to avoid churn.
+- Codex review (`/home/sajjad/prompts/incoming-stack/review-report.md`, brief
+  `ultrareview-codex.md`): SHIP WITH FIXES, with no P0–P2 findings. The reviewer's own isolated
+  run reproduced 108/108, 53 and 41 checks, and the gradle, build and tsc results. Two P3 doc
+  findings were verified against the tree and fixed in `175b120`:
+  - D-1: `OUTGOING_STACK.md` called the stack state a `TRANSIENT_UPDATE`; it is a selection-only
+    `UPDATE`.
+  - D-2: `ARCHITECTURE.md` still credited CANDIDATE calls.
+
+  The same fix removed a related stale "calls candidate members of" phrase in
+  `STABLE_GRAPH_INTERACTIONS.md` that the report missed.
+- Not run:
+  - `verify_stable_graph_pipeline.py`, `verify_hierarchical_pipeline.py`,
+    `verify_change_edges_pipeline.py`, `verify_git_review_pipeline.py`: no stack coverage, and this
+    change touches only the stack's state, UI and styles.
+  - `verify-explorer-journeys.mjs`: it does not reference the stack field or button.
+  - `constrainedMemoryTest`: backend untouched.
+
+## Step 12 follow-up: candidate calls reverted, uniform route colour, Changes-mode edge fix (2026-09-25)
+
+Three user-directed changes on branch `worktree-step12-bc-review-fixes`, one commit each, plus this
+status/evidence commit.
+
+- **Task 1, candidate calls reverted (`9969ab3`).** User decision: the map read as mostly yellow,
+  because one CANDIDATE among a route's resolved occurrences turns the aggregate amber. ADR 0010 D1
+  is withdrawn (dated amendment "candidate calls reverted"); OVERRIDES (D3) is kept unchanged. A
+  call the solver cannot resolve is `CALLS/UNRESOLVED` again, with no target and reason "Static
+  target unavailable in indexed source". The post-pass is `linkOverrides` in `JavaParserAdapter`
+  and `AnalysisService`; `PendingCall`, the pending lists, `lexicalTypes`, `solved`,
+  `lexicalReceiver`, `hasMethodNamed`, `inAnonymousOrLocalClass`, `nestHostByType`, `opaqueTypes`,
+  `OBJECT_METHODS` and the unused `MethodFacts.varargs/privateMethod` are removed.
+  - Tests: `CandidateCallsAndOverridesTest` → `UnresolvedCallsAndOverridesTest` (14 tests: every
+    former candidate case asserts UNRESOLVED, no target, the reason, and no CALLS/CANDIDATE
+    anywhere; the OVERRIDES tests are unchanged). `CandidateAndOverrideEdgeCasesTest` →
+    `OverridesAndUnresolvedCallEdgeCasesTest` (11 tests): C1/C2/F1 kept; the C3 tests kept (they
+    already asserted UNRESOLVED); the C4 tests converted to "stays UNRESOLVED, no target", plus a
+    no-CALLS/CANDIDATE check. None dropped.
+  - `scripts/verify-outgoing-stack-ui.mjs` (still 81 checks): the fixture check now asserts the
+    controller call stays UNRESOLVED and no CALLS/CANDIDATE exists. Method root
+    `SignupController.register` is dto 1 only ("1 layer · 1 resource"; its only call is
+    unresolved). The dispatch and beyond-the-map checks, which are not about candidates, now start
+    from `SignupService.register(String,String)`, whose `notifier.send` call resolves: Notifier,
+    dto and domain 1, MailNotifier 2 through reversed OVERRIDES, and EventStore not reached. With
+    domain out of scope, the result is "2 layers · 3 resources · 1 beyond the map". Two methods are
+    named `register`, so that stack is started by `data-card-id`, after zooming in so the corner
+    buttons show. `outgoingStack.ts` and `scripts/test-outgoing-stack.mjs` are unchanged.
+  - Probe (packaged jar on 8097, the same fixture copies, hashed unchanged, 0 model requests):
+    microservice-java 36 unresolved, 0 CALLS CANDIDATE, 0 OVERRIDES; online-book-store 247
+    unresolved, 0 CALLS CANDIDATE, 29 OVERRIDES. These are the pre-phase-C unresolved counts.
+- **Task 2, uniform route colour (`2564e3f`).** User decision, recorded as a dated amendment to
+  ADR 0008. The `edge[resolution != "RESOLVED"]` rule in `GraphCanvas.tsx`, the "Candidate /
+  unresolved" legend sample and its CSS are removed. The legend line "Package connections group
+  occurrences by kind and resolution" was inaccurate: routes group by ordered endpoints, whatever
+  the kind or resolution. It became "Hover a line for its kinds and resolution". The hover text and
+  the inspector are untouched; so are the Changes `reviewChange` colours and the selection dashes.
+  No script asserted amber/dashed unresolved routes. The git-review UNKNOWN dotted check is change
+  status, so it stays.
+- **Task 3, Changes-mode vanishing edge (`b0bee6f`).** The user's workspace
+  `second-review-assist/src` is itself a Git repository rooted at a `src` directory, holding
+  `main/java` and `test/java`. It was copied with `.git` (`cp -a`) to
+  `$JOB/tmp/changes/user-src/src`. The original was never touched, and the copy is hashed unchanged
+  after every probe.
+  - Trace: on the ordinary map, `DeveloperWorkflowTest -> ExplanationResponse` is one class-level
+    `DEPENDS_ON/RESOLVED` fact. Its six sites (`explanations.getExplanationForSymbol(snap,run).status()`,
+    `response.status()`, ...) come from `receiverType`, which needs the symbol solver. Neither review
+    snapshot had it. Package route `workflow -> api.dto` was missing in Changes (41 of 42 routes),
+    and 539 ordinary facts were absent from the head side.
+  - Root cause: `setupSymbolSolver` recognized source roots by absolute paths ending in
+    `src/main/java` / `src/test/java`. The ordinary run matched `<root>/main/java` only because the
+    root's own name is `src`. Review captures live under `capture-*/base|head`, so no root matched,
+    the solver saw no in-source types, and every solver-dependent fact vanished. It was not the
+    identity pairing in `ReviewService` nor the frontend projection: the facts never existed in the
+    review snapshots.
+  - Fix: `runReviewAnalysis(..., workspaceRoot)` and `setupSymbolSolver(capturedRoot,
+    workspaceRoot)`, which match each captured directory as laid out under the workspace root.
+    Ordinary analysis is unchanged. Recorded as a dated amendment to ADR 0006.
+  - Test: `ReviewSourceRootParityTest` (temp-dir Git repo rooted at `project/src`). Red before the
+    fix: "review base" lacked `FlowTest.run() -> Service.get() CALLS RESOLVED` and
+    `FlowTest -> Response DEPENDS_ON RESOLVED`. Green after, with head facts equal to the ordinary
+    facts and every comparison row UNCHANGED.
+  - After the fix, on the user copy (data probe on 8097; 0 model requests): 0 ordinary facts
+    missing from the head side, package routes 42/42, and no class-level route missing. Live canvas
+    (`changes-ui.mjs`, jar on 8095, snap Chromium on 9333, both stopped after): package level 42
+    ordinary routes, all present and visible in Changes (47 with added/removed); class level 167,
+    all present and visible (174). No page errors.
+
+Checks (this entry's final tree):
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew test`: PASS, 21 classes, 150 tests, 0
+  failures (149 after task 1, +1 `ReviewSourceRootParityTest`).
+- `for t in scripts/test-*.mjs; do node "$t" >/dev/null && echo "PASS $t" || echo "FAIL $t"; done`:
+  12/12 PASS.
+- `cd frontend && npx tsc -b --force && npm run build`: PASS.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar`: PASS.
+- `git diff --check`: clean.
+- Browser suites, one at a time, each started fresh by `$JOB/tmp/isolated4.sh start` (jar on 8095
+  with its own data dir, model URL `http://127.0.0.1:9/v1`, snap Chromium on 9333, fixtures copied
+  and hashed); `stop` reported every fixture unchanged, 0 model requests and the ports free:
+  - `verify-outgoing-stack-ui.mjs`: 81/81 PASS (run `run-0l4y`). Its screenshots replace
+    `docs/evidence/outgoing-stack/`. 14, 15 and 16 were inspected: dto 1 only, with the unresolved
+    call listed in the inspector; Notifier, dto and domain 1, MailNotifier 2; "2 layers · 3
+    resources · 1 beyond the map"; the new legend. 07 (Changes mode) was inspected too: the
+    change fills and the green ADDED route colour are intact.
+  - `verify-explorer-journeys.mjs`: 51/51 PASS (run `run-NhOk`).
+  - `verify_git_review_pipeline.py` (`$JOB/tmp/run-git-review4.sh`): 41/41 PASS, 0 page errors,
+    source tree and Git index SHA-256 unchanged, no model requests. `01-ordinary-layout-before-changes`
+    (grey solid routes, new legend) and `02-changes-preserved-layout` (Changes fills and route
+    colours intact) were inspected.
+- The leftover `run-xkZA` jar and Chromium from the previous session were stopped through
+  `isolated4.sh stop` (fixtures unchanged). No other process was touched.
+- Rerun by the lead session on `072552a` before the Codex review handoff:
+  - `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew constrainedMemoryTest --no-daemon`: PASS,
+    `BoundedExplanationScaleTest` 1/1;
+  - `./gradlew test`: PASS, 21 classes, 150 tests, 0 failures;
+  - all 12 node suites: PASS;
+  - `npx tsc -b --force && npm run build`: PASS;
+  - `git diff --check 8f472f9 HEAD`: PASS.
+
+  The review brief is `/home/sajjad/prompts/step12/followup-ultrareview-codex.md`.
+- Not run: `verify_stable_graph_pipeline.py`, `verify_hierarchical_pipeline.py` and
+  `verify_change_edges_pipeline.py` were not in this task's check list, and the changes do not
+  touch their areas beyond the removed style rule. No browser check asserts
+  that an uncertain route is drawn in the ordinary colour, because no browser fixture draws a
+  non-RESOLVED route after the revert. The rule deletion is covered by inspection only.
+
+## Step 12 phases B/C review fixes (2026-09-25)
+
+The findings of `/home/sajjad/prompts/step12/phase-b-review-report.md` (B1–B6) and
+`/home/sajjad/prompts/step12/phase-c-review-report.md` (C1–C6) are resolved, following
+`/home/sajjad/prompts/step12/phase-bc-review-fixes-handoff.md`. The rejected candidates stayed
+rejected. Before any code, the user answered F1–F3, choosing the recommended option each time:
+- **F1:** no OVERRIDES when a parameter type resolves on one side only.
+- **F2:** implicit calls inside anonymous or local class bodies are never queued.
+- **F3:** implicit calls in member classes look through the enclosing types, innermost first.
+
+The answers are recorded in the ADR 0010 amendment. The work is built on `0e131a8`, on branch
+`worktree-step12-bc-review-fixes`: `057c71f` analyzer, `c08856d` helper test, `ef7a32e`
+journeys, `2b5c5aa` canvas, plus this docs commit. Each finding was reproduced red before its fix.
+
+Finding → fix → test:
+- **C1** (package-private OVERRIDES across packages).
+  - Fix: `MethodFacts` records `packagePrivate` and `packageName` (interface members count as
+    public); the post-pass skips a package-private overridden method from another package.
+  - Tests: `CandidateAndOverrideEdgeCasesTest.aPackagePrivateMethodIsNotOverriddenFromAnotherPackage`
+    (red, then green); the same-package and protected cases still override.
+- **C2** (simple-name erasure).
+  - Fix: a parameter's identity is `#<id>` of the in-source type `resolveType` finds, else its
+    erased name. F1: the two forms never match.
+  - Tests: `differentInSourceTypesWithOneSimpleNameAreAnOverload` and
+    `aParameterResolvedOnOneSideOnlyIsNotAnOverride` (both red, then green);
+    `theSameInSourceTypeOverridesWhetherImportedOrQualified` (green before and after).
+- **C3** (anonymous-class call on the outer type).
+  - Fix: `inAnonymousOrLocalClass`; a scope-less call inside such a body is never queued (F2).
+  - Tests: the anonymous probe and a local-class variant (both red, then green); both calls stay
+    UNRESOLVED.
+- **C4** (nest access).
+  - Fix: `PendingCall` carries the caller type and, for implicit calls, the lexically enclosing
+    types. A private method matches when it is declared by the receiver type and the caller shares
+    its nest host. `lexicalReceiver` picks the innermost enclosing type with a method of that name
+    (JLS 15.12.1), never looking past a type with library supertypes, a record, an enum or an
+    `Object` method name.
+  - Tests: `anExplicitOuterThisCallReachesThePrivateOuterMethod` (red: CANDIDATE to type `Outer`
+    plus UNRESOLVED; then green: both CANDIDATE to `Outer.work(String)`);
+    `theInnermostTypeDeclaringTheNameWins`. `aPrivateMethodMatchesOnlyFromItsOwnType` stays green.
+- **C5** (helper passes plain BFS).
+  - Fix: a competing-path check in `scripts/test-outgoing-stack.mjs` (33 → 34), expecting
+    `{B:1, D:1, C:2, E:2, F:3}`.
+- **C6** (no negative test for a solver-resolved JDK call).
+  - Fix: `journey.pricing.PricingError` plus `Checkout.describe`, added with `git add -f`.
+  - Test: `CandidateCallsAndOverridesTest.aSolverResolvedJdkCallOnAnInSourceReceiverStaysUnresolved`
+    (15 → 16). It passed on the unfixed code, as expected for a test gap; its red is mutation 7
+    below.
+- **B1** (no keyboard path to the context menu).
+  - Fix: Shift+F10 or the ContextMenu key opens the same menu at the card, either on a focused
+    corner button (`data-card-id`) or with a card selected and the page focused. The browser's own
+    menu is suppressed inside the stage. The menu gains ArrowUp/Down/Home/End (it had none), and
+    closing it, by Escape or by an item, returns focus to the opener. The keyboard path adds
+    nothing to `multiIds`.
+  - Red on the pre-fix jar: Shift+F10 and ContextMenu opened nothing (`b-repro` probe, and the new
+    suite's first B1 check).
+- **B2** (drag reprojection).
+  - Fix: `sameDisplayInputs` compares expansions by membership (IDs, `ownerId`).
+  - Test: a `graphFor` spy in `test-explorer-journeys.mjs`, red with `1 !== 0`, then green; a
+    collapse still revalidates.
+- **B3** (async Changes graphFor).
+  - Fix: `updateTab(id, fn, graphFor?)`; `toggleChanges` passes `j=>j.review?result.graph:mapGraph`.
+  - Tests: a reducer check (null graph drops the derived child root, the review graph keeps it),
+    and `useExplorerJourneys` run under a synchronous React stand-in. The latter is red against the
+    pre-fix hook ("the load result's graph decides the prune"), then green. As the report says, the
+    UI-level race is CONFIRMED only through the reducer; no browser reproduction was attempted,
+    since the timing makes it flaky.
+- **B4** (focus loss on keyboard deactivation).
+  - Fix: `focusedStackId` (onFocus/onBlur) keeps the focused toggle in `stackButtonIds`.
+  - Red: the probe showed focus on `BODY` after Enter (root unselected, pointer parked on empty
+    canvas). Green: focus stays on the toggle, `aria-pressed="false"`.
+- **B5** (edge tap over a collapsed card's corner): **not reproduced.** The probe placed the
+  infra card's details button exactly on the midpoint of a `flow-out` chain route (the click point
+  inside the route's box) and clicked it. The card expanded and no edge was inspected. Cause:
+  Cytoscape's default `z-index-compare: auto` draws and hit-tests edges below nodes, so the
+  route's `z-index: 20` never lifts it over a card. No change.
+- **B6** (menu-only right-click left the card in `multiIds`).
+  - Reproduced: after a right-click and "Show outgoing stack", controllers stayed `multi-selected`.
+  - Fix: `cxttap` records `addedId` when the card was not already selected, and the menu's stack
+    item removes it. Escape or click-away still keeps the right-click selection (documented
+    behavior).
+  - A new check confirms "Deselect" still acts on the right-click set.
+
+Mutations (in scratch copies or with the source restored, and not committed):
+- Phase C **mutation 5** (every step costs 1), `bash $JOB/tmp/mutation5.sh`: now **caught**; the new
+  check fails with `C: 4` for `C: 2`.
+- Phase C **mutation 7** (drop `!solved`), `bash $JOB/tmp/mutation7.sh` against
+  `CandidateCallsAndOverridesTest`: now **caught**; 16 tests, 1 failed
+  (`aSolverResolvedJdkCallOnAnInSourceReceiverStaysUnresolved`). The source was restored and
+  checked.
+
+Probe re-measure: a probe backend on 8097, the same fixture copies as phase C (hashed unchanged),
+0 model requests.
+- microservice-java: 22 unresolved, 14 CALLS CANDIDATE, 0 OVERRIDES.
+- online-book-store: 221 unresolved, 26 CALLS CANDIDATE, 29 OVERRIDES.
+
+There is **no delta**. Every edge and unresolved entry is identical by (source, target, kind,
+resolution), and every measured journey is identical (`measure.mjs` output diff empty). Neither
+project has a cross-package package-private override, a same-named parameter type pair, a pending
+implicit call in an anonymous or local class, or a pending call to a private outer member.
+
+Checks:
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew test --tests "dev.codeatlas.analysis.CandidateAndOverrideEdgeCasesTest" --tests "dev.codeatlas.analysis.CandidateCallsAndOverridesTest"`:
+  red first (26 tests, 6 failed, each for its finding's reason), then PASS 26/26.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew test`: PASS, 20 classes, 150 tests,
+  0 failures (139 + 10 + 1). Rerun after the Javadoc edits: PASS.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew constrainedMemoryTest --no-daemon`:
+  PASS, `BoundedExplanationScaleTest` 1/1 (137 s).
+- `for t in scripts/test-*.mjs; do node "$t" >/dev/null && echo "PASS $t" || echo "FAIL $t"; done`:
+  PASS, all 12 suites (outgoing-stack 34, journeys 49).
+- `cd frontend && npx tsc -b --force && npm run build`: PASS, with the existing Vite chunk-size
+  advisory.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar`: PASS
+  (`build/libs/code-atlas-0.1.0-SNAPSHOT.jar`).
+- **Stack browser check.** Same setup and 5-argument command as phase C: jar on 8095 with its own
+  data dir, model URL `http://127.0.0.1:9/v1`, headless snap Chromium on 9333 with its profile
+  under `~/snap/chromium/common/`, fixtures copied and hashed.
+  - On the pre-fix jar, the extended script failed the B6 check and the first B1 check, as
+    expected.
+  - On the fixed jar, two fresh runs: PASS **81/81** (68 + 13). All four fixtures were unchanged,
+    with 0 model requests and zero page/console errors.
+- `node scripts/verify-explorer-journeys.mjs <run>/fixture`, in its own fresh isolated run: PASS
+  51/51, fixtures unchanged, 0 model requests.
+- `JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH python3 scripts/verify_git_review_pipeline.py ~/snap/chromium/common/atlas-git-review-bc-fixes`:
+  PASS 41/41, 0 page errors, source tree and index unchanged.
+- `git diff --check`: PASS.
+
+Screenshots: `docs/evidence/outgoing-stack/` was replaced from the last fresh run (`01`–`18`).
+Inspected:
+- `01`: controllers root; domain/dtos/services 1, exceptions/repositories 2; "2 layers · 5
+  resources" (unchanged).
+- `16`: pricing now lists 7 types (`PricingError`); still "3 layers · 5 resources · 1 beyond the
+  map".
+- `17` (new): the keyboard-opened menu at the controllers card, focus ring on "Show outgoing
+  stack", no multi-selection outline.
+- `18` (new): services selected; the controllers toggle keeps its focus ring, unpressed, with no
+  badges. Controllers' indigo outline is the selection's incoming halo (ADR 0008), not a
+  multi-selection.
+
+Not run:
+- `verify_stable_graph_pipeline.py`: still broken by the ADR 0007 level switcher (known; a user
+  decision).
+- `verify_hierarchical_pipeline.py` and `verify_change_edges_pipeline.py`: the fixes touch neither
+  the explanation pipeline nor change-edge aggregation, and the analyzer produced identical facts
+  on both probe projects.
+- The browser oracle was not extended for C5: the helper check pins it with literal values, and a
+  browser copy would duplicate it.
+
+Deviations:
+- The menu had no arrow-key handling, although the handoff assumed it existed. ArrowUp/Down/Home/End
+  were added as part of B1.
+- The B3 fix is covered at the hook level (a React stand-in), not in the browser.
+- Commits live on the worktree branch; `git merge --ff-only worktree-step12-bc-review-fixes` on
+  master lands them unchanged.
+
+Limits:
+- The lexical lookup can still pick an outer method when a member class's own members are
+  generated (Lombok) and all its supertypes are in source.
+- Shift+F10 with the page focused opens the menu only for the selected card, not for an arbitrary
+  card.
+
+## Step 12 phase C: full outgoing journey from any selected resource (2026-09-25)
+
+The outgoing stack missed most of a method root's journey. `EventController.registerParticipant`
+was **empty** on microservice-java. The handoff (`/home/sajjad/prompts/step12/phase-c-full-journey-handoff.md`)
+diagnosed five causes (R1–R5). The user answered D1–D5 before any code was written:
+- **D1:** candidate calls, recorded in ADR 0010.
+- **D2:** CONSTRUCTS, CALLS **and USES_TYPE** to a type count for a method root, as terminal
+  entities. The user included USES_TYPE; the recommendation had left it out.
+- **D3:** OVERRIDES facts, dispatch as a +1 step, no reverse IMPLEMENTS for class roots.
+- **D4:** card-hop layers that never skip.
+- **D5:** stop at entities with no drawn card and count them as "beyond the map".
+
+Built test-first in three slices, on branch `worktree-step12-phase-c`: `7c2ffc5` analyzer, `1b70f09`
+helper, `ab82065` browser acceptance, plus this docs commit.
+
+What changed:
+- **Analyzer (`JavaParserAdapter`, ADR 0010).** `parseRelationships` records, per file and only
+  once the file succeeds, each type's in-source supertypes, its methods (erased simple parameter
+  types, static/private) and each CALLS occurrence whose symbol resolution **threw** and whose
+  receiver type is in source. The new post-pass `linkDispatchAndCandidateCalls` runs in one
+  transaction after all files, in both `runAnalysis` and `runReviewAnalysis`. It:
+  - upgrades such an occurrence to CANDIDATE, targeting the unique name/arity signature on the
+    receiver type or its in-source supertypes (nearest declaration wins), else the receiver type
+    (a generated member, a record accessor, a library-inherited method, or ambiguous overloads);
+  - leaves a call on the calling type itself without a unique match UNRESOLVED;
+  - leaves a call the solver resolved to a JDK method (`exception.getMessage()`) UNRESOLVED;
+  - emits OVERRIDES / RESOLVED from each non-static, non-private method to every in-source
+    supertype method with the same name and erased parameters. The evidence is the method name.
+
+  `RelationshipKind` and the frontend union gain `OVERRIDES`. There is no migration (the column is
+  free text). `GraphQueryService` gives it a hover summary.
+- **Helper (`outgoingStack.ts`).**
+  - At method granularity, CONSTRUCTS/CALLS/USES_TYPE to a type reach that type as a terminal
+    entity, and OVERRIDES is walked reversed.
+  - Distances come from a 0-1 BFS: a step inside one card, or between the root set and the root's
+    containers, is free. Raw card layers are then ranked densely.
+  - `beyond` counts distinct reached entities with no card.
+  - `stackSummary` appends " · K beyond the map" when K > 0, so the tooltip and inspector pick it
+    up with no UI change. No layout, fit or camera call was added.
+- **Tests.**
+  - `CandidateCallsAndOverridesTest` is new, over the new `test-fixtures/journey-candidates` (15
+    tests).
+  - `scripts/test-outgoing-stack.mjs` goes from 23 to 33 checks. Two existing checks changed by
+    decision:
+    - "ancestors of the root…": B goes from layer 2 to layer 1 (D4);
+    - "method root M walks method-level facts…": renamed; the CONSTRUCTS-to-Q fact is now followed
+      but lands on the same B card, so the layers are unchanged.
+  - `scripts/verify-outgoing-stack-ui.mjs` goes from 55 to 68 checks. It takes a fifth argument (a
+    copy of the journey fixture), and its independent oracle follows the new rules (fixpoint
+    relaxation, not a deque).
+- **Docs.** ADR 0010; `OUTGOING_STACK.md` (status line, Purpose, Traversal, Activation tooltip,
+  Verification, the user-decision note; the obsolete "layers can skip" text is removed);
+  `STABLE_GRAPH_INTERACTIONS.md` §Outgoing relation stack; `ARCHITECTURE.md` §5; `TESTING.md`;
+  the `JavaParserAdapter` Javadoc.
+
+Before/after journeys. This uses the handoff's §3 harness, which roots the stack at each method
+with its package and class expanded (at each type with its package expanded) and every other
+package collapsed. Before: the handoff's measurement at `3f1e091`. After: this build, probe backend
+on 8097 (isolated data dir, model URL on closed port 9, fixture copies hashed unchanged, 0 model
+requests). Package names are relative to `com.kipper.eventsmicroservice` /
+`com.shashirajraja.onlinebookstore`.
+
+| Root | Before | After |
+|---|---|---|
+| `EventController.registerParticipant(String,SubscriptionRequestDTO)` | (empty) | 1: dtos, services · 2: domain, exceptions, repositories |
+| `EventService.getAllEvents()` | (empty) | 1: domain, repositories |
+| `EventService.createEvent(EventRequestDTO)` | 1: domain | 1: domain, dtos, repositories |
+| `RestExceptionHandler.eventNotFoundHandler(..)` / `eventFullErrorHandler(..)` | (empty) | 1: exceptions, infra.RestErrorMessage |
+| `RestExceptionHandler.runtimeErrorHandler(..)` | (empty) | 1: infra.RestErrorMessage |
+| `EventService.registerParticipant(String,String)` | 1: repositories, exceptions, EmailServiceClient, isEventFull, domain | 1: domain, dtos, exceptions, repositories, EmailServiceClient, isEventFull |
+| `CustomerController.addToCart(int,Model)` (online-book-store) | 1: service, entity | 1: entity, service · 2: dao |
+| type `repositories.SubscriptionRepository` | 1: domain, 3: dtos | 1: domain · 2: dtos |
+| type `controllers.EventController` | good | 1: domain, dtos, services · 2: exceptions, repositories |
+
+Fact counts on the probe:
+- microservice-java: 36 → 22 unresolved relationships, 14 CALLS CANDIDATE.
+- online-book-store: 247 → 221 unresolved, 26 CALLS CANDIDATE, 29 OVERRIDES.
+
+An audit of the candidate list found:
+- 24 of the 26 online-book-store candidates target a Spring Data repository interface as the
+  receiver type. The other 2 are unique name/arity method matches, each checked against the
+  source: `CustomerData.setPassword(String)`, and the implicit-this `viewBooks(Model)` from
+  `CustomerController.customerHome(Model)` (its Spring `Model` argument cannot be typed).
+- `exception.getMessage()`, `ResponseEntity.*`, `LocalDateTime.now()` and
+  `SpringApplication.run` stay UNRESOLVED.
+
+Checks (the worktree's `frontend/node_modules` were installed with `npm ci --prefer-offline`):
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew test --tests "dev.codeatlas.analysis.CandidateCallsAndOverridesTest"`:
+  red first (12 of 14 failing, for the expected reasons), then PASS 14/14.
+- **Pre-review fix.** While writing the Codex review prompt, a gap turned up: a supertype's
+  `private` method counted toward the name/arity match, so a subtype's unresolvable call could
+  become a wrong unique CANDIDATE to it. A new test, `aPrivateMethodMatchesOnlyFromItsOwnType`,
+  adds `journey.pricing.Coupon` / `SeasonalCoupon` to the fixture. It was red (wrong CANDIDATE
+  `SeasonalCoupon.use -> Coupon.apply(String)`), then PASS 15/15 after `MethodFacts.privateMethod`
+  and the "own type only" rule. The rest was then rerun:
+  - `bootJar`;
+  - the probe: microservice-java and online-book-store counts and every measured journey identical
+    to the first measurement;
+  - a fresh stack browser run: PASS 68/68, fixtures unchanged, 0 model requests; evidence replaced;
+    `16` re-inspected, now showing pricing's 6 types;
+  - the full `./gradlew test`, below.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew test`: PASS, 19 classes, 138 tests,
+  0 failures, both after the analyzer slice and on a rerun before the docs commit. After the
+  pre-review fix: PASS, 19 classes, 139 tests, 0 failures. No pinned
+  count changed (`LargeProjectBenchmarkTest`, `RelationshipExtractionTest` and the rest pass
+  untouched).
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew constrainedMemoryTest --no-daemon`:
+  PASS, `BoundedExplanationScaleTest` 1/1 (2 min 23 s).
+- `node scripts/test-outgoing-stack.mjs`: red first (`beyond` undefined), then PASS 33/33.
+- `for t in scripts/test-*.mjs; do node "$t" >/dev/null && echo "PASS $t" || echo "FAIL $t"; done`:
+  PASS, all 12 suites (journeys 46, unchanged).
+- `cd frontend && npx tsc -b --force && npm run build`: PASS; the existing Vite chunk-size advisory.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar`: PASS
+  (`build/libs/code-atlas-0.1.0-SNAPSHOT.jar`).
+- **Stack browser check.** Setup: jar on 8095 with its own data dir, model URL
+  `http://127.0.0.1:9/v1`, headless snap Chromium on 9333. The profile lives under
+  `~/snap/chromium/common/`, because snap Chromium cannot write under the hidden `~/.claude`.
+  Fixtures are copied and hashed per run: the microservice copy, the generated Git fixture, the
+  generated chain fixture and a copy of `test-fixtures/journey-candidates`.
+
+  Command: `BACKEND=http://127.0.0.1:8095 APP=http://127.0.0.1:8095 DEBUG=http://127.0.0.1:9333
+  OUT=<run>/evidence node scripts/verify-outgoing-stack-ui.mjs <run>/fixture <run>/gitfix <base oid>
+  <run>/chainfix <run>/journeyfix`.
+
+  Two earlier runs failed in the new journey section, for test reasons:
+  1. 59 checks passed, then a missing "Show types inside journey.service" button stopped the run.
+     The expansions had pushed cards off screen, and `GraphCanvas` draws badges and corner buttons
+     only on screen, by design.
+  2. 66/67. At the fitted 32% zoom the corner buttons, including the pressed toggle, are hidden by
+     design, so its tooltip could not be read. The inspector already read the expected line.
+
+  The script now clicks the view-only Fit map control after each expansion and zooms in on the
+  root before reading the tooltip. Final fresh run: **PASS 68/68**, zero page/console errors. All
+  four fixtures were unchanged (hashes and `git status`), and 0 model requests appear in the
+  backend log.
+
+  Screenshots in `docs/evidence/outgoing-stack/` (replaced), inspected:
+  - `01`: controllers root; domain/dtos/services 1, exceptions/repositories 2.
+  - `07`: Changes; b 1, c 2.
+  - `11`: method m; b 1 only.
+  - `12`: package root journey.api; dto 1, service 1, domain 2, pricing muted.
+  - `13`: class root SignupController; the same layers.
+  - `14`: method root `register`; the same layers, candidate routes dashed, inspector "2 layers ·
+    3 resources".
+  - `15`: service expanded; SignupService 1, EventStore/Notifier 2, MailNotifier 3, Formatter
+    muted, "3 layers · 6 resources".
+  - `16`: domain out of scope; the inspector reads "Outgoing stack: 3 layers · 5 resources · 1
+    beyond the map".
+- `node scripts/verify-explorer-journeys.mjs <run>/fixture`, in its own fresh isolated run: PASS
+  51/51, fixtures unchanged. Not rerun after the pre-review fix: that fix only removes private
+  supertype methods from candidate matching, and the microservice fixture this suite uses produced
+  identical facts and journeys on the probe.
+- `JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH
+  python3 scripts/verify_git_review_pipeline.py ~/snap/chromium/common/atlas-git-review-phase-c`:
+  PASS 41/41, source tree and index unchanged, no model requests. The run dir is outside the hidden
+  worktree path for snap Chromium. `03-selected-change-colors-and-dashes.png` inspected (change
+  fills, halos and dashed selected routes as in ADR 0008).
+- `git diff --check`: PASS.
+
+Not run:
+- `python3 scripts/verify_stable_graph_pipeline.py baseline|acceptance`: still broken by the ADR
+  0007 level-switcher removal (known; a user decision).
+- `verify_hierarchical_pipeline.py` and `verify_change_edges_pipeline.py`: not rerun. The change
+  adds relationship facts but touches neither the explanation pipeline nor the change-edge
+  aggregation. The git-review pipeline, which compares facts across snapshots, was run.
+
+Deviations and choices the decisions left open:
+- **Dense ranking** on top of the 0-1 BFS. The 0-1 BFS alone can still skip a number when a card
+  is re-entered later by a longer path; a helper check pins this.
+- **The beyond-the-map part appears only when K > 0.** K counts distinct entities at the root's
+  granularity, including terminal types.
+- **Candidates only where the solver threw.** A call the symbol solver resolved to a JDK method
+  stays UNRESOLVED, even on an in-source receiver. The handoff lists such calls as external.
+- **OVERRIDES targets every matching in-source ancestor**, not only the nearest, so dispatch from
+  any overridden declaration reaches every override in one step.
+- **The browser acceptance uses a copy of the committed fixture** (the fifth argument) rather than
+  a generated one.
+- **Commits live on the worktree branch `worktree-step12-phase-c`.** The session's isolation
+  policy forbids committing to or merging into master itself. `git merge --ff-only
+  worktree-step12-phase-c` on master lands them unchanged.
+
+Limits:
+- Erasure by simple name gives no OVERRIDES fact for a generic supertype parameter (`save(T)`
+  against `save(Book)`), and could in theory match two different types with the same simple name.
+- Unresolved method references (`foo::bar`) are not upgraded.
+- Field initializers and initializer blocks remain owned by the type (R6), so a method root never
+  sees them.
+- DECLARES_BEAN (method to type) is not followed by a method root. D2 named only CONSTRUCTS, CALLS
+  and USES_TYPE.
+- Badges and corner buttons are drawn only for on-screen cards (unchanged).
+
+## Step 12 phase B follow-ups: fact-level stack traversal and expanded-root look (2026-09-25)
+
+Two follow-ups to the outgoing stack. Both were built test-first.
+
+1. **Traversal over facts at the root's granularity (user decision).** The bug: with packages A -> B
+   -> C, a stack rooted at class P in an expanded A showed C at layer 2 only because another class
+   in the collapsed B calls into C. The old helper walked the drawn aggregated routes, so a
+   collapsed card acted as a hub. The same happened with method roots. Now:
+   - `outgoingStack({ graph, cards, routes, rootId, kind, direction })` walks the tab graph's raw
+     edges. Each endpoint maps to its owner at the root's granularity (`ownerAt`: package, type or
+     method/constructor). A method root ignores class-level facts and facts that target a class.
+   - The walk skips null targets, filtered kinds, REMOVED facts, entity self-loops, and entities
+     with no drawn card.
+   - A card's layer is the minimum BFS distance over the entities it represents: its own entity,
+     or the members it contains when collapsed.
+   - The root set and the root's containers never get a layer.
+   - Cards inside a layered expanded box are covered (`coveredIds`: lit, no badge).
+   - A drawn route is a chain route only if one of its `occurrenceIds` is a walked step between
+     chain entities.
+   - Rules are in the helper's doc comment and `docs/OUTGOING_STACK.md` §Traversal. That section
+     supersedes "only the routes currently drawn" and "Out of scope: collapsed internals".
+   - Consequence: for a package root, expanding a downstream package no longer changes layers. The
+     reached package's box carries the badge and its children are covered.
+2. **Expanded-root look** (`docs/OUTGOING_STACK_REVIEW.md` P2). `GraphCanvas.tsx` gives every
+   layer-0 card `stack-root`, not only the pinned root. The pressed toggle stays on the root only.
+   Note: the brief described this fix and its browser checks as already present in the working
+   tree, but the tree was clean at `04cd34e` when this work started. The fix, its browser checks,
+   this entry and the untracked review doc (copied from the reviewer's scratch copy) were
+   (re)written here. During the session the working tree was also reverted once by an outside
+   process, with no reflog or stash entry; the work was re-applied from saved patches.
+
+What changed:
+- `frontend/src/features/explorer/outgoingStack.ts`: the new signature and rules. It reuses
+  `ownerAt`/`isType` from `graphModel.ts`, is pure, and runs in O(nodes + edges) with memoized
+  owners and representatives.
+- `App.tsx`: the stack `useMemo` passes `graph` and `kind` (deps `[graph, projected, stackRootId,
+  kind]`).
+- `GraphCanvas.tsx`: in the stack branch, `stack-root` goes on the whole root set and covered cards
+  count as chain (unmuted). No layout, fit, position or camera call was added. Journey state and
+  pruning are unchanged.
+- `scripts/test-outgoing-stack.mjs`: rewritten over hand-computable fact graphs (23 checks). It
+  compiles scopeModel + graphModel + outgoingStack, following the journeys test pattern.
+- `scripts/verify-outgoing-stack-ui.mjs`:
+  - The in-page drawn-route BFS oracle is replaced by an independent Node-side oracle over
+    `/api/snapshots/<id>/graph`. It does not import product code.
+  - The old expansion checks are rewritten to the new rule: layers identical, badge on the
+    services box, children covered.
+  - New expanded-root checks (root package plus a nested type's methods).
+  - A fourth CLI argument: a generated plain-source chain fixture.
+- Docs: `OUTGOING_STACK.md` (Purpose, Traversal, Visual treatment, Out of scope, Verification, two
+  implementation notes), `STABLE_GRAPH_INTERACTIONS.md` §Outgoing relation stack,
+  `ARCHITECTURE.md` §5, `TESTING.md` (23 stack checks, 55 browser checks), and
+  `OUTGOING_STACK_REVIEW.md` (Resolution section).
+
+Analyzer check (before writing the browser fixture): the chain fixture was analyzed on a probe
+backend (port 8097, no browser) and `/api/snapshots/<id>/graph` was inspected. It has CALLS
+`P.m()->Q.q()`, `Q.q2()->T.t()` and `S.s()->U.u()`. It also has CONSTRUCTS method->class
+(`P.m()->Q`, `Q.q2()->T`, `S.s()->U`) and DEPENDS_ON class->class (`P->Q`, `Q->T`, `S->U`). A
+method root ignores the latter two by rule, and they do not change the class-level result. The
+fixture needed no adaptation. Packages have no parent package, and there are no constructor nodes.
+
+Verification (exact commands and outcomes):
+- Red: `node scripts/test-outgoing-stack.mjs` against the old helper failed at once (`cards.map is
+  not a function`, interface change). A scratch shim that adapted the new call shape to the old
+  helper then failed 9 of 23 checks, including the user's scenario (class root P reached C) and
+  the method-root case.
+- Green: `node scripts/test-outgoing-stack.mjs`: PASS, 23 checks.
+- Mutation checks in a scratch copy, each caught by the suite: walking through entities without
+  a drawn card, a layer on root containers, last instead of min, walking REMOVED, no covered
+  cards, a method root walking classes, ignoring the kind filter. Two mutations survived, and both
+  are equivalent: requiring only the chain-route source, and walking self-loops. A reached source's
+  step always reaches its target unless the target has no card, and then no route to it can be
+  drawn.
+- `for t in scripts/test-*.mjs; do node "$t" >/dev/null && echo "PASS $t" || echo "FAIL $t"; done`:
+  PASS, all 12 suites (journeys still 46; `test-explorer-journeys.mjs` unchanged).
+- `cd frontend && npx tsc -b --force && npm run build`: PASS; existing Vite chunk-size advisory.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar`: PASS. The jar's `index.html`
+  references the new bundle (it contains `coveredIds`).
+- Stack browser check. Fresh isolated setup: packaged jar on 8095 with its own data dir, model URL
+  on closed port 9, headless snap Chromium on 9333. The setup script is the phase B one plus a
+  generated `chainfix` directory:
+  - app.a `P.m()` calls `new app.b.Q().q()`
+  - app.b `Q.q2()` calls `new app.c.T().t()`, and `S.s()` calls `new app.d.U().u()`
+  - app.c `T.t()`, app.d `U.u()`
+
+  Command: `BACKEND=http://127.0.0.1:8095 APP=http://127.0.0.1:8095 DEBUG=http://127.0.0.1:9333
+  OUT=<run>/evidence node scripts/verify-outgoing-stack-ui.mjs <run>/fixture <run>/gitfix <base
+  oid> <run>/chainfix`. Result: PASS, 55/55 on the first run, zero page/console errors. All three
+  fixtures' SHA-256 (and the Git fixture's `git status`) were unchanged, and the backend log shows
+  no model requests. Screenshots and `report.json` replaced the old set in
+  `docs/evidence/outgoing-stack/`. Inspected:
+  - `01`: controllers root; domain/dtos/services 1, repositories/exceptions 2.
+  - `02`: the layer-2 exceptions card is selected; the root stays pressed.
+  - `03`: the services box is expanded, keeps badge 1, and its two classes are lit with no badge.
+  - `04`: 15% zoom, badges legible.
+  - `06-mobile-map`: 375 px, badge and pressed toggle on the map pane.
+  - `07`: Changes; b 1 through unchanged a->b, c 2 through the added b->c; the root keeps its
+    CHANGED fill.
+  - `08`: controllers, EventController and its 4 methods all have the teal root look and no
+    badges; layers unchanged.
+  - `09`: app.a root; b 1, c 2, d 2.
+  - `10`: class P root inside the app.a box; b 1, c 2; d and the b->d route muted.
+  - `11`: method m root; b 1 only; c and d muted.
+- `node scripts/verify-explorer-journeys.mjs <run>/fixture` in its own fresh isolated setup: PASS,
+  51/51, fixtures unchanged.
+- `git diff --check`: PASS.
+
+Not run:
+- `python3 scripts/verify_stable_graph_pipeline.py baseline|acceptance`: still broken by the ADR
+  0007 level-switcher removal (pre-existing, see phase B).
+- `verify_git_review_pipeline.py`: not rerun. The change does not touch review capture, and the
+  stack's Changes path is covered by the stack browser check.
+
+Limits:
+- If an entity is represented only by the root's container (for example an out-of-scope class in
+  the root's own package), the walk passes through it without a card, so a layer number can be
+  skipped (documented in the helper and the spec).
+- Covered cards get no outline of their own; they are only unmuted.
+- The incoming direction still exists only in the helper.
+
+Lead review of this follow-up: the diff was read (helper, App, GraphCanvas, tests, docs). These
+passed again independently: all 12 node suites (23 stack / 46 journey checks), `tsc -b --force`,
+`npm run build`, `bootJar` and `git diff --check`. A separate fresh isolated
+`verify-outgoing-stack-ui.mjs` run passed 55/55, with all three fixtures unchanged and no model
+requests. `09-package-root.png`, `10-class-root.png` and `11-method-root.png` were inspected and
+match the rule.
+
+## Step 12 phase B: outgoing relation stack (2026-09-24)
+
+Follow-ups (fact-level traversal, expanded-root look, review resolution): see "Step 12 phase B
+follow-ups" above.
+
+Implements `docs/OUTGOING_STACK.md` (now committed, status: implemented). Phase A was not
+reopened. The pure helper and the journey state were built test-first. Both new suites were run
+red before the code existed, or before the reducer changed.
+
+What changed:
+- `frontend/src/features/explorer/outgoingStack.ts` (new, pure): `outgoingStack(cards, routes,
+  rootId, direction)` does a BFS over the drawn, aggregated and filtered routes. The root set is the
+  root plus its visible descendants. REMOVED routes are skipped. It returns layers (first-seen),
+  rootSet, chainEdgeIds, depth and count. `stackSummary` builds the tooltip and inspector line.
+- `explorerJourney.ts`: `Journey.outgoingStackRootId` (null in `newJourney`). It is classified and
+  carried like ADR 0009 selection, so toggling adds no entry and keeps redo, and undo/redo keep it.
+  `UPDATE` and `REVIEW_RECAPTURED` take an optional `graphFor`. Clone copies the root; nothing had
+  to change for that.
+- `revalidateJourney.ts`: `pruneRestoredSelection` drops the root when undo/redo stops drawing it.
+  The mode-switch/recapture revalidation drops a root the target graph lacks. The new
+  `pruneStackRoot` ends the stack after any update that changes display inputs and stops drawing
+  the root: scope removal, collapse, level switch, Changes toggle, recapture. This closes the
+  phase A review's P3 gap inside the reducer, with no App effect.
+- `useExplorerJourneys.ts`: optional `graphFor`, read at dispatch time and attached to updates.
+- `App.tsx`: `useMemo` stack over `projected`. `toggleOutgoingStack` is one selection-class update.
+  Escape is layered: an active stack ends first. GraphCanvas and inspector props were added, and
+  recapture passes `graphFor`.
+- `GraphCanvas.tsx`: a stack emphasis branch (`stack-root` with the inspected look, ordered before
+  the review fills; static `stack-member` cyan outline; `flow-out` chain routes; everything else
+  muted except ancestors). The animation also runs with a stack and no selection. Layer badges go on
+  the direction overlay (top-left, half-overlapping, dashed `HALO.out` in route phase, at least
+  20 px, wider per digit, static under reduced motion, published to `atlas:directionOverlay.badges`).
+  The on-card toggle (selected/hovered/root, `aria-pressed`, summary tooltip) is canvas
+  hit-tested like the other corner squares, including under a route crossing an expanded box. The
+  context-menu item is "Show/Hide outgoing stack". No layout, fit, position or camera call was
+  added.
+- `InspectorPanel.tsx`: "Outgoing stack: N layers · M resources" when the root is inspected.
+  `App.css`: button and summary styles.
+- Docs: implementation notes and accepted deviations in `OUTGOING_STACK.md`, an ADR 0009 note,
+  a stack section and Escape rule in `STABLE_GRAPH_INTERACTIONS.md`, `ARCHITECTURE.md` §5, and
+  `TESTING.md` (46 journey checks, 14 stack checks, 39 stack browser checks).
+
+Decisions and deviations:
+- The root stays outside history through the selection carry and classification, not
+  `TRANSIENT_UPDATE` (the spec's wording). With `TRANSIENT_UPDATE`, a redo after undo pruning
+  would revive a stack whose root had left the map. The handoff delegated this choice; it is
+  recorded in the spec notes.
+- The stack is computed in App rather than GraphCanvas, so the inspector line reuses it.
+  GraphCanvas still only applies classes and badges.
+- Browser acceptance: **user decision** to add the standalone
+  `scripts/verify-outgoing-stack-ui.mjs` instead of extending the broken
+  `verify_stable_graph_pipeline.py acceptance` (it still clicks the ADR 0007-removed level switcher).
+- Found through screenshot inspection and fixed: the first `stack-root` rule came after the
+  Changes fills and painted a CHANGED root teal. It is now grouped with `node.inspected` before the
+  fills, and a browser check asserts the root's fill is unchanged.
+
+Verification (exact commands and outcomes):
+- `node scripts/test-outgoing-stack.mjs`: first run red (module missing), then PASS, 14 checks.
+- `node scripts/test-explorer-journeys.mjs`: the new checks were red first
+  (`outgoingStackRootId` undefined), then PASS, 46 checks (was 37).
+- Mutation checks in scratch copies. Each mutation is caught by its suite: dropping the UPDATE
+  prune, the root carry, the root's selection classification, the undo/redo root prune, the
+  recapture prune, the REMOVED skip, the first-seen rule, or the root-set descendants.
+- `for t in scripts/test-*.mjs; do node "$t" >/dev/null && echo "PASS $t" || echo "FAIL $t"; done`:
+  PASS, all 12 suites (11 + `test-outgoing-stack.mjs`).
+- `cd frontend && npx tsc -b --force && npm run build`: PASS; existing Vite chunk-size advisory.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar`: PASS.
+- `BACKEND=http://127.0.0.1:8095 APP=http://127.0.0.1:8095 DEBUG=http://127.0.0.1:9333 OUT=<run>/evidence node scripts/verify-outgoing-stack-ui.mjs <run>/fixture <run>/gitfix <base oid>`
+  against the packaged jar (isolated data dir, model URL on closed port 9, headless snap
+  Chromium, setup as in the phase A entry). The Git fixture is generated per run: `git init`
+  with packages `app.a`, `app.b`, `app.c`. The base commit has `A.run()` calling `B.go()` and
+  `C.done()`. The working tree has `A.run()` calling only `B.go()` and `B.go()` calling `C.done()`.
+  Result: PASS, 39/39, zero page/console errors, both fixtures' SHA-256 (and `git status`)
+  unchanged, no model requests in the backend log. Earlier runs in this session failed for script
+  reasons that were fixed: the Enter key event lacked `text`, a double tap deselected, and the
+  Escape check counted the ordinary selection emphasis as chain routes. One real product defect
+  was found by screenshot (the root fill, above).
+  Screenshots are in `docs/evidence/outgoing-stack/` with `report.json`. Inspected:
+  `01-stack-active` (badges 1/2 on the top-left corners, the root's pressed toggle beside its
+  details button, cards outside the chain muted), `02-layer-two-selected` (root still pressed, the
+  selected layer-2 card inspected over its badge), `03-chain-card-expanded` (the services box has
+  no badge and its classes are numbered; a child badge overlaps the box header label, which the
+  spec allows), `04-low-zoom` (15%: badges legible and larger than the cards; the root's toggle
+  is hidden with the other corner buttons), `05-badge-and-toggle` (badge and toggle in opposite
+  corners, no overlap), `06-mobile` / `06-mobile-map` (375 px: summary in Details; badges and the
+  pressed toggle on the map pane; no overflow), `07-changes-mode` (C is layer 2 via the green
+  ADDED B -> C only, the REMOVED A -> C is muted, and the CHANGED root keeps its yellow fill).
+  After the last code change (renaming the overlay draw's `_phase` parameter to `phase`, since it
+  is now used; no behavior change), the jar was rebuilt and a fresh isolated run passed 39/39 again.
+  Its screenshots are the committed evidence.
+- `node scripts/verify-explorer-journeys.mjs` (same isolated setup, fresh run): PASS, 51/51,
+  fixture unchanged.
+- `JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH python3 scripts/verify_git_review_pipeline.py`:
+  PASS, 41/41, zero page errors, source and Git index SHA-256 unchanged
+  (`build/git-review/run-31t77zwe`). `03-selected-change-colors-and-dashes.png` inspected: the
+  inspected card keeps its ordinary look and shows the stack toggle only on the selected card.
+- `git diff --check`: PASS.
+
+Not run:
+- `python3 scripts/verify_stable_graph_pipeline.py baseline|acceptance`: still broken at
+  `revealClasses` by the ADR 0007 level-switcher removal (pre-existing, confirmed on `24a5fa6`).
+  Porting it is a separate task (user decision above).
+- Esc layering has no unit harness (App keydown). It is covered only by the browser check.
+
+Limits:
+- Below the corner buttons' minimum on-screen size (14 px), the stack toggle is hidden, including
+  the root's pressed state. The badges, the context menu and Escape still work.
+- At low zoom, badges may overlap neighbouring cards or a box header label (allowed by the spec).
+- The incoming-stack direction exists in the helper only; there is no UI for it.
+
+## Step 12 phase A: review remediation (2026-09-24)
+
+Resolves the verified findings of the phase A review
+(`/home/sajjad/prompts/step12/phase-a-review-report.md`) without changing any ADR 0009
+decision. Behavior bugs were fixed test-first: the new journey checks were red on the phase A
+code for findings 3, 4, 5 and 6 before the fixes.
+
+Findings and dispositions:
+- P1 re-click timer wipes later selections: fixed. `App.tsx` has `cancelReclick()`, called at
+  the start of `inspectNode`, `inspectEdge` and `clearSelection` and from an effect cleanup
+  keyed on `active.id`. The timer nulls its ref before calling `clearSelection`. The
+  double-click cancel in `onArrangeAroundResource` is kept, now through the helper. Verified
+  by build/type check and the browser double-click checks (still pass); there is no unit
+  harness for App timers.
+- P1 empty-canvas tap with no selection records a pane-only entry: fixed differently from
+  the report's suggestion. `clearSelection` returns the journey unchanged when nothing is
+  inspected and `multiIds` is empty. Confirmed in `styles/App.css` that `pane-*` rules exist
+  only under `@media(max-width:760px)`, where the canvas (`.workspace-content`) is shown only
+  in `pane-map`, and that desktop ignores `mobilePane`. The inspector's close button renders
+  only with a selection. Browser check "Escape clears ... without history" still passes.
+- P1 Back records a dead entry when only `priorEligibleIds` changes: fixed at the
+  classification layer. `explorerViewState.sameDisplayedLevelView` (next to `sameLevelView`)
+  ignores `priorEligibleIds`, and `isSelectionOnly` uses it for `levelViews`. `NAVIGATE_BACK`
+  output and its object reuse are unchanged. New check: the report's reproduction (past stays
+  0, `priorEligibleIds` still advances). The existing "Back that drops a card is recorded"
+  check still passes.
+- P1 carried Back trail keeps cards/routes removed by undo: fixed. `pruneRestoredSelection`
+  filters `view.history` with the same drawn-before/not-after rule: card entries by card,
+  route entries by route (including the graph-less fallback). Level-only breadcrumbs and
+  never-drawn subjects stay. New check: the report's scenario (add p2, inspect p2, inspect
+  p1, undo: trail empty, Back stays on p1), plus a route entry dropped next to a kept
+  never-drawn entry.
+- P2 4x `projectDisplayed` per undo: fixed with three short-circuits: nothing
+  selected or trailed; same mode, scope, level, displayed IDs and expansions by reference; and
+  route sets built only for an inspected or trailed route. The `graphFor` graph is resolved lazily. New
+  check counts `graphFor` calls and `edges` reads. Scratch benchmark (100 packages, 1,900
+  classes, 5,000 edges, 20 undo+redo pairs, node 22): drag undo with a card inspected 15.03
+  -> 0.01 ms/step, with nothing selected 13.54 -> 0.00, scope undo with a card inspected
+  13.40 -> 5.94, scope undo with a route inspected 13.41 -> 13.58 (unchanged, it needs all
+  four projections).
+- P2 inspected route never pruned without a graph: fixed. `graphModel.aggregateRouteEndpoints`
+  parses the ID next to its builder (which now shares the prefix constant). Without route
+  knowledge on both sides, an aggregate route is gone when an endpoint card was drawn before
+  and is not after. Raw relationship IDs are never pruned this way. New check with no
+  `graphFor`: inspected route and route Back entry pruned, raw ID kept, route with both
+  endpoints still drawn kept.
+- P2 `expandToReveal` pane regression: rejected. `git show 24a5fa6:frontend/src/App.tsx`
+  shows base doing `setTab('map');setMobilePane('map'); if(!remaining.length){revealInTree(n);select(n);return;}`
+  and base `select(n)` ending in `setMobilePane('details')`. Both versions therefore end on
+  `details` for a card that is not yet inspected. For an already-inspected card both end on
+  `map`: the deferred `clearSelection` sets it. No code change.
+- P2 breadcrumb current-node click deselects: fixed. The button stays and calls
+  `inspectNode(node,'details')`, a no-op re-inspection plus tree reveal. No `scripts/verify-*`
+  or pipeline script clicks the breadcrumb (grep).
+- P2 vacuous redo-pruning browser check: fixed. Running the tightened check first showed
+  that it really was vacuous: a ctrl-tap only toggles the multi-selection and never inspects
+  (`GraphCanvas` tap handler), so after Escape the old step never re-inspected the leaf. The
+  script now taps, then ctrl-taps, and asserts that the leaf is inspected and the selection
+  bar is shown. The redo check then asserts that `leaf.id` is no longer drawn (was
+  `services.id`), with no selection and no bar.
+- P2 `ARCHITECTURE.md` contradiction: fixed. The "Each tab's history retains ..." sentence no
+  longer lists inspection, occurrence or multi-selection.
+- P3 `EXPLORATION_TABS.md` Back rule: fixed with the qualifying sentence.
+- P3 companion revert on undo untested: added a check. Move, then one click gesture
+  (inspect p2 + `treeOpen` + `search: ''` + `mobilePane: 'details'`), then undo: the move is
+  reverted, the companions come from the restored entry and p2 stays inspected.
+- P3 phase B root pruning after ordinary updates: no code now; see limits.
+- Mutation fragility: moved to independent checks. In scratch copies under `mktemp -d`,
+  dropping the `NAVIGATE_BACK` reuse (`levelView = next`) fails 2 checks: identical level
+  views after an unchanged Back, and an initial camera capture after that Back reaching the
+  shared history entry. The old Back check no longer catches this mutation, because the
+  classification now compares structurally. Dropping the mode-crossing branch fails 3 checks:
+  the old one, a graph-less review route undo, and a redo into Changes dropping an ordinary
+  route. Dropping the Back-trail filter (2), the graph-less fallback (1), the identical-input
+  short-circuit (1) or the route-set gate (1) is also caught.
+
+Docs: ADR 0009 has "review remediation" implementation notes: Back-trail pruning, the graph-less
+route fallback, the short-circuits and the `priorEligibleIds` classification rule.
+`STABLE_GRAPH_INTERACTIONS.md` has the Back-trail pruning rule and the no-op clear with
+nothing selected. `EXPLORATION_TABS.md`, `ARCHITECTURE.md` and `TESTING.md` (37 unit / 51
+browser checks) are updated.
+
+Verification (exact commands and outcomes):
+- `node scripts/test-explorer-journeys.mjs`: PASS, 37 checks (was 28).
+- `for t in scripts/test-*.mjs; do node "$t" >/dev/null && echo "PASS $t" || echo "FAIL $t"; done`:
+  PASS, all 11 suites.
+- `cd frontend && npx tsc -b --force && npm run build`: PASS; existing Vite chunk-size
+  advisory.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar`: PASS.
+- `JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH python3 scripts/verify_git_review_pipeline.py`:
+  PASS, 41/41, zero page errors, source and Git index SHA-256 unchanged
+  (`build/git-review/run-octxcam3`). Screenshots `02-changes-preserved-layout.png` and
+  `04-first-tab-restored.png` inspected: Hub inspected in Changes with layout preserved;
+  first tab restored with Back enabled and multi-selection intact.
+- `BACKEND=http://127.0.0.1:8095 APP=http://127.0.0.1:8095 DEBUG=http://127.0.0.1:9333 OUT=<scratch>/evidence node scripts/verify-explorer-journeys.mjs <scratch copy of test-fixtures/microservice-java>`
+  run after the git-review pipeline finished, against the packaged jar (isolated data dir,
+  model URL on closed port 9, headless snap Chromium): PASS, 51/51, zero page/console
+  errors, fixture SHA-256 unchanged, no model requests in the backend log. The first run of
+  the tightened script was 50/51 (the vacuous step described above). After the script fix,
+  a fresh isolated run passed. `journeys-desktop.png` and `journeys-mobile.png` inspected:
+  package inspected after the double-click arrangement, Undo and Redo enabled; 375 px
+  Details pane with no overflow. They were copied with `report.json` into
+  `docs/evidence/selection-outside-undo/`.
+- `git diff --check`: PASS.
+
+Not run:
+- `python3 scripts/verify_stable_graph_pipeline.py acceptance`: not run. It is known broken
+  by ADR 0007 (it stops at `revealClasses`, clicking the removed Class/Method switcher), and
+  the reviewer confirmed that it fails on base `24a5fa6` as well. Porting it is a separate
+  task.
+- Backend tests and live-model checks: skipped, frontend-only change.
+
+Limits: the breadcrumb's current-node button on a narrow layout (map pane) switches to
+Details. That is a pane-only change, so it is recorded like a tap on the Details mobile tab.
+Pruning the Back trail can leave two adjacent identical entries (for example p1, p1 after
+dropping the p2 between them). Back then steps to the same subject once; `revalidateSelection`
+behaves the same way. Phase B needs a prune path after ordinary `UPDATE`s too, not only undo/redo (for example an App-level
+check of `outgoingStackRootId` against `projected.nodes`, or a prune hook passed to
+`update`), so that a stack root removed by collapse or scope removal is cleared.
+
+## Step 12 phase A: selection outside undo history (2026-09-24)
+
+Bounded R6 criterion ([ADR 0009](docs/adr/0009-selection-outside-undo-history.md)):
+inspecting, choosing an occurrence, multi-selecting and clearing selection never create an
+undo entry or discard redo. Undo/redo walk exploration edits only and keep the current
+selection. They drop an inspected card, an inspected route or multi-selected cards only when
+those were drawn before the step and are not after it. This is the groundwork for the
+outgoing relation stack (`docs/OUTGOING_STACK.md`, phase B, not started).
+
+- `explorerJourney.ts`: an `UPDATE` that changes only selection fields (`inspected*`, the
+  Back trail, `multiIds`) replaces `present` and nothing else. Tree reveal, search reset and
+  mobile pane count as part of the gesture only when they arrive together with a selection
+  change; on their own they stay recorded. `UNDO`/`REDO` carry the current selection into the
+  restored entry. The double-click `collapse` flag and its gesture-window bookkeeping are
+  removed: a double-click is now one arrangement entry, and undoing it keeps the card
+  inspected.
+- `revalidateJourney.ts`: `pruneRestoredSelection` compares what the map draws before and
+  after the step, using App's `graphFor` so children of expanded cards count. It shares the
+  mode-boundary rules with `revalidateJourneyState` through the extracted
+  `revalidateSelection`, so undo across a Changes toggle drops review route identities and
+  their Back entries.
+- `explorerViewState.ts`: `NAVIGATE_BACK` keeps the existing level view when reconciliation
+  leaves it identical. A Back that only changes the subject is therefore a selection change
+  with no undo entry. A Back that drops ineligible cards is still recorded; otherwise undoing
+  it would be a no-op step, since selection is carried.
+- `App.tsx`: `select`, `inspectEdge` and `clearSelection` each issue one update, so the whole
+  gesture is classified together. The redundant separate `revealInTree` calls are removed,
+  and the tree reveal is folded into the inspect update. Undo/redo buttons and keys pass
+  `graphFor`. Behavior is otherwise unchanged; "View classes" on the inspected card still
+  deselects it, as before.
+- Docs: `STABLE_GRAPH_INTERACTIONS.md` §Exploration tabs and its Escape paragraph,
+  `EXPLORATION_TABS.md`, `ARCHITECTURE.md` (undo history) and `TESTING.md` are updated. ADR
+  0009 has implementation notes.
+
+Verification (exact commands and outcomes):
+- `node scripts/test-explorer-journeys.mjs`: PASS, 28 checks. Selection-restoration
+  assertions were rewritten to the new contract. New checks cover a click sequence with no
+  entries and redo kept, a click gesture with tree/search/pane companions, undo after inspect
+  reverting the prior edit, undo removing the inspected card/route/multi-selected card
+  (pruned, no Back push, not resurrected by redo), selection that was never on the map kept,
+  graph-aware pruning of expanded children, undo across a Changes toggle, mixed edits,
+  Back with and without a map change, clone copying selection, and the double-click undo. The
+  new suite was red on the old reducer before implementation.
+- `for t in scripts/test-*.mjs; do node "$t"; done`: PASS, all 11 suites.
+- `cd frontend && npx tsc -b --force && npm run build`: PASS; existing Vite chunk-size
+  advisory.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar`: PASS.
+- `JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH python3 scripts/verify_git_review_pipeline.py`:
+  PASS, 41/41, zero page errors, source and index unchanged, no model requests
+  (`build/git-review/run-u7he6nmf`, final jar). Its undo/redo Changes-toggle checks pass
+  unmodified. Screenshots `02-changes-preserved-layout` and `04-first-tab-restored` were
+  inspected and retained in `docs/evidence/selection-outside-undo/`.
+- `BACKEND=http://127.0.0.1:8095 APP=http://127.0.0.1:8095 DEBUG=http://127.0.0.1:9333 OUT=<scratch>/evidence node scripts/verify-explorer-journeys.mjs <scratch copy of test-fixtures/microservice-java>`
+  against the packaged jar (isolated data dir, model URL on a closed port, headless
+  Chromium): PASS, 50/50, zero page/console errors, fixture SHA-256 unchanged, no model
+  requests. The script's selection-undo checks were rewritten: clicks leave undo empty,
+  selection keeps redo, redo removing the selected card prunes it, undo does not resurrect
+  it. A new double-click check confirms one undo reverts the arrangement and keeps the
+  inspection. The desktop and 375 px screenshots were inspected and retained in
+  `docs/evidence/selection-outside-undo/` with the report.
+- `git diff --check`: PASS.
+
+Not run:
+- `python3 scripts/verify_stable_graph_pipeline.py acceptance` was run and stopped in its
+  first scenario at `revealClasses` (`TypeError ... reading 'click'`). This is the known
+  pre-existing breakage recorded below: the legacy harness still clicks the Class/Method
+  level switcher removed by ADR 0007 (36 call sites). It reached no assertion, so none of its
+  assertions could be checked against this change. Porting that harness to the package-only
+  view is a separate task and a prerequisite for phase B's browser acceptance.
+- Backend tests and live-model checks were skipped: this is a frontend-only state change.
+
+Limits: when a selection gesture moves only the selection, it does not record its companion
+tree reveal, search reset or mobile pane. A later undo therefore restores those three from
+the restored entry, while the selection itself stays current.
+
+## Direct edge selection uses black (2026-09-24)
+
+Bounded R6 criterion: clicking an edge highlights its line, arrow, label and
+underlay in black in ordinary and Changes modes. The inspection selector follows
+review selectors so even ADDED routes become black while inspected. Deselecting
+restores factual colors. Resource-selection directional margins are unchanged.
+ADR 0008, interaction docs and the Claude handoff record this distinction.
+
+Verification:
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar` — PASS,
+  including TypeScript/Vite; existing chunk-size advisory remains.
+- `PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH python3 scripts/verify_change_edges_pipeline.py`
+  — PASS, zero page errors, source unchanged; black edge screenshot inspected at
+  `build/change-edges/run-cmendzqp/req3-edge-inspector.png`.
+- `JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java python3 scripts/verify_git_review_pipeline.py`
+  — PASS, 41/41 checks, zero page errors, source/index unchanged, no model
+  requests. All four review statuses use black during inspection and restore
+  factual colors afterward (`build/git-review/run-2xtljh8a`).
+- `git diff --check` — PASS.
+Backend tests and live-model checks skipped for this frontend style-only change.
+
+## Selected-edge dashes and directional margins (2026-09-24)
+
+Bounded R6 criterion: restore moving dashes when selecting a resource and give its
+attached edges thin directional margins without recoloring the factual lines.
+
+- Native dash-offset animation replaces canvas arrowheads. A two-unit underlay
+  uses incoming indigo / outgoing cyan, matching related-resource borders in both
+  ordinary and Changes modes. UNKNOWN review routes retain dots. Deselecting
+  restores the original patterns; reduced motion keeps static styling.
+- Removed custom edge sampling/arrow painting; the canvas retains the split node
+  ring. Other uncommitted behavior and change-state colors are preserved.
+- Updated ADR 0008, graph interaction/testing documentation and
+  `docs/STEP_ONE_REVIEW.md` for Claude review. Current reports and inspected
+  screenshots are retained under `docs/evidence/selection-halo/`.
+
+Verification (exact commands and outcomes):
+- `cd frontend && npx tsc -b --force` — PASS.
+- `node scripts/test-graph-model.mjs` — PASS.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar` — PASS,
+  including frontend production build; existing Vite chunk-size advisory remains.
+- `PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH python3 scripts/verify_change_edges_pipeline.py`
+  — PASS, zero page errors, unchanged fixture source. Verified native moving dash
+  offsets, directional margin colors, resource halos and cleanup. Screenshots in
+  `build/change-edges/run-hsr6mopc`; selected-flow screenshot inspected.
+- `JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java python3 scripts/verify_git_review_pipeline.py`
+  — PASS, 40/40 checks, zero page errors, unchanged source and index, no model
+  requests. Verified factual route colors survive selection. Selected Changes
+  screenshot inspected in `build/git-review/run-_1vpq26m`.
+- `git diff --check` — PASS.
+
+Limits: full backend tests and live-model checks skipped because this is a frontend
+rendering change. Selected solid routes temporarily become dashed; UNKNOWN stays
+dotted. The earlier step-one arrowhead implementation below is historical and is
+superseded by this revision. `docs/BUILD_BRIEF.md` is absent; `docs/BUILD.md` is the
+repository's equivalent brief.
+
+## View-only controls outside undo/redo; stronger zoom steps (2026-09-23)
+
+Bounded R6 criterion: fullscreen, Map overview and the dedicated zoom buttons do not
+consume undo/redo entries or change when another exploration action is restored. One
+zoom-button click has the effect of three former clicks.
+
+- `explorerJourney.ts` supports a transient update that rebases the current value across
+  the active tab's past and future branches. Fullscreen and Map overview use this path,
+  so an undo still reaches the preceding semantic exploration action without changing
+  either control.
+- Dedicated zoom clicks suppress the normal debounced camera-history callback and commit
+  through the same transient path. Mouse-wheel/pinch/pan and **Fit map** remain ordinary
+  camera navigation and continue to participate in history.
+- Zoom in now multiplies scale by `1.2³` (1.728); zoom out uses its reciprocal. Both stay
+  centered on the canvas.
+
+Verification (exact commands and outcomes):
+- `node scripts/test-explorer-journeys.mjs` — PASS, 20/20 checks, including rebasing
+  fullscreen, Map overview and button zoom across both undo and redo.
+- `for test in scripts/test-*.mjs; do node "$test" || exit; done` — PASS, all 11 suites.
+- `cd frontend && npx tsc -b --force` — PASS.
+- `cd frontend && npm run build` — PASS; Vite reported the existing chunk-size advisory.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar` — PASS.
+- `BACKEND=http://127.0.0.1:8095 APP=http://127.0.0.1:5199 DEBUG=http://127.0.0.1:9333 OUT=/tmp/code-atlas-undo-zoom-sw2WR5/evidence node scripts/verify-explorer-journeys.mjs /tmp/code-atlas-undo-zoom-sw2WR5/atlas-journey-fixture`
+  — PASS, 44/44 real-browser checks, zero page/console errors. Zoom measured 0.8 →
+  1.3824 → 0.8. Desktop and 375 px screenshots were inspected; retained copies and the
+  report are under `build/undo-zoom/`. The disposable fixture was analyzed read-only and
+  no model request was made.
+
+Limits: only the dedicated +/− zoom buttons are excluded from camera history. Existing
+wheel/pinch/pan and Fit-map behavior is intentionally unchanged. No live model integration
+was exercised.
+
+## Step 10 backlog — step one: selection halo and change-state colors (2026-09-23)
+
+Bounded R6 criterion: selecting a resource preserves every route's factual color
+and pattern while showing direction with moving chevrons and resource halos in
+both ordinary and Changes modes. Added, removed and modified resources have
+distinct green, red and yellow card/badge colors. Step zero's layout state is
+preserved. See [ADR 0008](docs/adr/0008-selection-halo-and-change-color-redesign.md)
+and [the Claude review handoff](docs/STEP_ONE_REVIEW.md), including inspected
+screenshots under `docs/evidence/selection-halo/`.
+
+- `GraphCanvas.tsx` uses one pointer-transparent canvas for repeated
+  source-to-target arrowheads and the left-indigo/right-cyan ring on resources
+  with both directions. It is below menus, controls, minimap, tooltips and the
+  selection bar; card masks and multi-select priority keep overlay marks off card
+  content and the purple outline. Paths use every rendered control point. For a
+  self-loop whose renderer supplies two controls before finite endpoints, card
+  boundary intersections complete the loop instead of drawing a chord.
+- Ordinary resolved routes are 10% lighter gray (`#AAB6C4`) and their terminal
+  and moving arrowheads are 10% darker (`#768698`). Moving arrowheads scale with
+  rendered route width, clear edge labels and the scaled terminal arrow, and stay
+  wider than strong routes. Selection changes neither factual color nor pattern.
+  Terminal arrowheads retain scale 1.4; unrelated elements use opacity 0.5.
+- Sampled edge paths and card masks are cached until geometry changes. One RAF
+  queue coalesces pan/zoom and animation requests. Resize invalidates geometry
+  even with reduced motion, so a static split ring follows its container.
+- `reviewPalette.ts`, `nodeCard.ts` and graph styles share one palette for ADDED
+  green, REMOVED red, MODIFIED yellow and UNKNOWN amber/neutral presentation.
+  Card labels, parser statuses, snapshot IDs and review rollup rules are unchanged.
+
+Verification (exact commands and outcomes):
+- `for test in scripts/test-*.mjs; do node "$test" || exit; done` — all 11 scripts
+  PASS, including 66 view-state checks, 19 journey checks, graph/review projection,
+  placement and all three node-card badge fill/stroke pairs.
+- `cd frontend && npx tsc -b --force && npm run build` — PASS (run as the
+  two commands); Vite reported its existing chunk-size advisory.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar` — PASS.
+- `PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH python3 scripts/verify_change_edges_pipeline.py`
+  — PASS, zero browser page errors, unchanged copied fixture source, no model
+  requests. Final run `build/change-edges/run-c10q4let`. The browser script checks
+  actual overlay pixels, stacking, card masks, source-to-target orientation,
+  adaptive width, label/terminal clearance, two-control self-loops, cache reuse,
+  reduced-motion resize, factual patterns, all three halos and source evidence.
+- `JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java python3 scripts/verify_git_review_pipeline.py`
+  — PASS, 39/39 checks, zero browser page errors, unchanged fixture source and
+  index, no model requests. Final run `build/git-review/run-ddy2cjdp`. Its route
+  baseline is unselected and it checks color, darker arrow color, line style and
+  dash pattern through selection. Four step-one screenshots were inspected and saved.
+- `PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH python3 scripts/verify_stable_graph_pipeline.py acceptance`
+  — stopped in the legacy browser harness at `revealClasses`: it tries to
+  click the removed graph-level switcher. It did not reach a step-one assertion.
+- `git diff --check` — PASS.
+
+Limit: cyan `#0EA5E9` measures 2.65:1 against the canvas, below the 3:1
+non-text contrast target. Border pattern and chevrons carry direction as well.
+No live model integration was exercised.
+
+## Changes-mode layout continuity — complete after Claude review (2026-09-23)
+
+Claude identified three missing cases: ordinary-only geometry across mode toggles,
+ordinary relationship inspection during Recompare, and open ordinary symbol
+source when entering Changes. All three are corrected and covered by targeted
+regressions. [Claude review handoff](docs/STEP_ZERO_REVIEW.md).
+
+Bounded R6 criterion: turning Changes on/off preserves the current map arrangement
+instead of initializing or restoring a separate layout. Step one's edge/halo
+styling requests are outside this slice.
+
+- Tabs share their current geometry, scope, expansions, sizes and camera between
+  ordinary and review mode. Matching comparison declarations reuse ordinary
+  display IDs, while code and evidence retain actual base/head source identities.
+- Matching requires unique kind/qualified-name/module keys and aligned ancestors;
+  ambiguous declarations stay separate. Review-only resources remain inspectable
+  in the overlay. Expanded container bounds can grow around removed children.
+- Cytoscape explicitly removes review fields on ordinary-mode updates, preventing
+  stale change colors on surviving canvas elements.
+- The review browser harness uses package-only expand-in-place navigation, with
+  first-toggle and edited-layout round trips, undo/redo and independent tabs.
+- Recapture reconciles current open and closed tabs atomically; stale comparison
+  history and source identities are discarded while surviving geometry remains.
+
+- Placement reserves the in-scope geometry of parked review-only cards and the
+  union of ordinary/review compound bounds, preventing new ordinary cards from
+  overlapping removed cards when Changes returns.
+
+Verification (exact commands and outcomes):
+- `for test in scripts/test-*.mjs; do node "$test" || exit; done` — all 11 scripts
+  PASS, including 66 view-state checks, 19 journey checks and the new parked-card,
+  compound-bound and target-scope placement regressions.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew bootJar` — PASS, including
+  TypeScript and Vite. Existing Vite advisory: output chunk exceeds 500 kB.
+- `JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java python3 scripts/verify_git_review_pipeline.py`
+  — PASS, 39/39 browser checks, zero page errors, zero model requests, unchanged
+  source tree and Git index hashes. Final combined Step Zero/Step One run:
+  `build/git-review/run-wsa3ja3y`.
+  The Step Zero screenshots and the Step One selection screenshot were inspected;
+  [saved report and screenshots](docs/evidence/changes-toggle/README.md).
+- `git diff --check` — PASS. Luna max implementation and independent review were
+  supervised; the final audit's hidden-card placement collision was fixed.
+- Earlier browser harness failures (obsolete compound-parent lookup, duplicate
+  selection click and insertion-order comparison) were corrected before the final run.
+- Full backend tests, constrained-memory and live-model suites were not rerun:
+  this slice changes frontend state/projection/placement only. The real packaged
+  parser/Git/API/browser path was tested. Other legacy browser suites still target
+  the removed level switcher and were not run; this review harness was updated.
+
+Limits: unambiguously matched resources retain identity; ambiguous declarations
+remain distinct. Review-only children can grow container bounds. Aggregate edge
+inspection clears across modes because route identities differ. Step One is recorded
+in the section above; no live model integration is claimed.
+
+## Package-only exploration view — Class/Method level view removed (2026-09-22)
+
+Requested by the user: the explorer had two overlapping ways to drill into
+classes/methods — a "Packages / Classes / Methods" segmented level switcher
+that re-pointed the whole map, and expand-in-place (`⊞`) card details that stay
+in context. Kept only expand-in-place; removed the level switcher. See
+[ADR 0007](docs/adr/0007-package-only-exploration-view.md) for the full
+rationale, including the noted deviation from `docs/BUILD.md:200`'s "abstraction
+(package/class/method)" requirement.
+
+- Removed the "Graph level" segmented control (`App.tsx`) and every UI-reachable
+  `NAVIGATE_LEVEL` dispatch. Confirmed first (via a full call-site trace) that
+  this is frontend-only: `GraphQueryService.java` has no `level` parameter and
+  never did — level slicing is entirely client-side — and the backend
+  `GraphLevel.java` enum was already dead code before this change.
+- Repurposed the four former level-switch triggers to expand-in-place instead
+  of deleting them: the tree's `⌖` "View classes"/"View methods" buttons and
+  the inspector's "View classes ↗"/"View methods ↗" buttons now expand the
+  target card in place (never collapsing an already-expanded one) and select
+  it (`revealChildren`/`ensureExpanded` in `App.tsx`). An HTTP entry-point
+  route card and the `?selectedSymbol=` deep link now expand every ancestor
+  package/class of the target in place, one level per render via a small
+  `pendingRevealRef` + effect (`expandToReveal`) — needed because
+  `toggleExpand`'s box math reads state that is still stale mid-handler, so a
+  two-level reveal (e.g. a method under an unexpanded class under an
+  unexpanded package) cannot be dispatched in one synchronous call.
+- `Level`, `levelViews` and the `NAVIGATE_LEVEL` reducer case are deliberately
+  left in `explorerViewState.ts`/`graphModel.ts`: expand-in-place's edge
+  routing (`ownerAt`/`aggregateEdges`) still takes a `Level` parameter
+  (`activeLevel` is simply never anything but `'PACKAGE'` now), and ~55
+  existing unit tests key state on `Level` values for expand/collapse
+  assertions unrelated to the removed switcher. Confirmed by reading
+  `aggregateEdges` directly that its deeper-than-owner resolution is driven by
+  the expansion/container map, not by which `Level` value is passed.
+- Deleted `frontend/src/features/explorer/GraphControls.tsx`, an unused
+  Class/Method/Package `<select>` stub not imported anywhere (found while
+  tracing this feature; unrelated dead code).
+- Docs updated: `docs/STABLE_GRAPH_INTERACTIONS.md` (Story 2's drill-down
+  acceptance bullet), `docs/GIT_REVIEW.md` (toolbar description). `docs/BUILD.md`
+  intentionally left unedited — a frozen historical brief; the ADR records the
+  deviation instead.
+
+Verification (exact commands and outcomes):
+- `npx tsc -b --force` (frontend) — PASS.
+- `node scripts/test-graph-model.mjs`, `test-explorer-view-state.mjs`,
+  `test-expansion-layout.mjs`, `test-focused-arrangement.mjs`,
+  `test-explorer-journeys.mjs`, `test-node-card.mjs`, `test-graph-placement.mjs`,
+  `test-source-evidence.mjs` — all PASS, unmodified (they test underlying
+  primitives/reducers, not the removed UI).
+- Not run, and known to need follow-up work: `scripts/verify-stable-graph-ui.mjs`,
+  `verify-git-review-ui.mjs`, `verify-hierarchical-ui.mjs`, and
+  `verify-change-edges-ui.mjs` all contain scenarios built around clicking the
+  now-removed `.segmented button`/`[aria-label="Graph level"]` control and will
+  fail as written; they need a rewrite of those specific scenarios (not
+  attempted in this session — no packaged jar/Chromium harness was run). Also
+  not run: the packaged-jar `verify_*_pipeline.py` suites and `./gradlew test`
+  (expected unaffected, since no backend file changed, but not re-verified here).
+- No manual browser walkthrough was performed in this session; the four
+  repurposed trigger points (tree buttons, inspector buttons, route cards,
+  deep link) have not been visually confirmed end-to-end.
+
+## Overlay route colors: unknown vs removed, one route per pair — complete (2026-09-20)
+
+Reported from a real review of `/home/sajjad/projects/second-review-assist/src`: routes out of
+`GraphQueryService` were red for no apparent reason, and lines into the `dto` package looked gray
+until the package was selected and then looked green. Both were reproduced and fixed; neither was a
+palette problem.
+
+1. **A file that does not parse was reported as a deletion.** The user's working tree has
+   `return  null` without a semicolon in `GraphQueryService.java` (confirmed independently with
+   `javac`: `';' expected`). The parser stores the file but indexes no declaration from it, so the
+   class was absent on the after side and the comparison called it, and all 30 of its relationship
+   occurrences, REMOVED — red. `ReviewService.compare` now derives each side's unanalyzed paths
+   structurally (a stored file with no indexed declaration; diagnostic text is not parsed, its format
+   differs per producer) and emits `UNKNOWN` for a declaration missing only there and for any
+   unmatched occurrence touching one. Amber dotted route, dashed "NOT ANALYZED" card badge.
+   Re-running the same comparison: 8 nodes and 30 relationships moved from REMOVED to UNKNOWN, and
+   nothing is REMOVED. On a scratch copy of that repository with only the missing semicolon added,
+   the same backend reports the class MODIFIED with exactly 3 REMOVED occurrences (the dropped
+   `new GraphNode(...)` CONSTRUCTS, the `parseExplanationStatus` CALLS, and the class-level
+   `DEPENDS_ON` on `SymbolKind`) — the change the author actually made.
+2. **The same ordinary map silently hid the class.** The footer now names unparsed files
+   ("1 file(s) not analyzed", with the paths in its title), from new `unanalyzedFiles` graph
+   metadata, so a missing class is never silent.
+3. **Merging the statuses of a pair into one route was tried and reverted.** `reviewChange` is part
+   of the aggregate key, so an unchanged, an added and a removed route between the same two cards are
+   three lines; merging them into one derived-status route was implemented, verified, then reverted at
+   the user's direction — separated lines are the wanted behavior, because a removed relationship must
+   stay visible beside the unchanged one. Occurrences sharing a status still merge into one line.
+   The reported "`api → dto` turns green when dto is selected" is therefore **still open**: with the
+   lines separated, the ADDED `api → dto` route is a real, separate green line, and how a selected
+   card's several same-pair routes should read is being taken up in a separate session.
+4. **Nothing in review mode is red unless it was removed.** Incoming-route emphasis and its glow are
+   indigo for every overlay route, a change color owns its own glow, and an incoming-related card
+   takes the indigo halo instead of the red one.
+5. The review status of the route under the cursor is now named in its hover text.
+
+Verification (exact commands and outcomes):
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew test bootJar` — PASS, 124 tests
+  (1 new: an unparsed file is UNKNOWN, a real deletion stays REMOVED), 0 failures/errors/skips.
+- `npm --prefix frontend run build` — PASS; only the existing >500 kB chunk advisory.
+- All 10 `node scripts/test-*.mjs` — PASS (`test-graph-model.mjs` gains the route-status table and a
+  one-line-per-pair assertion).
+- `JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java python3 scripts/verify_git_review_pipeline.py`
+  — PASS, 29/29 checks, 0 page errors, 0 model calls, fixture tree and `.git/index` unchanged. Seven
+  new checks: unparsed file named on the ordinary map and its class absent there; an unknown route is
+  amber/dotted and its card is UNKNOWN; a call into it is unknown; a dropped call site draws its own
+  removed line beside the unchanged one, and occurrences sharing a status still merge into one line;
+  every route keeps its expected color while each card in turn is selected; deselecting restores every
+  unselected color. The fixture gained `Broken.java` (parses in the base, not in the working tree),
+  `BrokenClient.java`, and a second `KeepDep` call site in the base `Hub.sibling()` that the working
+  tree drops — the pair that now draws an UNCHANGED and a REMOVED line.
+- `PATH=/usr/lib/jvm/java-21-openjdk-amd64/bin:$PATH python3 scripts/verify_change_edges_pipeline.py`
+  — PASS (the run the previous session deferred), fixture source unchanged, no model provider.
+- `git diff --check` — clean.
+- Skipped: the live-model suite and `constrainedMemoryTest` (deterministic change, no explanation
+  pipeline involved). The user's own application database was never written to; reproduction used a
+  copy of it under a scratch data directory on port 8095, and the analyzed repository was read only.
+
+Remaining limits: `UNKNOWN` is additive within schema version `1` (ADR 0006 addendum). Comparison
+diagnostics are still not rendered as a list — the deliberate reduction recorded last session — so
+the unparsed-file signal is the card badge, the route style and the footer count.
 
 ## Step11 Phase 1 — review remediation complete (2026-09-30)
 
@@ -19,7 +1847,7 @@ reproduction showed that a renderer-valid edge coordinate could hit the minimap
 SVG and pan the map. The harness checks DOM targets before clicking; camera and
 endpoint assertions remain intact. No application change was required.
 
-Final command: `JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java PYTHONDONTWRITEBYTECODE=1 python3 scripts/verify_stable_graph_pipeline.py acceptance`
+Pre-integration final command on the Step11 baseline: `JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java PYTHONDONTWRITEBYTECODE=1 python3 scripts/verify_stable_graph_pipeline.py acceptance`
 — PASS; `build/step11/resumed/stable-final-2026-09-30.log`, run `acceptance-g_rauxtj`.
 `node --check scripts/verify-stable-graph-ui.mjs`, `git diff --check`,
 `git diff --cached --check`, the ADR byte comparison and frozen brief/parser checks
@@ -49,7 +1877,112 @@ Verification: `cmp /home/sajjad/prompts/step11/0008-multi-language-support.md do
 No runtime checks required for this documentation-only phase. `docs/BUILD_BRIEF.md`
 is absent; read the existing frozen `docs/BUILD.md` instead.
 
-## Git review views — complete (2026-09-19)
+## Review remediation for the Code-map review slice — complete (2026-09-19)
+
+An external multi-agent review report (`/home/sajjad/prompts/git-review-code-map-review-report.md`)
+was triaged against the actual tree before any change. Its diagnoses were checked one at a time. Its
+patch blocks were not used because they target code that does not exist here: an illegal `useMemo`
+inside JSX, a CSS selector that matches nothing, and a `fileDiff.ts` line that is not there. Each
+finding was reproduced or re-derived first. Three Sonnet subagents fixed disjoint scopes, and their
+diffs were reviewed and refined before acceptance.
+
+Fixed (reproduced first):
+- P1.1 false red/green relationship pairs: relationship matching included concatenated evidence
+  text, so editing one call's arguments split the aggregated class `DEPENDS_ON` (and that `CALLS`)
+  into REMOVED+ADDED. Failing integration test first, then two-phase matching in
+  `ReviewService.compare` within a structural key (source, target, kind, resolution). Identical-
+  evidence occurrences pair first, then leftovers pair one-to-one. Multiplicity changes still surface,
+  covered by a second new test. Documented in `docs/GIT_REVIEW.md` and the ADR 0006 addendum.
+- P1.2 split diff lost declaration/evidence highlighting and auto-scroll. Fixed. The browser check
+  then exposed a follow-on defect: highlighted added/removed lines lost their green/red to the
+  highlight background in both layouts. Change color now wins, and the highlight shows as an outline.
+- P1.3 an open source dialog refetched on every App re-render (inline `reviewDiff` object). Now
+  memoized; `useReviewComparison`'s derived graph/identity maps are memoized on the comparison too.
+- P2.2 an inspected UNCHANGED incoming overlay route used the red dashed incoming-flow style, which
+  was indistinguishable from REMOVED. Overlay-only indigo; the ordinary map is unchanged.
+- P2.4 an empty file (`''`) was treated as one line, producing a phantom context row. Fixed, with 3 new
+  diff tests.
+- P2.5 collapsed heading controls stayed in keyboard tab order: `inert` + `aria-hidden` +
+  `visibility: hidden` after the collapse transition.
+- P3.1 wheel over inputs/selects/the review popover no longer collapses the heading. P3.2 a failed
+  comparison is now also shown in the app error banner. P3.3 stale links to the removed
+  `docs/CLAUDE_REVIEW_PROMPT.md` and a stale run folder were corrected.
+
+Not changed, with reasons:
+- P2.1 ambiguous declarations get `#base-i`/`#head-i` suffixes and never match across captures.
+  This is intentional and documented (ADR 0006: ambiguous identities are not paired by guess).
+- P1.1 sub-claim "provenance inversion" from sorting on `changedSite`: not separately reproduced.
+  The sort already has a location and id tie-break, and phase-1 pairing by identical evidence makes
+  the order irrelevant for unchanged sites.
+- P2.3 "staged deletions": nothing is staged. The old screenshots and `docs/CLAUDE_REVIEW_PROMPT.md`
+  are unstaged deletions, and the new PNGs, `docs/CODEX_REVIEW_PROMPT.md`, `fileDiff.ts`,
+  `useReviewComparison.ts` and `scripts/test-file-diff.mjs` are untracked. Stage everything together
+  when committing. Exclude `codex_handoff.md` and decide separately on `frontend/tsconfig.tsbuildinfo`
+  (build output flagged in the handoff). Nothing was staged or committed here.
+
+Verification (exact commands and outcomes):
+- `./gradlew test bootJar` — PASS, 123 tests (3 new: argument edit stays UNCHANGED, a dropped
+  distinct call is still REMOVED, a call moved to another method is REMOVED+ADDED), 0 failures.
+- `npm --prefix frontend run build` — PASS; only the existing >500 kB chunk advisory.
+- All 10 `node scripts/test-*.mjs` — PASS (`test-file-diff.mjs` 13 checks, journeys 18).
+- `JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java python3 scripts/verify_git_review_pipeline.py`
+  — PASS, 20/20 checks (6 new: overlay incoming-flow color, ordinary-map flow color unchanged with
+  Changes off, inert collapsed heading, split highlighting, change color inside a highlighted
+  declaration, no refetch on re-render), zero page
+  errors, zero model requests, fixture source and Git index unchanged. Screenshots inspected.
+- `git diff --check` — PASS.
+
+## Git review merged into the Code map, per-tab mode, diff code viewer — complete (2026-09-19)
+
+Follow-up to the Git review slice below, requested by the user: no separate
+"Review changes" page, report or change legend; the Base+changes overlay draws
+directly on the ordinary Code map behind a **Changes** toggle in the graph
+toolbar, review mode is a per-exploration-tab setting (New tab/Clone tab both
+keep working with it), the map-heading can be collapsed for more graph room, and
+opening a changed file's code shows a real unified/split git diff. Base-only and
+after-only views are dropped; the overlay already carries after-change resources
+plus removed base-only resources. See [Git review](docs/GIT_REVIEW.md) and the
+[ADR 0006 addendum](docs/adr/0006-git-review-snapshots.md#addendum-overlay-integrated-into-the-code-map-per-tab-mode).
+
+Verification (exact commands and outcomes):
+
+- `./gradlew test bootJar` — PASS, 120 tests (one new: review-file hunks and the
+  new whole-file-by-path endpoint), zero failures/errors/skips; production
+  frontend and executable JAR built.
+- `npm --prefix frontend run build` — PASS, clean TypeScript build, no CSS warnings.
+- `node scripts/test-explorer-journeys.mjs` — PASS, 18 checks (6 new: toggle
+  round-trip preserves each mode's layout as one undo step, a stale comparison's
+  stash is discarded, `NEW` opens in the requesting tab's mode, `CLONE` copies
+  review mode/stash/history, `REVIEW_RECAPTURED` resets every tab that touched
+  review — open or closed — and drops stale stashes).
+- `node scripts/test-file-diff.mjs` — new, 10 checks: pure-insertion and
+  pure-deletion unified-diff hunk edge cases, multi-hunk offset tracking, added/
+  deleted whole files, and split-view pairing/padding.
+- `node scripts/test-review-model.mjs`, `test-graph-model.mjs`, `test-node-card.mjs`,
+  `test-explorer-view-state.mjs`, `test-expansion-layout.mjs`,
+  `test-focused-arrangement.mjs`, `test-graph-placement.mjs`, `test-source-evidence.mjs`
+  — all PASS, unaffected by this change.
+- `JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java python3 scripts/verify_git_review_pipeline.py`
+  (rewritten for the new flow) — PASS, 14/14 checks, zero page errors, zero model
+  requests, fixture source tree and Git index unchanged. Covers: prior map state
+  (level/selection) preserved across turning Changes on; amber/green/red overlay
+  styling with no report/legend elements present; New tab opens in the current
+  tab's review mode; Clone tab copies review mode and history; collapsing the
+  map-heading grows the graph stage while the toolbar stays visible; the diff
+  viewer shows added and removed lines in unified layout and switches to split;
+  Recompare issues a fresh comparison; a removed class's diff renders all-red
+  with nothing added (the base-side counterpart to the modified-class check,
+  exercising the other-snapshot fetch-404-to-null fallback). Five screenshots
+  inspected.
+- `git diff --check` — PASS.
+- Live model and constrained-memory explanation-scale suites skipped: this change
+  is deterministic and does not touch the model/explanation pipeline.
+
+Known limitation carried over deliberately: the non-Java changed-file list and
+comparison diagnostics the removed report used to show are not surfaced
+elsewhere in this slice (see the ADR addendum's closing note).
+
+## Superseded by the slice above: Git review views — complete (2026-09-19)
 
 Bounded R6 acceptance criterion: inspect one local Git changeset in base, overlay
 and after-change graphs at package/class/method level, follow evidence from the
@@ -105,8 +2038,58 @@ Verification (exact commands and outcomes):
 Limits: Java source-only analysis, supported local Git worktree root with an initial
 commit; no symlinks/submodules, remote fetch, saved human decisions or persisted
 review UI session. Capture limits and partial-analysis behavior are documented.
-The broader R6 milestone remains in progress. An independent Claude review prompt
-is provided in [CLAUDE_REVIEW_PROMPT.md](docs/CLAUDE_REVIEW_PROMPT.md).
+The broader R6 milestone remains in progress. The review prompt for this earlier
+slice (`docs/CLAUDE_REVIEW_PROMPT.md`) has since been removed; the current
+multi-agent review prompt is [CODEX_REVIEW_PROMPT.md](docs/CODEX_REVIEW_PROMPT.md).
+
+## Reviewer assistance proposal — documentation only (2026-09-17)
+
+Read current status, BUILD.md (BUILD_BRIEF.md remains absent), architecture, data
+model, support matrix, plans, backlog, relevant ADRs and exploration docs; inspected
+the implementation before proposing review features. Compared the existing design
+at `/home/sajjad/code-atlas-review-designs.html` (the supplied `/home/` location was
+absent). No application feature or active milestone was changed.
+
+Deliverable: `/home/sajjad/code-atlas-review-proposal.html`, a self-contained proposal
+with an interactive synthetic review, prioritized suggestions, implementation gaps,
+acceptance cases and local source references. Recommendation: complete change list,
+exact before/after source and persistent human decisions first; selected-change graph
+context and evidence-backed signals next; optional generated walkthroughs later.
+See [review direction](docs/REVIEW_DIRECTION.md) for the repository handoff.
+The completion pass added a seven-step reviewer journey from revision selection
+and stated intent through evidence/context inspection, test questions, human
+decisions, review handoff and re-review after a new head. It includes a concrete
+finding example and desktop/narrow interaction guidance.
+
+R6 acceptance boundary considered: inspect evidence and branch/return to exploration
+without losing map state or affecting another tab. The proposal assesses reuse of
+that behavior; it does not claim new verification or completion of the existing R6
+slice. Cross-snapshot tabs, method-level diffs and review persistence remain new work.
+
+Verification (exact commands and outcomes):
+
+- `node /home/sajjad/code-atlas-review-proposal-evidence/check.mjs` — PASS, 22/22
+  standalone HTML checks: source links/anchors, script syntax, item selection,
+  independent notes/decisions, progress categories, local Markdown export,
+  literal note display, desktop and 768/390/375 px overflow, disclosure/reload
+  behavior, zero runtime exceptions and zero HTTP requests from the artifact.
+  Eight desktop/mobile screenshots captured; the original six and both added
+  reviewer-journey views were visually inspected. The final rerun remains 22/22 PASS.
+  The harness deletes the previous demo export before checking a new download.
+  Evidence lives
+  in `/home/sajjad/code-atlas-review-proposal-evidence/`.
+- Initial harness attempts did not finish: Chromium Snap rejected a hidden-cache
+  profile directory; a test expression then contained an incorrectly escaped newline.
+  The harness uses a disposable Snap-accessible profile and corrected escaping. Those
+  attempts are not counted as successful checks or application failures.
+- `git diff --check` — PASS.
+- Skipped application build, Gradle tests, application browser suites, packaging and
+  live model checks: only a standalone design artifact and documentation changed.
+
+Limits: synthetic interaction only; demo notes reset on page reload as disclosed.
+No repository comparison, PR integration, real model review or backend workflow was
+implemented or verified. Existing pending stable-graph verification and Step 6A
+remain unchanged.
 
 ## Exploration tabs and per-tab history — final verification (2026-09-16)
 
@@ -186,13 +2169,11 @@ Requested in `/home/sajjad/prompts/change-edges.md` (2026-09-16).
    Cytoscape `width`. The ID is `aggregate:[source,target]`, so a relationship-filter change keeps the
    same route (thinner) or removes it when no kind is left. Label and inspector show the kind breakdown;
    occurrence options read "calls 2 of 4".
-2. **Directional selection emphasis.** `GraphCanvas.tsx`: inspecting a resource classes incident
-   routes `.flow-out` (sky blue) / `.flow-in` (red) and related resources `.rel-out` (light blue halo),
-   `.rel-in` (light red), `.rel-both` (purple) using Cytoscape `outline-*`. One throttled
-   `requestAnimationFrame` loop moves `line-dash-offset` (source → target) and pulses route underlay and
-   halo width; bypass styles are removed on every re-run/unmount, the phase survives graph polls, and
-   `prefers-reduced-motion` keeps static colors. Edge inspection keeps its previous teal emphasis.
-   Edge labels moved 11px off the line so short routes stay visible.
+2. **Directional selection emphasis (original implementation, superseded by ADR 0008).** The first
+   change-edges pass recolored and dashed selected routes. Step 10 Step One now preserves factual route
+   color/pattern and uses cached overlay arrowheads plus indigo/cyan resource halos instead. The shared
+   animation loop still pulses route underlay and halo width; reduced motion keeps static direction
+   marks. Edge inspection retains its teal emphasis. Edge labels remain 11px off the line.
 3. **Evidence grouped by file.** Cause: a `DEPENDS_ON` occurrence stores one evidence row per call site
    (`JavaParserAdapter`), so `SourceDialog` rendered the same file once per row. New
    `POST /api/snapshots/{id}/relationships/source {ids}` (`SourceService.relationships`) returns one
@@ -220,8 +2201,8 @@ PASS (new; asserts the per-occurrence endpoint repeats the file and the batch en
 `inspect-edge-survives-filter-change` to filter to a kind the clicked line does not contain (filtering
 to a contained kind now correctly keeps the line drawn). Live Chromium run against the packaged jar on a
 5-class flow fixture: one line per ordered pair, mutual pair = 2 lines, stronger route renders wider,
-red/blue routes and red/blue/purple halos on the expected cards, dash offset and halo width change over
-time, deselect leaves no classes or bypass styles, Hub.java shown once with lines 8/10/11/16 highlighted
+the expected directional classes and halos, animated direction phase and halo width change over time,
+deselect leaves no classes or bypass styles, Hub.java shown once with lines 8/10/11/16 highlighted
 for both the merged line and the single DEPENDS_ON occurrence, the chosen occurrence ("calls 4 of 4")
 survives a filter to CALLS with no filtered-out notice, zero page errors (`scripts/verify-change-edges-ui.mjs`
 against `test-fixtures/change-edges-fixture`). Evidence:
@@ -231,9 +2212,9 @@ That browser suite is now self-contained: `python3 scripts/verify_change_edges_p
 own ports, starts the jar and Chromium, analyzes an isolated **copy** of the fixture (SHA-256 checked
 before/after), and runs the suite — so change-edges regressions can fail CI instead of needing a
 hand-assembled snapshot ID. It additionally asserts what the first pass only assumed: the inspected
-line's endpoints are emphasized rather than dimmed, the dashes travel source → target (a *decreasing*
-`line-dash-offset`, not merely a changing one), leftover animation styles are detected through the
-public style API instead of Cytoscape's `_private` internals, and the three direction halos differ by
+line's endpoints are emphasized rather than dimmed, overlay arrowheads follow increasing source-to-target
+path distance, leftover animation styles are detected through the public style API instead of Cytoscape's
+`_private` internals, and the three direction halos differ by
 `border-style` (solid / dashed / double) so direction survives a colour-vision deficiency.
 
 Merged with the in-place card details work below: routes now resolve to the deepest visible card

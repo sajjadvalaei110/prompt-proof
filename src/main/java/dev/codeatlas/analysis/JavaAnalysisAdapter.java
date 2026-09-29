@@ -48,6 +48,16 @@ public final class JavaAnalysisAdapter implements AnalysisPort {
     }
 
     @Override
+    public void prepare(String capturedPath, java.nio.file.Path workspaceRoot) {
+        parser.setupSymbolSolver(capturedPath, workspaceRoot);
+    }
+
+    @Override
+    public void linkRelationships(String snapshotId) {
+        parser.linkOverrides(snapshotId);
+    }
+
+    @Override
     public void parseDeclarations(File file, String workspaceId, String snapshotId) {
         parser.parseDeclarations(file, workspaceId, snapshotId);
     }

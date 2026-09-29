@@ -11,7 +11,7 @@ const stripLocalImport=(src,name)=>src.replace(new RegExp(`import \\{[^}]*\\} fr
 const scopeCompiled=stripLocalImport(compile('../frontend/src/features/explorer/scopeModel.ts'),'graphModel');
 const graphCompiled=stripLocalImport(compile('../frontend/src/features/explorer/graphModel.ts'),'scopeModel');
 const combined=scopeCompiled+'\n'+graphCompiled;
-const {projectGraph,projectDisplayed,childrenOf,wholeSystemScope,emptyScope,isClassInScope,getPackageCheckState,getPackageGroupCheckState,buildPackageHierarchy,togglePackages,togglePackage,toggleClass,scopeToLabel,EXPLANATION_RANK,explanationRank,dominantOccurrenceIndex,kindSummary,sortedKindCounts}=await import('data:text/javascript;base64,'+Buffer.from(combined).toString('base64'));
+const {projectGraph,projectDisplayed,childrenOf,wholeSystemScope,emptyScope,isClassInScope,getPackageCheckState,getPackageGroupCheckState,buildPackageHierarchy,togglePackages,togglePackage,toggleClass,scopeToLabel,EXPLANATION_RANK,explanationRank,dominantOccurrenceIndex,kindSummary,sortedKindCounts,routeReviewChange,revealContainers,collapseBranch,collapseAll}=await import('data:text/javascript;base64,'+Buffer.from(combined).toString('base64'));
 
 const nodes=[{id:'p1',kind:'PACKAGE',simpleName:'api'},{id:'p2',kind:'PACKAGE',simpleName:'service'}, {id:'a',kind:'CLASS',simpleName:'Controller',parentId:'p1'}, {id:'b',kind:'INTERFACE',simpleName:'Worker',parentId:'p2'}, {id:'a1',kind:'METHOD',simpleName:'handle',parentId:'a'}, {id:'b1',kind:'METHOD',simpleName:'work',parentId:'b'}, {id:'b2',kind:'METHOD',simpleName:'audit',parentId:'b'}];
 const edges=[{id:'e1',sourceId:'a1',targetId:'b1',kind:'CALLS',resolution:'RESOLVED'},{id:'e2',sourceId:'a1',targetId:'b1',kind:'CALLS',resolution:'RESOLVED'},{id:'e3',sourceId:'a',targetId:'b',kind:'INJECTS',resolution:'CANDIDATE'},{id:'e4',sourceId:'b1',targetId:'b2',kind:'CALLS',resolution:'RESOLVED'},{id:'e5',sourceId:'a1',targetId:null,kind:'CALLS',resolution:'UNRESOLVED'}];
@@ -291,7 +291,9 @@ assert.equal(pick(['NOT_REQUESTED','NOT_REQUESTED']),0,'an all-equal line opens 
 assert.equal(pick(['READY','READY']),0,'ties resolve to the earliest occurrence, so a stable line keeps its first-occurrence default');
 assert.equal(dominantOccurrenceIndex(null,graph),0,'no edge falls back to index 0');
 assert.equal(dominantOccurrenceIndex({id:'x',occurrenceIds:[]},graph),0,'an empty occurrence list falls back to index 0');
-const cardCompiled=ts.transpileModule(fs.readFileSync(new URL('../frontend/src/features/explorer/nodeCard.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.ES2022,target:ts.ScriptTarget.ES2022}}).outputText;
+const paletteSource=fs.readFileSync(new URL('../frontend/src/features/review/reviewPalette.ts',import.meta.url),'utf8');
+const cardSource=fs.readFileSync(new URL('../frontend/src/features/explorer/nodeCard.ts',import.meta.url),'utf8').replace("import { REVIEW_CHANGE_PALETTE } from '../review/reviewPalette';",'');
+const cardCompiled=ts.transpileModule(`${paletteSource}\n${cardSource}`,{compilerOptions:{module:ts.ModuleKind.ES2022,target:ts.ScriptTarget.ES2022}}).outputText;
 const {nodeCard}=await import('data:text/javascript;base64,'+Buffer.from(cardCompiled).toString('base64'));
 for(const kind of ['CLASS','METHOD']){
  const node={id:'n',kind,simpleName:'<script>&unsafe'};
@@ -319,3 +321,88 @@ resolveFirst({active:true});await new Promise(resolve=>setTimeout(resolve,0));as
 scheduled.shift()();await Promise.resolve();assert.equal(maxRequests,1);stop();resolveSecond({active:true});await new Promise(resolve=>setTimeout(resolve,0));
 assert.equal(updates,1);assert.equal(scheduled.length,0);
 console.log('PASS: queue/inspector polling is non-overlapping and stops when inactive');
+
+// Review overlay: added, removed, unknown and unchanged routes between the same two cards stay
+// separate lines -- the aggregate key carries reviewChange, so a removed route can never be
+// cancelled out by an unchanged one that happens to share its endpoints.
+const reviewGraph={nodes:[
+ {id:'ra',simpleName:'A',kind:'CLASS',parentId:'rp1'},{id:'rb',simpleName:'B',kind:'CLASS',parentId:'rp2'},
+ {id:'rp1',simpleName:'p1',kind:'PACKAGE'},{id:'rp2',simpleName:'p2',kind:'PACKAGE'}],
+ edges:[
+ {id:'e1',sourceId:'ra',targetId:'rb',kind:'CALLS',resolution:'RESOLVED',reviewChange:'UNCHANGED'},
+ {id:'e2',sourceId:'ra',targetId:'rb',kind:'CALLS',resolution:'RESOLVED',reviewChange:'ADDED'},
+ {id:'e3',sourceId:'ra',targetId:'rb',kind:'DEPENDS_ON',resolution:'RESOLVED',reviewChange:'REMOVED'},
+ {id:'e4',sourceId:'ra',targetId:'rb',kind:'USES_TYPE',resolution:'RESOLVED',reviewChange:'UNKNOWN'}]};
+const reviewRoutes=projectDisplayed(reviewGraph,'CLASS',['ra','rb'],'ALL').edges;
+assert.equal(reviewRoutes.length,4,'each review status between the same pair keeps its own line');
+assert.deepEqual(reviewRoutes.map(e=>e.reviewChange).sort(),['ADDED','REMOVED','UNCHANGED','UNKNOWN']);
+assert.equal(new Set(reviewRoutes.map(e=>e.id)).size,4,'each separated route has its own aggregate id');
+const twoUnchanged=projectDisplayed({...reviewGraph,edges:[reviewGraph.edges[0],{...reviewGraph.edges[0],id:'e1b',kind:'USES_TYPE'}]},'CLASS',['ra','rb'],'ALL').edges;
+assert.equal(twoUnchanged.length,1,'occurrences sharing a status still merge into one line');
+assert.equal(twoUnchanged[0].occurrenceIds.length,2);
+assert.equal(projectDisplayed(graph,'CLASS',['a','b'],'ALL').edges[0].reviewChange,undefined,'the ordinary map carries no review status');
+console.log('PASS: review overlay keeps one line per ordered pair and change status');
+
+// Step 14 (ADR 0011): an ungrouped (hidden) box is flagged for the canvas; lines land on its children.
+{
+  const hidden=projectDisplayed(graph,'PACKAGE',['p1','p2'],'ALL',{expansions:[{id:'p2',ownerId:null,hidden:true}],scope:ALL});
+  const p2=hidden.nodes.find(n=>n.id==='p2');
+  assert.equal(p2.hiddenBox,true,'the ungrouped card is flagged');
+  assert.equal(p2.expanded,true,'and is still an expanded container');
+  assert.equal(hidden.nodes.find(n=>n.id==='p1').hiddenBox,undefined,'other cards carry no flag');
+  assert.deepEqual(hidden.edges.map(e=>[e.sourceId,e.targetId]),[['p1','b']],'the route lands on the freed class');
+  const visible=projectDisplayed(graph,'PACKAGE',['p1','p2'],'ALL',{expansions:[{id:'p2',ownerId:null}],scope:ALL});
+  assert.equal(visible.nodes.find(n=>n.id==='p2').hiddenBox,undefined);
+  console.log('PASS: an ungrouped box is flagged and its lines land on its children');
+}
+{
+  const methods=projectDisplayed(graph,'PACKAGE',['p1','p2'],'ALL',{expansions:[{id:'p2',ownerId:null},{id:'b',ownerId:'p2'}],scope:ALL});
+  assert.equal(methods.nodes.find(n=>n.id==='b1').ownerName,'Worker','a method card carries its class name');
+  assert.equal(methods.nodes.find(n=>n.id==='b').ownerName,undefined,'a class card does not');
+  console.log('PASS: method cards carry their owning class name');
+}
+{
+  // The containers to open, in order, so a target is drawn: its package box, then (for a method or
+  // constructor) its type's box. A package box holds nested types side by side with their outer type,
+  // so a nested type never needs its outer class opened.
+  const nodes=[{id:'p',kind:'PACKAGE',simpleName:'p'},{id:'C',kind:'CLASS',simpleName:'C',parentId:'p'},{id:'N',kind:'CLASS',simpleName:'N',parentId:'C'},
+    {id:'C.m',kind:'METHOD',simpleName:'m',parentId:'C'},{id:'C.<init>',kind:'CONSTRUCTOR',simpleName:'C',parentId:'C'},{id:'N.n',kind:'METHOD',simpleName:'n',parentId:'N'}];
+  const all=new Map(nodes.map(n=>[n.id,n]));
+  const ids=id=>revealContainers(all.get(id),all).map(n=>n.id);
+  assert.deepEqual(ids('p'),[],'a package is drawn on the map itself');
+  assert.deepEqual(ids('C'),['p'],'a class needs its package');
+  assert.deepEqual(ids('N'),['p'],'a nested type sits in its package box, not in its outer class');
+  assert.deepEqual(ids('C.m'),['p','C'],'a method needs its package, then its class');
+  assert.deepEqual(ids('C.<init>'),['p','C'],'so does a constructor');
+  assert.deepEqual(ids('N.n'),['p','N'],'a method of a nested type needs the nested type, not the outer class');
+  console.log('PASS: revealContainers lists the package, then the owning type of a method');
+}
+
+// Step 13: collapsing a tree branch closes every nested package; collapse-all closes them all.
+{
+  const leaf=q=>({name:q.split('.').pop(),qualifiedName:q,packageIds:[],children:[]});
+  const tree=[{name:'com',qualifiedName:'com',packageIds:[],children:[{name:'acme',qualifiedName:'com.acme',packageIds:[],children:[leaf('com.acme.api'),leaf('com.acme.core')]}]},leaf('org')];
+  const opened={'com':true,'com.acme':true,'com.acme.api':true,'org':true};
+  const closed=collapseBranch(opened,tree[0].children[0]);
+  assert.deepEqual(closed,{'com':true,'com.acme':false,'com.acme.api':false,'com.acme.core':false,'org':true},'nested packages close with their parent; siblings keep their state');
+  assert.equal(opened['com.acme.api'],true,'input is not mutated');
+  assert.deepEqual(collapseAll(tree),{'com':false,'com.acme':false,'com.acme.api':false,'com.acme.core':false,'org':false});
+  console.log('PASS: tree collapse cascades to nested packages');
+}
+
+// Step 13 review (P3, rejected): the card menu counts "Expand N selected" with hasDetailsButton
+// (detailCount > 0) while the queue expands only what childrenOf returns. Pin that, for every drawn
+// expandable card under whole-system and custom scopes, the two agree.
+{
+  const tree={nodes:[{id:'p1',kind:'PACKAGE',simpleName:'api'},{id:'p2',kind:'PACKAGE',simpleName:'svc'},{id:'p3',kind:'PACKAGE',simpleName:'empty'},
+    {id:'a',kind:'CLASS',simpleName:'A',parentId:'p1'},{id:'an',kind:'CLASS',simpleName:'Inner',parentId:'a'},{id:'b',kind:'INTERFACE',simpleName:'B',parentId:'p2'},{id:'c',kind:'ENUM',simpleName:'C',parentId:'p2'},
+    {id:'a1',kind:'METHOD',simpleName:'run',parentId:'a'},{id:'b1',kind:'METHOD',simpleName:'go',parentId:'b'}],edges:[]};
+  for (const scope of [ALL,custom(['p1']),custom([],['b']),custom([],['an']),custom([],[])]) {
+    const shown=['p1','p2','p3'].filter(id=>scope.mode==='ALL'||getPackageCheckState(tree.nodes.find(n=>n.id===id),scope,tree)!=='unchecked');
+    const view=projectDisplayed(tree,'PACKAGE',shown,'ALL',{expansions:shown.map(id=>({id,ownerId:null})),scope});
+    for (const card of view.nodes.filter(n=>n.kind!=='METHOD')) {
+      assert.equal((card.detailCount||0)>0,childrenOf(tree,card,scope).length>0,`menu count and expansion agree for ${card.id} in ${JSON.stringify([...scope.selectedPackageIds,...scope.selectedClassIds])}`);
+    }
+  }
+  console.log('PASS: the card menu expand count matches what expanding shows, under any scope');
+}

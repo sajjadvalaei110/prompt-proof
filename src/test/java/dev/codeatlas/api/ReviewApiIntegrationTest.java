@@ -29,6 +29,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /** Uses real disposable Git repositories; review captures never run a target build or checkout. */
 @SpringBootTest
@@ -126,6 +127,93 @@ class ReviewApiIntegrationTest {
         assertEquals(baseOid, git(repo, "rev-parse", "HEAD").trim());
         assertEquals(callerHead, Files.readString(sources.resolve("A.java")));
         assertEquals("untracked review note\n", Files.readString(repo.resolve("notes.txt")));
+    }
+
+    @Test
+    void dependsOnAndCallsStayUnchangedWhenAnUnrelatedCallSiteEditsItsArguments() throws Exception {
+        // JavaParserAdapter emits one class-level DEPENDS_ON occurrence per (type, other type) pair, aggregating
+        // every contributing site (field/parameter type uses, call receivers, ...) as evidence on that single row.
+        // Editing only a call's argument literal changes that aggregated evidence text -- and the resolved CALLS
+        // target itself is unchanged -- so neither relationship's topology or multiplicity actually changed.
+        Path repo = repository("unrelated-argument-edit");
+        Path sources = repo.resolve("src/main/java/demo");
+        Files.createDirectories(sources);
+        String target = "package demo;\nclass B { void one(int n) {} void two() {} }\n";
+        String callerBase = "package demo; class A { B b; void run() { b.one(1); } void sibling() {} }\n";
+        Files.writeString(sources.resolve("B.java"), target);
+        Files.writeString(sources.resolve("A.java"), callerBase);
+        git(repo, "add", ".");
+        git(repo, "commit", "-m", "base");
+
+        String callerHead = callerBase.replace("b.one(1)", "b.one(2)");
+        Files.writeString(sources.resolve("A.java"), callerHead);
+        String workspace = registerWorkspace(repo);
+
+        JsonNode response = createReview(workspace, "HEAD");
+
+        assertNull(find(response.path("relationships"), relation ->
+                        relation.path("change").asText().equals("REMOVED") && relation.path("base").path("kind").asText().equals("DEPENDS_ON")),
+                "The class-level A->B DEPENDS_ON must not be reported REMOVED merely because a call argument's evidence text changed");
+        assertNull(find(response.path("relationships"), relation ->
+                        relation.path("change").asText().equals("ADDED") && relation.path("head").path("kind").asText().equals("DEPENDS_ON")),
+                "The class-level A->B DEPENDS_ON must not be reported ADDED merely because a call argument's evidence text changed");
+        assertNotNull(findRelationFrom(response, "UNCHANGED", "DEPENDS_ON", "demo.A"),
+                "The unchanged A->B class dependency must still be addressable as a single UNCHANGED relationship");
+
+        assertNull(find(response.path("relationships"), relation ->
+                        relation.path("change").asText().equals("REMOVED") && relation.path("base").path("kind").asText().equals("CALLS")),
+                "A call to the same resolved method must not be reported REMOVED merely because its argument literal changed");
+        assertNull(find(response.path("relationships"), relation ->
+                        relation.path("change").asText().equals("ADDED") && relation.path("head").path("kind").asText().equals("CALLS")),
+                "A call to the same resolved method must not be reported ADDED merely because its argument literal changed");
+        assertNotNull(findRelationFrom(response, "UNCHANGED", "CALLS", "demo.A.run("),
+                "The call to the same resolved method must still be addressable as a single UNCHANGED relationship");
+    }
+
+    @Test
+    void reviewFilesCarryUnifiedHunksAndTheFileEndpointServesBothSides() throws Exception {
+        Path repo = repository("file-diff");
+        Path demo = repo.resolve("src/main/java/demo");
+        Files.createDirectories(demo);
+        String baseSource = "package demo;\nclass Diffed {\n    void one() {}\n    void two() {}\n}\n";
+        Files.writeString(demo.resolve("Diffed.java"), baseSource);
+        git(repo, "add", ".");
+        git(repo, "commit", "-m", "base");
+
+        String headSource = "package demo;\nclass Diffed {\n    void one() {}\n    void three() {}\n}\n";
+        Files.writeString(demo.resolve("Diffed.java"), headSource);
+        String workspace = registerWorkspace(repo);
+
+        JsonNode response = createReview(workspace, "HEAD");
+        JsonNode file = findFile(response, "src/main/java/demo/Diffed.java");
+        assertEquals("MODIFIED", file.path("status").asText());
+        JsonNode hunks = file.path("hunks");
+        assertEquals(1, hunks.size(), hunks.toString());
+        JsonNode hunk = hunks.get(0);
+        assertEquals(4, hunk.path("oldStart").asInt());
+        assertEquals(1, hunk.path("oldCount").asInt());
+        assertEquals(4, hunk.path("newStart").asInt());
+        assertEquals(1, hunk.path("newCount").asInt());
+
+        // An unchanged file's hunk list is empty, not merely absent.
+        Files.writeString(demo.resolve("Stable.java"), "package demo;\nclass Stable {}\n");
+        git(repo, "add", "src/main/java/demo/Stable.java");
+        git(repo, "commit", "-m", "stable");
+
+        String baseSnapshot = response.path("base").path("snapshotId").asText();
+        String headSnapshot = response.path("head").path("snapshotId").asText();
+        assertEquals(baseSource, fileSource(baseSnapshot, "src/main/java/demo/Diffed.java"));
+        assertEquals(headSource, fileSource(headSnapshot, "src/main/java/demo/Diffed.java"));
+
+        mvc.perform(get("/api/snapshots/{snapshot}/files/source", baseSnapshot)
+                        .param("path", "src/main/java/demo/does-not-exist.java"))
+                .andExpect(status().isNotFound());
+    }
+
+    private String fileSource(String snapshot, String path) throws Exception {
+        MvcResult result = mvc.perform(get("/api/snapshots/{snapshot}/files/source", snapshot).param("path", path)).andReturn();
+        assertEquals(200, result.getResponse().getStatus(), result.getResponse().getContentAsString());
+        return mapper.readTree(result.getResponse().getContentAsString()).path("content").asText();
     }
 
     @Test
@@ -281,6 +369,60 @@ class ReviewApiIntegrationTest {
     }
 
     @Test
+    void distinctRepeatedCallsThatDropToOneStillYieldExactlyOneRemoved() throws Exception {
+        // Two-phase matching must not let a genuine multiplicity change hide behind leftover pairing: base calls the
+        // same method twice with two different evidence texts, and head keeps only one of those two call sites.
+        Path repo = repository("distinct-repeated-calls");
+        Path sources = repo.resolve("src/main/java/demo");
+        Files.createDirectories(sources);
+        String target = "package demo;\nclass Target { void one(int n) {} }\n";
+        String callerBase = "package demo;\nclass Caller {\n    void twice(Target t) {\n        t.one(1);\n        t.one(2);\n    }\n}\n";
+        Files.writeString(sources.resolve("Target.java"), target);
+        Files.writeString(sources.resolve("Caller.java"), callerBase);
+        git(repo, "add", ".");
+        git(repo, "commit", "-m", "base");
+
+        String callerHead = "package demo;\nclass Caller {\n    void twice(Target t) {\n        t.one(1);\n    }\n}\n";
+        Files.writeString(sources.resolve("Caller.java"), callerHead);
+        String workspace = registerWorkspace(repo);
+
+        JsonNode response = createReview(workspace, "HEAD");
+        assertEquals(1, countRelationsFrom(response, "UNCHANGED", "CALLS", "head", "demo.Caller.twice("),
+                "The surviving call site's identical evidence must still pair as UNCHANGED");
+        assertEquals(1, countRelationsFrom(response, "REMOVED", "CALLS", "base", "demo.Caller.twice("),
+                "Dropping one of two distinct calls to the same method is a genuine multiplicity change");
+        assertEquals(0, countRelationsFrom(response, "ADDED", "CALLS", "head", "demo.Caller.twice("));
+    }
+
+    @Test
+    void aCallMovedToAnotherMethodIsStillRemovedAndAddedNotPairedByLeftoverMatching() throws Exception {
+        // Leftover (phase-2) pairing only happens inside one structural key, and a CALLS key includes its source
+        // method. A call that moves from one method to another therefore changes key and must still surface as a
+        // REMOVED call from the old method plus an ADDED call from the new one, even with a different argument.
+        Path repo = repository("moved-call");
+        Path sources = repo.resolve("src/main/java/demo");
+        Files.createDirectories(sources);
+        String target = "package demo;\nclass Target { void one(int n) {} }\n";
+        String callerBase = "package demo;\nclass Caller {\n    void run(Target t) {\n        t.one(1);\n    }\n    void sibling(Target t) {\n    }\n}\n";
+        Files.writeString(sources.resolve("Target.java"), target);
+        Files.writeString(sources.resolve("Caller.java"), callerBase);
+        git(repo, "add", ".");
+        git(repo, "commit", "-m", "base");
+
+        String callerHead = "package demo;\nclass Caller {\n    void run(Target t) {\n    }\n    void sibling(Target t) {\n        t.one(2);\n    }\n}\n";
+        Files.writeString(sources.resolve("Caller.java"), callerHead);
+        String workspace = registerWorkspace(repo);
+
+        JsonNode response = createReview(workspace, "HEAD");
+        assertEquals(1, countRelationsFrom(response, "REMOVED", "CALLS", "base", "demo.Caller.run("),
+                "The call that left run() must be REMOVED");
+        assertEquals(1, countRelationsFrom(response, "ADDED", "CALLS", "head", "demo.Caller.sibling("),
+                "The call that arrived in sibling() must be ADDED");
+        assertEquals(0, countRelationsFrom(response, "UNCHANGED", "CALLS", "head", "demo.Caller.sibling("),
+                "A moved call must not be paired UNCHANGED across different source methods");
+    }
+
+    @Test
     void publishesPartialCaptureAndReportsMalformedJavaDiagnostics() throws Exception {
         Path repo = repository("partial-parser");
         Path sources = repo.resolve("src/main/java/demo");
@@ -304,6 +446,34 @@ class ReviewApiIntegrationTest {
                         diagnostic.path("message").asText().contains("Broken.java"));
         assertNotNull(parseWarning, "A malformed file must remain visible as an analysis diagnostic");
         assertEquals("WARNING", parseWarning.path("severity").asText());
+    }
+
+    @Test
+    void aFileThatNoLongerParsesIsUnknownNotRemovedWhileARealDeletionStaysRemoved() throws Exception {
+        Path repo = repository("unparsed-head");
+        Path sources = repo.resolve("src/main/java/demo");
+        Files.createDirectories(sources);
+        Files.writeString(sources.resolve("Target.java"), "package demo;\nclass Target { void one() {} }\n");
+        Files.writeString(sources.resolve("Service.java"), "package demo;\nclass Service { void run(Target t) { t.one(); } }\n");
+        Files.writeString(sources.resolve("Client.java"), "package demo;\nclass Client { void use(Service s) { s.run(null); } }\n");
+        Files.writeString(sources.resolve("Gone.java"), "package demo;\nclass Gone { void call(Target t) { t.one(); } }\n");
+        git(repo, "add", ".");
+        git(repo, "commit", "-m", "base");
+        Files.writeString(sources.resolve("Service.java"), "package demo;\nclass Service { Object run(Target t) { return  null\n } }\n");
+        Files.delete(sources.resolve("Gone.java"));
+        String workspace = registerWorkspace(repo);
+
+        JsonNode response = createReview(workspace, "HEAD");
+        assertNotNull(findNode(response, "demo.Service", "UNKNOWN").path("base").path("id").asText(null));
+        assertNull(find(response.path("nodes"), n -> n.path("change").asText().equals("REMOVED") &&
+                n.path("base").path("qualifiedName").asText().startsWith("demo.Service")), "An unparsed declaration is not a deletion");
+        assertEquals(1, countRelationsFrom(response, "UNKNOWN", "CALLS", "base", "demo.Service.run("), "The unparsed file's own call is unknown");
+        assertEquals(1, countRelationsFrom(response, "UNKNOWN", "CALLS", "base", "demo.Client.use("), "A call into the unparsed file is unknown");
+        assertEquals(0, countRelationsFrom(response, "REMOVED", "CALLS", "base", "demo.Service.run("));
+        assertEquals(0, countRelationsFrom(response, "REMOVED", "CALLS", "base", "demo.Client.use("));
+        findNode(response, "demo.Gone", "REMOVED");
+        assertEquals(1, countRelationsFrom(response, "REMOVED", "CALLS", "base", "demo.Gone.call("), "A deleted file stays REMOVED");
+        findNode(response, "demo.Target", "UNCHANGED");
     }
 
     @Test

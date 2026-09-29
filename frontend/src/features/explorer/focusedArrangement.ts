@@ -103,3 +103,63 @@ export function arrangeAroundResource(
   for (const id of Object.keys(positions)) translated[id] = { x: positions[id].x + dx, y: positions[id].y + dy };
   return translated;
 }
+
+/** One drawn card for `arrangeDisplayed`: where it sits, its current box and stored center. */
+export interface DisplayedCard {
+  id: string;
+  /** The expanded card it is drawn inside, or null on the map itself. */
+  containerId: string | null;
+  expanded?: boolean;
+  /** An ungrouped box (ADR 0011): its children stand as free cards in its place. */
+  hidden?: boolean;
+  qualifiedName: string;
+  box: { x1: number; y1: number; x2: number; y2: number };
+  /** Stored center; a card without one (derived by the renderer) is not moved. */
+  position?: Point;
+}
+
+/**
+ * Arranges the whole displayed map around `focusId` (any drawn card) and returns the moves by owner,
+ * ready for ARRANGE_AROUND_RESOURCE, or null when the focus is not drawn.
+ *
+ * The cards that take part are the map's own cards, with every ungrouped (hidden) box replaced by
+ * its children, recursively: a freed card arranges on its own, wherever it was dragged. A visible
+ * expanded box takes part as its whole box and carries everything inside it by the same offset; a
+ * card inside one arranges the map around that box, and routes count between those units. A moved
+ * card is stored where it lives: on the map, or under the hidden box it was freed from.
+ */
+export function arrangeDisplayed(
+  cards: DisplayedCard[],
+  edges: ArrangeEdge[],
+  focusId: string,
+): { positions: Record<string, Point>; childPositions: Record<string, Record<string, Point>> } | null {
+  const byId = new Map(cards.map(c => [c.id, c]));
+  const onMap = (c: DisplayedCard) => { for (let o = c.containerId; o !== null; o = byId.get(o)?.containerId ?? null) if (!byId.get(o)?.hidden) return false; return true; };
+  const units = cards.filter(c => !c.hidden && onMap(c));
+  const unitIds = new Set(units.map(c => c.id));
+  const unitOf = (id: string): string | undefined => {
+    for (let c = byId.get(id); c; c = c.containerId === null ? undefined : byId.get(c.containerId)) if (unitIds.has(c.id)) return c.id;
+    return undefined;
+  };
+  const focus = unitOf(focusId);
+  if (!focus) return null;
+  const centerOf = (c: DisplayedCard) => ({ x: (c.box.x1 + c.box.x2) / 2, y: (c.box.y1 + c.box.y2) / 2 });
+  const arrangeCards: ArrangeCard[] = units.map(c => ({ id: c.id, width: c.box.x2 - c.box.x1, height: c.box.y2 - c.box.y1, qualifiedName: c.qualifiedName }));
+  const arrangeEdges: ArrangeEdge[] = [];
+  for (const e of edges) { const a = unitOf(e.sourceId), b = unitOf(e.targetId); if (a && b && a !== b) arrangeEdges.push({ sourceId: a, targetId: b }); }
+  const placed = arrangeAroundResource(arrangeCards, arrangeEdges, focus, centerOf(byId.get(focus)!));
+  if (!placed) return null;
+  const out = { positions: {} as Record<string, Point>, childPositions: {} as Record<string, Record<string, Point>> };
+  const store = (c: DisplayedCard, p: Point) => { if (c.containerId === null) out.positions[c.id] = p; else (out.childPositions[c.containerId] ??= {})[c.id] = p; };
+  const insideOf = (c: DisplayedCard, unit: string) => { for (let o = c.containerId; o !== null; o = byId.get(o)?.containerId ?? null) if (o === unit) return true; return false; };
+  for (const unit of units) {
+    const to = placed[unit.id];
+    if (!to) continue;
+    // An expanded box's stored position is not its box center, so it moves by its box's offset.
+    const from = centerOf(unit), dx = to.x - from.x, dy = to.y - from.y;
+    store(unit, unit.expanded ? (unit.position ? { x: unit.position.x + dx, y: unit.position.y + dy } : to) : to);
+    if (!unit.expanded) continue;
+    for (const inner of cards) if (inner.position && insideOf(inner, unit.id)) store(inner, { x: inner.position.x + dx, y: inner.position.y + dy });
+  }
+  return out;
+}

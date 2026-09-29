@@ -1,14 +1,16 @@
 # Step11 phases 0 and 1 — independent review
 
-Review scope: the uncommitted phases 0/1 extraction and remediation of both reviews
+Review scope: the phases 0/1 extraction and remediation of both reviews
 in `/home/sajjad/prompts/step11/review-step-0.md`. Java remains the only shipped adapter.
 The broader R6 milestone, Go/Dart adapters and stable-map Step 6A are outside this handoff.
 
 Copy this prompt into Claude with the repository available:
 
 ```text
-Review the uncommitted Step11 phases 0 and 1 changes. Inspect git diff and new
-untracked source/test files; do not assume git diff includes every deliverable.
+Review the Step11 phases 0 and 1 integration. Compare the merged tree with
+upstream baseline e77efab (git diff e77efab), including added source/test files.
+Preserve upstream Step12–14 behavior; the package-only map supersedes the historical
+Step11 stable-map browser suite. See docs/evidence/step11/integration/README.md.
 Do not change files or commit. Report findings first. Read both reviews in
 /home/sajjad/prompts/step11/review-step-0.md and check their dispositions in
 docs/evidence/step11/README.md; do not treat a previous finding as fixed merely

@@ -17,7 +17,9 @@ public record ReviewResponse(
     public record ReviewHead(String snapshotId, String ref, String headOid, String fingerprint, String capturedAt) {}
     public record ReviewSummary(int addedLines, int removedLines, int changedFiles) {}
     public record ReviewFile(String path, String status, int addedLines, int removedLines, boolean javaFile,
-                             boolean lineCountsAvailable) {}
+                             boolean lineCountsAvailable, List<ReviewHunk> hunks) {}
+    /** One `git diff --unified=0` hunk: `oldCount`/`newCount` are 0 for a pure insertion/deletion side. */
+    public record ReviewHunk(int oldStart, int oldCount, int newStart, int newCount) {}
     public record ReviewNode(String comparisonKey, String change, int addedLines, int removedLines, GraphNode base, GraphNode head) {}
     public record ReviewRelationship(String comparisonKey, String change, GraphEdge base, GraphEdge head) {}
     public record ReviewDiagnostic(String severity, String code, String message) {}

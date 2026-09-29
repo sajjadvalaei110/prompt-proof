@@ -7,7 +7,15 @@ Git fixtures are `GitReviewBoundaryTest` and `ReviewApiIntegrationTest`: real lo
 repositories cover upstream merge bases, staged/unstaged/untracked content, raw
 filter-free reads, binary files, retained source, line counts, repeated call sites,
 partial parsing, failure cleanup and preservation of the active analysis snapshot.
-`node scripts/test-review-model.mjs` checks frontend side and occurrence identities.
+`ReviewSourceRootParityTest` (2026-09-25) pins that the review captures find the same source roots
+as the ordinary analysis: for a repository rooted at a `src` directory (`main/java`, `test/java`),
+a cross-file resolved CALLS and a DEPENDS_ON inferred from a call chain's receiver type exist on
+the ordinary map, on both review sides and as UNCHANGED comparison rows (the user's vanishing
+`DeveloperWorkflowTest -> ExplanationResponse` edge).
+`node scripts/test-review-model.mjs` checks frontend side and occurrence identities,
+ordinary-map display alignment, duplicate declarations and ambiguous ancestors.
+`node scripts/test-review-placement.mjs` exercises the shared geometry helper and
+reducer to verify parked review cards, hidden children and target-scope placement.
 
 Run `JAVA=/path/to/java21/bin/java python3 scripts/verify_git_review_pipeline.py`
 for browser acceptance. It requires installed Chromium (override `CHROMIUM` if
@@ -17,20 +25,179 @@ screenshots. Repository/index hashes and a rejecting local model endpoint check
 that review leaves analyzed data unchanged and makes no model calls. Inspect the
 screenshots as well as the assertions. No live model integration is claimed.
 
+The Changes-toggle regression uses the package-only expand-in-place controls. It
+compares surviving card positions and sizes, expansion ancestry and pan/zoom across
+first activation and both toggle directions after edits. Review-only removed and
+unknown declarations are checked separately from shared cards; their appearance
+can change a compound container's bounds. The same run checks ordinary versus diff
+source inspection, undo/redo, tab isolation and removal of stale review styling.
+
 ## Exploration tabs and undo/redo (R6, September 2026)
 
 See [Exploration tabs](EXPLORATION_TABS.md) for the behavior, boundaries and browser
 setup. `node scripts/test-explorer-journeys.mjs` verifies grouped updates, independent
 tabs, cloned past/future branches, close/reopen, retention bounds, initial camera
-baseline, stale callbacks across snapshot resets, and that a double-click arrangement's
-`collapse:true` dispatch joins the preceding history entry while an uncollapsed one still
-gets its own (13 checks).
+baseline, stale callbacks across snapshot resets, view-only fullscreen/minimap/button-zoom
+rebasing, selection outside history (ADR 0009: click sequences add no entry and keep redo,
+undo/redo keep the current selection and prune only cards/routes the restored map no
+longer draws, including across a Changes toggle, and a double-click is one arrangement
+entry, and a Back that leaves the map unchanged or only refreshes eligibility bookkeeping
+adds none; Back-trail pruning, the graph-less route fallback, companion revert on undo and
+the pruning short-circuits), mode continuity, and atomic recapture for open and closed tabs,
+plus the outgoing-stack root: toggling adds no entry and keeps redo, undo/redo keep it, undo
+removing the root ends it without a redo revival, scope removal, collapse, level switch, the
+graph-less fallback, mode revalidation and recapture end it, and Clone copies it. The phase B
+review fixes add: dragging an expanded child never reprojects the map (a `graphFor` spy) and keeps
+the root; entering Changes keeps a drawn child root with a layout-derived position when the review
+graph is known; and `useExplorerJourneys.updateTab`, run under a synchronous React stand-in, prunes
+with an explicit `graphFor` rather than the render-time one. The incoming stack (2026-09-28) adds:
+the button cycle (outgoing -> incoming -> off on the root, outgoing on another card) and the menu's
+direct toggles as pure functions; a direction switch adds no entry and keeps redo, and undo/redo
+carry the direction; an incoming root is pruned like an outgoing one; and Clone copies the
+direction (53 checks then). Step 13 adds that a sequential expand queue's renders sharing one
+explicit history group form one undo step, and that the hook joins explicit-group updates across
+renders (55 checks on step 13). Step 14 and its review remediation add six: ungroup is one undo
+step, ends a stack rooted at the hidden card, and redo drops a carried selection of it; collapsing
+(expanded or ungrouped) prunes the multi-selection in one undo entry; a rejected collapse leaves
+the journey untouched (61 checks after merging step 13 into step 14).
+
+`node scripts/test-outgoing-stack.mjs` pins the pure layer computation
+(`docs/OUTGOING_STACK.md` §Traversal) over hand-computable fact graphs: an undrawn root, an empty
+stack, the summary line, the collapsed-hub case (class root P does not reach C through another
+class of B; package root A does), a class chain across a collapsed package, method roots (method
+calls only; class-level and class-target facts ignored), layer = minimum over represented entities,
+the nearest drawn ancestor as representative, entities with no drawn representative, ancestors of
+the root, the kind filter, REMOVED facts, null/unknown endpoints, cycles and self-loops, an
+expanded root, a reached expanded box with covered children, an out-of-scope entity inside a box,
+chain routes via `occurrenceIds`, `direction: 'in'`, and order independence over 20 shuffles.
+Step 12 phase C adds: a method root reaching a type through CONSTRUCTS, a CALLS fact to a type or
+USES_TYPE as a terminal entity (the hand-built graphs still use CANDIDATE facts, which the analyzer
+no longer emits since the 2026-09-25 revert; the helper walks any resolution alike) (a declared constructor continues; field and DECLARES_BEAN targets
+do not count); dispatch through reversed OVERRIDES to one and two implementations, with no forward
+walk and no implementors for class roots; card-hop layers without skips (the SubscriptionRepository
+shape) and dense ranking; and the beyond-the-map count and summary. A competing-path check (a longer
+path through one card against a hop chain) pins the 0-1 BFS: plain BFS fails it. The incoming
+stack (2026-09-28) adds the "Incoming stack:" summary; the collapsed-hub mirror at class and package
+level; reversed dispatch (impl <- interface method <- callers, no sibling implementation); no
+terminal types for a method root; an interface root reaching its implementors through reverse
+IMPLEMENTS; and beyond the map (41 checks then; 48 after step 14 and its review remediation).
+
+`python3 scripts/verify_ungroup_pipeline.py` (step 14, ADR 0011) starts an isolated packaged jar
+(model URL on a closed port) and a headless Chromium. It copies `test-fixtures/microservice-java`
+twice, once plain and once as a Git repository whose working tree adds a method to EventService,
+hashes both before and after, and runs `scripts/verify-ungroup-ui.mjs` (33 checks since the
+review remediation of 2026-09-28). The checks cover:
+- Ungroup from the corner button and from the box's card menu: the box has no fill, border,
+  outline, underlay, label, pointer events, corner buttons, routes or minimap rect. The Ungroup
+  button's rect lies left of the stack toggle's, which lies left of the collapse square's, on one
+  row without overlap.
+- A hidden package picked from the tree: nothing lit or muted, the inspector's "Ungrouped on the
+  map" notice with Arrange disabled, and no keyboard card menu.
+- A freed class dragged far away on its own, and a top-level card dropped inside the hidden area
+  that still receives the click.
+- "Collapse into X" in a freed card's menu, centred on its children, with undo and redo.
+- A class ungrouped inside the hidden package: its methods name the class, and their menu offers
+  only the nearest hidden parent.
+- Double-click arrangement moving freed methods individually: at least two of them move by
+  different vectors, so the hidden box did not move as one block.
+- "Collapse into EventService" from a freed method: EventService returns as a collapsed card still
+  inside the hidden services, its methods leave the map, and a method that was multi-selected is
+  not selected again when the class is re-expanded.
+- One Changes-mode pass on a MODIFIED package.
+- From a fresh map, the tree's ⌖ "View methods of EventService" while services is collapsed opens
+  services, then EventService, and inspects EventService.
+- A `?selectedSymbol=<method id>` deep link draws the method inside its class box inside its
+  package box, and inspects it.
+
+Screenshots go to `build/ungroup/run-*/evidence` (inspected copy in `docs/evidence/ungroup/`).
+`node scripts/test-expansion-layout.mjs`, `test-focused-arrangement.mjs`,
+`test-explorer-view-state.mjs`, `test-explorer-journeys.mjs`, `test-graph-model.mjs`,
+`test-outgoing-stack.mjs` and `test-node-card.mjs` pin the pure parts:
+- the reducer flag and `nearestHiddenAncestor`;
+- undo/redo and pruning;
+- the `hiddenBox` projection;
+- `roomMoves` and `arrangeDisplayed` looking through hidden boxes;
+- a hidden box's layer handed to its freed cards, outgoing and incoming;
+- the method-card class line.
+
+The review remediation (2026-09-28) adds:
+- `revealContainers` (graph-model): the containers to open for a target (package, then a method's
+  own type, never a nested type's outer class);
+- `collapseInJourney` (journeys): a collapse drops the cards drawn inside from the
+  multi-selection, in one undo entry, and is a no-op when the reducer rejects it;
+- a hidden box representing only itself (an undrawn member counts beyond the map, including after
+  the box itself was looked up), a hidden root returning null, and incoming rule-9 cases
+  (outgoing-stack);
+- the top-level card past a hidden box moving by the width change (expansion-layout), and the
+  focus's own stored position (focused-arrangement).
+
+The merge with step 13 (2026-09-28) adds `collapseTargets` (view-state, 74 checks): the card menu's
+"Collapse N selected" drops a target only when it is drawn inside another target, so a nested type
+beside its expanded outer class in the package box is still collapsed.
+
+`node scripts/verify-outgoing-stack-ui.mjs <microservice-java copy> <git fixture> <base oid> <chain fixture> <journey fixture>`
+(BACKEND/APP/DEBUG as below) is the stack's browser acceptance (108 checks). It activates the
+stack from the on-card button, checks badges 1..N and the chain routes against an independent
+Node-side oracle computed from the API graph (written from the spec's rules, not from
+`outgoingStack.ts`), and checks that the root stays pinned while a layer-2 card is selected. It
+expands a chain card (package-level layers unchanged, the box keeps its badge, its children are
+covered), expands the root and a type inside it (every layer-0 card, nested ones included, takes
+the root look and gets no badge), then checks that one Escape ends the stack and a second
+clears the selection. Positions, camera and the redo branch must be unchanged throughout. It
+also covers the context menu (a menu-only right-click leaves no multi-selection; Deselect still acts
+on the right-click set), Enter on the focused button, the keyboard menu path (Shift+F10 and the
+ContextMenu key at the card, arrows, Escape returning focus, Enter on the item), focus kept on a
+toggle that changes state or turns the stack off (outgoing -> incoming -> off), the minimum
+badge size at low zoom,
+reduced motion and 375 px. In Changes mode on a generated three-package Git fixture it checks
+that the REMOVED route is not walked and that line colors and change fills stay factual. On a
+generated plain-source chain fixture (app.a P -> app.b Q; Q.q2 -> app.c T; app.b S -> app.d U) it
+checks package root app.a (b 1, c 2, d 2), class root P (b 1, c 2, d not reached and the drawn
+b -> d route not lit) and method root m (b 1 only). The incoming stack (2026-09-28) adds, on the
+microservice map: the drawn package with the deepest incoming stack (chosen by the oracle, run with
+`direction: 'in'`) reached by the root's second press. It then checks the pressed indigo button and
+"Hide incoming stack" label, badges 1..N against the oracle, indigo badges, outlines and route
+underlays with no `flow-out` route, the teal root, the "Incoming stack: ..." tooltip and inspector
+line, muting, no undo entry and unchanged geometry. Selecting a layer-1 card keeps the root, and
+that card's own button starts outgoing there. The third press ends the stack. The menu's direct
+"Show incoming stack" and "Show outgoing stack" items work, and Escape ends an incoming stack. On
+the chain fixture it checks the collapsed-hub mirror: incoming package root app.d gives b 1, a 2,
+and incoming class root U gives b 1 only. On a copy of `test-fixtures/journey-candidates`
+(step 12 phase C) it checks that the controller method's call stays UNRESOLVED with no CALLS/CANDIDATE
+anywhere (candidate calls reverted, ADR 0010 amendment 2026-09-25) and that the OVERRIDES fact
+exists, and the journeys of package root api and class root SignupController (service 1, dto 1,
+domain 2) and method root `SignupController.register` (dto 1 only: its call is unresolved) against
+literal expectations and the oracle. From method root `SignupService.register` (service and
+SignupService expanded) it checks Notifier/dto/domain 1 and MailNotifier 2 through dispatch, with
+EventStore not reached; after domain leaves scope, it checks "2 layers · 3 resources · 1 beyond the
+map" in the inspector and the tooltip. The fixture recipes are in `PROJECT_STATUS.md`.
+
+`UnresolvedCallsAndOverridesTest` (backend, `test-fixtures/journey-candidates`; was
+`CandidateCallsAndOverridesTest`) pins ADR 0010 after its 2026-09-25 "candidate calls reverted"
+amendment: every call the solver cannot resolve (record-accessor arguments, supertype matches,
+private methods, ambiguous overloads, record accessors, Lombok members, library-inherited methods)
+stays `CALLS/UNRESOLVED` with no target and the reason "Static target unavailable in indexed
+source"; no CALLS/CANDIDATE exists; a resolved interface call keeps its target; a solver-resolved
+JDK call on an in-source receiver (`error.getMessage()`) stays UNRESOLVED; and OVERRIDES for one
+and two implementations, excluding other-arity overloads and static hiding (14 tests).
+
+`OverridesAndUnresolvedCallEdgeCasesTest` (backend, sources in a temp dir; was
+`CandidateAndOverrideEdgeCasesTest`) pins the ADR 0010 amendments: no OVERRIDES to a
+package-private method from another package (same package and protected still override); no
+OVERRIDES between same-named parameter types from different packages or when only one side
+resolves in source; the same type imported or qualified still overrides. The former candidate
+sources (implicit calls in anonymous and local class bodies, `Outer.this.work(..)`/`work(..)` from
+a member class, a shadowed implicit call) now pin that each call stays UNRESOLVED with no target,
+and no CALLS/CANDIDATE exists (11 tests).
 
 `APP=http://127.0.0.1:5198 node scripts/verify-explorer-journeys.mjs /tmp/atlas-journey-fixture`
-exercises a real isolated backend and production frontend in Chromium (42 checks).
+exercises a real isolated backend and production frontend in Chromium (51 checks).
 It includes exact geometry comparisons after expansion/resize/drag undo, clone
-isolation, source-modal history, pending camera capture, one-step Escape clearing,
-closed-tab recovery, full-screen undo and a 375 px layout. The geometry checks failed
+isolation, source-modal history, pending camera capture, Escape clearing without history,
+selection outside undo (clicks leave undo empty, redo that removes the selected card prunes
+it, double-click undo keeps the inspection),
+closed-tab recovery, fullscreen/minimap/button-zoom history exclusion, the three-step zoom
+factor and a 375 px layout. The geometry checks failed
 before renderer coordinate copies were added; combined Escape and full-screen
 restoration checks also reproduced defects before their fixes. No model is called.
 
@@ -547,8 +714,11 @@ pointed at a closed loopback port so this can never be mistaken for a live-model
 **What the suite asserts.** One line per ordered pair (a mutual relation draws exactly two), width
 following occurrence count, `.flow-out`/`.flow-in` direction classes and `.rel-out`/`.rel-in`/
 `.rel-both` halos on the right cards, the inspected line's own endpoints emphasized rather than
-dimmed, animated dashes that travel **source → target** (a decreasing `line-dash-offset`, not merely
-a changing one), no animation style left behind after deselection, evidence grouped one section per
+dimmed, and native dash offsets advancing with selection. Selected edges retain their
+line/terminal-arrow colors and receive incoming indigo or outgoing cyan underlays.
+Pixel checks verify the left-indigo/right-cyan split ring, transparent card content
+and controls above the overlay. Reduced-motion resize keeps the split ring aligned.
+The suite also checks no animated style remains after deselection, evidence grouped one section per
 file with several highlighted lines, and a chosen occurrence surviving a relationship-filter change.
 
 **Non-colour differentiation.** Direction is carried by `border-style` as well as hue — solid for

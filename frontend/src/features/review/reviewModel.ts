@@ -5,7 +5,8 @@ import type { AtlasGraph, AtlasNode, AtlasEdge } from '../explorer/graphModel';
  * selects a side for presentation; it never derives a relationship from generated prose.
  */
 export type ReviewMode = 'BASE' | 'OVERLAY' | 'HEAD';
-export type ReviewChange = 'ADDED' | 'MODIFIED' | 'REMOVED' | 'UNCHANGED';
+/** UNKNOWN: the declaration's file did not parse on the side where it is missing, so its fate is unknown. */
+export type ReviewChange = 'ADDED' | 'MODIFIED' | 'REMOVED' | 'UNCHANGED' | 'UNKNOWN';
 
 export interface ReviewSide<T> { snapshotId?: string; value: T }
 export interface ReviewNodeRow<T = any> {
@@ -29,7 +30,7 @@ export interface ReviewComparison {
   head: { snapshotId: string; ref: string; headOid?: string; fingerprint?: string; capturedAt?: string };
   summary: { addedLines: number; removedLines: number; changedFiles: number };
   /** Every changed path is retained, including non-Java and binary files without graph facts. */
-  files?: { path: string; status: string; addedLines: number; removedLines: number; javaFile: boolean; lineCountsAvailable: boolean }[];
+  files?: { path: string; status: string; addedLines: number; removedLines: number; javaFile: boolean; lineCountsAvailable: boolean; hunks?: { oldStart: number; oldCount: number; newStart: number; newCount: number }[] }[];
   nodes: ReviewNodeRow[];
   relationships: ReviewRelationshipRow[];
   diagnostics?: { severity: string; code: string; message: string }[];
@@ -64,17 +65,6 @@ export interface ReviewSourceIdentityMaps {
   /** Both base and head symbol IDs resolve to the same display node when they are a matched row. */
   displayBySymbolId: Record<string, string>;
 }
-export interface ReviewExplorerContext {
-  graph: AtlasGraph;
-  workspace: { id: string; path?: string; [key: string]: any };
-  /** Fallback snapshot for explorer APIs. Selected review nodes/edges carry their own side snapshot. */
-  snapshot: string;
-  /** Inactive instances retain their journey state but do not own global listeners or a canvas. */
-  active: boolean;
-  mode: ReviewMode;
-  sourceIdentityMaps: ReviewSourceIdentityMaps;
-  reviewKey: string;
-}
 
 const sideFor = (mode: ReviewMode, _change: ReviewChange, base: any, head: any): 'base' | 'head' | null => {
   if (mode === 'BASE') return base ? 'base' : null;
@@ -103,18 +93,65 @@ export function projectReviewRelationships(review: ReviewComparison, mode: Revie
   });
 }
 
+/** Reuse an ordinary display ID only for a unique declaration under an aligned parent.
+ * Source IDs stay snapshot-local. Ambiguous declarations (or ancestors) retain review IDs. */
+function ordinaryDisplayIds(review: ReviewComparison, currentGraph?: AtlasGraph) {
+  const sourceToDisplay = new Map<string, string>();
+  const keyOf = (node: any) => JSON.stringify([node.kind, node.qualifiedName, node.module || '']);
+  const ordinaryByKey = new Map<string, AtlasNode[]>();
+  for (const node of currentGraph?.nodes || []) {
+    const key = keyOf(node), group = ordinaryByKey.get(key) || [];
+    group.push(node); ordinaryByKey.set(key, group);
+  }
+  const rowsByKey = new Map<string, ReviewNodeRow[]>();
+  const rowBySourceId = new Map<string, ReviewNodeRow>();
+  for (const row of review.nodes) {
+    const node = row.head || row.base;
+    const key = keyOf(node), group = rowsByKey.get(key) || [];
+    group.push(row); rowsByKey.set(key, group);
+    if (row.base?.id) rowBySourceId.set(row.base.id, row);
+    if (row.head?.id) rowBySourceId.set(row.head.id, row);
+  }
+  const matches = new Map<ReviewNodeRow, AtlasNode | undefined>();
+  // Resolve ancestry iteratively so malformed/cyclic or deeply nested input cannot recurse forever.
+  const match = (row: ReviewNodeRow): AtlasNode | undefined => {
+    const path: ReviewNodeRow[] = [], visiting = new Set<ReviewNodeRow>();
+    let cursor: ReviewNodeRow | undefined = row;
+    while (cursor && !matches.has(cursor)) {
+      if (visiting.has(cursor)) { matches.set(cursor, undefined); break; }
+      visiting.add(cursor); path.push(cursor);
+      const node: AtlasNode = cursor.head || cursor.base;
+      cursor = node.parentId ? rowBySourceId.get(node.parentId) : undefined;
+    }
+    for (const item of path.reverse()) {
+      if (matches.has(item)) continue;
+      const node = item.head || item.base, key = keyOf(node);
+      const candidates = ordinaryByKey.get(key) || [];
+      const candidate = node.qualifiedName && rowsByKey.get(key)?.length === 1 && candidates.length === 1 ? candidates[0] : undefined;
+      const parentRow = node.parentId ? rowBySourceId.get(node.parentId) : undefined;
+      const parent = parentRow ? matches.get(parentRow) : undefined;
+      const parentsMatch = node.parentId
+        ? !!parent && candidate?.parentId === parent.id
+        : !candidate?.parentId;
+      matches.set(item, candidate && parentsMatch ? candidate : undefined);
+    }
+    return matches.get(row);
+  };
+  for (const row of review.nodes) {
+    const displayId = match(row)?.id || `review-node:${row.comparisonKey}`;
+    if (row.base?.id) sourceToDisplay.set(row.base.id, displayId);
+    if (row.head?.id) sourceToDisplay.set(row.head.id, displayId);
+  }
+  return sourceToDisplay;
+}
+
 /** Overlay groups a route by ordered endpoints and its change status, never collapsing an added or
  * removed route into an unchanged one that happens to share its endpoints. */
-export function projectReviewGraph(review: ReviewComparison, mode: ReviewMode) {
+export function projectReviewGraph(review: ReviewComparison, mode: ReviewMode, currentGraph?: AtlasGraph) {
   const projected = projectReviewNodes(review, mode);
-  // Snapshot-local IDs are not stable across analysis runs. A display ID derives from the opaque
-  // comparison key; both sides of a modified resource map to it, keeping base-only relationships
-  // visible beside after-change relationships in an overlay.
-  const sourceToDisplay = new Map<string, string>();
-  for (const row of review.nodes) {
-    const displayId = `review-node:${row.comparisonKey}`;
-    if (mode !== 'HEAD' && row.base?.id) sourceToDisplay.set(row.base.id, displayId);
-    if (mode !== 'BASE' && row.head?.id) sourceToDisplay.set(row.head.id, displayId);
+  const sourceToDisplay = mode === 'OVERLAY' ? ordinaryDisplayIds(review, currentGraph) : new Map<string, string>();
+  if (mode !== 'OVERLAY') {
+    for (const row of projected) sourceToDisplay.set(row.node.id, `review-node:${row.comparisonKey}`);
   }
   const nodes: ReviewGraphNode[] = projected.map(row => ({ ...row, id: sourceToDisplay.get(row.node.id)!, sourceId: row.node.id,
     parentId: row.node.parentId ? sourceToDisplay.get(row.node.parentId) : undefined,
@@ -175,13 +212,11 @@ export function reviewSourceIdentityMaps(review: ReviewComparison, mode: ReviewM
   for (const edge of projected.edges) relationships[edge.id] = { id: edge.relationship?.id || edge.id, snapshotId: edge.snapshotId, side: edge.side };
   const displayBySymbolId: Record<string, string> = {};
   for (const row of review.nodes) {
-    const displayId = `review-node:${row.comparisonKey}`;
+    const sourceId = mode === 'BASE' ? row.base?.id : mode === 'HEAD' ? row.head?.id : row.head?.id || row.base?.id;
+    const displayId = sourceId ? projected.sourceToDisplay.get(sourceId) : undefined;
+    if (!displayId) continue;
     if (mode !== 'HEAD' && row.base?.id) displayBySymbolId[row.base.id] = displayId;
     if (mode !== 'BASE' && row.head?.id) displayBySymbolId[row.head.id] = displayId;
   }
   return { symbols, relationships, displayBySymbolId };
-}
-
-export function changeLabel(change: ReviewChange) {
-  return change === 'ADDED' ? 'Added' : change === 'REMOVED' ? 'Removed' : change === 'MODIFIED' ? 'Changed' : 'Unchanged';
 }
