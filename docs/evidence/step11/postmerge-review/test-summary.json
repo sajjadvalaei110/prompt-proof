@@ -1,0 +1,89 @@
+{
+  "test": {
+    "suites": 28,
+    "tests": 166,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "suiteTimestamps": {
+      "dev.codeatlas.analysis.AnalysisPortRegistryTest": "2026-09-29T22:16:27",
+      "dev.codeatlas.analysis.AnalysisServiceDispatchTest": "2026-09-29T22:16:27",
+      "dev.codeatlas.analysis.AnalysisServiceSpringIntegrationTest": "2026-09-29T22:16:29",
+      "dev.codeatlas.analysis.JavaAnalysisAdapterTest": "2026-09-29T22:16:29",
+      "dev.codeatlas.analysis.LanguageMigrationTest": "2026-09-29T22:16:29",
+      "dev.codeatlas.analysis.LargeProjectBenchmarkTest": "2026-09-29T22:16:29",
+      "dev.codeatlas.analysis.OverridesAndUnresolvedCallEdgeCasesTest": "2026-09-29T22:16:30",
+      "dev.codeatlas.analysis.RelationshipEdgeCasesTest": "2026-09-29T22:16:30",
+      "dev.codeatlas.analysis.RelationshipExtractionTest": "2026-09-29T22:16:30",
+      "dev.codeatlas.analysis.SpringAnnotationAnalyzerTest": "2026-09-29T22:16:30",
+      "dev.codeatlas.analysis.UnresolvedCallsAndOverridesTest": "2026-09-29T22:16:31",
+      "dev.codeatlas.api.ExplanationApiIntegrationTest": "2026-09-29T22:16:31",
+      "dev.codeatlas.api.LanguageMigrationExplanationIntegrationTest": "2026-09-29T22:16:31",
+      "dev.codeatlas.api.ModelProfileApiIntegrationTest": "2026-09-29T22:16:31",
+      "dev.codeatlas.api.ModelProfileControllerTest": "2026-09-29T22:16:31",
+      "dev.codeatlas.api.ReviewApiIntegrationTest": "2026-09-29T22:16:31",
+      "dev.codeatlas.api.WorkspaceApiIntegrationTest": "2026-09-29T22:16:34",
+      "dev.codeatlas.api.WorkspaceLanguageIntegrationTest": "2026-09-29T22:16:34",
+      "dev.codeatlas.explanations.ContextBuilderTest": "2026-09-29T22:16:34",
+      "dev.codeatlas.explanations.HierarchicalExplanationTest": "2026-09-29T22:16:34",
+      "dev.codeatlas.explanations.HierarchicalMigrationTest": "2026-09-29T22:16:42",
+      "dev.codeatlas.graph.SourceEvidenceGroupingIntegrationTest": "2026-09-29T22:16:42",
+      "dev.codeatlas.modelclient.ModelClientServiceTest": "2026-09-29T22:16:42",
+      "dev.codeatlas.modelclient.ModelRequestBudgetTest": "2026-09-29T22:16:42",
+      "dev.codeatlas.review.GitReviewBoundaryTest": "2026-09-29T22:16:42",
+      "dev.codeatlas.review.ReviewServiceLanguageTest": "2026-09-29T22:16:42",
+      "dev.codeatlas.review.ReviewSourceRootParityTest": "2026-09-29T22:16:42",
+      "dev.codeatlas.workflow.DeveloperWorkflowTest": "2026-09-29T22:16:43"
+    }
+  },
+  "ModelClientServiceTest": {
+    "cases": [
+      {
+        "name": "testConnectionGracefulFailureOnUnreachableEndpoint()",
+        "status": "PASS"
+      },
+      {
+        "name": "testConnectionWhenNotConfigured()",
+        "status": "PASS"
+      },
+      {
+        "name": "testNormalizeBaseUrl()",
+        "status": "PASS"
+      },
+      {
+        "name": "oversizedProviderResponseIsStoppedAtTheByteLimit()",
+        "status": "PASS"
+      },
+      {
+        "name": "testStripMarkdownCodeFences()",
+        "status": "PASS"
+      },
+      {
+        "name": "contextRejectionDoesNotReplayIdenticalInputWithoutResponseFormat()",
+        "status": "PASS"
+      },
+      {
+        "name": "unconfiguredExplanationDoesNotUseAnyDefaultEndpoint()",
+        "status": "PASS"
+      },
+      {
+        "name": "truncatedJsonIsRejectedBeforeItCanBeMistakenForACompleteAnswer()",
+        "status": "PASS"
+      }
+    ]
+  },
+  "constrainedMemoryTest": {
+    "suites": 1,
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "suiteTimestamps": {
+      "dev.codeatlas.explanations.BoundedExplanationScaleTest": "2026-09-29T22:16:45"
+    },
+    "metrics": [
+      "BOUNDED_SCALE_METRICS Snapshot[maximumRowsLoadedPerQuery=128, maximumSymbolsRetainedPerBatch=16, maximumSimultaneousRequests=1, maximumPromptBytes=16788, maximumResponseBytes=1517] sampledPeakUsedHeapBytes=71508968 maxHeapBytes=268435456"
+    ],
+    "timeSeconds": "136.17"
+  }
+}

@@ -21,7 +21,7 @@ Validation in the isolated integration checkout:
 - `cd frontend && npm ci && npm run build` — PASS. Independent parent check:
   `npx tsc -b --force && npm run build` — PASS. Existing >500 kB bundle advisory remains.
 - Every `node scripts/test-*.mjs` suite, invoked by a Python loop over the sorted
-  paths — PASS, 13 suites. Log: `/tmp/step11-integration-node.log`. The first attempt
+  paths — PASS, 12 suites (the original 13-suite count was a reporting error). Log: `/tmp/step11-integration-node.log`. The first attempt
   started before `npm ci` finished and failed to resolve TypeScript; rerun after
   dependencies were installed passed in full.
 - `./gradlew bootJar constrainedMemoryTest --no-daemon` — PASS, executable package built and one constrained-memory test passed (256 MiB heap).

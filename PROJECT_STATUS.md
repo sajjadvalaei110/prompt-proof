@@ -39,13 +39,35 @@ baseline is `e77efab`. Conflicts combine language dispatch with original-workspa
 review resolution and cross-file OVERRIDES linking. Both distinctly named ADR 0008
 files are preserved; the supplied multi-language ADR is byte-identical.
 
-Integration checks: backend 166 tests PASS; all 13 Node suites PASS; frontend build
+Integration checks: backend 166 tests PASS; all 12 Node suites PASS; frontend build
 and independent forced TypeScript/build check PASS; real language-import browser
 PASS; current Ungroup browser 33/33 PASS. All 15 screenshots inspected. Packaging
 and constrained-memory validation are recorded with final outcomes in
 [the integration report](docs/evidence/step11/integration/README.md), along with
 exact commands, artifact paths, skipped checks and limits. The historical Step11
 stable-map pass is pre-integration evidence, not a current package-only UI gate.
+
+
+### Post-merge review remediation (2026-09-30)
+
+The independent post-merge review found no confirmed introduced product defect.
+Corrected the current integration Node count from 13 to the actual 12 suites, and
+recorded Java-specific Git capture, top-level function graph/UI decisions and
+unverified native SDK/discovery/network/fixture work before a second language ships
+in `docs/ARCHITECTURE.md`.
+
+Fresh canonical `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+CODEATLAS_DATA_DIR=/home/sajjad/projects/second-review-assist/review-assist/build/postmerge-review/test-data
+./gradlew test constrainedMemoryTest bootJar --no-daemon`: PASS, exit 0; 166 ordinary
+tests and one 256 MiB constrained-memory test, zero failures/errors/skips. All three
+previously socket-blocked ModelClientService HTTP cases passed. Forced frontend
+TypeScript/build and all 12 fail-fast Node suites: PASS. Exact commands, parsed XML
+counts, suite manifest and limits are in the
+[remediation report](docs/evidence/step11/postmerge-review/README.md).
+Parent packaged import verification and 33/33 Ungroup checks: PASS, exit 0; all
+15 fresh screenshots inspected. Parent diff/XML review passed, production sources
+are unchanged and real data hashes match the baseline. Remediation contains only
+documentation and durable verification evidence.
 
 
 ## Step 14: Ungroup, an expanded box hidden (2026-09-28)

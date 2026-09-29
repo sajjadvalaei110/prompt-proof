@@ -1,0 +1,184 @@
+RUN scripts/test-expansion-layout.mjs
+PASS: expansionLayout child grid, late-child placement, container boxes with minimums, make-room shifts
+PASS: expansionLayout roomShifts clamps a collapse so shifted siblings never cross a row/column-mate that stayed put (F-01)
+PASS: roomShifts never lets an unshifted sibling on the far side clamp a card moving away from it
+PASS: a hidden box has no padding or minimum size
+PASS: roomMoves keeps the plain top-level make-room rule
+PASS: make-room looks through a hidden box to its children and stops there
+PASS: a hidden box inside a visible one passes its growth to the visible container
+EXIT 0: scripts/test-expansion-layout.mjs
+RUN scripts/test-explorer-journeys.mjs
+PASS one user action restores scope and tree together; the selection riding along stays current
+PASS a click sequence (inspect, occurrence, multi-select, clear) creates no undo entry and keeps redo
+PASS a selection gesture that also reveals the tree, clears search and switches the mobile pane stays outside history
+PASS undo after an inspection reverts the prior real edit and keeps selection and Back trail
+PASS undo that removes the inspected card clears inspection, its route and multi-selected cards
+PASS a selection that was not on the map before undo is never pruned by it
+PASS undo pruning uses the graph-aware displayed set, children of expanded cards included
+PASS undo across a Changes toggle drops review-only route identities from the carried selection
+PASS inspector Back keeps its own trail and, when the map is unchanged, adds no undo entry
+PASS mixed edits still record the edit; the selection change rides along
+PASS new tabs start clean and switching preserves each history
+PASS clones branch from the complete past/present/future and copy the current selection
+PASS new edits after undo discard only that tab’s redo branch; no-op and selection updates preserve redo
+PASS close/reopen restores history and the final tab cannot close
+PASS geometry, camera and source restore exactly
+PASS fullscreen, map overview and button zoom stay outside undo/redo history
+PASS initial fit is baseline state, never an undo action or a redo invalidation
+PASS delayed callbacks stay with their originating tab
+PASS snapshot replacement clears closed tabs and history, rejects old callbacks
+PASS double-click arrangement is one undo entry for the arrangement only; undo keeps the selection
+PASS an unrelated later group still gets its own separate undo step
+PASS Changes toggle keeps one map layout, including expansions, scope, selection and camera
+PASS NEW opens a fresh tab in the requesting tab's current mode
+PASS CLONE copies review mode, the shared map and its full history
+PASS REVIEW_RECAPTURED clears review history even after returning to map mode
+PASS REVIEW_RECAPTURED reconciles recently closed review tabs atomically
+PASS ordinary recapture preserves open and closed edge inspection/source state, while Changes closes ordinary symbol source
+PASS history and recently closed retention are bounded
+PASS a Back that only refreshes eligibility bookkeeping (priorEligibleIds) adds no undo entry
+PASS an unchanged Back returns the identical level views
+PASS an initial camera capture after an unchanged Back still reaches the history entry it shares
+PASS undo drops Back-trail cards and routes it removes from the map
+PASS without a graph an aggregate route counts as gone when an endpoint left the map; raw IDs are kept
+PASS undo across a Changes toggle drops a review route even without a graph
+PASS redo into Changes drops an ordinary route identity inspected after the undo
+PASS undo reverts an earlier edit and restores companions from history while the selection stays
+PASS undo pruning skips the graph when nothing is selected or the displayed inputs are unchanged
+PASS the stack button cycles outgoing -> incoming -> off on the root and starts outgoing elsewhere
+PASS a menu item roots its own direction directly, or ends it when it is the one shown
+PASS switching direction on the same root creates no undo entry, keeps redo, and survives undo/redo
+PASS an incoming stack ends when its root leaves the map, like an outgoing one
+PASS a new journey has no relation stack; turning one on and off creates no undo entry and keeps redo
+PASS undo and redo keep the stack while its root stays drawn; selection moves independently
+PASS undo that removes the root ends the stack, and redo does not bring it back
+PASS a scope removal that drops the root ends the stack; the removal itself stays one undo entry
+PASS collapsing the container of a root child card ends the stack
+PASS a level switch ends the stack rather than re-rooting it
+PASS without a graph, an ordinary update prunes the root against the view's own displayed record
+PASS a mode switch and a review recapture end a stack whose root the target graph lacks
+PASS dragging an expanded child with a stack active never reprojects the map and keeps the root
+PASS entering Changes keeps a drawn child root that has no stored position when the review graph is known
+PASS the async Changes load: updateTab prunes with the explicit graph, not the one read at the last render
+PASS Clone copies the stack and its direction; the copies then change independently
+PASS ungroup is one undo step; undo shows the box again and redo hides it
+PASS ungroup ends a stack rooted at the hidden card but keeps one rooted at a freed child
+PASS redoing an ungroup drops a carried selection of the card that became hidden
+PASS collapsing an expanded card drops what was drawn inside it from the multi-selection, in one undo entry
+PASS collapsing into an ungrouped card drops what was drawn inside it from the multi-selection, in one undo entry
+PASS a collapse the reducer rejects leaves the journey untouched, multi-selection included
+PASS step 13: a sequential expand queue shares one explicit group, so its renders form one undo step
+PASS step 13 review: the hook joins explicit-group updates across renders
+61 journey checks passed
+EXIT 0: scripts/test-explorer-journeys.mjs
+RUN scripts/test-explorer-view-state.mjs
+PASS: 74 explorerViewState reducer checks (inspection/membership separation, append-only scope growth, show more, back navigation, reset, Step 3 geometry/camera, Step 4 inactive-level scope reconciliation and Back precedence, Step 5 focused arrangement, Step 5 review remediation A1/B1)
+EXIT 0: scripts/test-explorer-view-state.mjs
+RUN scripts/test-file-diff.mjs
+PASS a pure insertion (oldCount:0) inserts new lines without deleting the surrounding context
+PASS a pure deletion (newCount:0) removes old lines without consuming any new line
+PASS a modification replaces old lines with new lines at the same point
+PASS two hunks separated by context each apply at their own offset
+PASS hunks are applied in newStart order regardless of input order
+PASS a null old side (added file) renders every new line as added, ignoring hunks
+PASS a null new side (deleted file) renders every old line as removed
+PASS a trailing deletion hunk at end of file has no following context
+PASS toSplitRows pairs each hunk's removed and added lines side by side, padding the shorter side
+PASS toSplitRows pads a pure-insertion run on the left and a pure-deletion run on the right
+PASS a file emptied to '' deletes all old lines and yields no phantom trailing context row
+PASS content added to a previously-empty ('') old file has no old side to pair its trailing line with, so the whole new file is added
+PASS both sides empty ('') with no hunks yields no rows at all
+13 file-diff checks passed
+EXIT 0: scripts/test-file-diff.mjs
+RUN scripts/test-focused-arrangement.mjs
+test-focused-arrangement: 17 checks passed
+EXIT 0: scripts/test-focused-arrangement.mjs
+RUN scripts/test-graph-model.mjs
+PASS: USES_TYPE aggregation, kind counts, label formatting, filtering, and expansion resolution
+PASS: one route per ordered pair, kind breakdown, strength width, direction, occurrence counts, uncertainty, method neighbors, filters, and bounded views
+PASS: package, class, method, mixed-package, empty, and all-selected scope projections
+PASS: in-place expansion projection (children, nested expansions, deepest-visible route resolution, container/self routes, scope)
+PASS: no hidden neighborhood expansion outside the selected scope
+PASS: scope helper toggles are immutable and materialize ALL mode correctly on first edit
+PASS: dotted package trie, synthetic namespace aggregate state, and batch package toggles
+PASS: READY aggregation, stale badge removal, escaped class/method sparkle cards
+PASS: queue/inspector polling is non-overlapping and stops when inactive
+PASS: review overlay keeps one line per ordered pair and change status
+PASS: an ungrouped box is flagged and its lines land on its children
+PASS: method cards carry their owning class name
+PASS: revealContainers lists the package, then the owning type of a method
+PASS: tree collapse cascades to nested packages
+PASS: the card menu expand count matches what expanding shows, under any scope
+EXIT 0: scripts/test-graph-model.mjs
+RUN scripts/test-graph-placement.mjs
+PASS: 9 graphPlacement checks (Appendix A3 append-below-bounding-box placement, Step 5 review remediation A2 ordinal sort)
+EXIT 0: scripts/test-graph-placement.mjs
+RUN scripts/test-node-card.mjs
+nodeCard tests: PASS
+nodeCard resize/corner tests: PASS
+nodeCard method owner line: PASS
+node card: kind icons ok
+EXIT 0: scripts/test-node-card.mjs
+RUN scripts/test-outgoing-stack.mjs
+PASS a root that is not displayed has no stack
+PASS empty stack: a drawn root with no outgoing fact has zero layers, no covered cards, no chain routes
+PASS the summary line counts layers and resources, singular for 1
+PASS user scenario, class root P: B is layer 1; C is NOT reached when only another class S in B calls into C
+PASS user scenario, package root A: the package-level walk gives B 1 and C 2
+PASS a class-level chain crossing a collapsed package: P -> Q (in B) -> T (in C) gives B 1, C 2; S -> U does not reach D
+PASS package root over the same facts reaches D too (every B relation counts at package level)
+PASS method root M walks method-level facts: q2 -> t is unreachable, class-level facts are ignored, a class target is terminal
+PASS method root: a method chain M -> q -> t does reach C; a sibling method card inside the root class is a card of its own
+PASS method root: CONSTRUCTS to a type reaches the type as a terminal entity; its own facts are not walked
+PASS method root: CONSTRUCTS to a declared constructor keeps walking from the constructor
+PASS method root: a CANDIDATE call to a type is terminal; USES_TYPE to a type is followed; field and other type targets are not
+PASS class and package roots are unchanged by the type-target rule
+PASS method root: a call to an interface method continues to its one implementation at the next layer
+PASS method root: two implementations are both reached at the same layer
+PASS OVERRIDES is not walked forward at method level, and class roots do not follow implementors
+PASS a step between two entities on the same card costs nothing, so badges never skip (the SubscriptionRepository shape)
+PASS layers are ranked densely when a card is re-entered later by a longer path
+PASS free steps inside one card compete with card hops: a longer path through one card ranks before a shorter hop chain
+PASS entities reached but not drawn are counted once each as beyond the map; the chain still stops there
+PASS a card's layer is the minimum over the entities it represents
+PASS an entity without its own card is represented by its nearest drawn ancestor (a collapsed class inside an expanded package)
+PASS an entity with no drawn representative stops the chain
+PASS ancestors of the root never get a layer; the walk continues through them at no cost, so no layer is skipped
+PASS the relationship-kind filter limits the facts walked
+PASS REMOVED facts are not walked and make no chain route; ADDED and UNCHANGED ones are
+PASS facts with a null target or unknown endpoints are skipped
+PASS cycles and self-loops assign nothing new; self-loops of chain entities still count for chain routes
+PASS expanded root: the root set is the root plus every drawn card inside it; internal facts give no layer
+PASS a reached expanded box carries the badge and its drawn children are covered; package layers ignore downstream expansion
+PASS an out-of-scope entity inside an expanded box is represented by the box
+PASS a drawn route is a chain route only if one of its occurrences is a step between chain entities
+PASS direction 'in' walks the same facts reversed
+PASS incoming summary line names the direction
+PASS incoming, class root T: the collapsed B card is not a hub -- only S calls into T, and nothing leads to S
+PASS incoming, package root C: the package-level walk gives B 1 and A 2
+PASS incoming, method root: an implementation is reached through the overridden method from its callers; a sibling implementation is not
+PASS incoming, method root: constructing or using the type is not a call of the method, and no terminal type appears
+PASS incoming, interface root: the exact mirror reaches implementors (reverse IMPLEMENTS) and dependents at layer 1
+PASS incoming: callers with no drawn card count as beyond the map and stop the chain
+PASS the result does not depend on the order of nodes, facts, cards or routes
+PASS a reached hidden package lays its layer on each freed class instead of covering them
+PASS a freed card keeps its own nearer layer over the one its hidden box hands down, and badges never skip
+PASS an undrawn class inside a hidden package has no representative: it counts beyond the map and hands nothing down
+PASS a hidden box represents itself even once looked up, never an undrawn member
+PASS a hidden box is not drawn, so it cannot be a stack root
+PASS incoming: a reached hidden package hands its layer to its freed classes, and the numbers stay 1, 2, 3
+PASS incoming: through a hidden class inside a hidden package the layer reaches the freed methods
+48 outgoing-stack checks passed
+EXIT 0: scripts/test-outgoing-stack.mjs
+RUN scripts/test-review-model.mjs
+PASS: review base/head/overlay side selection, pinned snapshots, display remapping, and occurrence-preserving routes
+EXIT 0: scripts/test-review-model.mjs
+RUN scripts/test-review-placement.mjs
+PASS: review placement union keeps parked cards and removed expanded children out of addition overlaps, with target-scope filtering
+EXIT 0: scripts/test-review-placement.mjs
+RUN scripts/test-source-evidence.mjs
+PASS: flat evidence rows collapse to one file with several highlighted ranges
+PASS: grouped evidence merges kinds, staleness, and content across rows
+PASS: highlightedLines matches kindsAtLine and stays bounded by the real line count
+EXIT 0: scripts/test-source-evidence.mjs
+PASS 12 suites

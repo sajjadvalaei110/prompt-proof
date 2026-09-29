@@ -80,6 +80,24 @@ Java default, and unsupported values are rejected before registration. Review sn
 copy the workspace language. The import form offers only Java; Go and Dart adapters
 have not shipped. See [ADR 0008](adr/0008-multi-language-support.md).
 
+Before a second language ships, the following end-to-end contracts need explicit
+implementation decisions and real fixtures:
+
+- `GitReviewSourceAdapter.javaPath()` captures only `.java` files in both base and
+  working-tree materialization. Registering another analysis adapter does not change
+  that capture policy. Review needs a trusted language-specific source and manifest
+  input policy, or an explicit unsupported-capability gate, before non-Java review.
+- The graph vocabulary and package-only explorer currently reveal packages → types
+  → methods/constructors (`graphModel.childrenOf`). A package-level function represented
+  as `METHOD` is not revealed as a package child. Top-level functions, structs/interfaces,
+  mixins, call navigation, source viewing and Explain all eligibility need an honest
+  graph/UI contract; adapters must not invent parser-owned classes to fit the display.
+- The shared extension-based discovery helper excludes `.git`, `build` and `target`;
+  adapters can supply their own discovery. Go build constraints and Dart package/SDK
+  rules, missing-SDK errors, read-only native toolchain invocation and network isolation
+  remain unimplemented and unverified. Fake-adapter dispatch tests prove selection and
+  orchestration only, not real non-Java resolution, capture or UI behavior.
+
 ---
 
 ## 3. Trust Model: Parser Facts vs. AI Explanations
