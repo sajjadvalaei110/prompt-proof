@@ -1,6 +1,6 @@
 import { SetStateAction, useEffect, useMemo, useRef, useState } from 'react';
 import './styles/App.css';
-import { apiClient, type WorkspaceLanguage } from './api/client';
+import { apiClient, type IndexerOption, type WorkspaceLanguage } from './api/client';
 import { ImportScreen } from './features/import/ImportScreen';
 import GraphCanvas from './features/explorer/GraphCanvas';
 import { AtlasGraph, AtlasNode, AtlasEdge, Level, isType, ownerAt, getEligibleIds, rankEligibleIds, projectDisplayed, childrenOf, revealContainers } from './features/explorer/graphModel';
@@ -42,6 +42,9 @@ export default function App() {
   const params = new URLSearchParams(location.search);
   const [path,setPath]=useState(params.get('path')||''),[workspace,setWorkspace]=useState<any>(null),[snapshot,setSnapshot]=useState<string|null>(null);
   const [language,setLanguage]=useState<WorkspaceLanguage>('java');
+  // ADR 0012: the engine chosen on the import screen ('' = the language's default) and the explicit
+  // consent a build-running engine needs; reset whenever another engine is picked.
+  const [indexers,setIndexers]=useState<IndexerOption[]>([]),[indexer,setIndexer]=useState(''),[allowBuild,setAllowBuild]=useState(false);
   // `mapGraph` is the ordinary analyzed snapshot; `reviewComparison.graph` is the Base+changes
   // overlay for the currently loaded Git comparison. `graph` below (used by everything downstream --
   // projection, tree, search, inspector, canvas) picks whichever the ACTIVE TAB currently shows, so
@@ -284,7 +287,7 @@ export default function App() {
     const [data,entryPoints]=await Promise.all([apiClient.getGraph(id),apiClient.getSpringRoutes(id)]);
     if(!ws&&!data?.metadata?.workspaceId)throw new Error('Snapshot response is missing workspace metadata; try re-opening the project.');
     const owner=ws||await apiClient.getWorkspace(data.metadata.workspaceId);
-    setWorkspace(owner);setPath(owner.path);setLanguage(owner.language);setSnapshot(id);setMapGraph(data);setRoutes(entryPoints);setQueue(null);setStatus('Source analysis ready');setShowOpen(false);reviewComparison.reset();
+    setWorkspace(owner);setPath(owner.path);setLanguage(owner.language);setIndexer(owner.indexer||'');setAllowBuild(false);setSnapshot(id);setMapGraph(data);setRoutes(entryPoints);setQueue(null);setStatus('Source analysis ready');setShowOpen(false);reviewComparison.reset();
     const placementIn=(g:AtlasGraph,ids:string[]):Record<string,PlacementDims>=>{const all=new Map(g.nodes.map(n=>[n.id,n]));const out:Record<string,PlacementDims>={};for(const id of ids){const n=all.get(id);if(n){const c=nodeCard(n);out[id]={width:c.width,height:c.height,name:n.qualifiedName||n.simpleName};}}return out;};
     const initialPackageIds=rankEligibleIds(data,'PACKAGE',getEligibleIds(data,'PACKAGE',wholeSystemScope()));
     let initialView=explorerViewReducer(initExplorerViewState(),{type:'RESET',level:'PACKAGE',eligibleIds:initialPackageIds,batchSize:Infinity,placement:placementIn(data,initialPackageIds)});
@@ -316,12 +319,14 @@ export default function App() {
     historyReplace(id);
   }
   function historyReplace(id:string){const url=new URL(location.href);url.search='';url.searchParams.set('snapshotId',id);window.history.replaceState(null,'',url);}
-  async function analyze(input=path, selectedLanguage=language) {
+  /** `engine` null keeps an existing workspace's engine (re-analysis from Recent projects). */
+  async function analyze(input=path, selectedLanguage=language, engine:{indexer?:string;allowBuildExecution?:boolean}|null={indexer:indexer||undefined,allowBuildExecution:allowBuild}) {
     if(!input.trim()){setError('Enter a repository path accessible to the local server.');return;}
-    setBusy(true);setError('');try{setStatus('Registering project…');const ws=await apiClient.createWorkspace(input.trim(), selectedLanguage);setStatus('Analyzing source…');let job=await apiClient.triggerAnalysis(ws.id);while(!['COMPLETED','FAILED','CANCELLED'].includes(job.status)){await new Promise(r=>setTimeout(r,500));job=await apiClient.getJob(job.id);}if(job.status!=='COMPLETED')throw new Error(job.errorMessage||`Analysis ${job.status.toLowerCase()}`);const current=await apiClient.getWorkspace(ws.id);if(!current.activeSnapshotId)throw new Error('Analysis did not publish a snapshot');await loadSnapshot(current.activeSnapshotId,current);setRecent(await apiClient.listWorkspaces());}catch(e:any){setError(e.message);setStatus('Analysis could not finish');}finally{setBusy(false);}
+    setBusy(true);setError('');try{setStatus('Registering project…');const ws=await apiClient.createWorkspace(input.trim(), selectedLanguage, engine??{});setStatus('Analyzing source…');let job=await apiClient.triggerAnalysis(ws.id);while(!['COMPLETED','FAILED','CANCELLED'].includes(job.status)){await new Promise(r=>setTimeout(r,500));job=await apiClient.getJob(job.id);}if(job.status!=='COMPLETED')throw new Error(job.errorMessage||`Analysis ${job.status.toLowerCase()}`);const current=await apiClient.getWorkspace(ws.id);if(!current.activeSnapshotId)throw new Error('Analysis did not publish a snapshot');await loadSnapshot(current.activeSnapshotId,current);setRecent(await apiClient.listWorkspaces());}catch(e:any){setError(e.message);setStatus('Analysis could not finish');}finally{setBusy(false);}
   }
   useEffect(()=>{
     apiClient.listWorkspaces().then(setRecent).catch(e=>setError(e.message));
+    apiClient.listIndexers().then(setIndexers).catch(()=>setIndexers([]));
     if(params.get('snapshotId')){setBusy(true);loadSnapshot(params.get('snapshotId')!).catch(e=>setError(e.message)).finally(()=>setBusy(false));}
     else if(params.get('autoPath'))analyze(params.get('autoPath')!);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -855,8 +860,9 @@ export default function App() {
     {queue?.errorMessage&&<div className="error-banner" role="alert"><span>{queue.errorMessage}</span></div>}
     {error&&<div className="error-banner" role="alert"><span>{error}</span><button onClick={()=>setError('')} aria-label="Dismiss error">✕</button></div>}
     {(showOpen||!graph)&&<ImportScreen path={path} language={language} busy={busy} graphOpen={!!graph}
-      onPathChange={setPath} onLanguageChange={setLanguage} onSubmit={()=>{void analyze();}} recent={recent}
-      onOpenRecent={ws=>{if(ws.activeSnapshotId){setBusy(true);loadSnapshot(ws.activeSnapshotId,ws).catch(e=>setError(e.message)).finally(()=>setBusy(false));}else{setPath(ws.path);setLanguage(ws.language);void analyze(ws.path,ws.language);}}}/>}
+      onPathChange={setPath} onLanguageChange={l=>{setLanguage(l);setIndexer('');setAllowBuild(false);}} onSubmit={()=>{void analyze();}} recent={recent}
+      indexers={indexers} indexer={indexer} onIndexerChange={id=>{setIndexer(id);setAllowBuild(false);}} allowBuild={allowBuild} onAllowBuildChange={setAllowBuild}
+      onOpenRecent={ws=>{if(ws.activeSnapshotId){setBusy(true);loadSnapshot(ws.activeSnapshotId,ws).catch(e=>setError(e.message)).finally(()=>setBusy(false));}else{setPath(ws.path);setLanguage(ws.language);void analyze(ws.path,ws.language,null);}}}/>}
     {graph&&<><div className="journey-bar">
       <div className="journey-tabs" role="tablist" aria-label="Exploration tabs">{journeys.state.tabs.map(t=><div className={`journey-tab ${t.id===active.id?'active':''}`} key={t.id}>
         <button role="tab" id={journeyTabId(t.id)} aria-controls={panelId} aria-selected={t.id===active.id} tabIndex={t.id===active.id?0:-1} onKeyDown={e=>{
@@ -878,7 +884,7 @@ export default function App() {
       <aside className="navigation" ref={navRef} style={navWidth!=null?{['--nav-width' as any]:`${navWidth}px`}:undefined}><nav className="workspace-nav"><button className={tab==='map'?'active':''} onClick={openCodeMap}>▦ <span>Code map</span></button><button className={tab==='routes'?'active':''} onClick={()=>{setTab('routes');setMobilePane('map');}}>▷ <span>Entry points</span><small>{routes.length}</small></button><button className={tab==='context'?'active':''} onClick={()=>{setTab('context');setMobilePane('map');}}>▤ <span>Project context</span></button></nav>
         <NavigationPane treeOpen={active.present.treeOpen} onTreeChange={update=>journeys.set('treeOpen',update)} graph={graph} scope={scope} selectedNode={node} search={search} onScopeChange={handleScopeChange} onSelect={select} onViewClasses={viewClasses} onViewMethods={viewMethods}/>
         {recentHistory.length>0&&<div className="recent-symbols"><h3>Recently viewed</h3>{recentHistory.map(h=>{const n=graph.nodes.find(x=>x.id===h.subjectId);return n?<button key={h.subjectId} onClick={()=>select(n)}>◷ {n.simpleName}</button>:null;})}</div>}
-        <div className="workspace-summary"><strong>{name}</strong><span>{active.present.review?'Base + changes overlay':`${typeCount} types across ${packages.length} packages`}</span><button className="text-button" disabled={busy} onClick={()=>analyze()}>↻ Re-analyze source</button></div>
+        <div className="workspace-summary"><strong>{name}</strong><span>{active.present.review?'Base + changes overlay':`${typeCount} types across ${packages.length} packages`}</span><button className="text-button" disabled={busy} onClick={()=>analyze(path,language,null)}>↻ Re-analyze source</button></div>
       </aside>
       <div className="nav-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize navigation panel. Use arrow keys, hold Shift for larger steps, Home to reset." tabIndex={0} aria-valuenow={Math.round(navWidth??currentNavWidth())} aria-valuemin={NAV_MIN} aria-valuemax={Math.round(navMax())} onPointerDown={startNavResize} onKeyDown={navResizeKeyDown} onDoubleClick={()=>{if(justDraggedNavRef.current){justDraggedNavRef.current=false;return;}resetNavWidth();}} />
       <section className="workspace-content">

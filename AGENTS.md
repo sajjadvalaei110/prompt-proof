@@ -18,6 +18,10 @@ Choose one bounded acceptance criterion from the active milestone.
   processors, or application code. Read-only invocation of a language's own first-party analysis
   toolchain (e.g. `go/packages`/`go/types`, the Dart SDK analyzer) for symbol/type resolution is
   permitted, provided it cannot reach the network and never executes target application logic.
+  One exception (ADR 0012): an indexing engine that declares it runs the target build (scip-java
+  running Gradle) may do so only for a workspace whose owner explicitly allowed it, recorded as
+  `trust_state = 'build_allowed'`; only in a private copy, never in the repository itself; and
+  never for Git review captures, which always use the language's source-only default engine.
 - Send code only to the configured model endpoint; no hidden cloud fallback.
 - Keep credentials, imported source, indexes and private prompts out of Git/logs.
 - Graph browsing must work when the model is unavailable.

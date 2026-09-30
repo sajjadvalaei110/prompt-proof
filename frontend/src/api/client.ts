@@ -3,6 +3,16 @@ import type { Language } from '../types';
 const API_BASE = '/api';
 
 export type WorkspaceLanguage = Language;
+/** One indexing engine of a language (ADR 0012). `executesTargetBuild` engines need explicit consent. */
+export interface IndexerOption {
+  language: WorkspaceLanguage;
+  indexer: string;
+  label: string;
+  defaultIndexer: boolean;
+  executesTargetBuild: boolean;
+  available: boolean;
+  unavailableReason: string | null;
+}
 
 export interface ApiErrorResponse {
   timestamp?: string;
@@ -76,12 +86,16 @@ export const apiClient = {
   getSnapshotFile: (snapshot: string, path: string): Promise<{schemaVersion:string;path:string;content:string}> =>
     requestJson(`${API_BASE}/snapshots/${snapshot}/files/source?path=${encodeURIComponent(path)}`),
 
-  createWorkspace: (path: string, language: WorkspaceLanguage = 'java'): Promise<any> =>
+  /** Registers (or reuses) a workspace. `engine.indexer` omitted keeps an existing workspace's engine (ADR 0012). */
+  createWorkspace: (path: string, language: WorkspaceLanguage = 'java', engine: { indexer?: string; allowBuildExecution?: boolean } = {}): Promise<any> =>
     requestJson(`${API_BASE}/workspaces`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path, language })
+      body: JSON.stringify({ path, language, ...(engine.indexer ? { indexer: engine.indexer, allowBuildExecution: !!engine.allowBuildExecution } : {}) })
     }),
+
+  /** Shipped indexing engines per language, with whether each can run on this machine. */
+  listIndexers: (): Promise<IndexerOption[]> => requestJson(`${API_BASE}/indexers`),
 
   getWorkspace: (id: string): Promise<any> => requestJson(`${API_BASE}/workspaces/${id}`),
 

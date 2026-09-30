@@ -70,3 +70,29 @@ tasks.register<Exec>("npmBuild") {
 tasks.named("processResources") {
     dependsOn("copyFrontend")
 }
+
+// scip-java (ADR 0012): an optional second Java indexer, run as a separate tool rather than bundled into the
+// application (it is ~120 MB of Scala/Kotlin tooling). `./gradlew installScipJava` resolves the pinned version
+// through this build's own Gradle cache, so nothing already downloaded is downloaded again, and syncs the jars into
+// data/tools/scip-java/lib (the default codeatlas.indexers.scip-java.home), or -PscipJavaHome=<dir>.
+val scipJavaVersion = "0.12.3"
+val scipJava by configurations.creating {
+    isCanBeConsumed = false
+    // The Spring dependency-management plugin applies Boot's BOM to every configuration, which would silently
+    // swap scip-java's own Kotlin/slf4j/commons versions. Keep what scip-java was published and tested with.
+    resolutionStrategy.eachDependency { useVersion(requested.version ?: return@eachDependency) }
+    attributes {
+        attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage.JAVA_RUNTIME))
+        attribute(TargetJvmEnvironment.TARGET_JVM_ENVIRONMENT_ATTRIBUTE, objects.named(TargetJvmEnvironment.STANDARD_JVM))
+        attribute(Category.CATEGORY_ATTRIBUTE, objects.named(Category.LIBRARY))
+    }
+}
+dependencies {
+    scipJava("com.sourcegraph:scip-java_2.13:$scipJavaVersion")
+}
+tasks.register<Sync>("installScipJava") {
+    description = "Installs the scip-java indexer (ADR 0012) for the scip-java Java engine."
+    group = "code atlas"
+    from(scipJava)
+    into(file(providers.gradleProperty("scipJavaHome").getOrElse("data/tools/scip-java")).resolve("lib"))
+}

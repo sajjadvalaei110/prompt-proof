@@ -2,6 +2,7 @@ package dev.codeatlas.analysis;
 
 import dev.codeatlas.analysis.port.AnalysisPort;
 import dev.codeatlas.analysis.port.AnalysisPortRegistry;
+import dev.codeatlas.workspace.WorkspaceTrust;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -57,19 +58,28 @@ public class AnalysisService {
         AnalysisPort adapter = null;
         try {
             Map<String, Object> workspace = jdbcTemplate.queryForMap(
-                    "SELECT canonical_root, language, active_snapshot_id FROM workspaces WHERE id = ?", workspaceId);
+                    "SELECT canonical_root, language, indexer, trust_state, active_snapshot_id FROM workspaces WHERE id = ?", workspaceId);
             String path = (String) workspace.get("canonical_root");
             // Resolve the adapter before creating a staging snapshot. Unsupported language errors
             // are still recorded on the existing job instead of leaving it RUNNING forever.
-            adapter = portRegistry.require((String) workspace.get("language"));
+            adapter = portRegistry.require((String) workspace.get("language"), (String) workspace.get("indexer"));
             String language = adapter.language();
+            String indexer = AnalysisPortRegistry.indexerOf(adapter);
+            // ADR 0012: an engine that runs the repository's own build needs the owner's explicit consent,
+            // recorded on the workspace, and a working installation; otherwise nothing is started.
+            if (adapter.executesTargetBuild() && !WorkspaceTrust.BUILD_ALLOWED.equals(workspace.get("trust_state"))) {
+                throw new IllegalStateException("The " + indexer + " indexer runs this project's build, which was not allowed for this workspace. "
+                        + "Re-import it with build execution allowed, or choose a source-only indexer.");
+            }
+            Optional<String> unavailable = adapter.unavailableReason();
+            if (unavailable.isPresent()) throw new IllegalStateException(unavailable.get());
             final AnalysisPort runAdapter = adapter;
 
             String previousSnapshotId = (String) workspace.get("active_snapshot_id");
             snapshotId = UUID.randomUUID().toString();
             jdbcTemplate.update(
-                    "INSERT INTO snapshots (id, workspace_id, language, status, created_at) VALUES (?, ?, ?, 'staging', datetime('now'))",
-                    snapshotId, workspaceId, language);
+                    "INSERT INTO snapshots (id, workspace_id, language, indexer, status, created_at) VALUES (?, ?, ?, ?, 'staging', datetime('now'))",
+                    snapshotId, workspaceId, language, indexer);
             jdbcTemplate.update("UPDATE jobs SET snapshot_id = ? WHERE id = ?", snapshotId, jobId);
 
             // Phase 1: Discover files
@@ -196,9 +206,12 @@ public class AnalysisService {
             String requestedLanguage = jdbcTemplate.queryForObject(
                     "SELECT language FROM snapshots WHERE id = ? AND workspace_id = ?", String.class,
                     snapshotId, workspaceId);
+            // Captures hold sources only and must never run a build: always the language's default,
+            // source-only engine, whatever engine the workspace itself uses (ADR 0012).
             adapter = portRegistry.require(requestedLanguage);
             String language = adapter.language();
             final AnalysisPort runAdapter = adapter;
+            jdbcTemplate.update("UPDATE snapshots SET indexer = ? WHERE id = ?", AnalysisPortRegistry.indexerOf(adapter), snapshotId);
             List<File> sourceFiles = adapter.discoverFiles(capturedRoot.toFile());
             adapter.prepare(capturedRoot.toString(), workspaceRoot);
             List<File> declarationFiles = new ArrayList<>();

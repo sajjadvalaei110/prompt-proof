@@ -1,10 +1,6 @@
 package dev.codeatlas.analysis;
 
-import com.github.javaparser.StaticJavaParser;
-import com.github.javaparser.ast.CompilationUnit;
 import dev.codeatlas.analysis.port.AnalysisPort;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.io.File;
@@ -22,7 +18,8 @@ import java.util.List;
 public final class JavaAnalysisAdapter implements AnalysisPort {
 
     public static final String LANGUAGE = "java";
-    private static final Logger log = LoggerFactory.getLogger(JavaAnalysisAdapter.class);
+    /** Source-only engine id; the default Java engine (ADR 0012). */
+    public static final String INDEXER = "javaparser";
 
     private final JavaParserAdapter parser;
     private final SpringAnnotationAnalyzer springAnalyzer;
@@ -35,6 +32,16 @@ public final class JavaAnalysisAdapter implements AnalysisPort {
     @Override
     public String language() {
         return LANGUAGE;
+    }
+
+    @Override
+    public String indexer() {
+        return INDEXER;
+    }
+
+    @Override
+    public String indexerLabel() {
+        return "JavaParser (source only)";
     }
 
     @Override
@@ -75,33 +82,7 @@ public final class JavaAnalysisAdapter implements AnalysisPort {
     @Override
     public int runFrameworkPass(List<File> files, String workspaceId, String snapshotId,
                                 java.util.function.IntConsumer completedFileCount) {
-        List<SpringAnnotationAnalyzer.SpringAnalysisResult> results = new java.util.ArrayList<>();
-        int filesWithFacts = 0;
-        int processed = 0;
-        for (File file : files) {
-            try {
-                CompilationUnit unit = StaticJavaParser.parse(file);
-                SpringAnnotationAnalyzer.SpringAnalysisResult result = springAnalyzer.analyze(unit);
-                if (!result.isEmpty()) {
-                    results.add(result);
-                    filesWithFacts++;
-                }
-            } catch (Exception e) {
-                log.debug("Spring analysis skipped for {}: {}", file.getName(), e.getMessage());
-                parser.addDiagnostic(file.getName() + ": Spring annotation analysis skipped.");
-            } finally {
-                completedFileCount.accept(++processed);
-            }
-        }
-
-        // Injection resolution needs all component and @Bean declarations to exist first.
-        for (SpringAnnotationAnalyzer.SpringAnalysisResult result : results) {
-            springAnalyzer.persistRolesRoutesBeans(snapshotId, workspaceId, result);
-        }
-        for (SpringAnnotationAnalyzer.SpringAnalysisResult result : results) {
-            springAnalyzer.persistInjections(snapshotId, result);
-        }
-        return filesWithFacts;
+        return SpringFrameworkPass.run(springAnalyzer, files, workspaceId, snapshotId, completedFileCount, parser::addDiagnostic);
     }
 
     @Override

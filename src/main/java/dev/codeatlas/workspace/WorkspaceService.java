@@ -1,6 +1,7 @@
 package dev.codeatlas.workspace;
 
 import dev.codeatlas.analysis.JavaAnalysisAdapter;
+import dev.codeatlas.analysis.port.AnalysisPort;
 import dev.codeatlas.analysis.port.AnalysisPortRegistry;
 import dev.codeatlas.storage.WorkspaceRepository;
 import dev.codeatlas.api.dto.WorkspaceRequest;
@@ -26,6 +27,13 @@ public class WorkspaceService {
             throw new IllegalArgumentException("Workspace path must not be empty");
         }
         String language = canonicalLanguage(request.getLanguage());
+        // Validate an explicitly requested engine (and its build consent) before touching the filesystem or database.
+        AnalysisPort requestedEngine = request.getIndexer() == null || request.getIndexer().isBlank()
+                ? null : portRegistry.require(language, request.getIndexer());
+        if (requestedEngine != null && requestedEngine.executesTargetBuild() && !request.isAllowBuildExecution()) {
+            throw new IllegalArgumentException("The " + AnalysisPortRegistry.indexerOf(requestedEngine) + " indexer runs this project's own build "
+                    + "(its build scripts execute on this machine). Allow build execution to use it, or choose a source-only indexer.");
+        }
 
         String pathStr = request.getPath().trim();
         // Remove surrounding quotes if pasted with quotes
@@ -58,14 +66,22 @@ public class WorkspaceService {
                     throw new IllegalArgumentException("A workspace for this path already exists with language '"
                             + existingLanguage + "'. Choose that language or use a different path.");
                 }
+                // Omitting the engine keeps the workspace's current one; naming one switches to it.
+                if (requestedEngine != null && !AnalysisPortRegistry.indexerOf(requestedEngine).equals(existing.get().indexer())) {
+                    String indexer = AnalysisPortRegistry.indexerOf(requestedEngine);
+                    workspaceRepository.updateIndexer(existing.get().id(), indexer, trustFor(requestedEngine));
+                    return workspaceRepository.findById(existing.get().id()).orElseThrow();
+                }
                 return existing.get();
             }
             
             String id = UUID.randomUUID().toString();
             String name = file.getName();
-            workspaceRepository.insert(id, canonicalPath, name, language);
+            AnalysisPort engine = requestedEngine != null ? requestedEngine : portRegistry.require(language);
+            String indexer = AnalysisPortRegistry.indexerOf(engine);
+            workspaceRepository.insert(id, canonicalPath, name, language, indexer, trustFor(engine));
             
-            return new WorkspaceResponse(id, canonicalPath, null, language);
+            return new WorkspaceResponse(id, canonicalPath, null, language, indexer);
         } catch (IllegalArgumentException e) {
             // Preserve client-facing validation failures so the API advice can return 400. In
             // particular, a path that is already registered for another language is a conflict
@@ -83,6 +99,16 @@ public class WorkspaceService {
     public WorkspaceResponse getWorkspace(String id) {
         return workspaceRepository.findById(id)
             .orElseThrow(() -> new IllegalArgumentException("Workspace not found: " + id));
+    }
+
+    /** Build permission is granted only together with an engine that needs it, and dropped otherwise. */
+    private static String trustFor(AnalysisPort engine) {
+        return engine.executesTargetBuild() ? WorkspaceTrust.BUILD_ALLOWED : WorkspaceTrust.SOURCE_ONLY;
+    }
+
+    /** Every shipped engine with its availability on this machine (ADR 0012). */
+    public List<AnalysisPortRegistry.IndexerDescriptor> indexers() {
+        return portRegistry.indexers();
     }
 
     /**
