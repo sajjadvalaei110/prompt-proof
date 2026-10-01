@@ -73,8 +73,7 @@ node scripts/test-diff-navigation.mjs
 python3 scripts/verify_hierarchical_pipeline.py
 python3 scripts/verify_change_edges_pipeline.py
 python3 scripts/verify_git_review_pipeline.py
-python3 scripts/verify_stable_graph_pipeline.py baseline    # known-defect snapshot
-python3 scripts/verify_stable_graph_pipeline.py acceptance  # product-contract assertions
+python3 scripts/verify_stable_graph_pipeline.py acceptance  # product-contract assertions (package-only map, ADR 0007)
 python3 scripts/verify_code_navigation_pipeline.py          # source-viewer navigation (needs installScipJava + gradle on PATH)
 python3 scripts/verify_diff_navigation_pipeline.py          # go to definition in the Changes diff + repository root (same needs + git)
 ```

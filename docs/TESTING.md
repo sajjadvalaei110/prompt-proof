@@ -402,16 +402,22 @@ passing scope-model test cannot establish canvas stability, and `element.emit('t
 cannot establish gesture handling.
 
 ```bash
-python3 scripts/verify_stable_graph_pipeline.py baseline     # records today's behaviour; passes
-python3 scripts/verify_stable_graph_pipeline.py acceptance   # asserts the product contract; fails today
+python3 scripts/verify_stable_graph_pipeline.py acceptance   # asserts the product contract (default mode)
 node --check scripts/verify-stable-graph-ui.mjs
 python3 -m py_compile scripts/verify_stable_graph_pipeline.py
 ```
 
-`baseline` asserts the known R6 defects so they cannot silently disappear or change shape;
-it is expected to start failing when Steps 2-3 land, and that failure means the baseline case
-should be retired. `acceptance` encodes the stable-map contract from the product specification
-and must never be weakened to accept broken behaviour.
+`acceptance` encodes the stable-map contract from the product specification and must never be
+weakened to accept broken behaviour. The Step 1 `baseline` mode (it asserted the known R6 defects)
+is retired: Steps 2-5 fixed every defect it recorded, and the runner now refuses it with a message.
+
+**Ported to the package-only map (2026-10-01).** ADR 0007 removed the Packages/Classes/Methods
+switcher the harness drove, so the suite stopped at its first scenario from then until this port.
+It now reaches classes the way a user does, by expanding a package in place (the card's Details
+control, or the card menu's Collapse when a grown box puts its own control off screen), and frames
+the map with the user's Fit map control before aiming a pointer. The scenario mapping, including
+the scenarios retired with the level switcher, is in `docs/STABLE_GRAPH_INTERACTIONS.md`
+§"Browser acceptance after ADR 0007".
 
 **Fixture.** `test-fixtures/stable-graph-fixture/` holds 74 types across 6 packages. The
 17-class `spring-project` fixture cannot exercise the 36 → 12 display-limit regression, because

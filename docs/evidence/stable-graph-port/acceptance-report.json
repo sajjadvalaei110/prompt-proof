@@ -1,0 +1,3022 @@
+{
+  "mode": "acceptance",
+  "snapshot": "4b1fd18c-5b54-4bba-a074-28ab403e5b45",
+  "workspace": "a22a16ef-1057-4902-8be6-118175e7d17d",
+  "fixture": {
+    "path": "/tmp/code-atlas-stable-fixture-dvfc12br/stable-graph-fixture",
+    "typeCount": 75,
+    "packageCount": 7,
+    "edgeKinds": [
+      "CALLS",
+      "DEPENDS_ON",
+      "IMPLEMENTS",
+      "INJECTS",
+      "OVERRIDES",
+      "USES_TYPE"
+    ],
+    "displayedResolutions": [
+      "CANDIDATE",
+      "RESOLVED"
+    ],
+    "unresolvedRelationships": 23
+  },
+  "browserErrors": [],
+  "scenarios": [
+    {
+      "name": "click-class-card-in-expanded-package",
+      "delta": {
+        "countBefore": 31,
+        "countAfter": 31,
+        "idOrderPreserved": true,
+        "survivors": 31,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "boxesShifted": [
+          {
+            "id": "e0d45310-df1d-4912-8a11-cadc9aad6c5a",
+            "dx": -3.94,
+            "dy": 0
+          }
+        ],
+        "movedIds": [],
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 1,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "arrangeCalls": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 68,
+        "edgeCountAfter": 68,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": false,
+        "subject": "class✕",
+        "target": "11578e2a-756c-4571-bcce-e3a528cbd90f"
+      },
+      "before": {
+        "count": 31,
+        "edges": 68,
+        "zoom": 0.4165,
+        "pan": {
+          "x": 55.708,
+          "y": 133.8927
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "after": {
+        "count": 31,
+        "edges": 68,
+        "zoom": 0.4165,
+        "pan": {
+          "x": 55.708,
+          "y": 133.8927
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting InvoiceService",
+        "inspectorSubject": "class✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "checks": [
+        {
+          "label": "the clicked card is a class inside the expanded package box",
+          "ok": true
+        },
+        {
+          "label": "inspector opened",
+          "ok": true
+        },
+        {
+          "label": "same displayed IDs in the same order",
+          "ok": true
+        },
+        {
+          "label": "no arrangement command",
+          "ok": true
+        },
+        {
+          "label": "no card moved",
+          "ok": true
+        },
+        {
+          "label": "zoom preserved",
+          "ok": true
+        },
+        {
+          "label": "pan preserved",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "reveal-36-classes-then-click-class",
+      "delta": {
+        "countBefore": 45,
+        "countAfter": 45,
+        "idOrderPreserved": true,
+        "survivors": 45,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "boxesShifted": [
+          {
+            "id": "e0d45310-df1d-4912-8a11-cadc9aad6c5a",
+            "dx": -5.64,
+            "dy": 5.64
+          }
+        ],
+        "movedIds": [],
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 1,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "arrangeCalls": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 98,
+        "edgeCountAfter": 98,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": false,
+        "subject": "class✕"
+      },
+      "before": {
+        "count": 45,
+        "edges": 98,
+        "zoom": 0.262,
+        "pan": {
+          "x": -141.2129,
+          "y": -156.5344
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "after": {
+        "count": 45,
+        "edges": 98,
+        "zoom": 0.262,
+        "pan": {
+          "x": -141.2129,
+          "y": -156.5344
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting PricingService",
+        "inspectorSubject": "class✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "checks": [
+        {
+          "label": "inspector opened",
+          "ok": true
+        },
+        {
+          "label": "every revealed card is still displayed",
+          "ok": true
+        },
+        {
+          "label": "same displayed IDs in the same order",
+          "ok": true
+        },
+        {
+          "label": "no card moved",
+          "ok": true
+        },
+        {
+          "label": "camera preserved",
+          "ok": true
+        },
+        {
+          "label": "canvas instance preserved",
+          "ok": true
+        },
+        {
+          "label": "no arrangement command",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "click-package-card",
+      "delta": {
+        "countBefore": 7,
+        "countAfter": 7,
+        "idOrderPreserved": true,
+        "survivors": 7,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "boxesShifted": [],
+        "movedIds": [],
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 1,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "arrangeCalls": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 5,
+        "edgeCountAfter": 5,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.4165,
+        "pan": {
+          "x": 55.708,
+          "y": 133.8927
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "after": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.4165,
+        "pan": {
+          "x": 55.708,
+          "y": 133.8927
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting com.example.stable.domain",
+        "inspectorSubject": "package✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "checks": [
+        {
+          "label": "inspector opened",
+          "ok": true
+        },
+        {
+          "label": "no arrangement command",
+          "ok": true
+        },
+        {
+          "label": "no card moved",
+          "ok": true
+        },
+        {
+          "label": "camera preserved",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "click-edge",
+      "delta": {
+        "countBefore": 7,
+        "countAfter": 7,
+        "idOrderPreserved": true,
+        "survivors": 7,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "boxesShifted": [],
+        "movedIds": [],
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "arrangeCalls": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 5,
+        "edgeCountAfter": 5,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": false,
+        "edgeId": "aggregate:[\"3b23705a-04fc-46ae-bdb2-2c0ebe11a46f\",\"e0d45310-df1d-4912-8a11-cadc9aad6c5a\"]",
+        "endpointEmphasis": {
+          "selectedEdges": 1,
+          "id": "aggregate:[\"3b23705a-04fc-46ae-bdb2-2c0ebe11a46f\",\"e0d45310-df1d-4912-8a11-cadc9aad6c5a\"]",
+          "count": 2,
+          "neighbor": true,
+          "muted": false,
+          "classes": [
+            {
+              "id": "3b23705a-04fc-46ae-bdb2-2c0ebe11a46f",
+              "neighbor": true,
+              "muted": false
+            },
+            {
+              "id": "e0d45310-df1d-4912-8a11-cadc9aad6c5a",
+              "neighbor": true,
+              "muted": false
+            }
+          ]
+        }
+      },
+      "before": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.7168,
+        "pan": {
+          "x": -343.3454,
+          "y": -17.6995
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting com.example.stable.util",
+        "inspectorSubject": "package✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "after": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.7168,
+        "pan": {
+          "x": -343.3454,
+          "y": -17.6995
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting a relationship",
+        "inspectorSubject": "Relationship✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "checks": [
+        {
+          "label": "relationship inspector opened",
+          "ok": true
+        },
+        {
+          "label": "displayed count unchanged",
+          "ok": true
+        },
+        {
+          "label": "no card moved",
+          "ok": true
+        },
+        {
+          "label": "camera preserved",
+          "ok": true
+        },
+        {
+          "label": "no arrangement command",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "inspect-unresolved-relationship",
+      "delta": {
+        "countBefore": 7,
+        "countAfter": 7,
+        "idOrderPreserved": true,
+        "survivors": 7,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "boxesShifted": [],
+        "movedIds": [],
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "arrangeCalls": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 5,
+        "edgeCountAfter": 5,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.4162,
+        "pan": {
+          "x": 55.9365,
+          "y": 134.0724
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting ExternalPaymentGateway",
+        "inspectorSubject": "class✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "after": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.4162,
+        "pan": {
+          "x": 55.9365,
+          "y": 134.0724
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting a relationship",
+        "inspectorSubject": "Relationship✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "checks": [
+        {
+          "label": "inspector stays open, not idle",
+          "ok": true
+        },
+        {
+          "label": "relationship content is shown",
+          "ok": true
+        },
+        {
+          "label": "displayed page count unaffected",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "change-relationship-filter",
+      "delta": {
+        "countBefore": 7,
+        "countAfter": 7,
+        "idOrderPreserved": true,
+        "survivors": 7,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "boxesShifted": [],
+        "movedIds": [],
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "arrangeCalls": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 5,
+        "edgeCountAfter": 2,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": false,
+        "filterKind": "CALLS"
+      },
+      "before": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.7196,
+        "pan": {
+          "x": -343.3406,
+          "y": -21.1774
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting a relationship",
+        "inspectorSubject": "Relationship✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "after": {
+        "count": 7,
+        "edges": 2,
+        "zoom": 0.7196,
+        "pan": {
+          "x": -343.3406,
+          "y": -21.1774
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting a relationship",
+        "inspectorSubject": "Relationship✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "checks": [
+        {
+          "label": "edge set changed",
+          "ok": true
+        },
+        {
+          "label": "node membership unchanged",
+          "ok": true
+        },
+        {
+          "label": "no card moved",
+          "ok": true
+        },
+        {
+          "label": "camera preserved",
+          "ok": true
+        },
+        {
+          "label": "canvas instance preserved",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "inspect-edge-survives-filter-change",
+      "delta": {
+        "countBefore": 7,
+        "countAfter": 7,
+        "idOrderPreserved": true,
+        "survivors": 7,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "boxesShifted": [],
+        "movedIds": [],
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "arrangeCalls": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 5,
+        "edgeCountAfter": 2,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": false,
+        "clickedKind": "USES_TYPE",
+        "filteredToKind": "CALLS",
+        "notice": "Not shown with the current relationship filter.",
+        "skippedOverlayPoints": 0
+      },
+      "before": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.4147,
+        "pan": {
+          "x": 58.8696,
+          "y": 135.9583
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting a relationship",
+        "inspectorSubject": "Relationship✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "after": {
+        "count": 7,
+        "edges": 2,
+        "zoom": 0.4147,
+        "pan": {
+          "x": 58.8696,
+          "y": 135.9583
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting a relationship",
+        "inspectorSubject": "Relationship✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "checks": [
+        {
+          "label": "inspector stays open, not idle",
+          "ok": true
+        },
+        {
+          "label": "relationship content is still shown",
+          "ok": true
+        },
+        {
+          "label": "a \"not shown with the current filter\" notice appears",
+          "ok": true
+        },
+        {
+          "label": "node membership unaffected by a filter change",
+          "ok": true
+        },
+        {
+          "label": "no card moved",
+          "ok": true
+        },
+        {
+          "label": "camera preserved",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "inspect-edge-survives-filter-to-contained-kind",
+      "delta": {
+        "countBefore": 7,
+        "countAfter": 7,
+        "idOrderPreserved": true,
+        "survivors": 7,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "boxesShifted": [],
+        "movedIds": [],
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "arrangeCalls": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 2,
+        "edgeCountAfter": 5,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": false,
+        "filteredToKind": "USES_TYPE",
+        "line": {
+          "drawn": true,
+          "occurrences": 20,
+          "width": 7.682892142331045,
+          "selected": true,
+          "notice": "",
+          "idle": false,
+          "subject": "Relationship✕"
+        }
+      },
+      "before": {
+        "count": 7,
+        "edges": 2,
+        "zoom": 0.4147,
+        "pan": {
+          "x": 58.8696,
+          "y": 135.9583
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting a relationship",
+        "inspectorSubject": "Relationship✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "after": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.4147,
+        "pan": {
+          "x": 58.8696,
+          "y": 135.9583
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting a relationship",
+        "inspectorSubject": "Relationship✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "checks": [
+        {
+          "label": "the line keeps its identity and stays drawn",
+          "ok": true
+        },
+        {
+          "label": "the same line is still the selected one",
+          "ok": true
+        },
+        {
+          "label": "it still carries at least one occurrence of the kind filtered to",
+          "ok": true
+        },
+        {
+          "label": "no filtered-out notice, because the line is still shown",
+          "ok": true
+        },
+        {
+          "label": "inspector stays open, not idle",
+          "ok": true
+        },
+        {
+          "label": "no card moved",
+          "ok": true
+        },
+        {
+          "label": "camera preserved",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "add-package-to-scope",
+      "delta": {
+        "countBefore": 4,
+        "countAfter": 5,
+        "idOrderPreserved": false,
+        "survivors": 4,
+        "dropped": 0,
+        "added": 1,
+        "survivorsMoved": 0,
+        "boxesShifted": [],
+        "movedIds": [],
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "arrangeCalls": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 1,
+        "edgeCountAfter": 4,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": true
+      },
+      "before": {
+        "count": 4,
+        "edges": 1,
+        "zoom": 0.558,
+        "pan": {
+          "x": 269.383,
+          "y": -156.5554
+        },
+        "banner": "Showing packages · 4 packages in 4 selected packages",
+        "showMore": null,
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 2,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "after": {
+        "count": 5,
+        "edges": 4,
+        "zoom": 0.558,
+        "pan": {
+          "x": 269.383,
+          "y": -156.5554
+        },
+        "banner": "Showing packages · 5 packages in 5 selected packages",
+        "showMore": null,
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 2,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "checks": [
+        {
+          "label": "scope changed",
+          "ok": true
+        },
+        {
+          "label": "no previously displayed package is dropped",
+          "ok": true
+        },
+        {
+          "label": "surviving cards keep their exact positions",
+          "ok": true
+        },
+        {
+          "label": "camera preserved",
+          "ok": true
+        },
+        {
+          "label": "the newly eligible package is appended",
+          "ok": true
+        },
+        {
+          "label": "the displayed page grows rather than being re-selected",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "remove-package-from-scope",
+      "delta": {
+        "countBefore": 5,
+        "countAfter": 4,
+        "idOrderPreserved": false,
+        "survivors": 4,
+        "dropped": 1,
+        "added": 0,
+        "survivorsMoved": 0,
+        "boxesShifted": [],
+        "movedIds": [],
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "arrangeCalls": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 4,
+        "edgeCountAfter": 1,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": true
+      },
+      "before": {
+        "count": 5,
+        "edges": 4,
+        "zoom": 0.558,
+        "pan": {
+          "x": 269.383,
+          "y": -156.5554
+        },
+        "banner": "Showing packages · 5 packages in 5 selected packages",
+        "showMore": null,
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 2,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "after": {
+        "count": 4,
+        "edges": 1,
+        "zoom": 0.558,
+        "pan": {
+          "x": 269.383,
+          "y": -156.5554
+        },
+        "banner": "Showing packages · 4 packages in 4 selected packages",
+        "showMore": null,
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 2,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "checks": [
+        {
+          "label": "scope changed",
+          "ok": true
+        },
+        {
+          "label": "surviving cards keep their exact positions",
+          "ok": true
+        },
+        {
+          "label": "no holes filled from the hidden queue",
+          "ok": true
+        },
+        {
+          "label": "camera preserved",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "close-details-pane",
+      "delta": {
+        "countBefore": 7,
+        "countAfter": 7,
+        "idOrderPreserved": true,
+        "survivors": 7,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "boxesShifted": [],
+        "movedIds": [],
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "arrangeCalls": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 5,
+        "edgeCountAfter": 5,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.2556,
+        "pan": {
+          "x": 335.8616,
+          "y": 55.4346
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting com.example.stable.repository",
+        "inspectorSubject": "package✕",
+        "probeId": 2,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "after": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.2556,
+        "pan": {
+          "x": 335.8616,
+          "y": 55.4346
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 2,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "checks": [
+        {
+          "label": "inspector closed",
+          "ok": true
+        },
+        {
+          "label": "no card moved",
+          "ok": true
+        },
+        {
+          "label": "membership preserved",
+          "ok": true
+        },
+        {
+          "label": "camera preserved",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "resize-pane",
+      "delta": {
+        "countBefore": 7,
+        "countAfter": 7,
+        "idOrderPreserved": true,
+        "survivors": 7,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "boxesShifted": [],
+        "movedIds": [],
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "arrangeCalls": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 5,
+        "edgeCountAfter": 5,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.2557,
+        "pan": {
+          "x": 335.818,
+          "y": 55.4347
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 2,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "after": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.2557,
+        "pan": {
+          "x": 335.818,
+          "y": 55.4347
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 2,
+        "canvasBox": {
+          "w": 678,
+          "h": 426
+        }
+      },
+      "checks": [
+        {
+          "label": "canvas resized",
+          "ok": true
+        },
+        {
+          "label": "membership preserved",
+          "ok": true
+        },
+        {
+          "label": "no card moved",
+          "ok": true
+        },
+        {
+          "label": "stored camera preserved",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "manual-drag-persists",
+      "delta": {
+        "countBefore": 7,
+        "countAfter": 7,
+        "idOrderPreserved": true,
+        "survivors": 7,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 1,
+        "boxesShifted": [],
+        "movedIds": [
+          "e0d45310-df1d-4912-8a11-cadc9aad6c5a"
+        ],
+        "maxMoveModelUnits": 563.96,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "arrangeCalls": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 5,
+        "edgeCountAfter": 5,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": false,
+        "draggedId": "e0d45310-df1d-4912-8a11-cadc9aad6c5a"
+      },
+      "before": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.2557,
+        "pan": {
+          "x": 335.818,
+          "y": 55.4347
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 2,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "after": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.2557,
+        "pan": {
+          "x": 335.818,
+          "y": 55.4347
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 2,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "checks": [
+        {
+          "label": "exactly the dragged card moved",
+          "ok": true
+        },
+        {
+          "label": "the dragged card actually moved a meaningful distance",
+          "ok": true
+        },
+        {
+          "label": "camera untouched by a node drag",
+          "ok": true
+        },
+        {
+          "label": "no arrangement command",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "manual-drag-persists-across-leaving-the-map",
+      "delta": {
+        "countBefore": 7,
+        "countAfter": 7,
+        "idOrderPreserved": true,
+        "survivors": 7,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "boxesShifted": [],
+        "movedIds": [],
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": true,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "arrangeCalls": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 5,
+        "edgeCountAfter": 5,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.2557,
+        "pan": {
+          "x": 335.818,
+          "y": 55.4347
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 2,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "after": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.2557,
+        "pan": {
+          "x": 335.818,
+          "y": 55.4347
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 3,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "checks": [
+        {
+          "label": "the dragged position survives leaving the map and returning",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "two-spaced-single-clicks",
+      "delta": {
+        "countBefore": 7,
+        "countAfter": 7,
+        "idOrderPreserved": true,
+        "survivors": 7,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "boxesShifted": [],
+        "movedIds": [],
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 2,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "arrangeCalls": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 5,
+        "edgeCountAfter": 5,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.2118,
+        "pan": {
+          "x": 306.6647,
+          "y": 55.3601
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 3,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "after": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.2118,
+        "pan": {
+          "x": 306.6647,
+          "y": 55.3601
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting com.example.stable.util",
+        "inspectorSubject": "package✕",
+        "probeId": 3,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "checks": [
+        {
+          "label": "two taps dispatched",
+          "ok": true
+        },
+        {
+          "label": "no double-click gesture",
+          "ok": true
+        },
+        {
+          "label": "zero arrangements",
+          "ok": true
+        },
+        {
+          "label": "two spaced single clicks cause zero focused arrangements",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "control-double-click-empty-canvas",
+      "delta": {
+        "countBefore": 7,
+        "countAfter": 7,
+        "idOrderPreserved": true,
+        "survivors": 7,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "boxesShifted": [],
+        "movedIds": [],
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 1,
+        "arrangeCalls": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 5,
+        "edgeCountAfter": 5,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.4165,
+        "pan": {
+          "x": 55.708,
+          "y": 133.8927
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "after": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.4165,
+        "pan": {
+          "x": 55.708,
+          "y": 133.8927
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "checks": [
+        {
+          "label": "CDP synthesises a double-click Cytoscape recognises",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "real-double-click-human-paced",
+      "delta": {
+        "countBefore": 7,
+        "countAfter": 7,
+        "idOrderPreserved": true,
+        "survivors": 7,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 6,
+        "boxesShifted": [],
+        "movedIds": [
+          "e0d45310-df1d-4912-8a11-cadc9aad6c5a",
+          "45a691ed-9a10-4db8-b177-75c556ac21f0",
+          "cfcedb86-06b5-4e31-bda4-c4b36de8fa4c",
+          "3b23705a-04fc-46ae-bdb2-2c0ebe11a46f",
+          "054a628a-3157-42ab-8412-661ffb55a046",
+          "370f782e-97c4-4c0d-bec9-eeaf11e3450b"
+        ],
+        "maxMoveModelUnits": 612,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 2,
+        "dbltaps": 1,
+        "anyDbltaps": 1,
+        "arrangeCalls": 1,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 5,
+        "edgeCountAfter": 5,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": false,
+        "targetLeftPointerBy": 0
+      },
+      "before": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.4165,
+        "pan": {
+          "x": 55.708,
+          "y": 133.8927
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "after": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.4165,
+        "pan": {
+          "x": 55.708,
+          "y": 133.8927
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting com.example.stable.util",
+        "inspectorSubject": "package✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "checks": [
+        {
+          "label": "double-click gesture reaches Cytoscape",
+          "ok": true
+        },
+        {
+          "label": "exactly one arrangement",
+          "ok": true
+        },
+        {
+          "label": "no whole-map layout call (out of scope for this step)",
+          "ok": true
+        },
+        {
+          "label": "displayed count unchanged",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "real-double-click-fast",
+      "delta": {
+        "countBefore": 7,
+        "countAfter": 7,
+        "idOrderPreserved": true,
+        "survivors": 7,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 6,
+        "boxesShifted": [],
+        "movedIds": [
+          "e0d45310-df1d-4912-8a11-cadc9aad6c5a",
+          "45a691ed-9a10-4db8-b177-75c556ac21f0",
+          "cfcedb86-06b5-4e31-bda4-c4b36de8fa4c",
+          "3b23705a-04fc-46ae-bdb2-2c0ebe11a46f",
+          "054a628a-3157-42ab-8412-661ffb55a046",
+          "370f782e-97c4-4c0d-bec9-eeaf11e3450b"
+        ],
+        "maxMoveModelUnits": 612,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 2,
+        "dbltaps": 1,
+        "anyDbltaps": 1,
+        "arrangeCalls": 1,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 5,
+        "edgeCountAfter": 5,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.4165,
+        "pan": {
+          "x": 55.708,
+          "y": 133.8927
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "after": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.4165,
+        "pan": {
+          "x": 55.708,
+          "y": 133.8927
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting com.example.stable.util",
+        "inspectorSubject": "package✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "checks": [
+        {
+          "label": "double-click gesture reaches Cytoscape",
+          "ok": true
+        },
+        {
+          "label": "exactly one arrangement",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "real-double-click-with-expanded-boxes",
+      "delta": {
+        "countBefore": 45,
+        "countAfter": 45,
+        "idOrderPreserved": true,
+        "survivors": 45,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 42,
+        "boxesShifted": [
+          {
+            "id": "e0d45310-df1d-4912-8a11-cadc9aad6c5a",
+            "dx": -1608,
+            "dy": -617
+          },
+          {
+            "id": "cfcedb86-06b5-4e31-bda4-c4b36de8fa4c",
+            "dx": 2264,
+            "dy": -379
+          }
+        ],
+        "movedIds": [
+          "3b23705a-04fc-46ae-bdb2-2c0ebe11a46f",
+          "054a628a-3157-42ab-8412-661ffb55a046",
+          "370f782e-97c4-4c0d-bec9-eeaf11e3450b",
+          "dc8cca7a-fa32-4d8b-a196-05665189bb9f",
+          "a98087fb-af91-40e4-b05a-fb383d810fd7",
+          "5a58aa29-b689-4a92-a264-059a959d7fd0",
+          "9f286307-09e1-4117-aa20-5405fcf745e1",
+          "262ed8a2-01ad-4773-ad3e-c5240b6f49f0"
+        ],
+        "maxMoveModelUnits": 2352.29,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 2,
+        "dbltaps": 1,
+        "anyDbltaps": 1,
+        "arrangeCalls": 1,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 98,
+        "edgeCountAfter": 98,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 45,
+        "edges": 98,
+        "zoom": 0.1516,
+        "pan": {
+          "x": 172.68,
+          "y": 55.5611
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "after": {
+        "count": 45,
+        "edges": 98,
+        "zoom": 0.1516,
+        "pan": {
+          "x": 172.68,
+          "y": 55.5611
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting com.example.stable.repository",
+        "inspectorSubject": "package✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "checks": [
+        {
+          "label": "double-click gesture reaches Cytoscape",
+          "ok": true
+        },
+        {
+          "label": "exactly one arrangement",
+          "ok": true
+        },
+        {
+          "label": "displayed count unchanged",
+          "ok": true
+        },
+        {
+          "label": "canvas instance preserved",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "real-double-click-second-different-card",
+      "delta": {
+        "countBefore": 45,
+        "countAfter": 45,
+        "idOrderPreserved": true,
+        "survivors": 45,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 42,
+        "boxesShifted": [
+          {
+            "id": "e0d45310-df1d-4912-8a11-cadc9aad6c5a",
+            "dx": 376,
+            "dy": 936.54
+          },
+          {
+            "id": "cfcedb86-06b5-4e31-bda4-c4b36de8fa4c",
+            "dx": -1656,
+            "dy": 2241
+          }
+        ],
+        "movedIds": [
+          "45a691ed-9a10-4db8-b177-75c556ac21f0",
+          "054a628a-3157-42ab-8412-661ffb55a046",
+          "370f782e-97c4-4c0d-bec9-eeaf11e3450b",
+          "dc8cca7a-fa32-4d8b-a196-05665189bb9f",
+          "a98087fb-af91-40e4-b05a-fb383d810fd7",
+          "5a58aa29-b689-4a92-a264-059a959d7fd0",
+          "9f286307-09e1-4117-aa20-5405fcf745e1",
+          "262ed8a2-01ad-4773-ad3e-c5240b6f49f0"
+        ],
+        "maxMoveModelUnits": 2786.47,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 2,
+        "dbltaps": 1,
+        "anyDbltaps": 1,
+        "arrangeCalls": 1,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 98,
+        "edgeCountAfter": 98,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 45,
+        "edges": 98,
+        "zoom": 0.1516,
+        "pan": {
+          "x": 172.68,
+          "y": 55.5611
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting com.example.stable.repository",
+        "inspectorSubject": "package✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "after": {
+        "count": 45,
+        "edges": 98,
+        "zoom": 0.1516,
+        "pan": {
+          "x": 172.68,
+          "y": 55.5611
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting com.example.stable.controller",
+        "inspectorSubject": "package✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "checks": [
+        {
+          "label": "exactly one arrangement",
+          "ok": true
+        },
+        {
+          "label": "page unchanged",
+          "ok": true
+        },
+        {
+          "label": "zoom untouched",
+          "ok": true
+        },
+        {
+          "label": "pan untouched",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "inspector-arrange-around-resource",
+      "delta": {
+        "countBefore": 7,
+        "countAfter": 7,
+        "idOrderPreserved": true,
+        "survivors": 7,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 6,
+        "boxesShifted": [],
+        "movedIds": [
+          "e0d45310-df1d-4912-8a11-cadc9aad6c5a",
+          "45a691ed-9a10-4db8-b177-75c556ac21f0",
+          "cfcedb86-06b5-4e31-bda4-c4b36de8fa4c",
+          "054a628a-3157-42ab-8412-661ffb55a046",
+          "370f782e-97c4-4c0d-bec9-eeaf11e3450b",
+          "dc8cca7a-fa32-4d8b-a196-05665189bb9f"
+        ],
+        "maxMoveModelUnits": 1312.1,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "arrangeCalls": 1,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 5,
+        "edgeCountAfter": 5,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.4165,
+        "pan": {
+          "x": 55.708,
+          "y": 133.8927
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting com.example.stable.controller",
+        "inspectorSubject": "package✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "after": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.4165,
+        "pan": {
+          "x": 55.708,
+          "y": 133.8927
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting com.example.stable.controller",
+        "inspectorSubject": "package✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "checks": [
+        {
+          "label": "no double-click gesture involved -- this is the keyboard/touch equivalent",
+          "ok": true
+        },
+        {
+          "label": "exactly one arrangement from the inspector action",
+          "ok": true
+        },
+        {
+          "label": "page unchanged",
+          "ok": true
+        },
+        {
+          "label": "scope unaffected",
+          "ok": true
+        },
+        {
+          "label": "zoom untouched",
+          "ok": true
+        },
+        {
+          "label": "pan untouched",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "inspector-arrange-disabled-when-not-displayed",
+      "delta": {},
+      "before": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.4165,
+        "pan": {
+          "x": 55.708,
+          "y": 133.8927
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting com.example.stable.controller",
+        "inspectorSubject": "package✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "after": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.4165,
+        "pan": {
+          "x": 55.708,
+          "y": 133.8927
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting com.example.stable.controller",
+        "inspectorSubject": "package✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "checks": [
+        {
+          "label": "disabled for a not-currently-displayed subject",
+          "ok": true
+        },
+        {
+          "label": "tooltip explains why",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "narrow-layout",
+      "delta": {
+        "horizontalOverflow": false
+      },
+      "checks": []
+    },
+    {
+      "name": "traverse-a-to-b-to-c-via-inspector",
+      "delta": {
+        "countBefore": 7,
+        "countAfter": 7,
+        "idOrderPreserved": true,
+        "survivors": 7,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "boxesShifted": [],
+        "movedIds": [],
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "arrangeCalls": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 5,
+        "edgeCountAfter": 5,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.8676,
+        "pan": {
+          "x": -343.0891,
+          "y": -68.6559
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting OrderController",
+        "inspectorSubject": "class✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "after": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.8676,
+        "pan": {
+          "x": -343.0891,
+          "y": -68.6559
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting findById",
+        "inspectorSubject": "method✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "checks": [
+        {
+          "label": "the displayed map is unaffected",
+          "ok": true
+        },
+        {
+          "label": "no card moved while following relationships",
+          "ok": true
+        },
+        {
+          "label": "camera preserved while following relationships",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "back-restores-b",
+      "delta": {
+        "countBefore": 7,
+        "countAfter": 7,
+        "idOrderPreserved": true,
+        "survivors": 7,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "boxesShifted": [],
+        "movedIds": [],
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "arrangeCalls": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 5,
+        "edgeCountAfter": 5,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.8676,
+        "pan": {
+          "x": -343.0891,
+          "y": -68.6559
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting findById",
+        "inspectorSubject": "method✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "after": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.8676,
+        "pan": {
+          "x": -343.0891,
+          "y": -68.6559
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting OrderService",
+        "inspectorSubject": "class✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "checks": [
+        {
+          "label": "Back restores exactly the previous subject (B)",
+          "ok": true
+        },
+        {
+          "label": "Back does not invoke layout",
+          "ok": true
+        },
+        {
+          "label": "no card moved on Back",
+          "ok": true
+        },
+        {
+          "label": "membership unchanged by Back",
+          "ok": true
+        },
+        {
+          "label": "camera preserved by Back",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "back-restores-a",
+      "delta": {
+        "countBefore": 7,
+        "countAfter": 7,
+        "idOrderPreserved": true,
+        "survivors": 7,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "boxesShifted": [],
+        "movedIds": [],
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "arrangeCalls": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 5,
+        "edgeCountAfter": 5,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.8676,
+        "pan": {
+          "x": -343.0891,
+          "y": -68.6559
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting OrderService",
+        "inspectorSubject": "class✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "after": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.8676,
+        "pan": {
+          "x": -343.0891,
+          "y": -68.6559
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting OrderController",
+        "inspectorSubject": "class✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "checks": [
+        {
+          "label": "a second Back is available",
+          "ok": true
+        },
+        {
+          "label": "Back restores exactly the original subject (A)",
+          "ok": true
+        },
+        {
+          "label": "Back does not invoke layout",
+          "ok": true
+        },
+        {
+          "label": "no card moved on the second Back",
+          "ok": true
+        },
+        {
+          "label": "membership unchanged by the second Back",
+          "ok": true
+        },
+        {
+          "label": "camera preserved by the second Back",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "expand-collapse-round-trip-preserves-subject-and-geometry",
+      "delta": {
+        "countBefore": 7,
+        "countAfter": 7,
+        "idOrderPreserved": true,
+        "survivors": 7,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "boxesShifted": [],
+        "movedIds": [],
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "arrangeCalls": 2,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 5,
+        "edgeCountAfter": 5,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": false,
+        "expandedCount": 8
+      },
+      "before": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.7196,
+        "pan": {
+          "x": -343.3406,
+          "y": -21.1774
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting com.example.stable.service",
+        "inspectorSubject": "package✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "after": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.7196,
+        "pan": {
+          "x": -343.3406,
+          "y": -21.1774
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting com.example.stable.service",
+        "inspectorSubject": "package✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "checks": [
+        {
+          "label": "expanding adds the package's classes to the map",
+          "ok": true
+        },
+        {
+          "label": "inspection survives the expansion",
+          "ok": true
+        },
+        {
+          "label": "inspection is still shown after collapsing",
+          "ok": true
+        },
+        {
+          "label": "camera preserved while expanded",
+          "ok": true
+        },
+        {
+          "label": "the map is the same after the round trip",
+          "ok": true
+        },
+        {
+          "label": "every card is back at its exact position",
+          "ok": true
+        },
+        {
+          "label": "camera preserved",
+          "ok": true
+        },
+        {
+          "label": "no whole-map layout command",
+          "ok": true
+        },
+        {
+          "label": "canvas instance preserved throughout",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "inspect-out-of-scope-resource",
+      "delta": {
+        "countBefore": 15,
+        "countAfter": 15,
+        "idOrderPreserved": true,
+        "survivors": 15,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "boxesShifted": [],
+        "movedIds": [],
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "arrangeCalls": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 19,
+        "edgeCountAfter": 19,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 15,
+        "edges": 19,
+        "zoom": 0.7376,
+        "pan": {
+          "x": -360.5901,
+          "y": -26.1007
+        },
+        "banner": "Showing packages · 1 packages in 1 selected package",
+        "showMore": null,
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 2,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "after": {
+        "count": 15,
+        "edges": 19,
+        "zoom": 0.7376,
+        "pan": {
+          "x": -360.5901,
+          "y": -26.1007
+        },
+        "banner": "Showing packages · 1 packages in 1 selected package",
+        "showMore": null,
+        "inspecting": "Inspecting ExternalPaymentGateway",
+        "inspectorSubject": "class✕",
+        "probeId": 2,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "checks": [
+        {
+          "label": "inspector opens for the out-of-scope subject",
+          "ok": true
+        },
+        {
+          "label": "the \"Outside current scope\" notice is shown",
+          "ok": true
+        },
+        {
+          "label": "scope checkboxes are unaffected",
+          "ok": true
+        },
+        {
+          "label": "displayed membership is unaffected",
+          "ok": true
+        },
+        {
+          "label": "no card moved",
+          "ok": true
+        },
+        {
+          "label": "camera preserved",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "scope-remove-readd-package",
+      "delta": {
+        "countBefore": 7,
+        "countAfter": 7,
+        "idOrderPreserved": false,
+        "survivors": 7,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 1,
+        "boxesShifted": [],
+        "movedIds": [
+          "370f782e-97c4-4c0d-bec9-eeaf11e3450b"
+        ],
+        "maxMoveModelUnits": 1158.79,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "arrangeCalls": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 5,
+        "edgeCountAfter": 5,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.7196,
+        "pan": {
+          "x": -343.3406,
+          "y": -21.1774
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "after": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.7196,
+        "pan": {
+          "x": -343.3406,
+          "y": -21.1774
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "checks": [
+        {
+          "label": "removal drops only the target",
+          "ok": true
+        },
+        {
+          "label": "the count is restored (survivors + the re-added package)",
+          "ok": true
+        },
+        {
+          "label": "the re-added package lands at the end, not back in its old slot",
+          "ok": true
+        },
+        {
+          "label": "every other survivor keeps its exact position",
+          "ok": true
+        },
+        {
+          "label": "the re-added package gets a fresh position, not its old one",
+          "ok": true
+        },
+        {
+          "label": "camera preserved",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "narrow-inspect-return-preserves-geometry",
+      "delta": {
+        "countBefore": 7,
+        "countAfter": 7,
+        "idOrderPreserved": true,
+        "survivors": 7,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "boxesShifted": [],
+        "movedIds": [],
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 1,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "arrangeCalls": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 5,
+        "edgeCountAfter": 5,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.1664,
+        "pan": {
+          "x": 55.2828,
+          "y": 107.9141
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": null,
+        "inspectorSubject": "",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 430,
+          "h": 307
+        }
+      },
+      "after": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.1664,
+        "pan": {
+          "x": 55.2828,
+          "y": 107.9141
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting com.example.stable.service",
+        "inspectorSubject": "package✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 430,
+          "h": 272
+        }
+      },
+      "checks": [
+        {
+          "label": "selecting a card auto-switches to the details pane",
+          "ok": true
+        },
+        {
+          "label": "membership unaffected by the narrow inspect/return round trip",
+          "ok": true
+        },
+        {
+          "label": "no card moved",
+          "ok": true
+        },
+        {
+          "label": "camera preserved across the pane switch",
+          "ok": true
+        },
+        {
+          "label": "canvas instance preserved (no zero-size resize corruption)",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "narrow-double-click-gesture-observation",
+      "delta": {
+        "countBefore": 7,
+        "countAfter": 7,
+        "idOrderPreserved": true,
+        "survivors": 7,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "boxesShifted": [],
+        "movedIds": [],
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 1,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "arrangeCalls": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 5,
+        "edgeCountAfter": 5,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": false
+      },
+      "checks": []
+    },
+    {
+      "name": "narrow-inspector-arrange-from-details-pane",
+      "delta": {
+        "countBefore": 7,
+        "countAfter": 7,
+        "idOrderPreserved": true,
+        "survivors": 7,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 6,
+        "boxesShifted": [],
+        "movedIds": [
+          "e0d45310-df1d-4912-8a11-cadc9aad6c5a",
+          "45a691ed-9a10-4db8-b177-75c556ac21f0",
+          "3b23705a-04fc-46ae-bdb2-2c0ebe11a46f",
+          "054a628a-3157-42ab-8412-661ffb55a046",
+          "370f782e-97c4-4c0d-bec9-eeaf11e3450b",
+          "dc8cca7a-fa32-4d8b-a196-05665189bb9f"
+        ],
+        "maxMoveModelUnits": 1694.56,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "arrangeCalls": 1,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 5,
+        "edgeCountAfter": 5,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": false,
+        "returnToMap": {
+          "countBefore": 7,
+          "countAfter": 7,
+          "idOrderPreserved": true,
+          "survivors": 7,
+          "dropped": 0,
+          "added": 0,
+          "survivorsMoved": 0,
+          "boxesShifted": [],
+          "movedIds": [],
+          "maxMoveModelUnits": 0,
+          "canvasRecreated": false,
+          "layoutCalls": 0,
+          "fitCalls": 0,
+          "centerCalls": 0,
+          "taps": 0,
+          "dbltaps": 0,
+          "anyDbltaps": 0,
+          "arrangeCalls": 0,
+          "zoomChanged": false,
+          "panChanged": false,
+          "edgeCountBefore": 5,
+          "edgeCountAfter": 5,
+          "showMoreBefore": null,
+          "showMoreAfter": null,
+          "scopeChanged": false
+        }
+      },
+      "before": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.1664,
+        "pan": {
+          "x": 55.2828,
+          "y": 107.9141
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting com.example.stable.domain",
+        "inspectorSubject": "package✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 0,
+          "h": 0
+        }
+      },
+      "after": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.1664,
+        "pan": {
+          "x": 55.2828,
+          "y": 107.9141
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting com.example.stable.domain",
+        "inspectorSubject": "package✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 430,
+          "h": 272
+        }
+      },
+      "checks": [
+        {
+          "label": "a single tap switches to the Details pane, as usual",
+          "ok": true
+        },
+        {
+          "label": "the arrange action is enabled for the just-selected, currently-displayed resource",
+          "ok": true
+        },
+        {
+          "label": "activating it from the Details pane still drives exactly one arrangement",
+          "ok": true
+        },
+        {
+          "label": "no double-click gesture was involved",
+          "ok": true
+        },
+        {
+          "label": "scope/page unchanged",
+          "ok": true
+        },
+        {
+          "label": "zoom/pan unchanged by the arrangement itself",
+          "ok": true
+        },
+        {
+          "label": "returning to the map pane does not itself trigger another arrangement or move the camera",
+          "ok": true
+        },
+        {
+          "label": "canvas instance preserved across the pane switch (no zero-size resize corruption)",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "code-map-returns-to-last-view",
+      "delta": {
+        "countBefore": 7,
+        "countAfter": 7,
+        "idOrderPreserved": true,
+        "survivors": 7,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "boxesShifted": [],
+        "movedIds": [],
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": true,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "arrangeCalls": 0,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 5,
+        "edgeCountAfter": 5,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": false
+      },
+      "before": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.7196,
+        "pan": {
+          "x": -343.3406,
+          "y": -21.1774
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting com.example.stable.domain",
+        "inspectorSubject": "package✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "after": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.7196,
+        "pan": {
+          "x": -343.3406,
+          "y": -21.1774
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting com.example.stable.domain",
+        "inspectorSubject": "package✕",
+        "probeId": 2,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "checks": [
+        {
+          "label": "inspection survives the round trip",
+          "ok": true
+        },
+        {
+          "label": "the page is byte-identical",
+          "ok": true
+        },
+        {
+          "label": "no card moved",
+          "ok": true
+        },
+        {
+          "label": "camera preserved",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "edge-inspection-survives-endpoint-expand-and-collapse",
+      "delta": {
+        "countBefore": 7,
+        "countAfter": 7,
+        "idOrderPreserved": true,
+        "survivors": 7,
+        "dropped": 0,
+        "added": 0,
+        "survivorsMoved": 0,
+        "boxesShifted": [],
+        "movedIds": [],
+        "maxMoveModelUnits": 0,
+        "canvasRecreated": false,
+        "layoutCalls": 0,
+        "fitCalls": 0,
+        "centerCalls": 0,
+        "taps": 0,
+        "dbltaps": 0,
+        "anyDbltaps": 0,
+        "arrangeCalls": 2,
+        "zoomChanged": false,
+        "panChanged": false,
+        "edgeCountBefore": 5,
+        "edgeCountAfter": 5,
+        "showMoreBefore": null,
+        "showMoreAfter": null,
+        "scopeChanged": false,
+        "endpoint": "3b23705a-04fc-46ae-bdb2-2c0ebe11a46f",
+        "whileExpanded": {
+          "notice": "Not drawn right now: an endpoint is expanded, so these relationships are shown on the cards inside it. Collapse it to see this line again.",
+          "idle": false,
+          "drawn": false
+        },
+        "restored": {
+          "drawn": true,
+          "inspected": true
+        },
+        "skippedOverlayPoints": 0
+      },
+      "before": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.4165,
+        "pan": {
+          "x": 55.708,
+          "y": 133.8927
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting a relationship",
+        "inspectorSubject": "Relationship✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "after": {
+        "count": 7,
+        "edges": 5,
+        "zoom": 0.4165,
+        "pan": {
+          "x": 55.708,
+          "y": 133.8927
+        },
+        "banner": "Showing packages · 7 packages",
+        "showMore": null,
+        "inspecting": "Inspecting a relationship",
+        "inspectorSubject": "Relationship✕",
+        "probeId": 1,
+        "canvasBox": {
+          "w": 911,
+          "h": 496
+        }
+      },
+      "checks": [
+        {
+          "label": "expanding the endpoint takes the package line off the map",
+          "ok": true
+        },
+        {
+          "label": "the inspection stays open, not idle, while its line is not drawn",
+          "ok": true
+        },
+        {
+          "label": "the inspector says why the line is not drawn",
+          "ok": true
+        },
+        {
+          "label": "collapsing the endpoint draws the same line again",
+          "ok": true
+        },
+        {
+          "label": "the line is still the inspected one",
+          "ok": true
+        },
+        {
+          "label": "every card is back at its exact position",
+          "ok": true
+        },
+        {
+          "label": "camera preserved",
+          "ok": true
+        }
+      ]
+    }
+  ],
+  "screenshots": [
+    "s1-click-class-in-expanded-package.png",
+    "s2-reveal-36-then-click.png",
+    "s3-click-package.png",
+    "s4-click-edge.png",
+    "s4b-inspect-unresolved-relationship.png",
+    "s5-filter-change.png",
+    "s5b-edge-survives-filter.png",
+    "s5c-edge-survives-filter-to-contained-kind.png",
+    "s6-add-package.png",
+    "s7-remove-package.png",
+    "s8-close-details.png",
+    "s9-resize.png",
+    "s9b-manual-drag.png",
+    "s10a-double-click-before.png",
+    "s10a-double-click.png",
+    "s10b-double-click-expanded-boxes-before.png",
+    "s10b-double-click-expanded-boxes.png",
+    "s10d-inspector-arrange-action-before.png",
+    "s10d-inspector-arrange-action.png",
+    "s11-narrow-map.png",
+    "s12a-traverse-a-b-c.png",
+    "s12b-back-to-a.png",
+    "s13-expand-collapse-round-trip.png",
+    "s14-out-of-scope-inspection.png",
+    "s15-scope-remove-readd.png",
+    "s16-narrow-inspect-return.png",
+    "s16b-narrow-inspector-arrange-from-details.png",
+    "s16b-narrow-arranged-map-after-return.png",
+    "s17-code-map-returns-to-last-view.png",
+    "s19-edge-inspection-after-endpoint-round-trip.png"
+  ],
+  "failures": []
+}

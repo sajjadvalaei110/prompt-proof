@@ -1,5 +1,5 @@
 # Project status
-Last updated: 2026-10-01 (Changes-mode review fixes: empty-comparison notice, per-workspace Base revision; before that ADRs 0014 and 0015)
+Last updated: 2026-10-01 (stable-graph acceptance ported to the package-only map; Changes-mode review fixes; before that ADRs 0014 and 0015)
 Active milestone: R6 — Developer comprehension redesign (in progress)
 Current revision: Step11 language-neutral Java analysis integrated with step 14 Ungroup (an expanded box's box hidden, its children kept as free cards,
 ADR 0011) merged with main's step 13 (card menu Expand/Collapse + View source, cascading tree
@@ -28,6 +28,68 @@ toggle with a git-style diff code viewer, exploration tabs with per-tab undo/red
 and selection controls, the R6 change-edges slice (one line per direction,
 directional selection emphasis, file-grouped evidence), in-place card details
 (expand packages/classes) and resizable cards; Step 6A remains unstarted
+
+## Stable-graph acceptance ported to the package-only map (2026-10-01)
+
+Owner request: fix the `verify_stable_graph_pipeline.py acceptance` failure. It had been broken since ADR 0007, and
+earlier entries deferred it as a separate task. The owner chose to port it rather than retire it, on the same
+branch and PR as the review fixes.
+
+Root cause:
+- `verify-stable-graph-ui.mjs` drove the Packages/Classes/Methods switcher (`.segmented`, 46 call sites) and
+  Classes-level Show more. ADR 0007 removed both.
+- So the suite threw at `revealClasses` in its first scenario and asserted nothing.
+
+Correction to what was told to the owner:
+- When offering options, I said Show more pages packages in batches of 12. It does not: the package level admits
+  every in-scope package (`batchSize: Infinity` in `App.tsx`).
+- 30 isolated packages were added to the fixture for package paging, measured (all 37 drawn at once) and removed
+  again. The fixture is unchanged from `main`.
+- S1/S2 instead use the other offered port: classes are revealed by expanding packages in place.
+
+Port (scenario mapping in `docs/STABLE_GRAPH_INTERACTIONS.md` §"Browser acceptance after ADR 0007"):
+- Setup:
+  - `packageMap()` and `revealClassesInBoxes(n)` replace `revealClasses`/`clickLevel`;
+  - `toggleCard` uses a card's Details control, or the card menu's Collapse when a grown box puts its control off
+    screen;
+  - `fitMap()` frames the map with the user's Fit map control before a scenario aims a pointer. A 7-card map can sit
+    wholly outside the camera an earlier scenario left, which the 36-card Classes page never did.
+- Rewritten scenarios:
+  - S13: expand and collapse round trip;
+  - S15: remove and re-add a package;
+  - S19: an inspected line survives an endpoint's expand and collapse;
+  - S9b's second half: drag persists across leaving the map.
+- Retired: S18 (no levels) and the `baseline` mode (its defects were fixed in Steps 2-5; the runner now refuses it
+  with a message). The dead `baseline:` expectation arrays were removed.
+- Level assertions were deleted, not left vacuous: `null === null` would have passed.
+- S5b now frames the map before aiming at a line. At the previous scenario's camera, all 5 package lines run behind
+  one row of cards, and `edgePoints` found 0 clickable points (recorded in `s5b-edge-click-attempts.json`).
+
+Finding, not fixed (product behaviour, outside this request):
+- Clicking a class inside an expanded box shifts the box by up to about 5.6 units while no card moves. Measured with
+  a probe: clicking `InvoiceService` gave `OrderService`, at the box's left edge, the `rel-out` halo (animated
+  `outline-width` ~8.3 px plus a 2 px offset). Cytoscape includes children's outlines in compound bounds, so the
+  box's left edge moved 10.85 units.
+- Because the halo pulses, the box edge follows it.
+- The harness now counts cards (stored positions) for "no card moved" and reports box shifts per scenario as
+  `boxesShifted`, rather than hiding them.
+- A fix would change the ADR 0008 halo styling, for example a halo that does not enter compound bounds. That is
+  left for the owner to decide.
+
+Checks run:
+- `node --check scripts/verify-stable-graph-ui.mjs`, `python3 -m py_compile scripts/verify_stable_graph_pipeline.py`:
+  PASS.
+- `python3 scripts/verify_stable_graph_pipeline.py acceptance`: PASS twice in a row (34 scenarios, 0 failures,
+  0 browser errors, fixture unchanged).
+  - Runs: `build/stable-graph/acceptance-gx0rceq0`, `acceptance-dfle_bv7`.
+  - About a dozen earlier runs failed while porting; every failure was a harness cause, listed above.
+- Screenshots inspected (S1, S2, S10b, S13, S15, S16b, S19) and copied with the report to
+  `docs/evidence/stable-graph-port/`.
+
+Not run:
+- `./gradlew test`, the frontend build and the `test-*.mjs` scripts: no application code changed in this entry (only
+  the two harness scripts and docs).
+- `python3 scripts/verify_stable_graph_pipeline.py baseline`: retired.
 
 ## Changes-mode review fixes (2026-10-01, ADR 0006 amendment)
 
@@ -103,11 +165,9 @@ Checks run:
   - Screenshots inspected; reports in `real-*-report.json`.
 - Screenshots inspected and copied to `docs/evidence/review-fixes/`: git-review 02/03/05 and diff-navigation 04/05/10.
 
-- `python3 scripts/verify_stable_graph_pipeline.py acceptance`: FAIL, before and after this change alike. On
-  `claude/diff-navigation` itself, `verify-stable-graph-ui.mjs` throws `TypeError: Cannot read properties of undefined
-  (reading 'click')` at the same step. The break predates this work and was not investigated. The empty-comparison
-  notice adds a row above the canvas only while an empty comparison is shown in Changes mode. That case is not
-  covered by this suite.
+- `python3 scripts/verify_stable_graph_pipeline.py acceptance`: FAIL at this commit, before and after alike. The cause
+  was the harness clicking the level switcher ADR 0007 removed. It was then ported and passes; see "Stable-graph
+  acceptance ported to the package-only map" above.
 
 Not run:
 - the other browser suites, since the change does not touch the reducer or the placement code;

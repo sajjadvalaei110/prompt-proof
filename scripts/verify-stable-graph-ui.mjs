@@ -1,11 +1,14 @@
 // Stable-map browser observation using Chromium CDP and Node's built-in WebSocket; no npm dependency.
 //
-// Modes (config.mode):
-//   baseline    — records current behaviour and asserts the *known broken* outcomes of R6.
-//                 This is the Step 1 exit evidence. It is expected to start failing once
-//                 Steps 2/3 land; that failure is the signal to retire the baseline case.
-//   acceptance  — asserts the stable-map contract from the product specification. It fails
-//                 today on purpose and must never be weakened to accept the broken behaviour.
+// Mode (config.mode): `acceptance` asserts the stable-map contract from the product specification.
+// The Step 1 `baseline` mode (known-defect snapshot) is retired: every defect it recorded was fixed by
+// Steps 2-5, and its scenarios drove the level switcher ADR 0007 removed.
+//
+// Ported to the package-only map (ADR 0007, 2026-10-01): the map shows every in-scope package (the
+// package level has no display limit, so Show more never appears), and classes are reached by
+// expanding a package card in place. Scenarios that tested the removed
+// Packages/Classes/Methods switcher itself are retired or replaced by their package-only equivalent
+// (see docs/STABLE_GRAPH_INTERACTIONS.md "Browser acceptance after ADR 0007").
 //
 // Instrumentation is installed from the test side onto Cytoscape's own registry
 // (`.graph-canvas._cyreg.cy`). The application ships no debug object and no graph data leaves
@@ -14,7 +17,8 @@ import fs from 'node:fs/promises';
 import assert from 'node:assert/strict';
 
 const config = JSON.parse(await fs.readFile(process.argv[2], 'utf8'));
-const { base, debug, fixture, output, mode = 'baseline' } = config;
+const { base, debug, fixture, output, mode = 'acceptance' } = config;
+if (mode !== 'acceptance' && mode !== 's4-diagnostic') throw Error(`Unknown mode ${mode}; the baseline mode is retired`);
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 const failures = [];
 const scenarios = [];
@@ -29,7 +33,7 @@ async function api(path, body) {
 async function until(fn, label) { for (let i = 0; i < 150; i++) { if (await fn()) return; await pause(200); } throw Error(`Timed out: ${label}`); }
 
 // ---------------------------------------------------------------------------
-// Import the fixture and confirm it is large enough to exercise 36 -> 12.
+// Import the fixture and confirm it is large enough to put 36+ class cards on the map.
 // ---------------------------------------------------------------------------
 const ws = await api('/api/workspaces', { path: fixture });
 const analysis = await api(`/api/workspaces/${ws.id}/analysis-jobs`, {});
@@ -102,11 +106,11 @@ const STATE = `(()=>{
     probeId:cy.__probeId??null,
     counters:{...(window.__probe||{})},
     ids:cy.nodes().map(n=>n.id()),
+    boxes:cy.nodes(':parent').map(n=>n.id()),
     positions:Object.fromEntries(cy.nodes().map(n=>[n.id(),{x:round(n.position('x')),y:round(n.position('y'))}])),
     edgeIds:cy.edges().map(e=>e.id()).sort(),
     zoom:round(cy.zoom()),
     pan:{x:round(cy.pan().x),y:round(cy.pan().y)},
-    level:document.querySelector('.segmented button.active')?.textContent||null,
     banner:document.querySelector('.scope-banner-text span')?.textContent||null,
     showMore:document.querySelector('.show-more')?.textContent||null,
     inspecting:document.querySelector('.inspecting-chip')?.textContent||null,
@@ -131,8 +135,15 @@ async function state() { await probe(); return evaluate(STATE); }
 const resetCounters = () => evaluate(`(()=>{const p=window.__probe;p.layouts=0;p.fits=0;p.centers=0;p.taps=0;p.dbltaps=0;p.anyDbltaps=0;p.arranges=0;return true})()`);
 
 function delta(before, after) {
-  const moved = before.ids.filter(id => after.positions[id] &&
-    (Math.abs(after.positions[id].x - before.positions[id].x) > 0.01 || Math.abs(after.positions[id].y - before.positions[id].y) > 0.01));
+  const shifted = id => after.positions[id] &&
+    (Math.abs(after.positions[id].x - before.positions[id].x) > 0.01 || Math.abs(after.positions[id].y - before.positions[id].y) > 0.01);
+  // Cards are the stored positions the contract preserves. An expanded box has no stored position:
+  // Cytoscape derives it from its children's bounds, which include a child's selection halo (outline),
+  // so a halo on a card at the box's edge shifts the box while no card moves. Boxes are reported
+  // separately (boxesShifted) rather than counted as moved cards.
+  const isBox = id => before.boxes.includes(id) || after.boxes.includes(id);
+  const moved = before.ids.filter(id => !isBox(id) && shifted(id));
+  const boxesShifted = before.ids.filter(id => isBox(id) && shifted(id));
   const maxMove = moved.reduce((max, id) => Math.max(max, Math.hypot(after.positions[id].x - before.positions[id].x, after.positions[id].y - before.positions[id].y)), 0);
   return {
     countBefore: before.ids.length, countAfter: after.ids.length,
@@ -141,6 +152,8 @@ function delta(before, after) {
     dropped: before.ids.filter(id => !after.ids.includes(id)).length,
     added: after.ids.filter(id => !before.ids.includes(id)).length,
     survivorsMoved: moved.length,
+    boxesShifted: boxesShifted.map(id => ({ id, dx: Math.round((after.positions[id].x - before.positions[id].x) * 100) / 100, dy: Math.round((after.positions[id].y - before.positions[id].y) * 100) / 100 })),
+    movedIds: moved.slice(0, 8),
     maxMoveModelUnits: Math.round(maxMove * 100) / 100,
     canvasRecreated: before.probeId !== after.probeId,
     layoutCalls: after.counters.layouts - before.counters.layouts,
@@ -153,13 +166,12 @@ function delta(before, after) {
     zoomChanged: before.zoom !== after.zoom,
     panChanged: before.pan.x !== after.pan.x || before.pan.y !== after.pan.y,
     edgeCountBefore: before.edgeIds.length, edgeCountAfter: after.edgeIds.length,
-    levelBefore: before.level, levelAfter: after.level,
     showMoreBefore: before.showMore, showMoreAfter: after.showMore,
     scopeChanged: Object.keys(before.scopeChecks).some(k => Object.hasOwn(after.scopeChecks, k) && after.scopeChecks[k] !== before.scopeChecks[k])
   };
 }
 
-/** Records a scenario. `baseline` and `acceptance` are arrays of [label, boolean]. */
+/** Records a scenario. `acceptance` is an array of [label, boolean]. */
 function record(name, before, after, d, expectations) {
   const active = expectations[mode] || [];
   const checked = active.map(([label, ok]) => ({ label, ok }));
@@ -167,7 +179,7 @@ function record(name, before, after, d, expectations) {
   scenarios.push({ name, delta: d, before: summarize(before), after: summarize(after), checks: checked });
   console.log(`  ${checked.every(c => c.ok) ? 'ok  ' : 'FAIL'} ${name} :: ${JSON.stringify(d)}`);
 }
-const summarize = s => ({ count: s.ids.length, edges: s.edgeIds.length, zoom: s.zoom, pan: s.pan, level: s.level, banner: s.banner, showMore: s.showMore, inspecting: s.inspecting, inspectorSubject: s.inspectorSubject, probeId: s.probeId, canvasBox: s.canvasBox });
+const summarize = s => ({ count: s.ids.length, edges: s.edgeIds.length, zoom: s.zoom, pan: s.pan, banner: s.banner, showMore: s.showMore, inspecting: s.inspecting, inspectorSubject: s.inspectorSubject, probeId: s.probeId, canvasBox: s.canvasBox });
 
 // ---------------------------------------------------------------------------
 // Real pointer dispatch (never `.emit('tap')`).
@@ -244,11 +256,16 @@ const edgePoints = id => evaluate(`(()=>{
  * whatever real DOM happens to sit there (the minimap, zoom controls, or nothing), producing a
  * confusing failure rather than a real pointer test. Pick from cards that are actually visible.
  */
-async function pickVisibleNodeId(preferredIndex = 0) {
+async function pickVisibleNodeId(preferredIndex = 0, insideBox = false) {
   return evaluate(`(()=>{
     const cy=${CY}, w=cy.width(), h=cy.height();
-    const within=cy.nodes().filter(n=>{const b=n.renderedBoundingBox();return b.x1>=4&&b.y1>=4&&b.x2<=w-4&&b.y2<=h-4;});
-    const pool=within.length?within:cy.nodes();
+    // A card, never an expanded box: a box's centre is usually covered by one of its children.
+    // insideBox: true picks a card drawn inside an expanded box (a class of an expanded package),
+    // 'top' a top-level card, false any card.
+    const where=${JSON.stringify(insideBox)};
+    const cards=cy.nodes().filter(n=>!n.isParent()&&(where===true?n.parent().length>0:where==='top'?n.parent().length===0:true));
+    const within=cards.filter(n=>{const b=n.renderedBoundingBox();return b.x1>=4&&b.y1>=4&&b.x2<=w-4&&b.y2<=h-4;});
+    const pool=within.length?within:cards;
     const idx=Math.min(${preferredIndex},pool.length-1);
     return idx>=0?pool[idx].id():null;
   })()`);
@@ -319,7 +336,41 @@ await cdp('Page.navigate', { url: `${base}/?snapshotId=${snapshot}` });
 await until(() => evaluate(`!!document.querySelector('.graph-canvas')?._cyreg?.cy`), 'canvas mount');
 await probe();
 
-const clickLevel = name => evaluate(`[...document.querySelectorAll('.segmented button')].find(b=>b.textContent===${JSON.stringify(name)}).click()`);
+const packageId = suffix => {
+  const pkg = graph.nodes.find(n => n.kind === 'PACKAGE' && n.qualifiedName.endsWith('.' + suffix));
+  assert.ok(pkg, `fixture package ${suffix}`);
+  return pkg.id;
+};
+/** Expand (or collapse) a card in place through its own Details control, as a user would. */
+async function toggleCard(id, expanded) {
+  const control = await evaluate(`(()=>{const b=document.querySelector('.map-details-button[data-card-id="'+CSS.escape(${JSON.stringify(id)})+'"]');if(!b)return false;b.click();return true})()`);
+  if (!control) {
+    // A grown box can put its Collapse control (top-right corner) off screen. The card menu is the
+    // other user route (contract: "Card menu (right-click) Expand / Collapse"): right-click the
+    // visible part of the box's header band and choose Collapse.
+    assert.ok(!expanded, `no Details control drawn for ${id}`);
+    const header = await evaluate(`(()=>{const cy=${CY},n=cy.getElementById(${JSON.stringify(id)}),r=document.querySelector('.graph-canvas').getBoundingClientRect(),b=n.renderedBoundingBox({includeLabels:false});
+      const x1=Math.max(b.x1,8),x2=Math.min(b.x2,cy.width()-8),y=b.y1+14;if(x2<=x1||y<4||y>cy.height()-4)return null;return{x:r.x+(x1+x2)/2,y:r.y+y}})()`);
+    assert.ok(header, `the header of box ${id} is on screen for its card menu`);
+    await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: header.x, y: header.y, button: 'none', buttons: 0 });
+    await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x: header.x, y: header.y, button: 'right', buttons: 2, clickCount: 1 });
+    await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x: header.x, y: header.y, button: 'right', buttons: 0, clickCount: 1 });
+    await pause(400);
+    await evaluate(`(()=>{const b=[...document.querySelectorAll('.graph-context-menu [role=menuitem]')].find(b=>/Collapse/.test(b.textContent)&&!/into/.test(b.textContent));if(!b)throw Error('no Collapse item in the card menu: '+[...document.querySelectorAll('.graph-context-menu [role=menuitem]')].map(b=>b.textContent).join(' | '));b.click();return true})()`);
+  }
+  await until(() => evaluate(`(()=>{const n=${CY}.getElementById(${JSON.stringify(id)});return n.length>0&&!!n.data('expanded')===${expanded}&&(${!expanded}||n.children().length>0)})()`), `${id} ${expanded ? 'expanded' : 'collapsed'}`);
+  await pause(400);
+  await probe();
+}
+const expandPackage = suffix => toggleCard(packageId(suffix), true);
+const collapsePackage = suffix => toggleCard(packageId(suffix), false);
+const leaveAndReturnToMap = async () => {
+  await evaluate(`[...document.querySelectorAll('.workspace-nav button')].find(b=>b.textContent.includes('Entry points')).click()`);
+  await pause(400);
+  await evaluate(`[...document.querySelectorAll('.workspace-nav button')].find(b=>b.textContent.includes('Code map')).click()`);
+  await until(() => evaluate(`!!document.querySelector('.graph-canvas')?._cyreg?.cy&&${CY}.nodes().length>0`), 'map remounted');
+  await pause(400);
+};
 /** Fresh page load. Re-selecting an already-active level is now a genuine no-op (Step 2), so a
  * level's displayed page persists once grown; the only reliable way back to a small starting page
  * for a scenario that needs one is a real reload, not clicking the same level again. */
@@ -328,17 +379,31 @@ async function reload() {
   await until(() => evaluate(`!!document.querySelector('.graph-canvas')?._cyreg?.cy`), 'canvas mount (reload)');
   await probe();
 }
-async function revealClasses(target) {
-  await clickLevel('Classes');
-  await until(async () => (await evaluate(`${CY}.nodes().length`)) > 1, 'class level');
-  while ((await evaluate(`${CY}.nodes().length`)) < target) {
-    const more = await evaluate(`!!document.querySelector('.show-more')`);
-    if (!more) break;
-    await evaluate(`document.querySelector('.show-more').click()`);
-    await pause(500);
-  }
+/** Frame the whole map with the user's own Fit map control. A scenario's setup does this so its
+ * pointer targets are on screen: a small package map can sit entirely outside the camera an earlier
+ * scenario left (the removed Classes page filled the view with 36 cards, so this never came up). */
+async function fitMap() {
+  await evaluate(`document.querySelector('.zoom-controls button[aria-label="Fit map"]').click()`);
+  await pause(500);
+}
+/** The package map: every in-scope package is a top-level card (ADR 0007; no display limit). Frames
+ * it, and returns the number of top-level cards and boxes. */
+async function packageMap() {
+  await until(async () => (await evaluate(`${CY}.nodes().length`)) >= 1, 'package map');
+  await fitMap();
   await probe();
-  return evaluate(`${CY}.nodes().length`);
+  return evaluate(`${CY}.nodes().orphans().length`);
+}
+/** Classes are reached by expanding packages in place. Expands the largest packages (fixture order)
+ * until at least `target` class cards are drawn inside boxes; returns that count. */
+async function revealClassesInBoxes(target) {
+  await packageMap();
+  for (const pkg of ['service', 'domain', 'controller', 'repository', 'util', 'external']) {
+    if ((await evaluate(`${CY}.nodes().filter(n=>n.parent().length>0).length`)) >= target) break;
+    if (!(await evaluate(`!!${CY}.getElementById(${JSON.stringify(packageId(pkg))}).data('expanded')`))) await expandPackage(pkg);
+  }
+  await fitMap();
+  return evaluate(`${CY}.nodes().filter(n=>n.parent().length>0).length`);
 }
 
 console.log(`fixture: ${typeCount} types, ${packageCount} packages, edge kinds ${edgeKinds.join('/')}, displayed resolutions ${resolutions.join('/')}, ${unresolvedRelationships} unresolved-target relationships (never projected onto the canvas)`);
@@ -348,7 +413,7 @@ console.log(`mode: ${mode}`);
 // a renderer-valid edge coordinate that is intercepted by a DOM overlay, then records whether that
 // actual target changed the camera. Normal acceptance never performs this overlay click.
 if (mode === 's4-diagnostic') {
-  await revealClasses(36);
+  await packageMap();
   const seed = await pickVisibleNodeId(8);
   await singleClick(await nodePoint(seed));
   await pause(400);
@@ -390,72 +455,62 @@ if (mode === 's4-diagnostic') {
 }
 
 // ---------------------------------------------------------------------------
-// S1 — click a class card while only the initial 12 are displayed.
-// Isolates the canvas defect from the display-limit defect.
+// S1 — click a class card inside one expanded package box. ADR 0007: classes are reached by expanding
+// a package in place, so this is the class-card click.
 // ---------------------------------------------------------------------------
 {
-  const shown = await revealClasses(12);
-  assert.equal(shown, 12, 'initial class page is 12');
+  await packageMap();
+  await expandPackage('service');
   await resetCounters();
   const before = await state();
-  const target = await pickVisibleNodeId(5);
+  const target = await pickVisibleNodeId(5, true);
   await singleClick(await nodePoint(target));
   const after = await state();
   const d = delta(before, after);
   d.subject = after.inspectorSubject.slice(0, 40);
-  record('click-class-card-at-12', before, after, d, {
+  d.target = target;
+  record('click-class-card-in-expanded-package', before, after, d, {
     // Step 3 fixed selection-triggered arrangement/refit: a single click no longer calls
     // cy.layout()/cy.fit(), moves a survivor, or touches the camera.
-    baseline: [
-      ['inspector opened', after.inspectorOpen],
-      ['canvas instance survives (no topology change)', !d.canvasRecreated],
-      ['no arrangement command (Step 3 fixed)', d.layoutCalls === 0],
-      ['no card moves (Step 3 fixed)', d.survivorsMoved === 0],
-      ['camera is preserved (Step 3 fixed)', !d.zoomChanged && !d.panChanged]
-    ],
     acceptance: [
+      ['the clicked card is a class inside the expanded package box', after.inspectorOpen && graph.nodes.some(n => n.id === target && isType(n))],
       ['inspector opened', after.inspectorOpen],
       ['same displayed IDs in the same order', d.idOrderPreserved],
       ['no arrangement command', d.layoutCalls === 0],
       ['no card moved', d.survivorsMoved === 0],
       ['zoom preserved', !d.zoomChanged],
       ['pan preserved', !d.panChanged],
-      ['level unchanged', d.levelBefore === d.levelAfter]
     ]
   });
-  await screenshot('s1-click-class-at-12');
+  await screenshot('s1-click-class-in-expanded-package');
 }
 
 // ---------------------------------------------------------------------------
-// S2 — reveal 36 classes, then click one. The reported 36 -> 12 reset.
+// S2 — put 36+ classes on the map, then click one. The reported "36 -> 12" reset: inspection must not
+// shrink what the user revealed. Before ADR 0007 the 36 were revealed with Show more on the Classes
+// level; now they are revealed by expanding packages in place.
 // ---------------------------------------------------------------------------
 {
-  const shown = await revealClasses(36);
-  assert.equal(shown, 36, 'two Show more actions reveal 36 classes');
+  await reload();
+  const shown = await revealClassesInBoxes(36);
+  assert.ok(shown >= 36, `expanding packages reveals at least 36 classes, saw ${shown}`);
   await panAndZoom();
   await probe();
   await resetCounters();
   const before = await state();
-  const target = await pickVisibleNodeId(2);
+  const target = await pickVisibleNodeId(2, true);
   await singleClick(await nodePoint(target));
   const after = await state();
   const d = delta(before, after);
   d.subject = after.inspectorSubject.slice(0, 40);
-  record('reveal-36-then-click-class', before, after, d, {
+  record('reveal-36-classes-then-click-class', before, after, d, {
     // Step 2 fixed the membership/canvas-identity half of this regression: inspection no longer
     // resets the display limit, and a stable topology means the canvas is no longer torn down.
     // Step 3 fixed the remaining position/camera half: the click no longer moves any of the 36
     // cards or discards the user's pan/zoom.
-    baseline: [
-      ['inspector opened', after.inspectorOpen],
-      ['still 36 displayed (Step 2 fixed)', d.countAfter === 36],
-      ['canvas instance survives (Step 2 fixed)', !d.canvasRecreated],
-      ['no card moves (Step 3 fixed)', d.survivorsMoved === 0],
-      ['the user camera is preserved (Step 3 fixed)', !d.zoomChanged && !d.panChanged]
-    ],
     acceptance: [
       ['inspector opened', after.inspectorOpen],
-      ['still 36 displayed', d.countAfter === 36],
+      ['every revealed card is still displayed', d.countAfter === d.countBefore],
       ['same displayed IDs in the same order', d.idOrderPreserved],
       ['no card moved', d.survivorsMoved === 0],
       ['camera preserved', !d.zoomChanged && !d.panChanged],
@@ -467,24 +522,18 @@ if (mode === 's4-diagnostic') {
 }
 
 // ---------------------------------------------------------------------------
-// S3 — click a package card at Packages level (no display-limit reset path).
+// S3 — click a package card on a fresh package map (every in-scope package, nothing expanded).
 // ---------------------------------------------------------------------------
 {
-  await clickLevel('Packages');
-  await until(async () => (await evaluate(`${CY}.nodes().length`)) >= 6, 'package level');
-  await probe(); await resetCounters();
+  await reload();
+  assert.equal(await packageMap(), packageCount, 'a fresh map holds every package');
+  await resetCounters();
   const before = await state();
   const target = await pickVisibleNodeId(2);
   await singleClick(await nodePoint(target));
   const after = await state();
   const d = delta(before, after);
   record('click-package-card', before, after, d, {
-    baseline: [
-      ['inspector opened', after.inspectorOpen],
-      ['package count unchanged (no limit at PACKAGE level)', d.countBefore === d.countAfter],
-      ['no arrangement command (Step 3 fixed)', d.layoutCalls === 0],
-      ['no card moves (Step 3 fixed)', d.survivorsMoved === 0]
-    ],
     acceptance: [
       ['inspector opened', after.inspectorOpen],
       ['no arrangement command', d.layoutCalls === 0],
@@ -500,7 +549,7 @@ if (mode === 's4-diagnostic') {
 // layout falls back to the unfocused alphabetical grid.
 // ---------------------------------------------------------------------------
 {
-  await revealClasses(36);
+  await packageMap();
   // A real user has already inspected something and moved the camera. Without that the
   // unfocused fallback grid is indistinguishable from the incumbent grid.
   const seed = await pickVisibleNodeId(8);
@@ -576,16 +625,9 @@ if (mode === 's4-diagnostic') {
     // Step 3 removed the layout/fit call from edge selection entirely, so the aggregate-edge-ID
     // focus mismatch that used to fall back to the alphabetical grid no longer matters: nothing is
     // rearranged on any selection, node or edge.
-    baseline: [
-      ['relationship inspector opened', after.inspectorSubject.includes('Relationship')],
-      ['edge selection does not reset the display limit', d.countAfter === d.countBefore],
-      ['no arrangement command (Step 3 fixed)', d.layoutCalls === 0],
-      ['no card moves, since selection never arranges the map (Step 3 fixed)', d.survivorsMoved === 0],
-      ['the user camera is preserved (Step 3 fixed)', !d.zoomChanged && !d.panChanged]
-    ],
     acceptance: [
       ['relationship inspector opened', after.inspectorSubject.includes('Relationship')],
-      ['still 36 displayed', d.countAfter === 36],
+      ['displayed count unchanged', d.countAfter === d.countBefore],
       ['no card moved', d.survivorsMoved === 0],
       ['camera preserved', !d.zoomChanged && !d.panChanged],
       ['no arrangement command', d.layoutCalls === 0]
@@ -602,7 +644,7 @@ if (mode === 's4-diagnostic') {
 // nothing to aggregate onto), collapsing the inspector back to its idle state.
 // ---------------------------------------------------------------------------
 {
-  await revealClasses(12);
+  await packageMap();
   const typeInto = (id, text) => evaluate(`(()=>{
     const input = document.getElementById(${JSON.stringify(id)});
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
@@ -629,7 +671,7 @@ if (mode === 's4-diagnostic') {
     ['relationship content is shown', relationshipShown],
     ['displayed page count unaffected', d.countAfter === d.countBefore]
   ];
-  record('inspect-unresolved-relationship', before, after, d, { baseline: checks, acceptance: checks });
+  record('inspect-unresolved-relationship', before, after, d, { acceptance: checks });
   await screenshot('s4b-inspect-unresolved-relationship');
   await typeInto('global-search', ''); // clear so later scenarios are not affected by leftover results
   await pause(200);
@@ -639,7 +681,7 @@ if (mode === 's4-diagnostic') {
 // S5 — change the relationship filter. Node membership must not react at all.
 // ---------------------------------------------------------------------------
 {
-  await revealClasses(36);
+  await packageMap();
   await panAndZoom();
   await probe();
   await resetCounters();
@@ -654,11 +696,6 @@ if (mode === 's4-diagnostic') {
     // Step 3 replaced destroy/recreate-on-topology-change with incremental ID-based reconciliation,
     // so a filter change (which only changes the edge set) no longer tears down the canvas or
     // discards the camera.
-    baseline: [
-      ['edge set changed', d.edgeCountBefore !== d.edgeCountAfter],
-      ['canvas instance preserved (Step 3 fixed)', !d.canvasRecreated],
-      ['the user camera is preserved (Step 3 fixed)', !d.zoomChanged && !d.panChanged]
-    ],
     acceptance: [
       ['edge set changed', d.edgeCountBefore !== d.edgeCountAfter],
       ['node membership unchanged', d.idOrderPreserved],
@@ -681,26 +718,34 @@ if (mode === 's4-diagnostic') {
 // filtered `projected.edges` (Step 4, Appendix F3).
 // ---------------------------------------------------------------------------
 {
-  await revealClasses(36);
+  await packageMap();
   // S4b (immediately before this scenario) leaves an unresolved relationship inspected, and
   // nothing in between clears selection (there is no background-tap-deselect handler). Force the
   // pre-state to a NODE first so "Relationship" appearing in the inspector below is a true signal
   // that OUR click landed on an edge, not a stale artifact of the previous scenario.
   await singleClick(await nodePoint(await pickVisibleNodeId(0)));
   await pause(300);
+  // The previous scenario's zoom and pan can leave every line behind a card or off the canvas; frame
+  // the whole map with the user's own Fit map control before aiming at a line.
+  await evaluate(`document.querySelector('.zoom-controls button[aria-label="Fit map"]').click()`);
+  await pause(500);
   await resetCounters();
   const candidates = await visibleEdgeCandidates(12);
   // One line now carries every kind between its ordered pair (kindCounts), so filtering to any kind
   // the line contains keeps it drawn (thinner). This case needs a kind the clicked line does NOT
   // contain, so only a line with such a kind available is an eligible candidate.
   let clickedId = null, clickedKind = null, otherKind = null, skippedOverlayPoints = 0;
+  const attempts5b = [];
   for (const id of candidates) {
     const lineKinds = await evaluate(`Object.keys(${CY}.getElementById(${JSON.stringify(id)}).data('kindCounts')||{})`);
     const absent = edgeKinds.find(k => !lineKinds.includes(k));
-    if (!absent) continue;
-    for (const point of await edgePoints(id)) {
+    if (!absent) { attempts5b.push({ id, lineKinds, skipped: 'contains every kind' }); continue; }
+    const points = await edgePoints(id);
+    attempts5b.push({ id, lineKinds, points: points.length, onCanvas: points.filter(p => p.cyCanvasTarget).length });
+    for (const point of points) {
       if (!point.cyCanvasTarget) { skippedOverlayPoints++; continue; }
       await singleClick(point);
+      attempts5b.push({ id, point: { x: point.x, y: point.y }, subject: await evaluate(`(document.querySelector('.inspector-top')?.textContent||'').slice(0,60)`), inspected: await evaluate(`${CY}.edges('.inspected').map(e=>e.id())`) });
       if (await evaluate(`(document.querySelector('.inspector-top')?.textContent||'').includes('Relationship')`)) {
         // Overlapping bezier lines mean the click can land on a neighbour of the intended candidate,
         // so take the line the canvas actually selected as the subject and re-derive its kinds from
@@ -715,7 +760,8 @@ if (mode === 's4-diagnostic') {
     }
     if (clickedId) break;
   }
-  assert.ok(clickedId, 'a real pointer click landed on an edge (with at least one kind it does not contain) for the filter-survival case');
+  await fs.writeFile(`${output}/s5b-edge-click-attempts.json`, JSON.stringify(attempts5b, null, 2));
+  assert.ok(clickedId, `a real pointer click landed on an edge (with at least one kind it does not contain) for the filter-survival case; attempts: ${JSON.stringify(attempts5b).slice(0, 1500)}`);
   const before = await state();
   await evaluate(`{const s=document.querySelector('select[aria-label="Relationship kind"]');s.value=${JSON.stringify(otherKind)};s.dispatchEvent(new Event('change',{bubbles:true}));}`);
   await pause(700);
@@ -733,7 +779,7 @@ if (mode === 's4-diagnostic') {
     ['no card moved', d.survivorsMoved === 0],
     ['camera preserved', !d.zoomChanged && !d.panChanged]
   ];
-  record('inspect-edge-survives-filter-change', before, after, d, { baseline: checks, acceptance: checks });
+  record('inspect-edge-survives-filter-change', before, after, d, { acceptance: checks });
   await screenshot('s5b-edge-survives-filter');
 
   // Companion case, the other half of the same rule: filtering to a kind the inspected line DOES
@@ -756,7 +802,7 @@ if (mode === 's4-diagnostic') {
     ['no card moved', cd.survivorsMoved === 0],
     ['camera preserved', !cd.zoomChanged && !cd.panChanged]
   ];
-  record('inspect-edge-survives-filter-to-contained-kind', containedBefore, containedAfter, cd, { baseline: containedChecks, acceptance: containedChecks });
+  record('inspect-edge-survives-filter-to-contained-kind', containedBefore, containedAfter, cd, { acceptance: containedChecks });
   await screenshot('s5c-edge-survives-filter-to-contained-kind');
 
   await evaluate(`{const s=document.querySelector('select[aria-label="Relationship kind"]');s.value='ALL';s.dispatchEvent(new Event('change',{bubbles:true}));}`);
@@ -776,12 +822,9 @@ if (mode === 's4-diagnostic') {
     await evaluate(`(()=>{const label=[...document.querySelectorAll('.scope-row-package .scope-row-package-row .scope-label')].find(b=>(b.getAttribute('title')||'').endsWith('.${pkg}'));if(!label)throw Error('missing package ${pkg}');label.closest('.scope-row-package-row').querySelector('.scope-checkbox').click();return true})()`);
     await pause(250);
   }
-  const shown = await revealClasses(36);
-  // Each package checkbox is now its own scope edit that appends its own bounded batch (Step 2
-  // Appendix A2), so checking 4 packages one at a time can already exceed 36 before Show more is
-  // ever clicked; the exact count is no longer load-bearing here, only that a substantial,
-  // `service`-excluding page exists before the addition below.
-  assert.ok(shown >= 12, `expected a substantial class page before the add-package test, saw ${shown}`);
+  const shown = await packageMap();
+  // The four checked packages are the whole page (package-only map, ADR 0007); `service` is excluded.
+  assert.equal(shown, 4, `expected the four checked packages before the add-package test, saw ${shown}`);
   await panAndZoom();
   await probe();
   await resetCounters();
@@ -794,19 +837,12 @@ if (mode === 's4-diagnostic') {
     // Step 2 fixed the membership half: survivors are never evicted and the page grows
     // append-only. Step 3 fixed the rest: the canvas is reconciled by ID instead of torn down,
     // and the new batch is placed below the existing cards without moving any survivor.
-    baseline: [
-      ['scope changed', d.scopeChanged],
-      ['canvas instance preserved (Step 3 fixed)', !d.canvasRecreated],
-      ['no previously displayed class is evicted (Step 2 fixed)', d.dropped === 0],
-      ['the displayed page grows rather than being re-selected (Step 2 fixed)', d.countAfter > d.countBefore],
-      ['no survivor moves; new cards are appended below (Step 3 fixed)', d.survivorsMoved === 0]
-    ],
     acceptance: [
       ['scope changed', d.scopeChanged],
-      ['no previously displayed class is dropped', d.dropped === 0],
+      ['no previously displayed package is dropped', d.dropped === 0],
       ['surviving cards keep their exact positions', d.survivorsMoved === 0],
       ['camera preserved', !d.zoomChanged && !d.panChanged],
-      ['a bounded first batch of newly eligible classes is appended', d.added > 0],
+      ['the newly eligible package is appended', d.added > 0],
       ['the displayed page grows rather than being re-selected', d.countAfter > d.countBefore]
     ]
   });
@@ -822,12 +858,6 @@ if (mode === 's4-diagnostic') {
     // Step 2 fixed the refill-from-hidden-queue defect: removal only drops now-ineligible IDs.
     // Step 3 fixed the rest: the canvas is reconciled by ID (removed nodes/edges just drop out)
     // instead of torn down, and no surviving card is repositioned.
-    baseline: [
-      ['scope changed', dr.scopeChanged],
-      ['canvas instance preserved (Step 3 fixed)', !dr.canvasRecreated],
-      ['no holes filled from the hidden queue (Step 2 fixed)', dr.added === 0],
-      ['no survivor moves (Step 3 fixed)', dr.survivorsMoved === 0]
-    ],
     acceptance: [
       ['scope changed', dr.scopeChanged],
       ['surviving cards keep their exact positions', dr.survivorsMoved === 0],
@@ -844,7 +874,7 @@ if (mode === 's4-diagnostic') {
 // S8 — open/close the details pane.
 // ---------------------------------------------------------------------------
 {
-  await revealClasses(36);
+  await packageMap();
   const target = await pickVisibleNodeId(3);
   await singleClick(await nodePoint(target));
   await until(() => evaluate(`!!document.querySelector('.inspector-top')`), 'inspector open');
@@ -857,12 +887,6 @@ if (mode === 's4-diagnostic') {
   record('close-details-pane', before, after, d, {
     // Step 3 removed the layout/fit call from the clear-selection path (closing the inspector
     // clears selectedId, which used to re-run the unfocused arrangement).
-    baseline: [
-      ['inspector closed', !after.inspectorOpen],
-      ['no arrangement command (Step 3 fixed)', d.layoutCalls === 0],
-      ['no card moves when details close (Step 3 fixed)', d.survivorsMoved === 0],
-      ['camera is preserved (Step 3 fixed)', !d.zoomChanged && !d.panChanged]
-    ],
     acceptance: [
       ['inspector closed', !after.inspectorOpen],
       ['no card moved', d.survivorsMoved === 0],
@@ -877,7 +901,7 @@ if (mode === 's4-diagnostic') {
 // S9 — resize the viewport.
 // ---------------------------------------------------------------------------
 {
-  await revealClasses(36);
+  await packageMap();
   await resetCounters();
   const before = await state();
   await cdp('Emulation.setDeviceMetricsOverride', { width: 1180, height: 900, deviceScaleFactor: 1, mobile: false });
@@ -887,11 +911,6 @@ if (mode === 's4-diagnostic') {
   record('resize-pane', before, after, d, {
     // Step 3's ResizeObserver calls cy.resize() only (renderer dimensions stay in sync); it no
     // longer calls cy.fit(), so a pane resize cannot move the camera on its own.
-    baseline: [
-      ['canvas resized', before.canvasBox.w !== after.canvasBox.w],
-      ['resize observer no longer refits the camera (Step 3 fixed)', d.fitCalls === 0],
-      ['camera unchanged by a resize alone (Step 3 fixed)', !d.zoomChanged && !d.panChanged]
-    ],
     acceptance: [
       ['canvas resized', before.canvasBox.w !== after.canvasBox.w],
       ['membership preserved', d.idOrderPreserved],
@@ -906,13 +925,13 @@ if (mode === 's4-diagnostic') {
 
 // ---------------------------------------------------------------------------
 // S9b — manual drag: only the dragged card moves, the camera is untouched, and
-// the new position survives leaving the level and returning (Appendix A3.8:
+// the new position survives leaving the map (Entry points unmounts the canvas) and returning (Appendix A3.8:
 // "Preserve manual drag positions on drag completion"). A real CDP pointer drag,
 // not a synthetic position write, since a pure reducer test can prove NODE_MOVED
 // preserves state but cannot prove the gesture is actually wired to it.
 // ---------------------------------------------------------------------------
 {
-  await revealClasses(12);
+  await packageMap();
   await resetCounters();
   const before = await state();
   const draggedId = await pickVisibleNodeId(4);
@@ -935,30 +954,25 @@ if (mode === 's4-diagnostic') {
     ['camera untouched by a node drag', !d.zoomChanged && !d.panChanged],
     ['no arrangement command', d.layoutCalls === 0]
   ];
-  record('manual-drag-persists', before, after, d, { baseline: dragChecks, acceptance: dragChecks });
+  record('manual-drag-persists', before, after, d, { acceptance: dragChecks });
   await screenshot('s9b-manual-drag');
 
   const draggedPosition = after.positions[draggedId];
-  await clickLevel('Packages');
-  await until(async () => (await evaluate(`${CY}.nodes().length`)) >= 6, 'package level (drag persistence check)');
-  await pause(300);
-  await clickLevel('Classes');
-  await until(async () => (await evaluate(`${CY}.nodes().length`)) > 1, 'class level restored (drag persistence check)');
-  await pause(300);
+  await leaveAndReturnToMap();
   const restored = await state();
   const restoredPosition = restored.positions[draggedId];
   const persistCheck = [
-    ['the dragged position survives a level switch away and back', Boolean(restoredPosition)
+    ['the dragged position survives leaving the map and returning', Boolean(restoredPosition)
       && Math.abs(restoredPosition.x - draggedPosition.x) < 0.5 && Math.abs(restoredPosition.y - draggedPosition.y) < 0.5]
   ];
-  record('manual-drag-persists-across-level-switch', after, restored, delta(after, restored), { baseline: persistCheck, acceptance: persistCheck });
+  record('manual-drag-persists-across-leaving-the-map', after, restored, delta(after, restored), { acceptance: persistCheck });
 }
 
 // ---------------------------------------------------------------------------
 // S10 — two spaced single clicks versus one real double-click.
 // ---------------------------------------------------------------------------
 {
-  await revealClasses(36);
+  await packageMap();
   await resetCounters();
   const before = await state();
   const first = await pickVisibleNodeId(0);
@@ -971,19 +985,11 @@ if (mode === 's4-diagnostic') {
   const after = await state();
   const d = delta(before, after);
   record('two-spaced-single-clicks', before, after, d, {
-    baseline: [
-      ['two taps dispatched', d.taps >= 2],
-      ['no double-click gesture', d.dbltaps === 0],
-      ['level unchanged by single clicks', d.levelAfter === 'Classes'],
-      ['single clicks no longer arrange the map (Step 3 fixed)', d.layoutCalls === 0],
-      ['single clicks cause zero focused arrangements (Step 5 fixed)', d.arrangeCalls === 0]
-    ],
     acceptance: [
       ['two taps dispatched', d.taps >= 2],
       ['no double-click gesture', d.dbltaps === 0],
       ['zero arrangements', d.layoutCalls === 0],
       ['two spaced single clicks cause zero focused arrangements', d.arrangeCalls === 0],
-      ['level unchanged', d.levelAfter === 'Classes']
     ]
   });
 
@@ -992,7 +998,7 @@ if (mode === 's4-diagnostic') {
   // grown page now persists (Step 2), so start from a fresh reload rather than relying on
   // re-clicking the active level to shrink it back down.
   await reload();
-  await revealClasses(12);
+  await packageMap();
   await resetCounters();
   const beforeEmpty = await state();
   const emptyPoint = await pointAt(`(()=>{const cy=${CY},w=cy.width(),h=cy.height();
@@ -1006,16 +1012,12 @@ if (mode === 's4-diagnostic') {
   const afterEmpty = await state();
   const de = delta(beforeEmpty, afterEmpty);
   record('control-double-click-empty-canvas', beforeEmpty, afterEmpty, de, {
-    baseline: [
-      ['CDP synthesises a double-click Cytoscape recognises', de.anyDbltaps === 1],
-      ['no node double-click', de.dbltaps === 0]
-    ],
     acceptance: [
       ['CDP synthesises a double-click Cytoscape recognises', de.anyDbltaps === 1]
     ]
   });
 
-  // (a) Human-paced double-click (90 ms) on the initial 12-class page. Step 3 fixed the
+  // (a) Human-paced double-click (90 ms) on a fresh package map. Step 3 fixed the
   // position-shift-away defect (the first tap no longer arranges/moves the card), so the second
   // press now reliably lands and the gesture reaches Cytoscape. Step 4 disconnected the node
   // dbltap handler from explore() entirely (Step 4 point 1: "graph double-click must not remain
@@ -1023,59 +1025,41 @@ if (mode === 's4-diagnostic') {
   // (Appendix B/Story 2): the first tap still only inspects (idempotently -- a repeat inspect of
   // the same subject is a no-op), and `dbltap` now drives exactly one focused arrangement.
   await reload();
-  const shown12 = await revealClasses(12);
-  assert.equal(shown12, 12, 'page restored before the 12-class double-click case');
+  await packageMap();
   await resetCounters();
   const before12 = await state();
   const target12 = await pickVisibleNodeId(6);
   const point12 = await nodePoint(target12);
-  await screenshot('s10a-double-click-at-12-before');
+  await screenshot('s10a-double-click-before');
   await doubleClick(point12, 90);
   const after12 = await state();
   const d12 = delta(before12, after12);
   const settled12 = await nodePoint(target12);
   d12.targetLeftPointerBy = settled12 ? Math.round(Math.hypot(settled12.x - point12.x, settled12.y - point12.y)) : null;
-  record('real-double-click-at-12-human-paced', before12, after12, d12, {
-    baseline: [
-      ['canvas instance survives the first tap', !d12.canvasRecreated],
-      ['the first tap no longer arranges the map by itself (Step 3 fixed)', d12.layoutCalls === 0],
-      ['the second press reliably reaches the card and the gesture fires (Step 3 fixed the position-shift-away defect)', d12.dbltaps === 1],
-      ['double-click no longer drills into Methods -- Step 4 disconnected it from explore()', d12.levelAfter === d12.levelBefore],
-      ['double-click now drives exactly one focused arrangement (Step 5)', d12.arrangeCalls === 1],
-      ['the focus card is anchored at its prior model coordinate (screen anchor stays fixed)', d12.targetLeftPointerBy !== null && d12.targetLeftPointerBy <= 1]
-    ],
+  record('real-double-click-human-paced', before12, after12, d12, {
     acceptance: [
       ['double-click gesture reaches Cytoscape', d12.dbltaps === 1],
       ['exactly one arrangement', d12.arrangeCalls === 1],
       ['no whole-map layout call (out of scope for this step)', d12.layoutCalls === 0],
-      ['level unchanged', d12.levelAfter === d12.levelBefore],
       ['displayed count unchanged', d12.countAfter === d12.countBefore]
     ]
   });
-  await screenshot('s10a-double-click-at-12');
+  await screenshot('s10a-double-click');
 
   // (a2) Same page, minimal 15 ms gap: establishes whether the gesture is reachable at all
   // when the second press arrives before React re-renders.
   await reload();
-  const shownFast = await revealClasses(12);
-  assert.equal(shownFast, 12, 'page restored before the fast double-click case');
+  await packageMap();
   await resetCounters();
   const beforeFast = await state();
   const targetFast = await pickVisibleNodeId(6);
   await doubleClick(await nodePoint(targetFast), 15);
   const afterFast = await state();
   const df = delta(beforeFast, afterFast);
-  record('real-double-click-at-12-fast', beforeFast, afterFast, df, {
-    baseline: [
-      ['the first tap no longer arranges the map by itself (Step 3 fixed)', df.layoutCalls === 0],
-      ['the gesture reaches Cytoscape even at minimal separation (Step 3 fixed)', df.dbltaps === 1],
-      ['double-click no longer drills into Methods (Step 4)', df.levelAfter === df.levelBefore],
-      ['double-click drives exactly one focused arrangement even at minimal separation (Step 5)', df.arrangeCalls === 1]
-    ],
+  record('real-double-click-fast', beforeFast, afterFast, df, {
     acceptance: [
       ['double-click gesture reaches Cytoscape', df.dbltaps === 1],
       ['exactly one arrangement', df.arrangeCalls === 1],
-      ['level unchanged', df.levelAfter === df.levelBefore]
     ]
   });
 
@@ -1084,35 +1068,27 @@ if (mode === 's4-diagnostic') {
   // the second press. Together they made the gesture reach the node reliably. Step 5 wires it to
   // the dedicated arrangement command.
   await reload();
-  const shown36 = await revealClasses(36);
-  assert.equal(shown36, 36, 'page restored before the 36-class double-click case');
+  // On a map with expanded boxes (classes revealed): double-click a top-level package card.
+  await revealClassesInBoxes(36);
   await resetCounters();
   const beforeDouble = await state();
-  const target = await pickVisibleNodeId(6);
-  await screenshot('s10b-double-click-at-36-before');
+  const target = await pickVisibleNodeId(0, 'top');
+  await screenshot('s10b-double-click-expanded-boxes-before');
   await doubleClick(await nodePoint(target));
   const afterDouble = await state();
   const dd = delta(beforeDouble, afterDouble);
-  record('real-double-click-at-36', beforeDouble, afterDouble, dd, {
-    baseline: [
-      ['canvas instance survives the first tap (Step 2 fixed)', !dd.canvasRecreated],
-      ['the double-click gesture reaches the node (Step 3 fixed the position-shift-away defect)', dd.dbltaps === 1],
-      ['no drill-down to Methods -- Step 4 disconnected double-click from explore()', dd.levelAfter === dd.levelBefore],
-      ['the same 36 classes remain displayed', dd.countAfter === 36],
-      ['double-click drives exactly one focused arrangement at 36 displayed classes too (Step 5)', dd.arrangeCalls === 1]
-    ],
+  record('real-double-click-with-expanded-boxes', beforeDouble, afterDouble, dd, {
     acceptance: [
       ['double-click gesture reaches Cytoscape', dd.dbltaps === 1],
       ['exactly one arrangement', dd.arrangeCalls === 1],
-      ['level unchanged', dd.levelAfter === dd.levelBefore],
       ['displayed count unchanged', dd.countAfter === dd.countBefore],
       ['canvas instance preserved', !dd.canvasRecreated]
     ]
   });
-  await screenshot('s10b-double-click-at-36');
+  await screenshot('s10b-double-click-expanded-boxes');
 
   // (c) A second, immediately following double-click on a DIFFERENT card still causes exactly one
-  // more arrangement (the command is deliberate and re-runnable), and must not touch scope/level/
+  // more arrangement (the command is deliberate and re-runnable), and must not touch scope/
   // page/zoom either. A repeat double-click on the SAME already-arranged focus is deliberately not
   // asserted here: the algorithm is deterministic and anchored to that focus's own (unchanged)
   // position, so re-running it recomputes the identical layout and correctly moves nothing -- that
@@ -1120,8 +1096,9 @@ if (mode === 's4-diagnostic') {
   await resetCounters();
   const secondTarget = await evaluate(`(()=>{
     const cy=${CY}, w=cy.width(), h=cy.height();
-    const within=cy.nodes().filter(n=>{const b=n.renderedBoundingBox();return b.x1>=4&&b.y1>=4&&b.x2<=w-4&&b.y2<=h-4;});
-    const pool=(within.length?within:cy.nodes()).filter(n=>n.id()!==${JSON.stringify(target)});
+    const cards=cy.nodes().filter(n=>n.id()!==${JSON.stringify(target)}&&!n.isParent()&&n.parent().length===0);
+    const within=cards.filter(n=>{const b=n.renderedBoundingBox();return b.x1>=4&&b.y1>=4&&b.x2<=w-4&&b.y2<=h-4;});
+    const pool=within.length?within:cards;
     return pool.length?pool[0].id():null;
   })()`);
   assert.ok(secondTarget, 'a second, different visible card exists for the repeat double-click case');
@@ -1130,14 +1107,9 @@ if (mode === 's4-diagnostic') {
   const afterRepeat = await state();
   const dr = delta(beforeRepeat, afterRepeat);
   record('real-double-click-second-different-card', beforeRepeat, afterRepeat, dr, {
-    baseline: [
-      ['a double-click on a different card also drives exactly one arrangement', dr.arrangeCalls === 1],
-      ['zoom untouched', !dr.zoomChanged],
-      ['pan untouched', !dr.panChanged]
-    ],
     acceptance: [
       ['exactly one arrangement', dr.arrangeCalls === 1],
-      ['level/page unchanged', dr.levelAfter === dr.levelBefore && dr.countAfter === dr.countBefore],
+      ['page unchanged', dr.countAfter === dr.countBefore],
       ['zoom untouched', !dr.zoomChanged],
       ['pan untouched', !dr.panChanged]
     ]
@@ -1151,11 +1123,10 @@ if (mode === 's4-diagnostic') {
 // ---------------------------------------------------------------------------
 {
   await reload();
-  const shown12b = await revealClasses(12);
-  assert.equal(shown12b, 12, 'page restored before the inspector-action case');
+  await packageMap();
   const displayedIds10d = await evaluate(`${CY}.nodes().map(n=>n.id())`);
-  const displayedNode = graph.nodes.find(n => displayedIds10d.includes(n.id) && isType(n));
-  assert.ok(displayedNode, 'a displayed class exists to inspect');
+  const displayedNode = graph.nodes.find(n => displayedIds10d.includes(n.id) && n.kind === 'PACKAGE');
+  assert.ok(displayedNode, 'a displayed package exists to inspect');
   await singleClick(await nodePoint(displayedNode.id));
   await until(() => evaluate(`!!document.querySelector('.inspector-top')`), 'inspector open on a displayed class');
   const enabled = await evaluate(`!document.querySelector('.arrange-action')?.disabled`);
@@ -1170,15 +1141,15 @@ if (mode === 's4-diagnostic') {
   const checks10d = [
     ['no double-click gesture involved -- this is the keyboard/touch equivalent', d10d.dbltaps === 0],
     ['exactly one arrangement from the inspector action', d10d.arrangeCalls === 1],
-    ['level/page unchanged', d10d.levelAfter === d10d.levelBefore && d10d.countAfter === d10d.countBefore],
+    ['page unchanged', d10d.countAfter === d10d.countBefore],
     ['scope unaffected', !d10d.scopeChanged],
     ['zoom untouched', !d10d.zoomChanged],
     ['pan untouched', !d10d.panChanged]
   ];
-  record('inspector-arrange-around-resource', before10d, after10d, d10d, { baseline: checks10d, acceptance: checks10d });
+  record('inspector-arrange-around-resource', before10d, after10d, d10d, { acceptance: checks10d });
   await screenshot('s10d-inspector-arrange-action');
 
-  // Disabled state: inspect a class that exists in scope but is not on the current displayed page.
+  // Disabled state: inspect a class that exists in scope but is not drawn (its package is collapsed).
   const pending10d = graph.nodes.find(n => isType(n) && !displayedIds10d.includes(n.id));
   if (pending10d) {
     const typeIntoSearch = text => evaluate(`(()=>{
@@ -1198,7 +1169,7 @@ if (mode === 's4-diagnostic') {
       ['disabled for a not-currently-displayed subject', disabled],
       ['tooltip explains why', title === 'Resource is not in current map view']
     ];
-    record('inspector-arrange-disabled-when-not-displayed', after10d, after10d, {}, { baseline: notDisplayedChecks, acceptance: notDisplayedChecks });
+    record('inspector-arrange-disabled-when-not-displayed', after10d, after10d, {}, { acceptance: notDisplayedChecks });
     await typeIntoSearch('');
   }
 }
@@ -1211,6 +1182,8 @@ if (mode === 's4-diagnostic') {
   await pause(800);
   await evaluate(`[...document.querySelectorAll('.mobile-tabs button')].find(b=>b.textContent==='map').click()`);
   await pause(600);
+  await fitMap(); // frame the map at the narrow width so the cards under test are on screen
+  await probe();
   await screenshot('s11-narrow-map');
   const narrowOverflow = await evaluate('document.documentElement.scrollWidth>innerWidth');
   scenarios.push({ name: 'narrow-layout', delta: { horizontalOverflow: narrowOverflow }, checks: [] });
@@ -1226,7 +1199,7 @@ if (mode === 's4-diagnostic') {
 // layout or moving a card/camera.
 // ---------------------------------------------------------------------------
 {
-  await revealClasses(36);
+  await packageMap();
   await panAndZoom();
   await probe();
   const typeInto = (id, text) => evaluate(`(()=>{
@@ -1268,12 +1241,11 @@ if (mode === 's4-diagnostic') {
   const afterTraverse = await state();
   const dTraverse = delta(before, afterTraverse);
   const traverseChecks = [
-    ['the level did not change while following relationships', dTraverse.levelBefore === dTraverse.levelAfter],
-    ['the displayed 36 classes are unaffected', dTraverse.idOrderPreserved],
+    ['the displayed map is unaffected', dTraverse.idOrderPreserved],
     ['no card moved while following relationships', dTraverse.survivorsMoved === 0],
     ['camera preserved while following relationships', !dTraverse.zoomChanged && !dTraverse.panChanged]
   ];
-  record('traverse-a-to-b-to-c-via-inspector', before, afterTraverse, dTraverse, { baseline: traverseChecks, acceptance: traverseChecks });
+  record('traverse-a-to-b-to-c-via-inspector', before, afterTraverse, dTraverse, { acceptance: traverseChecks });
   await screenshot('s12a-traverse-a-b-c');
 
   const clickBack = () => evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='← Back');if(!b||b.disabled)return false;b.click();return true})()`);
@@ -1291,7 +1263,7 @@ if (mode === 's4-diagnostic') {
     ['membership unchanged by Back', dBack1.idOrderPreserved],
     ['camera preserved by Back', !dBack1.zoomChanged && !dBack1.panChanged]
   ];
-  record('back-restores-b', beforeBack1, afterBack1, dBack1, { baseline: back1Checks, acceptance: back1Checks });
+  record('back-restores-b', beforeBack1, afterBack1, dBack1, { acceptance: back1Checks });
 
   const beforeBack2 = await state();
   const back2Available = await clickBack();
@@ -1307,51 +1279,62 @@ if (mode === 's4-diagnostic') {
     ['membership unchanged by the second Back', dBack2.idOrderPreserved],
     ['camera preserved by the second Back', !dBack2.zoomChanged && !dBack2.panChanged]
   ];
-  record('back-restores-a', beforeBack2, afterBack2, dBack2, { baseline: back2Checks, acceptance: back2Checks });
+  record('back-restores-a', beforeBack2, afterBack2, dBack2, { acceptance: back2Checks });
   await screenshot('s12b-back-to-a');
   await typeInto('global-search', '');
   await pause(200);
 }
 
 // ---------------------------------------------------------------------------
-// S13 — Classes -> Methods -> Classes preserves the inspected subject and the
-// Classes page's exact positions/camera. Story 6: "switching from Classes to
-// Methods never destroys the saved Classes arrangement"; Step 4 also stopped
-// the level segmented control from clearing inspection on a genuine switch.
+// S13 — drill in and back: Details (⊞) on a package and then Collapse (⊟) preserves the inspected
+// subject, the camera and every card's exact position. ADR 0007 replaced the Classes -> Methods ->
+// Classes level round trip with expand-in-place; this is the same contract (drilling into detail never
+// destroys the saved arrangement), through the control that now does the drilling.
 // ---------------------------------------------------------------------------
 {
   await reload();
-  await revealClasses(12);
+  await packageMap();
+  const target = await pickVisibleNodeId(0);
+  await singleClick(await nodePoint(target));
+  await until(() => evaluate(`!!document.querySelector('.inspector-top')`), 'inspector open before expanding');
+  // Move the camera after inspecting, so "camera preserved" below compares a user-chosen camera.
   await panAndZoom();
   await probe();
-  const target = await pickVisibleNodeId(3);
-  await singleClick(await nodePoint(target));
-  await until(() => evaluate(`!!document.querySelector('.inspector-top')`), 'inspector open before level switch');
+  // Expand a package other than the inspected one, through a Details control drawn on screen. The
+  // smallest such package keeps its box (and so its Collapse control) inside the view.
+  const drawn = await evaluate(`[...document.querySelectorAll('.map-details-button[aria-expanded="false"]')].map(b=>b.dataset.cardId).filter(id=>id!==${JSON.stringify(target)})`);
+  const typesIn = id => graph.nodes.filter(n => n.parentId === id && isType(n)).length;
+  const boxId = drawn.filter(id => typesIn(id) > 0).sort((a, b) => typesIn(a) - typesIn(b))[0];
+  assert.ok(boxId, 'a visible package other than the inspected one can be expanded');
+  await resetCounters();
   const before = await state();
-  await clickLevel('Methods');
-  await until(async () => (await evaluate(`document.querySelector('.segmented button.active')?.textContent`)) === 'Methods', 'level switched to Methods');
-  await pause(400);
-  const atMethods = await state();
-  await clickLevel('Classes');
-  await until(async () => (await evaluate(`${CY}.nodes().length`)) > 1 && (await evaluate(`document.querySelector('.segmented button.active')?.textContent`)) === 'Classes', 'level restored to Classes');
-  await pause(400);
+  await toggleCard(boxId, true);
+  const expanded = await state();
+  await toggleCard(boxId, false);
   const after = await state();
   const d = delta(before, after);
+  const dIn = delta(before, expanded);
+  d.expandedCount = expanded.ids.length;
   const checks = [
-    ['inspection survives switching to Methods (not cleared by the level control)', !!before.inspecting && atMethods.inspecting === before.inspecting],
-    ['inspection is still shown after returning to Classes', after.inspecting === before.inspecting],
-    ['the Classes page is byte-identical after the round trip', d.idOrderPreserved],
-    ['no card moved', d.survivorsMoved === 0],
+    ['expanding adds the package\'s classes to the map', expanded.ids.length > before.ids.length],
+    ['inspection survives the expansion', !!before.inspecting && expanded.inspecting === before.inspecting],
+    ['inspection is still shown after collapsing', after.inspecting === before.inspecting],
+    ['camera preserved while expanded', !dIn.zoomChanged && !dIn.panChanged],
+    ['the map is the same after the round trip', d.idOrderPreserved],
+    ['every card is back at its exact position', d.survivorsMoved === 0],
     ['camera preserved', !d.zoomChanged && !d.panChanged],
+    // Expanding shifts the cards right of / below the box and collapsing shifts them back (contract);
+    // the canvas reports each such position update as 'arranged'. No whole-map layout may run.
+    ['no whole-map layout command', d.layoutCalls === 0],
     ['canvas instance preserved throughout', !d.canvasRecreated]
   ];
-  record('classes-methods-classes-preserves-subject-and-geometry', before, after, d, { baseline: checks, acceptance: checks });
-  await screenshot('s13-classes-methods-classes');
+  record('expand-collapse-round-trip-preserves-subject-and-geometry', before, after, d, { acceptance: checks });
+  await screenshot('s13-expand-collapse-round-trip');
 }
 
 // ---------------------------------------------------------------------------
 // S14 — inspecting a resource outside the current scope opens its details
-// without adding it to scope, changing level, or touching the displayed page
+// without adding it to scope or touching the displayed page
 // (Story 1/6: "Outside current scope").
 // ---------------------------------------------------------------------------
 {
@@ -1360,8 +1343,8 @@ if (mode === 's4-diagnostic') {
   await pause(300);
   await evaluate(`(()=>{const label=[...document.querySelectorAll('.scope-row-package .scope-row-package-row .scope-label')].find(b=>(b.getAttribute('title')||'').endsWith('.domain'));label.closest('.scope-row-package-row').querySelector('.scope-checkbox').click();return true})()`);
   await pause(400);
-  await clickLevel('Classes');
-  await until(async () => (await evaluate(`${CY}.nodes().length`)) >= 1, 'domain-only classes displayed');
+  await until(async () => (await evaluate(`${CY}.nodes().length`)) >= 1, 'domain-only map displayed');
+  await expandPackage('domain');
   await panAndZoom();
   await probe();
   const before = await state();
@@ -1387,11 +1370,10 @@ if (mode === 's4-diagnostic') {
     ['the "Outside current scope" notice is shown', notice.includes('Outside current scope')],
     ['scope checkboxes are unaffected', !d.scopeChanged],
     ['displayed membership is unaffected', d.idOrderPreserved],
-    ['level unchanged', d.levelBefore === d.levelAfter],
     ['no card moved', d.survivorsMoved === 0],
     ['camera preserved', !d.zoomChanged && !d.panChanged]
   ];
-  record('inspect-out-of-scope-resource', before, after, d, { baseline: checks, acceptance: checks });
+  record('inspect-out-of-scope-resource', before, after, d, { acceptance: checks });
   await screenshot('s14-out-of-scope-inspection');
   await typeInto('global-search', '');
   await pause(200);
@@ -1400,49 +1382,31 @@ if (mode === 's4-diagnostic') {
 }
 
 // ---------------------------------------------------------------------------
-// S15 — a scope edit made while Classes is inactive is reconciled correctly
-// once the user actually returns (Step 4, Appendix F3): removing an already-
-// displayed class while viewing Methods drops it immediately from the cached
-// Classes page (not deferred), and re-adding it while still away lands it as
-// a fresh addition at the end -- not restored to its old slot -- once Classes
-// is actually revisited.
+// S15 — removing a displayed package from scope and re-adding it: survivors keep their exact
+// positions and order, nothing is refilled from the hidden queue, and the re-added package lands at
+// the end with a fresh position rather than back in its old slot (Step 4, Appendix F3). Before ADR
+// 0007 this was exercised while the Classes level was inactive; with one level the edit is direct.
 // ---------------------------------------------------------------------------
 {
   await reload();
-  const shown = await revealClasses(12);
-  assert.equal(shown, 12, 'a 12-class page exists before leaving Classes');
+  await packageMap();
   await panAndZoom();
   await probe();
   const before12 = await state();
   const targetId = before12.ids[5];
   const targetNode = graph.nodes.find(n => n.id === targetId);
-  assert.ok(targetNode, 'the target displayed class resolves to a real fixture node');
-  // A collapsed branch's children are not in the DOM at all (unlike the native <details> this tree
-  // used to render, whose children always existed there regardless of the `open` attribute), so the
-  // target class row may not exist yet. Expand every branch first; a click can reveal further
-  // still-collapsed grandchildren, so re-click on every poll attempt until none remain.
-  await until(() => evaluate(`(()=>{
-    [...document.querySelectorAll('.package-tree .tree-disclosure[aria-expanded="false"]')].forEach(b=>b.click());
-    return document.querySelectorAll('.package-tree .tree-disclosure[aria-expanded="false"]').length===0;
-  })()`), 'expand package tree to reach the target class');
-  const toggleClassCheckbox = () => evaluate(`(()=>{
-    const label=[...document.querySelectorAll('.scope-row-class .scope-label')].find(b=>b.getAttribute('title')===${JSON.stringify(targetNode.qualifiedName)});
+  assert.ok(targetNode && targetNode.kind === 'PACKAGE', 'the target is a displayed fixture package');
+  const togglePackageCheckbox = () => evaluate(`(()=>{
+    const label=[...document.querySelectorAll('.scope-row-package .scope-row-package-row .scope-label')].find(b=>b.getAttribute('title')===${JSON.stringify(targetNode.qualifiedName)});
     if(!label) return false;
-    label.closest('.scope-row-class').querySelector('.scope-checkbox').click();
+    label.closest('.scope-row-package-row').querySelector('.scope-checkbox').click();
     return true;
   })()`);
-
-  await clickLevel('Methods');
-  await until(async () => (await evaluate(`document.querySelector('.segmented button.active')?.textContent`)) === 'Methods', 'switched to Methods');
-  await pause(300);
-  assert.ok(await toggleClassCheckbox(), 'found the target class checkbox to remove it while away');
-  await pause(400);
-  assert.ok(await toggleClassCheckbox(), 'found the target class checkbox to re-add it while still away');
-  await pause(400);
-
-  await clickLevel('Classes');
-  await until(async () => (await evaluate(`${CY}.nodes().length`)) >= 12, 'Classes page restored');
-  await pause(400);
+  assert.ok(await togglePackageCheckbox(), 'found the target package checkbox to remove it');
+  await pause(500);
+  const removed = await state();
+  assert.ok(await togglePackageCheckbox(), 'found the target package checkbox to re-add it');
+  await pause(700);
   const after = await state();
   const survivors = before12.ids.filter(id => id !== targetId);
   const expectedOrder = [...survivors, targetId];
@@ -1451,15 +1415,17 @@ if (mode === 's4-diagnostic') {
   const freshPosition = after.positions[targetId] && before12.positions[targetId]
     ? (Math.abs(after.positions[targetId].x - before12.positions[targetId].x) > 0.01 || Math.abs(after.positions[targetId].y - before12.positions[targetId].y) > 0.01)
     : false;
+  const d = delta(before12, after);
   const checks = [
-    ['the page count is restored (11 survivors + the re-added class)', after.ids.length === 12],
-    ['the re-added class lands at the end, not back in its old slot', JSON.stringify(after.ids) === JSON.stringify(expectedOrder)],
+    ['removal drops only the target', removed.ids.length === before12.ids.length - 1 && !removed.ids.includes(targetId)],
+    ['the count is restored (survivors + the re-added package)', after.ids.length === before12.ids.length],
+    ['the re-added package lands at the end, not back in its old slot', JSON.stringify(after.ids) === JSON.stringify(expectedOrder)],
     ['every other survivor keeps its exact position', survivorPositionsPreserved],
-    ['the re-added class gets a fresh position, not its old one', freshPosition],
-    ['level is Classes again', after.level === 'Classes']
+    ['the re-added package gets a fresh position, not its old one', freshPosition],
+    ['camera preserved', !d.zoomChanged && !d.panChanged]
   ];
-  record('scope-remove-readd-while-away', before12, after, delta(before12, after), { baseline: checks, acceptance: checks });
-  await screenshot('s15-scope-edit-while-away');
+  record('scope-remove-readd-package', before12, after, d, { acceptance: checks });
+  await screenshot('s15-scope-remove-readd');
 }
 
 // ---------------------------------------------------------------------------
@@ -1471,13 +1437,15 @@ if (mode === 's4-diagnostic') {
 // ---------------------------------------------------------------------------
 {
   await reload();
-  await revealClasses(12);
+  await packageMap();
   await panAndZoom();
   await probe();
   await cdp('Emulation.setDeviceMetricsOverride', { width: 430, height: 900, deviceScaleFactor: 1, mobile: false });
   await pause(800);
   await evaluate(`[...document.querySelectorAll('.mobile-tabs button')].find(b=>b.textContent==='map').click()`);
   await pause(600);
+  await fitMap(); // frame the map at the narrow width so the cards under test are on screen
+  await probe();
   await resetCounters();
   const before = await state();
   const target = await pickVisibleNodeId(0);
@@ -1496,7 +1464,7 @@ if (mode === 's4-diagnostic') {
     ['camera preserved across the pane switch', !d.zoomChanged && !d.panChanged],
     ['canvas instance preserved (no zero-size resize corruption)', !d.canvasRecreated]
   ];
-  record('narrow-inspect-return-preserves-geometry', before, after, d, { baseline: checks, acceptance: checks });
+  record('narrow-inspect-return-preserves-geometry', before, after, d, { acceptance: checks });
   await screenshot('s16-narrow-inspect-return');
   await cdp('Emulation.setDeviceMetricsOverride', { width: 1500, height: 980, deviceScaleFactor: 1, mobile: false });
   await pause(600);
@@ -1517,11 +1485,13 @@ if (mode === 's4-diagnostic') {
 // ---------------------------------------------------------------------------
 {
   await reload();
-  await revealClasses(12);
+  await packageMap();
   await cdp('Emulation.setDeviceMetricsOverride', { width: 430, height: 900, deviceScaleFactor: 1, mobile: false });
   await pause(800);
   await evaluate(`[...document.querySelectorAll('.mobile-tabs button')].find(b=>b.textContent==='map').click()`);
   await pause(600);
+  await fitMap(); // frame the map at the narrow width so the cards under test are on screen
+  await probe();
 
   // Observe (do not assert either way) whether a real double-click still reaches the canvas once
   // the first press has already switched the pane away from the map -- informational, matching S11's
@@ -1538,11 +1508,13 @@ if (mode === 's4-diagnostic') {
   // The touch/keyboard equivalent: single-tap a card (switches to Details, as S16 already proves),
   // then activate "Arrange around this resource" from that same pane.
   await reload();
-  await revealClasses(12);
+  await packageMap();
   await cdp('Emulation.setDeviceMetricsOverride', { width: 430, height: 900, deviceScaleFactor: 1, mobile: false });
   await pause(800);
   await evaluate(`[...document.querySelectorAll('.mobile-tabs button')].find(b=>b.textContent==='map').click()`);
   await pause(600);
+  await fitMap(); // frame the map at the narrow width so the cards under test are on screen
+  await probe();
   const target16b = await pickVisibleNodeId(2);
   await singleClick(await nodePoint(target16b));
   await until(() => evaluate(`!!document.querySelector('.inspector-top')`), 'inspector open on narrow screen');
@@ -1568,12 +1540,12 @@ if (mode === 's4-diagnostic') {
     ['the arrange action is enabled for the just-selected, currently-displayed resource', enabled16b],
     ['activating it from the Details pane still drives exactly one arrangement', dClick16b.arrangeCalls === 1],
     ['no double-click gesture was involved', dClick16b.dbltaps === 0],
-    ['scope/level/page unchanged', !dClick16b.scopeChanged && dClick16b.levelAfter === dClick16b.levelBefore && dClick16b.countAfter === dClick16b.countBefore],
+    ['scope/page unchanged', !dClick16b.scopeChanged && dClick16b.countAfter === dClick16b.countBefore],
     ['zoom/pan unchanged by the arrangement itself', !dClick16b.zoomChanged && !dClick16b.panChanged],
     ['returning to the map pane does not itself trigger another arrangement or move the camera', dReturn16b.arrangeCalls === 0 && !dReturn16b.zoomChanged && !dReturn16b.panChanged],
     ['canvas instance preserved across the pane switch (no zero-size resize corruption)', !dReturn16b.canvasRecreated]
   ];
-  record('narrow-inspector-arrange-from-details-pane', before16b, afterReturn16b, { ...dClick16b, returnToMap: dReturn16b }, { baseline: checks16b, acceptance: checks16b });
+  record('narrow-inspector-arrange-from-details-pane', before16b, afterReturn16b, { ...dClick16b, returnToMap: dReturn16b }, { acceptance: checks16b });
   await screenshot('s16b-narrow-arranged-map-after-return');
   await cdp('Emulation.setDeviceMetricsOverride', { width: 1500, height: 980, deviceScaleFactor: 1, mobile: false });
   await pause(600);
@@ -1588,12 +1560,13 @@ if (mode === 's4-diagnostic') {
 // ---------------------------------------------------------------------------
 {
   await reload();
-  await revealClasses(12);
-  await panAndZoom();
-  await probe();
+  await packageMap();
   const target = await pickVisibleNodeId(2);
   await singleClick(await nodePoint(target));
   await until(() => evaluate(`!!document.querySelector('.inspector-top')`), 'inspector open before leaving to another tab');
+  // Move the camera after inspecting (a zoom-in can push the small package map's cards off screen).
+  await panAndZoom();
+  await probe();
   const before = await state();
   await evaluate(`[...document.querySelectorAll('.workspace-nav button')].find(b=>b.textContent.includes('Entry points')).click()`);
   await pause(400);
@@ -1602,112 +1575,63 @@ if (mode === 's4-diagnostic') {
   const after = await state();
   const d = delta(before, after);
   const checks = [
-    ['level is still Classes, not reset to Packages', after.level === 'Classes'],
     ['inspection survives the round trip', !!before.inspecting && after.inspecting === before.inspecting],
     ['the page is byte-identical', d.idOrderPreserved],
     ['no card moved', d.survivorsMoved === 0],
     ['camera preserved', !d.zoomChanged && !d.panChanged]
   ];
-  record('code-map-returns-to-last-view', before, after, d, { baseline: checks, acceptance: checks });
+  record('code-map-returns-to-last-view', before, after, d, { acceptance: checks });
   await screenshot('s17-code-map-returns-to-last-view');
 }
 
 // ---------------------------------------------------------------------------
-// S18 — Step 5 review remediation A3 (CANVAS-02): a level's node count going 0 -> >0 must trigger
-// GraphCanvas's initial-fit effect even though `camera` itself stays the exact same `null`
-// reference throughout (reconcileLevelView echoes `camera: view.camera` verbatim -- a removal or
-// addition never replaces it). Before this fix the effect was keyed on `[camera]` only, so a level
-// first visited with zero eligible nodes (camera stays null, nothing to place) that later gains
-// cards via a scope widening -- with camera never becoming non-null in between -- never re-ran the
-// effect and never fit the camera to the newly admitted card.
+// S18 retired with ADR 0007: it proved a level first visited with zero cards fits the camera once a
+// scope edit gives it cards. With one level, an empty scope shows the empty state instead of the
+// canvas, and the canvas remounts (and fits) when the scope is non-empty again.
 //
-// `com.example.stable.marker.RegionTag` (test-fixtures/stable-graph-fixture) is a field-only class
-// with no explicit methods or constructor, added specifically so METHOD level has a real,
-// non-empty-scope package that is genuinely empty at that level (verified: the imported graph has
-// no METHOD/CONSTRUCTOR node for it) -- every other package in this fixture has at least one method
-// per class (even a plain getter), so this trigger was otherwise unreachable through real scope
-// narrowing in the existing fixture.
+// S19 — an inspected relationship survives a change of what is drawn. Before ADR 0007 this was a level
+// switch; now expanding one endpoint reroutes the package line onto the classes inside it. The
+// inspection must stay open with the "Not drawn right now" notice rather than collapse or dangle, and
+// collapsing the endpoint draws the same line again, still inspected.
 // ---------------------------------------------------------------------------
 {
   await reload();
-  await evaluate(`document.querySelector('.scope-toolbar button:nth-of-type(2)').click()`); // Clear
-  await pause(300);
-  // Selecting the empty-at-METHOD-level package alone remounts GraphCanvas fresh (scopeEmpty -> not
-  // empty is a different JSX subtree, not a prop change) at PACKAGE level with one node -- a
-  // legitimate 0 -> >0... no, 1 node at mount, which the *existing* mount-time effect run already
-  // handles regardless of this fix (a fresh mount always runs the effect once). The actual case
-  // under test is the *subsequent* switch to Methods below, on this same already-mounted instance.
-  await evaluate(`(()=>{const label=[...document.querySelectorAll('.scope-row-package .scope-row-package-row .scope-label')].find(b=>(b.getAttribute('title')||'').endsWith('.marker'));if(!label)throw Error('missing package marker');label.closest('.scope-row-package-row').querySelector('.scope-checkbox').click();return true})()`);
-  await pause(400);
-  await probe(); // (re-)register instrumentation on whatever cy instance is currently mounted
-  await clickLevel('Methods');
-  await until(() => evaluate(`!!document.querySelector('.canvas-empty')`), 'Methods view genuinely empty for the marker-only scope');
+  await packageMap();
   await resetCounters();
-  const before = await state();
-  assert.equal(before.ids.length, 0, 'Methods view starts genuinely empty: the sole in-scope package has no methods');
-  await evaluate(`(()=>{const label=[...document.querySelectorAll('.scope-row-package .scope-row-package-row .scope-label')].find(b=>(b.getAttribute('title')||'').endsWith('.util'));if(!label)throw Error('missing package util');label.closest('.scope-row-package-row').querySelector('.scope-checkbox').click();return true})()`);
-  await pause(900);
-  const after = await state();
-  const d = delta(before, after);
-  const allNodesInsideCanvas = await evaluate(`(()=>{
-    const cy=${CY}, w=cy.width(), h=cy.height();
-    return cy.nodes().length > 0 && cy.nodes().every(n=>{const b=n.renderedBoundingBox();return b.x1>=-1&&b.y1>=-1&&b.x2<=w+1&&b.y2<=h+1;});
-  })()`);
-  d.allNodesInsideCanvas = allNodesInsideCanvas;
-  const checks = [
-    ['scope changed', d.scopeChanged],
-    ['Methods genuinely had zero cards before this addition', d.countBefore === 0],
-    ['the level actually gained cards (0 -> >0)', d.countAfter > 0],
-    ['the initial fit ran for this transition even though camera never changed reference away from null (Step 5 review remediation A3 fixed)', d.fitCalls >= 1],
-    ['every newly admitted card ends up inside the visible canvas viewport, not off-screen with no way to reach it', allNodesInsideCanvas]
-  ];
-  record('empty-level-then-scope-widened-triggers-initial-fit', before, after, d, { baseline: checks, acceptance: checks });
-  await screenshot('s18-empty-level-scope-widened-fit');
-}
-
-// ---------------------------------------------------------------------------
-// S19 — Step 5 review remediation B2 (UI-06): an inspected aggregate edge is level-scoped by
-// construction (aggregate:[source,target] keys on THAT level's endpoints), so it
-// can never resolve again at a different level. Before this fix, switching levels via the segmented
-// control left it "inspected" with nothing on screen matching it -- silently dangling rather than
-// either closing or showing a notice. The fix clears it via the same CLEAR_INSPECTION path Back
-// already knows how to restore (Step 5 review remediation A1's inspectedLevel fix), so one Back both
-// undoes the level switch and recovers the edge inspection, rather than losing it.
-// ---------------------------------------------------------------------------
-{
-  await reload();
-  await until(async () => (await evaluate(`${CY}.nodes().length`)) > 1, 'Packages level populated');
-  await probe(); await resetCounters();
   const candidates = await visibleEdgeCandidates(12);
   let clickedId = null, skippedOverlayPoints = 0;
   for (const id of candidates) {
     for (const point of await edgePoints(id)) {
       if (!point.cyCanvasTarget) { skippedOverlayPoints++; continue; }
       await singleClick(point);
-      if (await evaluate(`(document.querySelector('.inspector-top')?.textContent||'').includes('Relationship')`)) { clickedId = id; break; }
+      const landed = await evaluate(`(()=>{const sel=${CY}.edges('.inspected');return sel.length===1&&(document.querySelector('.inspector-top')?.textContent||'').includes('Relationship')?sel[0].id():null})()`);
+      if (landed) { clickedId = landed; break; }
     }
     if (clickedId) break;
   }
-  assert.ok(clickedId, 'a real pointer click landed on a Packages-level edge for the level-switch survival case');
+  assert.ok(clickedId, 'a real pointer click landed on a package edge');
+  // Expand an endpoint whose Details control is drawn on screen (controls exist only for visible cards).
+  const endpoint = await evaluate(`(()=>{const e=${CY}.getElementById(${JSON.stringify(clickedId)});const ends=[e.source().id(),e.target().id()];return ends.find(id=>document.querySelector('.map-details-button[data-card-id="'+CSS.escape(id)+'"]'))||null})()`);
+  assert.ok(endpoint, 'an endpoint of the inspected line has its Details control on screen');
   const before = await state();
-  assert.equal(before.level, 'Packages');
-  assert.ok(before.inspectorOpen, 'inspector is open on the clicked relationship before the level switch');
-  await clickLevel('Classes');
-  await pause(600);
+  await toggleCard(endpoint, true);
+  const expanded = await state();
+  const whileExpanded = await evaluate(`({notice:[...document.querySelectorAll('.inspector .notice')].map(n=>n.textContent).join(' '),idle:!!document.querySelector('.inspector.idle'),drawn:${CY}.getElementById(${JSON.stringify(clickedId)}).length>0})`);
+  await toggleCard(endpoint, false);
   const after = await state();
+  const restored = await evaluate(`(()=>{const e=${CY}.getElementById(${JSON.stringify(clickedId)});return {drawn:e.length>0,inspected:e.length>0&&e.hasClass('inspected')}})()`);
   const d = delta(before, after);
-  const clickBack = () => evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='← Back');if(!b||b.disabled)return false;b.click();return true})()`);
-  const backAvailable = await clickBack();
-  await pause(500);
-  const afterBack = await state();
   const checks = [
-    ['level actually changed', d.levelBefore === 'Packages' && d.levelAfter === 'Classes'],
-    ['the dangling aggregate edge inspection was cleared on the level switch, not left silently pointing at nothing (Step 5 review remediation B2 fixed)', !after.inspectorOpen],
-    ['Back is available (Step 5 review remediation A1/B1: the edge inspection still pushed a history entry under the level it was actually inspected at)', backAvailable],
-    ['a single Back both undoes the level switch and restores the edge inspection', afterBack.level === 'Packages' && afterBack.inspectorOpen && (afterBack.inspectorSubject || '').includes('Relationship')]
+    ['expanding the endpoint takes the package line off the map', !whileExpanded.drawn],
+    ['the inspection stays open, not idle, while its line is not drawn', !whileExpanded.idle && expanded.inspectorSubject.includes('Relationship')],
+    ['the inspector says why the line is not drawn', whileExpanded.notice.includes('an endpoint is expanded')],
+    ['collapsing the endpoint draws the same line again', restored.drawn],
+    ['the line is still the inspected one', restored.inspected && after.inspectorSubject.includes('Relationship')],
+    ['every card is back at its exact position', d.survivorsMoved === 0],
+    ['camera preserved', !d.zoomChanged && !d.panChanged]
   ];
-  record('edge-inspection-cleared-then-recovered-across-level-switch', before, afterBack, { ...d, backAvailable, afterBackLevel: afterBack.level, afterBackInspectorOpen: afterBack.inspectorOpen, skippedOverlayPoints }, { baseline: checks, acceptance: checks });
-  await screenshot('s19-edge-inspection-recovered-after-level-switch-back');
+  record('edge-inspection-survives-endpoint-expand-and-collapse', before, after, { ...d, endpoint, whileExpanded, restored, skippedOverlayPoints }, { acceptance: checks });
+  await screenshot('s19-edge-inspection-after-endpoint-round-trip');
 }
 
 // ---------------------------------------------------------------------------
