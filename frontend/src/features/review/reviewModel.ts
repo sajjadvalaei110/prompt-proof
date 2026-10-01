@@ -36,6 +36,29 @@ export interface ReviewComparison {
   diagnostics?: { severity: string; code: string; message: string }[];
 }
 
+/**
+ * What the map cannot show by itself about a comparison: that nothing in the workspace changed (an uncoloured
+ * overlay is otherwise indistinguishable from a broken one), and how many changed files lie outside a module
+ * workspace and were left out (ADR 0015). Text is built from the comparison's own facts; no model is involved.
+ */
+export function reviewOutcomeNotice(review: ReviewComparison): { empty: boolean; messages: string[] } {
+  const empty = review.nodes.every(n => n.change === 'UNCHANGED') && review.relationships.every(r => r.change === 'UNCHANGED');
+  const messages: string[] = [];
+  if (empty) {
+    const base = review.base.requestedRef || review.base.resolvedRef?.slice(0, 7) || 'the base';
+    const files = review.files?.length || 0;
+    messages.push(`No Java declarations or relationships changed between ${base} and the working tree in this workspace.`
+      + (files ? ` ${files} changed file${files === 1 ? ' here changes' : 's here change'} no Java declaration.` : ''));
+  }
+  for (const diagnostic of review.diagnostics || []) if (diagnostic.code === 'CHANGES_OUTSIDE_WORKSPACE') messages.push(diagnostic.message);
+  return { empty, messages };
+}
+
+/** A typed Base revision belongs to the workspace it was typed for; another repository starts from the default. */
+export function reviewBaseRefFor(stored: { workspaceId: string | null; value: string }, workspaceId: string | null): string {
+  return workspaceId !== null && stored.workspaceId === workspaceId ? stored.value : '';
+}
+
 export interface ProjectedReviewNode {
   comparisonKey: string;
   change: ReviewChange;

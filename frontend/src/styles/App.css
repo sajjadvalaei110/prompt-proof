@@ -236,6 +236,7 @@ h1 { font-size: 25px; letter-spacing: -.7px; line-height: 1.3; font-weight: 650;
 .review-options[open] summary { border-color: #087f86; color: #087f86; }
 .review-options > div { position: absolute; top: 40px; right: 0; z-index: 15; width: min(300px,85vw); padding: 14px; border: 1px solid #dae3ed; border-radius: 8px; background: white; box-shadow: 0 8px 24px #18364d22; display: grid; gap: 10px; }
 .review-options .muted code, .review-options .notice code { overflow-wrap: anywhere; }
+.review-outcome { margin: 0 0 6px; padding: 6px 10px; border: 1px solid #e3d6a8; border-radius: 6px; background: #fdf8e8; color: #5d4a12; font-size: 12px; overflow-wrap: anywhere; }
 @media(max-width:760px){.review-controls{margin-left:0}}
 @media (max-width: 900px) {
   .journey-bar { flex-wrap: wrap; gap: 6px 10px; padding: 6px 10px 0; }

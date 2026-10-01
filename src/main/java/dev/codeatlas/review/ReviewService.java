@@ -52,7 +52,7 @@ public class ReviewService {
         String modulePath = repo.relativize(workspaceRoot).toString().replace(java.io.File.separatorChar, '/');
         GitReviewSourceAdapter.Base base;
         try { base = git.resolveBase(repo, request.baseRef()); }
-        catch (RuntimeException e) { throw new IllegalArgumentException("Could not resolve the requested local Git base revision."); }
+        catch (RuntimeException e) { throw new IllegalArgumentException(unresolvedBase(request.baseRef(), repo)); }
         String frozenInput = git.comparisonFingerprint(repo, base.oid());
         List<ReviewResponse.ReviewDiagnostic> diagnostics = new ArrayList<>();
         if (base.warning() != null) diagnostics.add(new ReviewResponse.ReviewDiagnostic("WARNING", "BASE_UPSTREAM_UNAVAILABLE", base.warning()));
@@ -129,6 +129,14 @@ public class ReviewService {
                     + "Set the repository root to the directory that holds .git, or clear it to auto-detect.");
         }
         return configured;
+    }
+    /** Names the revision and the repository it was looked up in, and what to do instead (a base typed for one repository is not in another). */
+    private static String unresolvedBase(String requested, Path repo) {
+        String ref = requested == null ? "" : requested.trim();
+        if (ref.isEmpty()) return "Could not resolve HEAD in the Git repository at " + repo + "; it may have no commits yet. Commit once, or enter a base revision.";
+        String named = ref.length() > 200 || ref.chars().anyMatch(Character::isISOControl) ? "Base revision" : "Base revision \"" + ref + "\"";
+        return named + " is not a commit in the Git repository at " + repo + ". Clear Base revision to compare with the default"
+                + " (the merge base with the upstream branch, else HEAD), or enter a commit, branch or tag from that repository.";
     }
     private void fail(String snapshot) {
         if (snapshot == null) return;
