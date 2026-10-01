@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { apiClient } from '../../api/client';
 import { FileEvidence, groupSourceEvidence, highlightedLines, rangeSummary } from './sourceEvidence';
-import { DiffRow, ReviewHunk, buildUnifiedRows, toSplitRows } from './fileDiff';
+import { DiffRow, ReviewHunk, SplitRow, buildUnifiedRows, toSplitRows } from './fileDiff';
+import { LineMark, lineSegments } from './codeTokens';
+import { FindOptions, FindResult, findCounter, findMatches, stepMatch } from './findInFile';
 /** Mirrors SourceService.MAX_BATCH_IDS: larger routes show evidence for their first occurrences and say so. */
 const MAX_BATCH_IDS = 5000;
 /** `subject.ids` (with type 'relationships') asks for every occurrence behind one merged graph route at once. */
@@ -73,22 +75,71 @@ export default function SourceDialog({snapshot, subject, type='symbol', snapshot
     return()=>{alive=false;};
   },[snapshot,subject.id,idsKey,type,reviewDiff,diffSide]);
   useEffect(()=>{ body.current?.querySelector('.highlighted')?.scrollIntoView({block:'center'}); },[files,diffRowsByPath,layout]);
+
+  // Find in file (ADR 0013): literal text over exactly what is rendered -- plain lines, or the diff rows
+  // of the current layout -- so it works for every snapshot, language and mode.
+  const findInput=useRef<HTMLInputElement>(null);
+  const [findOpen,setFindOpen]=useState(false),[query,setQuery]=useState(''),[findOptions,setFindOptions]=useState<FindOptions>({matchCase:false,wholeWord:false}),[activeMatch,setActiveMatch]=useState(-1);
+  const sections=useMemo(()=>files.map(file=>{
+    const rows=diffRowsByPath.get(file.path);
+    if(rows)return layout==='unified'?{file,kind:'unified' as const,rows}:{file,kind:'split' as const,rows,split:toSplitRows(rows)};
+    if(typeof file.content==='string')return{file,kind:'plain' as const,lines:file.content.split('\n')};
+    return{file,kind:'none' as const};
+  }),[files,diffRowsByPath,layout]);
+  // Every searchable text in reading order, keyed the way the renderers below ask for marks.
+  const findTargets=useMemo(()=>{
+    const keys:string[]=[],texts:string[]=[];
+    const add=(key:string,text:string)=>{keys.push(key);texts.push(text);};
+    for(const s of sections){
+      if(s.kind==='plain')s.lines.forEach((line,n)=>add(`${s.file.path}#${n}`,line));
+      else if(s.kind==='unified')s.rows.forEach((row,n)=>add(`${s.file.path}#u${n}`,row.text));
+      else if(s.kind==='split')s.split.forEach((pair,n)=>{if(pair.left)add(`${s.file.path}#l${n}`,pair.left.text);if(pair.right)add(`${s.file.path}#r${n}`,pair.right.text);});
+    }
+    return{keys,texts};
+  },[sections]);
+  const findResult=useMemo<FindResult>(()=>findOpen?findMatches(findTargets.texts,query,findOptions):{matches:[],capped:false},[findOpen,findTargets,query,findOptions]);
+  useEffect(()=>{setActiveMatch(findResult.matches.length?0:-1);},[findResult]);
+  const marksByKey=useMemo(()=>{
+    const byKey=new Map<string,LineMark[]>();
+    findResult.matches.forEach((m,i)=>{const key=findTargets.keys[m.line];let list=byKey.get(key);if(!list){list=[];byKey.set(key,list);}list.push({start:m.start,end:m.end,kind:i===activeMatch?'active':'match'});});
+    return byKey;
+  },[findResult,findTargets,activeMatch]);
+  useEffect(()=>{ if(activeMatch>=0)body.current?.querySelector('.find-active')?.scrollIntoView({block:'center'}); },[activeMatch,findResult]);
+  const openFind=()=>{setFindOpen(true);requestAnimationFrame(()=>{findInput.current?.focus();findInput.current?.select();});};
+  const closeFind=()=>{setFindOpen(false);setActiveMatch(-1);};
+  const step=(dir:1|-1)=>setActiveMatch(i=>stepMatch(i,findResult.matches.length,dir));
+  const onDialogKeyDown=(e:React.KeyboardEvent)=>{
+    if((e.ctrlKey||e.metaKey)&&!e.altKey&&e.key.toLowerCase()==='f'){e.preventDefault();openFind();}
+  };
+  const onFindKeyDown=(e:React.KeyboardEvent<HTMLInputElement>)=>{
+    if(e.key==='Enter'){e.preventDefault();step(e.shiftKey?-1:1);}
+    else if(e.key==='Escape'){e.preventDefault();e.stopPropagation();closeFind();}
+  };
+  /** One line's code text: plain text when nothing marks it, otherwise text-only spans (never HTML). */
+  const code=(key:string,text:string)=>{
+    const marks=marksByKey.get(key);
+    if(!marks)return text||' ';
+    return lineSegments(text,[],marks).map(seg=><span key={seg.start} className={seg.active?'find-match find-active':seg.match?'find-match':undefined}>{seg.text}</span>);
+  };
+
   const lineCount=files.reduce((n,f)=>n+f.ranges.length,0);
   const truncated=type==='relationships'&&(subject.ids?.length||0)>MAX_BATCH_IDS;
   const anyDiff=diffRowsByPath.size>0;
-  return <dialog className={`source-dialog${anyDiff&&layout==='split'?' source-dialog-split':''}`} ref={dialog} onCancel={onClose} onClose={onClose}><header><div><h2>{subject.simpleName || 'Relationship evidence'}</h2><p>Read-only source from the {snapshotLabel}{files.length>0&&type!=='symbol'?` · ${lineCount} highlighted ${lineCount===1?'range':'ranges'} in ${files.length} ${files.length===1?'file':'files'}`:''}</p></div>{anyDiff&&<div className="diff-layout-toggle" role="group" aria-label="Diff layout"><button aria-pressed={layout==='unified'} onClick={()=>setDiffLayout('unified')}>Unified</button><button aria-pressed={layout==='split'} onClick={()=>setDiffLayout('split')}>Split</button></div>}<button onClick={onClose} aria-label="Close source">✕</button></header>{truncated&&<p className="notice">Showing evidence for the first {MAX_BATCH_IDS} of {subject.ids!.length} occurrences on this line. Narrow the scope or relationship filter to see the rest.</p>}{!error&&serverSites&&<p className="notice">Showing the first {serverSites.shown} of {serverSites.total} source sites for this relationship.</p>}
-    <div ref={body}>{error?<p className="notice">{error}</p>:files.length?files.map(file=>{
-      const diffRows=diffRowsByPath.get(file.path);
+  return <dialog className={`source-dialog${anyDiff&&layout==='split'?' source-dialog-split':''}`} ref={dialog} onCancel={onClose} onClose={onClose} onKeyDown={onDialogKeyDown}><header><div><h2>{subject.simpleName || 'Relationship evidence'}</h2><p>Read-only source from the {snapshotLabel}{files.length>0&&type!=='symbol'?` · ${lineCount} highlighted ${lineCount===1?'range':'ranges'} in ${files.length} ${files.length===1?'file':'files'}`:''}</p></div><div className="source-actions">{anyDiff&&<div className="diff-layout-toggle" role="group" aria-label="Diff layout"><button aria-pressed={layout==='unified'} onClick={()=>setDiffLayout('unified')}>Unified</button><button aria-pressed={layout==='split'} onClick={()=>setDiffLayout('split')}>Split</button></div>}<button onClick={openFind} aria-label="Find in file" title="Find in file (Ctrl/Cmd+F)">Find</button><button onClick={onClose} aria-label="Close source">✕</button></div>
+    {findOpen&&<div className="find-bar" role="search"><input ref={findInput} type="search" aria-label="Find in file" placeholder="Find" value={query} onChange={e=>setQuery(e.target.value)} onKeyDown={onFindKeyDown}/><span className="find-count" aria-live="polite">{findCounter(activeMatch,findResult,query)}</span><button aria-pressed={findOptions.matchCase} title="Match case" aria-label="Match case" onClick={()=>setFindOptions(o=>({...o,matchCase:!o.matchCase}))}>Aa</button><button aria-pressed={findOptions.wholeWord} title="Whole word" aria-label="Whole word" onClick={()=>setFindOptions(o=>({...o,wholeWord:!o.wholeWord}))}>W</button><button aria-label="Previous match" title="Previous match (Shift+Enter)" disabled={!findResult.matches.length} onClick={()=>step(-1)}>↑</button><button aria-label="Next match" title="Next match (Enter)" disabled={!findResult.matches.length} onClick={()=>step(1)}>↓</button><button aria-label="Close find" title="Close find (Esc)" onClick={closeFind}>✕</button></div>}</header>{truncated&&<p className="notice">Showing evidence for the first {MAX_BATCH_IDS} of {subject.ids!.length} occurrences on this line. Narrow the scope or relationship filter to see the rest.</p>}{!error&&serverSites&&<p className="notice">Showing the first {serverSites.shown} of {serverSites.total} source sites for this relationship.</p>}
+    <div ref={body}>{error?<p className="notice">{error}</p>:sections.length?sections.map(section=>{
+      const file=section.file;
       const changeStatus=reviewDiff?.filesByPath[file.path]?.status;
-      return <section key={file.path}><div className="source-path">{file.path} <span>{diffRows?(changeStatus==='ADDED'?'Added file':changeStatus==='DELETED'?'Removed file':'Changed file'):file.ranges.length>1?`${file.ranges.length} ranges · lines ${rangeSummary(file)}`:`Lines ${rangeSummary(file)}`}</span></div>{file.exact===false&&<p className="notice">{historical ? 'This captured comparison source is pinned to its review snapshot.' : 'File on disk has changed since this was indexed; this file may be outdated. Re-analyze the project to refresh it.'}</p>}
-      {diffRows ? (layout==='unified' ? renderUnifiedDiff(diffRows,diffSide,file) : renderSplitDiff(diffRows,diffSide,file)) :
-        typeof file.content==='string'?(()=>{const lines=file.content.split('\n');const marked=highlightedLines(file,lines.length);return <pre>{lines.map((line:string,n:number)=>{const num=n+1;const kinds=marked.get(num);return <div className={`code-line${kinds?' highlighted':''}`} key={n} title={kinds?.length?kinds.map(k=>k.toLowerCase().replaceAll('_',' ')).join(', '):undefined}><span>{num}</span><code>{line || ' '}</code></div>;})}</pre>;})():<p className="notice">Source content unavailable for this occurrence.</p>}</section>;
+      const isDiff=section.kind==='unified'||section.kind==='split';
+      return <section key={file.path}><div className="source-path">{file.path} <span>{isDiff?(changeStatus==='ADDED'?'Added file':changeStatus==='DELETED'?'Removed file':'Changed file'):file.ranges.length>1?`${file.ranges.length} ranges · lines ${rangeSummary(file)}`:`Lines ${rangeSummary(file)}`}</span></div>{file.exact===false&&<p className="notice">{historical ? 'This captured comparison source is pinned to its review snapshot.' : 'File on disk has changed since this was indexed; this file may be outdated. Re-analyze the project to refresh it.'}</p>}
+      {section.kind==='unified' ? renderUnifiedDiff(section.rows,diffSide,file,(n,text)=>code(`${file.path}#u${n}`,text)) : section.kind==='split' ? renderSplitDiff(section.split,section.rows,diffSide,file,(side,n,text)=>code(`${file.path}#${side}${n}`,text)) :
+        section.kind==='plain'?(()=>{const marked=highlightedLines(file,section.lines.length);return <pre>{section.lines.map((line:string,n:number)=>{const num=n+1;const kinds=marked.get(num);return <div className={`code-line${kinds?' highlighted':''}`} key={n} title={kinds?.length?kinds.map(k=>k.toLowerCase().replaceAll('_',' ')).join(', '):undefined}><span>{num}</span><code>{code(`${file.path}#${n}`,line)}</code></div>;})}</pre>;})():<p className="notice">Source content unavailable for this occurrence.</p>}</section>;
     }):<p className="notice">{loading?'Loading source evidence…':'No source evidence stored for this occurrence. Re-analyze the project to refresh the index.'}</p>}</div>
   </dialog>;
 }
 /** Unified layout: one column, +/- gutter markers, highlighted declaration/evidence ranges keyed to
  * whichever side's numbering this dialog's pinned snapshot uses (`diffSide`). */
-function renderUnifiedDiff(rows: DiffRow[], diffSide: 'base'|'head'|null, file: FileEvidence) {
+function renderUnifiedDiff(rows: DiffRow[], diffSide: 'base'|'head'|null, file: FileEvidence, code: (row: number, text: string) => React.ReactNode) {
   const sideLineCount=rows.reduce((max,r)=>Math.max(max,(diffSide==='head'?r.newNo:r.oldNo)||0),0);
   const marked=highlightedLines(file,sideLineCount);
   return <pre className="diff-unified">{rows.map((row,n)=>{
@@ -97,7 +148,7 @@ function renderUnifiedDiff(rows: DiffRow[], diffSide: 'base'|'head'|null, file: 
     return <div className={`code-line diff-row-${row.type}${kinds?' highlighted':''}`} key={n} title={kinds?.length?kinds.map(k=>k.toLowerCase().replaceAll('_',' ')).join(', '):undefined}>
       <span className="diff-gutter">{row.oldNo??''}</span><span className="diff-gutter">{row.newNo??''}</span>
       <span className="diff-marker" aria-hidden="true">{row.type==='add'?'+':row.type==='del'?'−':''}</span>
-      <code>{row.text || ' '}</code>
+      <code>{code(n,row.text)}</code>
     </div>;
   })}</pre>;
 }
@@ -105,16 +156,15 @@ function renderUnifiedDiff(rows: DiffRow[], diffSide: 'base'|'head'|null, file: 
  * blank row so the two columns stay in step. Highlights the same declaration/evidence ranges the
  * unified layout does, on whichever column is this dialog's pinned side (`diffSide`) -- left/oldNo
  * for 'base', right/newNo for 'head' -- since that numbering is the one `file`'s ranges are keyed to. */
-function renderSplitDiff(rows: DiffRow[], diffSide: 'base'|'head'|null, file: FileEvidence) {
+function renderSplitDiff(split: SplitRow[], rows: DiffRow[], diffSide: 'base'|'head'|null, file: FileEvidence, code: (side: 'l'|'r', row: number, text: string) => React.ReactNode) {
   const pinnedRight=diffSide==='head';
   const sideLineCount=rows.reduce((max,r)=>Math.max(max,(pinnedRight?r.newNo:r.oldNo)||0),0);
   const marked=highlightedLines(file,sideLineCount);
-  const split=toSplitRows(rows);
   return <div className="diff-split-table" role="table">{split.map((pair,n)=>{
     const leftKinds=!pinnedRight&&pair.left?.oldNo!=null?marked.get(pair.left.oldNo):undefined;
     const rightKinds=pinnedRight&&pair.right?.newNo!=null?marked.get(pair.right.newNo):undefined;
     return <div className="diff-split-row" role="row" key={n}>
-    <div className={`diff-split-cell${pair.left?` diff-row-${pair.left.type}`:' diff-split-blank'}${leftKinds?' highlighted':''}`} role="cell" title={leftKinds?.length?leftKinds.map(k=>k.toLowerCase().replaceAll('_',' ')).join(', '):undefined}><span className="diff-gutter">{pair.left?.oldNo??''}</span><code>{pair.left?(pair.left.text||' '):''}</code></div>
-    <div className={`diff-split-cell${pair.right?` diff-row-${pair.right.type}`:' diff-split-blank'}${rightKinds?' highlighted':''}`} role="cell" title={rightKinds?.length?rightKinds.map(k=>k.toLowerCase().replaceAll('_',' ')).join(', '):undefined}><span className="diff-gutter">{pair.right?.newNo??''}</span><code>{pair.right?(pair.right.text||' '):''}</code></div>
+    <div className={`diff-split-cell${pair.left?` diff-row-${pair.left.type}`:' diff-split-blank'}${leftKinds?' highlighted':''}`} role="cell" title={leftKinds?.length?leftKinds.map(k=>k.toLowerCase().replaceAll('_',' ')).join(', '):undefined}><span className="diff-gutter">{pair.left?.oldNo??''}</span><code>{pair.left?code('l',n,pair.left.text):''}</code></div>
+    <div className={`diff-split-cell${pair.right?` diff-row-${pair.right.type}`:' diff-split-blank'}${rightKinds?' highlighted':''}`} role="cell" title={rightKinds?.length?rightKinds.map(k=>k.toLowerCase().replaceAll('_',' ')).join(', '):undefined}><span className="diff-gutter">{pair.right?.newNo??''}</span><code>{pair.right?code('r',n,pair.right.text):''}</code></div>
   </div>;})}</div>;
 }
