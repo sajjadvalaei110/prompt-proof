@@ -157,6 +157,8 @@ deletion trigger removes it with its snapshot.
 `found` (with locations), `external` (resolved outside the workspace), `no_symbol`, or
 `not_indexed` (the snapshot's engine records no occurrences, e.g. JavaParser). The source-viewer
 Ctrl+click and find-in-file UI build on this and are a separate step.
+(2026-10-01: shipped in [ADR 0013](0013-source-code-navigation.md). `not_indexed` is now decided by the engine's
+declared `providesNavigation()`, with the rows as a fallback only for retired engines.)
 
 ## Consequences
 

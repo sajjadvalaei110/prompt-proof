@@ -88,7 +88,11 @@ private copy of the build root, with the owner's recorded consent
 (`trust_state = 'build_allowed'`), and maps the resulting SCIP index onto the same symbol,
 relationship and evidence shapes. V013 records `indexer` on workspaces and snapshots and adds
 `code_occurrences`, the navigation-only occurrence index behind
-`GET /api/snapshots/{id}/files/definition`. Review captures always use the default engine.
+`GET /api/snapshots/{id}/files/definition` and `/files/occurrences`. Review captures always use the default engine.
+Source navigation is an engine capability, not a language one ([ADR 0013](adr/0013-source-code-navigation.md)):
+an engine declares `AnalysisPort.providesNavigation()` and fills `code_occurrences` (1-based lines, inclusive
+end columns in UTF-16 code units, opaque symbol keys). `graph.NavigationService` resolves a snapshot's recorded
+engine to decide `not_indexed` and names the engines that do navigate. Its API has no language-specific code.
 The workspace path may be a module: the Gradle build root is found by walking up to the nearest
 settings file, never past the Git root, and only files under the workspace become graph facts.
 
@@ -163,6 +167,9 @@ The frontend is structured by functional domain under `frontend/src/features/`:
 - **`explorer/`**: Interactive Cytoscape graph canvas, package/class navigation pane, search, minimap, and zoom controls.
 - **`inspector/`**: Contextual sidebar displaying selected symbol/relationship details, parser evidence, and AI explanations.
 - **`source/`**: Embedded source code viewer with line/column highlighting mapped to evidence coordinates.
+  Find in file (`findInFile.ts`, literal text, Unicode whole word) works for every snapshot. Ctrl/Cmd+click go to
+  definition tokenizes lines only from occurrence rows (`codeTokens.ts`). Its dialog-local back/forward stack
+  (`navigationStack.ts`) is outside undo history, like selection. See ADR 0013.
 - **`settings/`**: Configuration interface for local model endpoints (LM Studio, Ollama), token budgets, and indexing rules.
 
 ### Explorer scope boundary

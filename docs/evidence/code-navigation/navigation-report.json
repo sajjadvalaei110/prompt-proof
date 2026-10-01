@@ -1,0 +1,126 @@
+{
+  "pass": true,
+  "results": {
+    "scipWorkspace": {
+      "id": "536dfb18-4433-4a9b-ab75-59269c82f2fa",
+      "path": "/tmp/code-atlas-navigation-fixture-mnkm9iy1/scip-project",
+      "activeSnapshotId": "69320b1d-7628-40a2-b8cc-ef176e813f88",
+      "language": "java",
+      "indexer": "scip-java"
+    },
+    "hover": {
+      "armed": true,
+      "token": "greet",
+      "underline": "underline"
+    },
+    "tokensOnCallLine": 5,
+    "crossFile": {
+      "title": "Greeter.java",
+      "sub": "Definition at line 4 · read-only source from the analyzed snapshot",
+      "paths": [
+        "core/src/main/java/com/example/core/Greeter.java"
+      ],
+      "target": "4    String greet(String name);",
+      "targetToken": "greet",
+      "message": null,
+      "hint": false,
+      "scrollTop": 0,
+      "back": true,
+      "forward": false,
+      "count": null
+    },
+    "back": {
+      "title": "com.example.app → com.example.core",
+      "sub": "Read-only source from the analyzed snapshot · 6 highlighted ranges in 3 files",
+      "paths": [
+        "app/src/main/java/com/example/app/Factories.java",
+        "app/src/main/java/com/example/app/GreetingService.java",
+        "app/src/main/java/com/example/app/Main.java"
+      ],
+      "target": null,
+      "targetToken": null,
+      "message": null,
+      "hint": false,
+      "scrollTop": 774,
+      "back": false,
+      "forward": true,
+      "count": null
+    },
+    "forward": {
+      "title": "Greeter.java",
+      "sub": "Definition at line 4 · read-only source from the analyzed snapshot",
+      "paths": [
+        "core/src/main/java/com/example/core/Greeter.java"
+      ],
+      "target": "4    String greet(String name);",
+      "targetToken": "greet",
+      "message": null,
+      "hint": false,
+      "scrollTop": 0,
+      "back": true,
+      "forward": false,
+      "count": null
+    },
+    "local": {
+      "title": "GreetingService.java",
+      "sub": "Definition at line 13 · read-only source from the analyzed snapshot",
+      "paths": [
+        "app/src/main/java/com/example/app/GreetingService.java"
+      ],
+      "target": "13        for (String name : names) {",
+      "targetToken": "name",
+      "message": null,
+      "hint": false,
+      "scrollTop": 0,
+      "back": true,
+      "forward": false,
+      "count": null
+    },
+    "external": {
+      "title": "GreetingService.java",
+      "sub": "Definition at line 13 · read-only source from the analyzed snapshot",
+      "paths": [
+        "app/src/main/java/com/example/app/GreetingService.java"
+      ],
+      "target": "13        for (String name : names) {",
+      "targetToken": "name",
+      "message": "add · outside workspace",
+      "hint": false,
+      "scrollTop": 0,
+      "back": true,
+      "forward": false,
+      "count": null
+    },
+    "find": {
+      "query": "greet",
+      "expected": 27,
+      "first": "1 of 27",
+      "afterEnter": "2 of 27",
+      "afterShiftEnterTwice": "27 of 27",
+      "activeVisible": true,
+      "wholeWord": 2,
+      "matchCaseWholeWord": "1 of 2"
+    },
+    "narrow": {
+      "page": true,
+      "header": true,
+      "dialog": true
+    },
+    "plainTokens": 0,
+    "hint": "This snapshot's indexer (JavaParser (source only)) doesn't provide go to definition; engines that do: scip-java (compiles with the project's Gradle build).",
+    "plainFind": "1 of 27",
+    "offPage": []
+  },
+  "screenshots": [
+    "01-evidence-ctrl-hover",
+    "02-cross-file-definition",
+    "03-back-restores-evidence",
+    "04-local-variable-definition",
+    "05-external-target",
+    "06-find-in-file",
+    "07-find-whole-word-match-case",
+    "08-narrow-390-find",
+    "09-javaparser-hint"
+  ],
+  "pageErrors": []
+}
