@@ -17,5 +17,7 @@ public class SourceController {
     /** Whole-file retained source, for building a diff between two snapshots of the same path. */
     @GetMapping("/files/source") public SourceService.FileContent file(@PathVariable String snapshotId, @RequestParam String path) { return service.file(snapshotId, path); }
     /** Go to definition for the resolved name at a 1-based position of an indexed file (ADR 0012). */
+    /** Every resolved name in one file, as a compact symbol table plus position rows, bounded per file (ADR 0013). */
+    @GetMapping("/files/occurrences") public NavigationService.FileOccurrences occurrences(@PathVariable String snapshotId, @RequestParam String path) { return navigation.occurrences(snapshotId, path); }
     @GetMapping("/files/definition") public NavigationService.Definition definition(@PathVariable String snapshotId, @RequestParam String path, @RequestParam int line, @RequestParam int column) { return navigation.definition(snapshotId, path, line, column); }
 }

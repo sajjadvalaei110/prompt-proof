@@ -93,6 +93,7 @@ public class ScipJavaAnalysisAdapter implements AnalysisPort {
     @java.lang.Override public String indexerLabel() { return "scip-java (compiles with the project's Gradle build)"; }
     @java.lang.Override public boolean defaultIndexer() { return false; }
     @java.lang.Override public boolean executesTargetBuild() { return true; }
+    @java.lang.Override public boolean providesNavigation() { return true; }
     @java.lang.Override public Optional<String> unavailableReason() { return tool.unavailableReason(); }
 
     @java.lang.Override
