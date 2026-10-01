@@ -8,8 +8,8 @@
  * end column) in UTF-16 code units; spans use 0-based, end-exclusive offsets into the line string.
  */
 
-/** One entry of the occurrences payload's per-file symbol table. Engine symbol keys never leave the server. */
-export interface OccurrenceSymbol { definitions: number; local: boolean; displayName?: string | null }
+/** One entry of the occurrences payload's per-file symbol table (`definitions` 0 = resolved outside the workspace). Engine symbol keys never leave the server. */
+export interface OccurrenceSymbol { definitions: number; displayName?: string | null }
 /** One resolved name in the file (1-based, inclusive end column). `symbol` indexes the symbol table. */
 export interface Occurrence { line: number; startColumn: number; endLine: number; endColumn: number; symbol: number; definition: boolean }
 export interface FileOccurrences {
@@ -38,7 +38,7 @@ const finite = (n: unknown): n is number => typeof n === 'number' && Number.isFi
 export function decodeOccurrences(payload: any): FileOccurrences {
   const status = payload?.status === 'indexed' || payload?.status === 'no_file' ? payload.status : 'not_indexed';
   const symbols: OccurrenceSymbol[] = Array.isArray(payload?.symbols) ? payload.symbols.map((s: any) => ({
-    definitions: finite(s?.definitions) ? s.definitions : 0, local: !!s?.local,
+    definitions: finite(s?.definitions) ? s.definitions : 0,
     displayName: typeof s?.displayName === 'string' ? s.displayName : null })) : [];
   const occurrences: Occurrence[] = [];
   for (const row of Array.isArray(payload?.occurrences) ? payload.occurrences : []) {

@@ -12,7 +12,7 @@ const join=segs=>segs.map(s=>s.text).join('');
 // comment is not clickable because no row covers it, nor is the parameter's `string`.
 const go=['package greet','','// Greet says hello to name','func Greet(name string) string {','\treturn "Hello, " + name','}'];
 const goPayload={status:'indexed',indexer:'fixture-go',indexerLabel:'Fixture Go',navigationIndexers:['Fixture Go'],truncated:false,total:4,
-  symbols:[{definitions:1,local:false,displayName:'Greet'},{definitions:1,local:true,displayName:'name'},{definitions:0,local:false,displayName:null}],
+  symbols:[{definitions:1,displayName:"Greet"},{definitions:1,displayName:"name"},{definitions:0,displayName:null}],
   occurrences:[[4,6,4,10,0,1],[4,12,4,15,1,1],[5,21,5,24,1,0],[4,25,4,30,2,0],['bad'],[1,1,1,1,9,0],[0,1,0,1,0,0]]};
 const goData=decodeOccurrences(goPayload);
 assert.equal(goData.status,'indexed');
@@ -31,7 +31,7 @@ console.log('PASS: a Go file is tokenised from occurrence rows alone');
 // A Dart file with a multi-line occurrence and nested rows: the innermost (shortest) row wins, the
 // same rule the definition endpoint applies.
 const dart=['class Greeter {','  String greet(String who) => \'Hi $who\';','}','final g = Greeter()','  .greet(\'x\');'];
-const dartData=decodeOccurrences({status:'indexed',symbols:[{definitions:1},{definitions:1},{definitions:1,local:true},{definitions:2}],total:5,
+const dartData=decodeOccurrences({status:'indexed',symbols:[{definitions:1},{definitions:1},{definitions:1},{definitions:2}],total:5,
   occurrences:[[1,7,1,13,0,1],[2,10,2,14,1,1],[2,23,2,25,2,1],[2,36,2,38,2,0],[4,11,5,8,3,0],[5,4,5,8,1,0]]});
 const dartByLine=occurrencesByLine(dartData.occurrences,dart.map(l=>l.length));
 assert.deepEqual(lineSegments(dart[1],dartByLine.get(2)).filter(s=>s.occurrence).map(s=>s.text),['greet','who','who']);
