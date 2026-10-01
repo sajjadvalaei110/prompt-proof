@@ -103,9 +103,14 @@ Checks run:
   - Screenshots inspected; reports in `real-*-report.json`.
 - Screenshots inspected and copied to `docs/evidence/review-fixes/`: git-review 02/03/05 and diff-navigation 04/05/10.
 
+- `python3 scripts/verify_stable_graph_pipeline.py acceptance`: FAIL, before and after this change alike. On
+  `claude/diff-navigation` itself, `verify-stable-graph-ui.mjs` throws `TypeError: Cannot read properties of undefined
+  (reading 'click')` at the same step. The break predates this work and was not investigated. The empty-comparison
+  notice adds a row above the canvas only while an empty comparison is shown in Changes mode. That case is not
+  covered by this suite.
+
 Not run:
-- `verify_stable_graph_pipeline.py` and the other browser suites, since the change does not touch layout or the
-  reducer;
+- the other browser suites, since the change does not touch the reducer or the placement code;
 - `constrainedMemoryTest`;
 - the review path was not exercised on Windows or macOS.
 
