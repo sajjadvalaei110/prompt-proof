@@ -20,6 +20,8 @@ const MAX_OCCURRENCE_REQUESTS = 4;
 type OccurrenceState = FileOccurrences | 'loading' | 'failed';
 type NavMessage = { text: string; hint?: boolean } | null;
 const fileName = (path: string) => path.slice(path.lastIndexOf('/') + 1);
+/** Cache key of one file of one snapshot, so a late answer for an earlier snapshot can never be read as the current one's. */
+const fileKey = (snapshot: string, path: string) => `${snapshot}\u0000${path}`;
 export default function SourceDialog({snapshot, subject, type='symbol', snapshotLabel='analyzed snapshot', historical=false, reviewDiff, onClose}: {snapshot: string; subject: SourceSubject; type?:string; snapshotLabel?: string; historical?: boolean; reviewDiff?: ReviewDiffContext; onClose:()=>void}) {
   const dialog = useRef<HTMLDialogElement>(null);
   const body = useRef<HTMLDivElement>(null);
@@ -44,7 +46,9 @@ export default function SourceDialog({snapshot, subject, type='symbol', snapshot
   const [nav,setNav]=useState<NavStack>(initialNavStack);
   const [navMessage,setNavMessage]=useState<NavMessage>(null);
   const [picker,setPicker]=useState<DefinitionLocation[]|null>(null);
-  // Per-snapshot caches: whole files opened by a jump, and each file's occurrences (fetched once per file).
+  // Caches keyed by (snapshot, path): whole files opened by a jump, and each file's occurrences (fetched once per
+  // file). Clearing them on a snapshot change is not enough on its own: a request still in flight would refill
+  // a path-only key with the previous snapshot's answer.
   const [fileCache,setFileCache]=useState<Map<string,{content?:string;error?:string}>>(new Map());
   const [occurrences,setOccurrences]=useState<Map<string,OccurrenceState>>(new Map());
   // Occurrences are fetched only once the user shows navigation intent (Ctrl/Cmd held, or a jump made).
@@ -92,21 +96,21 @@ export default function SourceDialog({snapshot, subject, type='symbol', snapshot
     return()=>{alive=false;};
   },[snapshot,subject.id,idsKey,type,reviewDiff,diffSide]);
   const view:NavView=currentView(nav);
-  useEffect(()=>{ if(view.kind==='evidence'&&nav.entries[nav.index].scrollTop===0)body.current?.querySelector('.highlighted')?.scrollIntoView({block:'center'}); },[files,diffRowsByPath,layout]);
+  useEffect(()=>{ if(view.kind==='evidence'&&nav.entries[nav.index].scrollTop===null)body.current?.querySelector('.highlighted')?.scrollIntoView({block:'center'}); },[files,diffRowsByPath,layout]);
   // A jump shows the target's whole file from this snapshot; fetched once per path.
   useEffect(()=>{
-    if(view.kind!=='file'||fileCache.has(view.path))return;
-    const path=view.path;
-    setFileCache(m=>new Map(m).set(path,{}));
-    apiClient.getSnapshotFile(snapshot,path).then(r=>setFileCache(m=>new Map(m).set(path,{content:typeof r?.content==='string'?r.content:''})))
-      .catch(e=>setFileCache(m=>new Map(m).set(path,{error:e.message})));
+    if(view.kind!=='file'||fileCache.has(fileKey(snapshot,view.path)))return;
+    const path=view.path,key=fileKey(snapshot,path);
+    setFileCache(m=>new Map(m).set(key,{}));
+    apiClient.getSnapshotFile(snapshot,path).then(r=>setFileCache(m=>new Map(m).set(key,{content:typeof r?.content==='string'?r.content:''})))
+      .catch(e=>setFileCache(m=>new Map(m).set(key,{error:e.message})));
   },[view,snapshot,fileCache]);
   const shownFiles=useMemo<FileEvidence[]>(()=>{
     if(view.kind==='evidence')return files;
-    const cached=fileCache.get(view.path);
+    const cached=fileCache.get(fileKey(snapshot,view.path));
     return cached?.content!==undefined?[{path:view.path,content:cached.content,ranges:[{startLine:view.line,endLine:view.endLine}]}]:[];
-  },[view,files,fileCache]);
-  const fileViewError=view.kind==='file'?fileCache.get(view.path)?.error:undefined;
+  },[view,snapshot,files,fileCache]);
+  const fileViewError=view.kind==='file'?fileCache.get(fileKey(snapshot,view.path))?.error:undefined;
 
   // Find in file (ADR 0013): literal text over exactly what is rendered -- plain lines, or the diff rows
   // of the current layout -- so it works for every snapshot, language and mode.
@@ -121,25 +125,28 @@ export default function SourceDialog({snapshot, subject, type='symbol', snapshot
   // Occurrences for the plain (non-diff) files on screen, at most a few requests at a time.
   useEffect(()=>{
     if(!navArmed)return;
-    const wanted=sections.filter(s=>s.kind==='plain'&&!occurrences.has(s.file.path)).map(s=>s.file.path);
+    const wanted=sections.filter(s=>s.kind==='plain'&&!occurrences.has(fileKey(snapshot,s.file.path))).map(s=>s.file.path);
     const inFlight=[...occurrences.values()].filter(v=>v==='loading').length;
     const batch=wanted.slice(0,Math.max(0,MAX_OCCURRENCE_REQUESTS-inFlight));
     if(!batch.length)return;
-    setOccurrences(m=>{const next=new Map(m);batch.forEach(p=>next.set(p,'loading'));return next;});
-    for(const path of batch)apiClient.getFileOccurrences(snapshot,path)
-      .then(r=>setOccurrences(m=>new Map(m).set(path,decodeOccurrences(r))))
-      .catch(()=>setOccurrences(m=>new Map(m).set(path,'failed')));
+    setOccurrences(m=>{const next=new Map(m);batch.forEach(p=>next.set(fileKey(snapshot,p),'loading'));return next;});
+    for(const path of batch){
+      const key=fileKey(snapshot,path);
+      apiClient.getFileOccurrences(snapshot,path)
+        .then(r=>setOccurrences(m=>new Map(m).set(key,decodeOccurrences(r))))
+        .catch(()=>setOccurrences(m=>new Map(m).set(key,'failed')));
+    }
   },[navArmed,sections,occurrences,snapshot]);
   // Clickable ranges per file and line; only rows the engine wrote make a token clickable.
   const occurrenceLines=useMemo(()=>{
     const byPath=new Map<string,Map<number,LineOccurrence[]>>();
     for(const s of sections){
-      const data=s.kind==='plain'?occurrences.get(s.file.path):undefined;
+      const data=s.kind==='plain'?occurrences.get(fileKey(snapshot,s.file.path)):undefined;
       if(s.kind!=='plain'||!data||typeof data==='string'||data.status!=='indexed')continue;
       byPath.set(s.file.path,occurrencesByLine(data.occurrences,s.lines.map(l=>l.length)));
     }
     return byPath;
-  },[sections,occurrences]);
+  },[sections,occurrences,snapshot]);
   const findTargets=useMemo(()=>{
     const keys:string[]=[],texts:string[]=[];
     const add=(key:string,text:string)=>{keys.push(key);texts.push(text);};
@@ -182,7 +189,7 @@ export default function SourceDialog({snapshot, subject, type='symbol', snapshot
       marks=[...(marks||[]),{start:view.startColumn-1,end,kind:'target'}];
     }
     if(!marks&&!occs)return text||' ';
-    const data=at?occurrences.get(at.path):undefined;
+    const data=at?occurrences.get(fileKey(snapshot,at.path)):undefined;
     const symbols=data&&typeof data!=='string'?data.symbols:[];
     return lineSegments(text,occs,marks).map(seg=>{
       const cls=[seg.active?'find-match find-active':seg.match?'find-match':'',seg.target?'nav-target':'',seg.occurrence?'nav-token':''].filter(Boolean).join(' ')||undefined;
@@ -204,7 +211,7 @@ export default function SourceDialog({snapshot, subject, type='symbol', snapshot
   const onCodeClick=(e:React.MouseEvent,path:string)=>{
     if(!(e.ctrlKey||e.metaKey))return;
     e.preventDefault();
-    const data=occurrences.get(path);
+    const data=occurrences.get(fileKey(snapshot,path));
     if(data&&typeof data!=='string'&&data.status==='not_indexed'){setNavMessage({text:navigationHint(data),hint:true});return;}
     if(!data){setNavArmed(true);return;}
     const token=(e.target as HTMLElement).closest('[data-occ-line]') as HTMLElement|null;
@@ -222,13 +229,14 @@ export default function SourceDialog({snapshot, subject, type='symbol', snapshot
       }
     }).catch(err=>setNavMessage({text:`Go to definition failed: ${err.message}`}));
   };
-  // Restore an entry's scroll offset after Back/Forward, or centre a fresh jump's target, once it renders.
+  // Restore an entry's remembered scroll offset after Back/Forward (0, the top, included), or centre a fresh
+  // jump's target, once it renders.
   const restored=useRef<NavStack|null>(null);
   useEffect(()=>{
     if(restored.current===nav||!sections.length)return;
     restored.current=nav;
     const entry=nav.entries[nav.index];
-    if(entry.scrollTop>0){if(dialog.current)dialog.current.scrollTop=entry.scrollTop;}
+    if(entry.scrollTop!==null){if(dialog.current)dialog.current.scrollTop=entry.scrollTop;}
     else if(view.kind==='file')body.current?.querySelector('.nav-target, .highlighted')?.scrollIntoView({block:'center'});
   },[nav,sections,view]);
   const trackModifier=(e:{ctrlKey:boolean;metaKey:boolean})=>{const held=e.ctrlKey||e.metaKey;if(held!==modHeld)setModHeld(held);if(held&&!navArmed)setNavArmed(true);};
@@ -244,7 +252,7 @@ export default function SourceDialog({snapshot, subject, type='symbol', snapshot
       const file=section.file;
       const changeStatus=reviewDiff?.filesByPath[file.path]?.status;
       const isDiff=section.kind==='unified'||section.kind==='split';
-      const occ=occurrences.get(file.path);
+      const occ=occurrences.get(fileKey(snapshot,file.path));
       const navNote=section.kind==='plain'&&occ&&typeof occ!=='string'&&occ.truncated?` · go to definition covers the first ${occ.occurrences.length.toLocaleString('en-US')} of ${occ.total.toLocaleString('en-US')} names`:'';
       return <section key={file.path}><div className="source-path">{file.path} <span>{isDiff?(changeStatus==='ADDED'?'Added file':changeStatus==='DELETED'?'Removed file':'Changed file'):fileView?`Line ${fileView.line}${navNote}`:file.ranges.length>1?`${file.ranges.length} ranges · lines ${rangeSummary(file)}`:`Lines ${rangeSummary(file)}`}{!fileView&&!isDiff?navNote:''}</span></div>{file.exact===false&&<p className="notice">{historical ? 'This captured comparison source is pinned to its review snapshot.' : 'File on disk has changed since this was indexed; this file may be outdated. Re-analyze the project to refresh it.'}</p>}
       {isDiff ? <div onClick={e=>{if(e.ctrlKey||e.metaKey)setNavMessage({text:'Go to definition is not available in the Changes diff yet; find in file works here.'});}}>{section.kind==='unified' ? renderUnifiedDiff(section.rows,diffSide,file,(n,text)=>code(`${file.path}#u${n}`,text)) : renderSplitDiff(section.split,section.rows,diffSide,file,(side,n,text)=>code(`${file.path}#${side}${n}`,text))}</div> :

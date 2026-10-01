@@ -8,13 +8,17 @@
 export type NavView =
   | { kind: 'evidence' }
   | { kind: 'file'; path: string; line: number; startColumn: number; endLine: number; endColumn: number };
-export interface NavEntry { view: NavView; scrollTop: number }
+/**
+ * `scrollTop` is the offset remembered when the user left the entry, or null for an entry not yet left (a fresh
+ * jump, or the opening view). A remembered 0 is a real position (the top) and must be restored like any other.
+ */
+export interface NavEntry { view: NavView; scrollTop: number | null }
 export interface NavStack { entries: readonly NavEntry[]; index: number }
 
 /** Oldest entries are dropped beyond this. */
 export const MAX_NAV_ENTRIES = 100;
 
-export const initialNavStack = (): NavStack => ({ entries: [{ view: { kind: 'evidence' }, scrollTop: 0 }], index: 0 });
+export const initialNavStack = (): NavStack => ({ entries: [{ view: { kind: 'evidence' }, scrollTop: null }], index: 0 });
 export const currentView = (stack: NavStack): NavView => stack.entries[stack.index].view;
 export const canGoBack = (stack: NavStack) => stack.index > 0;
 export const canGoForward = (stack: NavStack) => stack.index < stack.entries.length - 1;
@@ -34,7 +38,7 @@ const withScroll = (stack: NavStack, scrollTop: number): NavEntry[] =>
  */
 export function pushView(stack: NavStack, view: NavView, scrollTop: number): NavStack {
   if (sameView(currentView(stack), view)) return stack;
-  const entries = [...withScroll(stack, scrollTop).slice(0, stack.index + 1), { view, scrollTop: 0 }];
+  const entries = [...withScroll(stack, scrollTop).slice(0, stack.index + 1), { view, scrollTop: null }];
   const dropped = Math.max(0, entries.length - MAX_NAV_ENTRIES);
   return { entries: entries.slice(dropped), index: entries.length - 1 - dropped };
 }

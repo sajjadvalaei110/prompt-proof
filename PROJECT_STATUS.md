@@ -102,6 +102,37 @@ the fixture has no symbol with two definition sites. Touch devices get find but 
 key is needed). There is no virtualization for very large files. Go to definition is off inside the Changes diff.
 Find references and "show on map" are deferred (ADR 0013 follow-ups).
 
+### Review fixes (2026-10-01)
+
+Two P2 findings from a Codex review of PR #4, both in `SourceDialog.tsx`:
+- **Back did not restore an offset of 0.** A fresh entry and a view left at the very top both stored
+  `scrollTop: 0`, and restoring ran only for `> 0`. So Back to a view left at the top kept the later view's
+  offset (Codex reproduced 0 → 1778 → 1778). In `navigationStack.ts`, an entry not yet left now stores `null`;
+  any number, 0 included, is a remembered position. The dialog restores every remembered offset and centres the
+  target only for a fresh jump. The evidence view's "scroll to the highlight" also now runs only when the offset
+  is `null`.
+- **A late answer could fill the new snapshot's cache with the old snapshot's file.** The whole-file and
+  occurrence caches were keyed by path alone. They were cleared when `snapshot` changed, but a request still in
+  flight from the earlier snapshot refilled the same path key afterwards, so OLD source showed under NEW. Both
+  caches are now keyed by (snapshot, path), as on the diff-navigation branch (PR #5), so a late answer lands
+  under a key nothing reads.
+
+Checks run:
+- `node scripts/test-navigation-stack.mjs`: PASS. A new case checks that a view left at the top remembers 0,
+  that Back restores 0 and not the later offset, and that fresh entries remember `null`.
+- All 16 `node scripts/test-*.mjs`: PASS.
+- `cd frontend && npx tsc -b --force && npm run build`: PASS.
+- `./gradlew bootJar`, then `CHROMIUM=/opt/pw-browsers/chromium python3 scripts/verify_code_navigation_pipeline.py`:
+  PASS. Step 3b is new: in a 260 px tall window, leave the evidence view at the top, go Forward, scroll the
+  definition to the bottom, and press Alt+←. The view must come back at `scrollTop` 0. Run against the jar
+  built before the fix, the same step failed with "back restores the top (75 -> 75)", which is the reported
+  bug. It passes against the rebuilt jar.
+
+Not run: `./gradlew test` (the change is frontend only, and no backend file changed), and the other browser
+pipelines. The cache race has no browser check, because it needs a response delayed past a snapshot change.
+The fix holds by construction: no key that the current snapshot reads can be written by another snapshot's
+request.
+
 ## scip-java: a second, opt-in Java indexer (2026-09-30, ADR 0012)
 
 Bounded acceptance criterion: a workspace can choose scip-java instead of JavaParser; with the owner's explicit
