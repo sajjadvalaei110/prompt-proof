@@ -1,5 +1,5 @@
 # Project status
-Last updated: 2026-09-30
+Last updated: 2026-10-01 (scip-java indexer review fixes, ADR 0012)
 Active milestone: R6 — Developer comprehension redesign (in progress)
 Current revision: Step11 language-neutral Java analysis integrated with step 14 Ungroup (an expanded box's box hidden, its children kept as free cards,
 ADR 0011) merged with main's step 13 (card menu Expand/Collapse + View source, cascading tree
@@ -28,6 +28,78 @@ toggle with a git-style diff code viewer, exploration tabs with per-tab undo/red
 and selection controls, the R6 change-edges slice (one line per direction,
 directional selection emphasis, file-grouped evidence), in-place card details
 (expand packages/classes) and resizable cards; Step 6A remains unstarted
+
+## scip-java: a second, opt-in Java indexer (2026-09-30, ADR 0012)
+
+Bounded acceptance criterion: a workspace can choose scip-java instead of JavaParser; with the owner's explicit
+consent it compiles the project's own Gradle build (found from a module path up to the Git root) in a private copy,
+reusing the local Gradle cache offline-first, and publishes a snapshot with JavaParser-shaped graph facts plus a
+navigation occurrence index answering go to definition. JavaParser stays the default; review captures never build.
+
+Changed: engine seam (`AnalysisPort.indexer()` …, registry keyed by language + engine), V013 (`indexer` on
+workspaces/snapshots, nullable = language default; `code_occurrences`; cleanup trigger), `analysis/scip/`
+(dependency-free SCIP decoder, symbol grammar, Java signature reader, `ScipJavaTool` runner),
+`ScipJavaAnalysisAdapter`, shared `SpringFrameworkPass`, build-consent (`trust_state = 'build_allowed'`),
+`GET /api/indexers`, `GET /api/snapshots/{id}/files/definition`, import-screen engine picker + consent,
+`./gradlew installScipJava` (scip-java 0.12.3, isolated from Boot's BOM), fixture
+`test-fixtures/scip-gradle-project` + golden index. AGENTS.md invariant amended per ADR 0012.
+
+Checks run:
+- `./gradlew test --no-daemon` — PASS (full suite incl. `ScipJavaLiveIndexingTest`, which ran the real
+  scip-java + Gradle): 197 tests, 0 failures, 0 skipped.
+- `./gradlew constrainedMemoryTest --no-daemon` — PASS.
+- `cd frontend && npx tsc -b --force && npm run build` — PASS; all 12 `node scripts/test-*.mjs` — PASS.
+- `CHROMIUM=/opt/pw-browsers/chromium-1194/chrome-linux/chrome python3 scripts/verify_language_import_pipeline.py` — PASS.
+- Packaged-app browser run of the scip-java flow, screenshots inspected: `docs/evidence/scip-java-indexer/`.
+
+Found and fixed during verification: a Java-specific `indexer` column default broke non-Java workspaces
+(caught by `AnalysisServiceDispatchTest`); Re-analyze re-sent the picker state without consent; record headers and
+`new Outer.Inner()` lost IMPLEMENTS/CONSTRUCTS; scip-java's two-way override links and missing record supertypes.
+
+Not run / limits: other browser pipelines (stable graph, hierarchical, change edges, git review, ungroup) were not
+rerun — they do not touch import or analysis engines. The online fallback is verified with a stand-in tool, not a
+real cache miss. Gradle only (Maven/sbt not wired). scip-java 0.12.3 prints internal NullPointerException notes
+while compiling records (build still succeeds, index complete for the fixture). No Ctrl+click/find UI yet — the
+definition endpoint is the backend for it.
+
+### Review fixes (2026-10-01)
+
+Four code-review findings on the scip-java change, fixed in the working tree:
+- [P1] Import form submits the engine it displays: `importEngine.ts` (`importEngineChoice`) resolves the picker's
+  engine (language default from `/api/indexers`, else built-in `javaparser`); `ImportScreen` passes it to
+  `onSubmit`, and `analyze()`'s default (used by `?autoPath=`) is the explicit source-only default. Omission stays
+  only on Re-analyze source and Recent-project re-analysis.
+- [P1] Build output out of logs: `ScipBuildFailedException` (message = build + failure only; tail in
+  `buildOutputTail()`); `AnalysisService.userFacingError` puts the tail in `jobs.error_message` and the failed
+  snapshot's diagnostics, while the log gets the sanitized message and stack trace.
+- [P2] Indexed bytes retained: `ScipJavaTool.index` returns `IndexedBuild(index, sources)` with the workspace's
+  indexed `.java` text read from the private copy after the build (`captureSources`); the adapter stores it,
+  builds evidence and the Spring pass from it, and adds a "changed on disk while scip-java indexed it" diagnostic
+  when the disk differs. No captured text: disk content, diagnostic, no facts.
+- [P2] Multi-line constructor expressions: `ScipJavaAnalysisAdapter.constructorSite` scans tokens backwards across
+  lines (whitespace, `//` and `/* */` comments, qualifiers, type arguments, type annotations); `T::new` is detected
+  from the occurrence's end, since scip-java's range spans `T … ::new`. Fixture gains `app/.../Factories.java`
+  (multi-line `new`, comments between, split qualifier, `T\n::new`); golden index regenerated with the real
+  scip-java 0.12.3 in a scratch copy of the fixture (fixture left without `build/`).
+
+Checks run:
+- `rm -f data/codeatlas.db* && ./gradlew test --no-daemon` — PASS: 209 tests, 0 failures, 0 skipped
+  (`ScipJavaLiveIndexingTest` ran the real scip-java + Gradle, 16 s). New: `ScipJavaConstructorSiteTest` (7),
+  `ScipJavaToolTest` sanitized-message/log and source-capture tests, `ScipJavaAnalysisIntegrationTest`
+  indexed-text-differs, no-captured-text and build-output-not-logged tests.
+- `cd frontend && npx tsc -b --force && npm run build` — PASS. All 13 `node scripts/test-*.mjs` — PASS (new
+  `scripts/test-import-engine.mjs`).
+- Packaged app (`./gradlew bootJar`, `java -jar build/libs/code-atlas-0.1.0-SNAPSHOT.jar` with a scratch data dir):
+  `test-fixtures/scip-gradle-project/app` registered via API with scip-java + consent and analyzed (snapshot
+  indexer scip-java); then a fresh page, picker left at its default (shows JavaParser, no consent box), submitted
+  the same path: POST body `{indexer: "javaparser", allowBuildExecution: false}`, workspace became
+  `javaparser`/`source_only`, new snapshot indexer `javaparser`. An `?autoPath=` page sent the same explicit body.
+- `CHROMIUM=/opt/pw-browsers/chromium-1194/chrome-linux/chrome python3 scripts/verify_language_import_pipeline.py`
+  — PASS (form request now carries `indexer: javaparser`; re-analysis and recent-project requests still omit it);
+  screenshots in its `build/language-import/run-*` directory inspected.
+
+Not run: `constrainedMemoryTest` and the other browser pipelines (no change to graph/explorer code). No new
+screenshots were added to `docs/evidence/scip-java-indexer/` (the import screen looks unchanged).
 
 ## Step11 GitHub integration with Step12–14 (2026-09-30)
 

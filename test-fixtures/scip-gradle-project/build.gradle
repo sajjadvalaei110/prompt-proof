@@ -1,0 +1,7 @@
+subprojects {
+    apply plugin: "java"
+    java { sourceCompatibility = JavaVersion.VERSION_17 }
+}
+project(":app") {
+    dependencies { implementation project(":core") }
+}

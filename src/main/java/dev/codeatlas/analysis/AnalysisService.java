@@ -2,6 +2,8 @@ package dev.codeatlas.analysis;
 
 import dev.codeatlas.analysis.port.AnalysisPort;
 import dev.codeatlas.analysis.port.AnalysisPortRegistry;
+import dev.codeatlas.analysis.scip.ScipBuildFailedException;
+import dev.codeatlas.workspace.WorkspaceTrust;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -57,19 +59,28 @@ public class AnalysisService {
         AnalysisPort adapter = null;
         try {
             Map<String, Object> workspace = jdbcTemplate.queryForMap(
-                    "SELECT canonical_root, language, active_snapshot_id FROM workspaces WHERE id = ?", workspaceId);
+                    "SELECT canonical_root, language, indexer, trust_state, active_snapshot_id FROM workspaces WHERE id = ?", workspaceId);
             String path = (String) workspace.get("canonical_root");
             // Resolve the adapter before creating a staging snapshot. Unsupported language errors
             // are still recorded on the existing job instead of leaving it RUNNING forever.
-            adapter = portRegistry.require((String) workspace.get("language"));
+            adapter = portRegistry.require((String) workspace.get("language"), (String) workspace.get("indexer"));
             String language = adapter.language();
+            String indexer = AnalysisPortRegistry.indexerOf(adapter);
+            // ADR 0012: an engine that runs the repository's own build needs the owner's explicit consent,
+            // recorded on the workspace, and a working installation; otherwise nothing is started.
+            if (adapter.executesTargetBuild() && !WorkspaceTrust.BUILD_ALLOWED.equals(workspace.get("trust_state"))) {
+                throw new IllegalStateException("The " + indexer + " indexer runs this project's build, which was not allowed for this workspace. "
+                        + "Re-import it with build execution allowed, or choose a source-only indexer.");
+            }
+            Optional<String> unavailable = adapter.unavailableReason();
+            if (unavailable.isPresent()) throw new IllegalStateException(unavailable.get());
             final AnalysisPort runAdapter = adapter;
 
             String previousSnapshotId = (String) workspace.get("active_snapshot_id");
             snapshotId = UUID.randomUUID().toString();
             jdbcTemplate.update(
-                    "INSERT INTO snapshots (id, workspace_id, language, status, created_at) VALUES (?, ?, ?, 'staging', datetime('now'))",
-                    snapshotId, workspaceId, language);
+                    "INSERT INTO snapshots (id, workspace_id, language, indexer, status, created_at) VALUES (?, ?, ?, ?, 'staging', datetime('now'))",
+                    snapshotId, workspaceId, language, indexer);
             jdbcTemplate.update("UPDATE jobs SET snapshot_id = ? WHERE id = ?", snapshotId, jobId);
 
             // Phase 1: Discover files
@@ -168,16 +179,42 @@ public class AnalysisService {
                     symbolCount, relCount, routeCount, injectionCount);
 
         } catch (Exception e) {
+            // The logged text is the exception's message and stack trace only. Build output (ADR 0012) is never part
+            // of a message: it travels in ScipBuildFailedException.buildOutputTail() and is stored for display only.
             log.error("Analysis failed for workspace {}: {}", workspaceId, e.getMessage(), e);
+            String userFacingError = userFacingError(e);
             if (snapshotId != null) {
                 jdbcTemplate.update("UPDATE snapshots SET status = 'failed' WHERE id = ?", snapshotId);
+                if (adapter != null && !Objects.equals(userFacingError, e.getMessage())) {
+                    try {
+                        List<String> warnings = new ArrayList<>(adapter.diagnostics());
+                        warnings.add(userFacingError);
+                        jdbcTemplate.update("UPDATE snapshots SET diagnostics = ? WHERE id = ?",
+                                new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(Map.of("warnings", warnings)), snapshotId);
+                    } catch (Exception ignored) {
+                        // The job's error message below still carries the diagnostic.
+                    }
+                }
             }
             jdbcTemplate.update(
                     "UPDATE jobs SET status = 'FAILED', error_message = ?, updated_at = datetime('now') WHERE id = ?",
-                    e.getMessage(), jobId);
+                    userFacingError, jobId);
         } finally {
             if (adapter != null) adapter.releaseRunCaches();
         }
+    }
+
+    /**
+     * The error shown to the user for a failed run: the exception's message, plus the tail of the build output when
+     * a build-running engine's build failed. Stored as display data on the job (and failed snapshot), never logged.
+     */
+    static String userFacingError(Throwable error) {
+        for (Throwable t = error; t != null; t = t.getCause()) {
+            if (t instanceof ScipBuildFailedException build && !build.buildOutputTail().isBlank()) {
+                return error.getMessage() + " Last build output:\n" + build.buildOutputTail();
+            }
+        }
+        return error.getMessage();
     }
 
     /**
@@ -196,9 +233,12 @@ public class AnalysisService {
             String requestedLanguage = jdbcTemplate.queryForObject(
                     "SELECT language FROM snapshots WHERE id = ? AND workspace_id = ?", String.class,
                     snapshotId, workspaceId);
+            // Captures hold sources only and must never run a build: always the language's default,
+            // source-only engine, whatever engine the workspace itself uses (ADR 0012).
             adapter = portRegistry.require(requestedLanguage);
             String language = adapter.language();
             final AnalysisPort runAdapter = adapter;
+            jdbcTemplate.update("UPDATE snapshots SET indexer = ? WHERE id = ?", AnalysisPortRegistry.indexerOf(adapter), snapshotId);
             List<File> sourceFiles = adapter.discoverFiles(capturedRoot.toFile());
             adapter.prepare(capturedRoot.toString(), workspaceRoot);
             List<File> declarationFiles = new ArrayList<>();

@@ -219,3 +219,8 @@ h1 { font-size: 25px; letter-spacing: -.7px; line-height: 1.3; font-weight: 650;
 .welcome label, .open-project-bar label { min-width: 0; }
 .welcome select, .open-project-bar select { height: 45px; }
 @media(max-width:760px) { .open-project-bar form { flex-direction: column; align-items: stretch; } }
+/* ADR 0012: the consent line for a build-running indexer sits on its own row under the import fields. */
+.welcome form, .open-project-bar form { flex-wrap: wrap; }
+.welcome label.build-consent, .open-project-bar label.build-consent { flex: 1 1 100%; order: 10; display: flex; flex-direction: row; gap: 8px; align-items: flex-start; font-size: 12px; line-height: 1.4; }
+.welcome .build-consent input, .open-project-bar .build-consent input { flex: none; width: 16px; height: 16px; margin-top: 1px; }
+@media(max-width:760px) { .welcome label.build-consent, .open-project-bar label.build-consent { order: 0; } }

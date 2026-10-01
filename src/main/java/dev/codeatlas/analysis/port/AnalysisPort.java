@@ -25,6 +25,42 @@ public interface AnalysisPort {
     String language();
 
     /**
+     * Stable lowercase identifier of the indexing engine inside {@link #language()}, for example
+     * {@code javaparser} or {@code scip-java} (ADR 0012). A language may ship several engines; each
+     * workspace and snapshot records the one it used. Defaults to the language itself for adapters
+     * that are the only engine of their language.
+     */
+    default String indexer() {
+        return language();
+    }
+
+    /** Human-readable engine name for the import screen. */
+    default String indexerLabel() {
+        return indexer();
+    }
+
+    /** Whether this engine is the one chosen when a workspace names only its language. */
+    default boolean defaultIndexer() {
+        return true;
+    }
+
+    /**
+     * Whether this engine runs the target repository's own build (ADR 0012). Such an engine is used only
+     * for a workspace whose owner explicitly allowed build execution, and never for review captures.
+     */
+    default boolean executesTargetBuild() {
+        return false;
+    }
+
+    /**
+     * Why this engine cannot run on this machine right now (for example a missing tool), or empty when
+     * it can. Callers show the reason instead of offering an engine that would fail every run.
+     */
+    default java.util.Optional<String> unavailableReason() {
+        return java.util.Optional.empty();
+    }
+
+    /**
      * Discovers source files for this language below {@code root}. Implementations must keep
      * discovery source-only: regular files only, no symlink traversal, and no target build/tool
      * execution.

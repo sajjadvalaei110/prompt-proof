@@ -39,7 +39,7 @@ The backend enforces strict modular separation across domain boundaries:
 | Module | Responsibility |
 |---|---|
 | `workspace` | Project root registration, path traversal validation, file filtering (includes/excludes), trust boundaries. |
-| `analysis` | Per-language adapters behind a shared analysis port (Java/JavaParser today): source discovery hooks, symbol extraction, type solving, relationship extraction and exact evidence coordinates. Go and Dart adapters are deferred. |
+| `analysis` | Per-language adapters behind a shared analysis port (Java today, with two engines: JavaParser and scip-java, ADR 0012): source discovery hooks, symbol extraction, type solving, relationship extraction and exact evidence coordinates. Go and Dart adapters are deferred. |
 | `analysis` (Spring heuristics) | Heuristic recognition of Spring stereotypes (`@Service`, `@Repository`, `@RestController`), constructor injection, `@Qualifier`, `@Bean`, and HTTP routes. Implemented by `analysis/SpringAnnotationAnalyzer.java`; this is not a separate top-level package. |
 | `graph` | Graph querying, neighborhood traversal, package/class aggregation, search, cycle detection, and filtering. |
 | `explanations` | Context construction, prompt generation, JSON response schema validation, claim basis attribution, and explanation caching. |
@@ -79,6 +79,18 @@ Workspace creation accepts a language and returns it; omitted/blank values retai
 Java default, and unsupported values are rejected before registration. Review snapshots
 copy the workspace language. The import form offers only Java; Go and Dart adapters
 have not shipped. See [ADR 0008](adr/0008-multi-language-support.md).
+
+A language may ship several indexing engines ([ADR 0012](adr/0012-scip-java-indexer.md)).
+The registry keys ports by language and engine id; `require(language)` still returns the
+default engine. Java ships `javaparser` (default, source-only) and `scip-java`
+(`ScipJavaAnalysisAdapter`), which runs the project's Gradle build through scip-java in a
+private copy of the build root, with the owner's recorded consent
+(`trust_state = 'build_allowed'`), and maps the resulting SCIP index onto the same symbol,
+relationship and evidence shapes. V013 records `indexer` on workspaces and snapshots and adds
+`code_occurrences`, the navigation-only occurrence index behind
+`GET /api/snapshots/{id}/files/definition`. Review captures always use the default engine.
+The workspace path may be a module: the Gradle build root is found by walking up to the nearest
+settings file, never past the Git root, and only files under the workspace become graph facts.
 
 Before a second language ships, the following end-to-end contracts need explicit
 implementation decisions and real fixtures:

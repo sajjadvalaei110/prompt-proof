@@ -40,6 +40,9 @@ java -jar build/libs/review-assist-0.1.0-SNAPSHOT.jar   # http://127.0.0.1:8085
 ./gradlew bootRun                 # backend on 8085
 cd frontend && npm install && npm run dev   # vite on 5173, proxies /api to 8085
 
+# Optional second Java indexer (ADR 0012): installs scip-java into data/tools/scip-java/lib
+./gradlew installScipJava
+
 # Backend tests
 ./gradlew test                              # full suite (excludes the constrained-memory test)
 ./gradlew test --tests "dev.codeatlas.analysis.LargeProjectBenchmarkTest"   # single test class
@@ -57,6 +60,7 @@ node scripts/test-explorer-journeys.mjs
 node scripts/test-node-card.mjs
 node scripts/test-source-evidence.mjs
 node scripts/test-review-model.mjs
+node scripts/test-import-engine.mjs
 
 # Browser acceptance pipelines (need Chromium — override with CHROMIUM=/path, Java 21, Node 22, Python 3)
 # Each spins up an isolated SQLite dir + browser profile under build/<name>/run-*/,

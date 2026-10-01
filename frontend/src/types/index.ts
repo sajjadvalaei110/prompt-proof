@@ -3,6 +3,8 @@ export interface Workspace {
   name: string;
   path: string;
   language: Language;
+  /** Indexing engine the workspace uses, e.g. `javaparser` or `scip-java` (ADR 0012). */
+  indexer?: string;
 }
 
 export interface AnalysisJob {

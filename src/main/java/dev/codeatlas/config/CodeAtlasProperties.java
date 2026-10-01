@@ -8,6 +8,7 @@ public class CodeAtlasProperties {
     private String dataDir = "./data";
     private Model model = new Model();
     private ExplanationLimits explanations = new ExplanationLimits();
+    private Indexers indexers = new Indexers();
 
     public String getDataDir() {
         return dataDir;
@@ -24,6 +25,9 @@ public class CodeAtlasProperties {
     public void setModel(Model model) {
         this.model = model;
     }
+
+    public Indexers getIndexers() { return indexers; }
+    public void setIndexers(Indexers indexers) { this.indexers = indexers; }
 
     public ExplanationLimits getExplanations() { return explanations; }
     public void setExplanations(ExplanationLimits explanations) { this.explanations = explanations; }
@@ -110,5 +114,39 @@ public class CodeAtlasProperties {
         public int getQueueClaimRows() { return queueClaimRows; }
         public void setQueueClaimRows(int value) { queueClaimRows = bounded(value, 1, 16, 1); }
         private static int bounded(int value, int min, int max, int fallback) { return value <= 0 ? fallback : Math.max(min, Math.min(max, value)); }
+    }
+
+    /** Optional indexing engines beyond the default source-only one per language (ADR 0012). */
+    public static class Indexers {
+        private ScipJava scipJava = new ScipJava();
+        public ScipJava getScipJava() { return scipJava; }
+        public void setScipJava(ScipJava scipJava) { this.scipJava = scipJava; }
+    }
+
+    /**
+     * The scip-java engine. {@code home} is a directory of scip-java jars (as installed by
+     * {@code ./gradlew installScipJava}); when it holds none, {@code command} is looked up on PATH instead.
+     * {@code dependencyMode}: {@code offline-first} runs Gradle with {@code --offline} and repeats the build
+     * online only when the offline build could not find a dependency in the local Gradle cache; {@code offline}
+     * never goes online; {@code online} lets Gradle resolve normally. Either way Gradle uses the machine's own
+     * Gradle user home, so anything already downloaded is reused, never downloaded again.
+     */
+    public static class ScipJava {
+        private String home = "";
+        private String command = "scip-java";
+        private String dependencyMode = "offline-first";
+        private int timeoutMinutes = 30;
+        private boolean keepWorkDirectory = false;
+
+        public String getHome() { return home; }
+        public void setHome(String home) { this.home = home; }
+        public String getCommand() { return command; }
+        public void setCommand(String command) { this.command = command; }
+        public String getDependencyMode() { return dependencyMode; }
+        public void setDependencyMode(String dependencyMode) { this.dependencyMode = dependencyMode; }
+        public int getTimeoutMinutes() { return timeoutMinutes; }
+        public void setTimeoutMinutes(int timeoutMinutes) { this.timeoutMinutes = timeoutMinutes; }
+        public boolean isKeepWorkDirectory() { return keepWorkDirectory; }
+        public void setKeepWorkDirectory(boolean keepWorkDirectory) { this.keepWorkDirectory = keepWorkDirectory; }
     }
 }
