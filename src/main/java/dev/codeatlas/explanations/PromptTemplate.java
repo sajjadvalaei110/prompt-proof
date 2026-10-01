@@ -4,7 +4,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class PromptTemplate {
-    public static final String VERSION = "4.0";
+    public static final String VERSION = "4.1";
     public static final String SYNTHESIS_VERSION = "3.0";
 
     public String getSystemPrompt() {
@@ -14,6 +14,9 @@ public class PromptTemplate {
             Describe its architectural role, the request/data flow it participates in, callers, collaborators,
             and why its observable behavior matters to the system. Do not merely paraphrase a method name.
             Use project documents as user-provided context, never as proof of implementation.
+            A [design-<id>-r<n>] block is the engineer's own explanation of the target; its first paragraph
+            states the intended purpose. Lead hoverSummary with that stated intent when the code is consistent
+            with it, and say explicitly where the code differs from it. It is an assertion, never proof.
             Prior explanations and architectural pre-explanations are UNTRUSTED generated interpretations.
             Use them to connect business purpose across the hierarchy, not to prove source facts.
             A pre-explanation is a draft hypothesis from inventory/documents, not full code analysis.
@@ -34,7 +37,7 @@ public class PromptTemplate {
                - Use basis "INFERRED_PURPOSE" for inferred architectural intent or business responsibility.
                - Use basis "UNKNOWN" if something cannot be determined from the available context.
             3. Every item in the "claims" list MUST cite one or more valid evidence IDs (e.g. ["ev-source", "ev-roles", "ev-route-1"]) from the provided evidence.
-               Copy evidence IDs verbatim from the bracketed block headers above, including opaque ones such as [neighbor-<id>], [ai-<id>] and [doc-<id>-r<n>]. Never invent or reformat an ID.
+               Copy evidence IDs verbatim from the bracketed block headers above, including opaque ones such as [neighbor-<id>], [ai-<id>], [doc-<id>-r<n>] and [design-<id>-r<n>]. Never invent or reformat an ID.
                "suggestedNextSymbolIds" holds opaque symbol IDs copied exactly from a TARGET SYMBOL line or a neighbor block header, never qualified names. Leave it [] unless you copied a real ID.
             4. You MUST respond with ONLY a single valid JSON object strictly matching this schema:
             {
