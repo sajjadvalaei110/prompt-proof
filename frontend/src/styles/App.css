@@ -97,6 +97,8 @@ h1 { font-size: 25px; letter-spacing: -.7px; line-height: 1.3; font-weight: 650;
 .diff-split-row { display: contents; }
 .diff-split-cell { display: flex; align-items: baseline; padding: 0 12px 0 0; border-right: 1px solid #edf1f5; overflow-x: auto; }
 .diff-split-row .diff-split-cell:last-child { border-right: 0; }
+/* Split cells are not inside a <pre>: keep the source's own indentation and spacing. */
+.diff-split-cell code { white-space: pre; }
 .diff-split-blank { background: #f3f5f8; }
 /* Split view highlights the pinned side's declaration/evidence cell the way unified highlights a row. */
 .diff-split-cell.highlighted { background: #e5f3f4; }
@@ -245,6 +247,8 @@ h1 { font-size: 25px; letter-spacing: -.7px; line-height: 1.3; font-weight: 650;
 
 .welcome label, .open-project-bar label { min-width: 0; }
 .welcome select, .open-project-bar select { height: 45px; }
+/* A long engine label must not widen the form past a narrow screen; fields take their column's width. */
+.welcome input, .welcome select, .open-project-bar input, .open-project-bar select { width: 100%; min-width: 0; }
 @media(max-width:760px) { .open-project-bar form { flex-direction: column; align-items: stretch; } }
 /* ADR 0012: the consent line for a build-running indexer sits on its own row under the import fields. */
 .welcome form, .open-project-bar form { flex-wrap: wrap; }

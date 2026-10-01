@@ -77,12 +77,12 @@ export function ImportScreen({
             disabled={busy}
           />
         </label>
-        <label>Repository root <small>optional</small>
+        <label>Repository root
           <input
             aria-label="Repository root"
             value={repositoryRoot}
             onChange={event => onRepositoryRootChange?.(event.target.value)}
-            placeholder="Auto-detect (folder holding .git and the build)"
+            placeholder="Optional · auto-detect"
             title="When the path above is a module or subdirectory: the directory that holds the Git repository and the build settings. Leave empty to auto-detect."
             disabled={busy}
           />
