@@ -117,7 +117,11 @@ export type JourneyAction =
   // changes what the map draws ends an outgoing stack whose root it no longer draws (`graphFor` as
   // for UNDO/REDO; without it, the view's own displayed record).
   | { type: 'UPDATE'; id: number; group: number; update: (j: Journey) => Journey; graphFor?: GraphFor }
-  | { type: 'INITIAL_CAMERA'; id: number; action: Extract<ExplorerAction, { type: 'SET_CAMERA' }> };
+  | { type: 'INITIAL_CAMERA'; id: number; action: Extract<ExplorerAction, { type: 'SET_CAMERA' }> }
+  // The ordinary map's graph changed underneath every tab without any exploration edit (a design-layer
+  // change, ADR 0014: those are server operations, outside undo history). Each open and closed tab's
+  // current journey is reconciled in place; history entries are left as they were.
+  | { type: 'RECONCILE_ALL'; reconcile: (j: Journey) => Journey };
 
 /**
  * Selection is a pointer, not an exploration edit (ADR 0009): the inspected subject, the inspector's
@@ -205,6 +209,10 @@ export function journeysReducer(state: ExplorerJourneys, action: JourneyAction):
   if (action.type === 'REOPEN') {
     const tab = state.closed.at(-1);
     return tab ? { ...state, tabs: [...state.tabs, tab], closed: state.closed.slice(0, -1), activeId: tab.id } : state;
+  }
+  if (action.type === 'RECONCILE_ALL') {
+    const apply = (t: JourneyTab) => { const present = action.reconcile(t.present); return present === t.present ? t : { ...t, present }; };
+    return { ...state, tabs: state.tabs.map(apply), closed: state.closed.map(apply) };
   }
   if (action.type === 'REVIEW_RECAPTURED') {
     const resetTab = (t: JourneyTab) => {

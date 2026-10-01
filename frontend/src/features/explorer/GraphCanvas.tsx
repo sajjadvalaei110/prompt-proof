@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import cytoscape from 'cytoscape';
 import { AtlasNode, AtlasEdge, kindSummary, reviewRouteSummary } from './graphModel';
-import { nodeCard, cornerButtons, hasCodeButton, hasDetailsButton, CODE_BUTTON, MIN_CARD_SIZE, CornerAction, CardSize } from './nodeCard';
+import { nodeCard, DESIGN_TONE, cornerButtons, hasCodeButton, hasDetailsButton, CODE_BUTTON, MIN_CARD_SIZE, CornerAction, CardSize } from './nodeCard';
 import { CONTAINER_BUTTON, CONTAINER_PADDING } from './expansionLayout';
 import CodeButton from '../../components/CodeButton';
 import { REVIEW_CHANGE_PALETTE } from '../review/reviewPalette';
@@ -127,7 +127,10 @@ interface Props {
   onCycleStack: (id: string) => void;
   /** A context-menu item: root this direction on the card, or end it when it is the one shown. */
   onToggleStack: (id: string, direction: StackDirection) => void;
+  /** Design-layer commands (ADR 0014) from a card menu or the empty-canvas menu; absent while the design layer is hidden. */
+  onDesignCommand?: (command: DesignCommand, node: AtlasNode | null) => void;
 }
+export type DesignCommand = 'add-child' | 'add-relation' | 'explain' | 'add-package';
 
 /**
  * Step 3: the canvas is created exactly once per mount and never destroyed/recreated on a
@@ -140,7 +143,7 @@ interface Props {
  * `cy.fit()` is called only once per level (when `camera` is null) and by the explicit Fit map
  * button -- both are real camera changes the product allows.
  */
-export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, mapOpen, onMapOpenChange: setMapOpen, fullscreen, onFullscreenChange: setFullscreen, onClearSelection, nodes, edges, positions, camera, selectedId, onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, scopeRemovalTargets, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, sizes, containerSizes, onToggleExpand, onToggleExpandMany, onUngroup, hiddenAncestorOf, onCollapseInto, onResizeNode, onResizeContainer, restoreVersion, outgoingStack, stackRoot, onCycleStack, onToggleStack }: Props) {
+export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, mapOpen, onMapOpenChange: setMapOpen, fullscreen, onFullscreenChange: setFullscreen, onClearSelection, nodes, edges, positions, camera, selectedId, onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, scopeRemovalTargets, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, sizes, containerSizes, onToggleExpand, onToggleExpandMany, onUngroup, hiddenAncestorOf, onCollapseInto, onResizeNode, onResizeContainer, restoreVersion, outgoingStack, stackRoot, onCycleStack, onToggleStack, onDesignCommand }: Props) {
   const container = useRef<HTMLDivElement>(null), cyRef = useRef<cytoscape.Core | null>(null), menuRef = useRef<HTMLDivElement>(null);
   const callbacks = useRef({ onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, onToggleExpand, onUngroup, onResizeNode, onResizeContainer, onClearSelection, onCycleStack });
   callbacks.current = { onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, onToggleExpand, onUngroup, onResizeNode, onResizeContainer, onClearSelection, onCycleStack };
@@ -149,6 +152,9 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
   // `node` is the card that was right-clicked; null when the menu opened from a marquee.
   // `addedId`: the card this right-click added to the multi-selection (it was not selected before).
   const [contextMenu,setContextMenu]=useState<{node:AtlasNode|null;x:number;y:number;addedId?:string|null}|null>(null);
+  // A right-click on empty canvas: design commands that need no card (ADR 0014).
+  const [canvasMenu,setCanvasMenu]=useState<{x:number;y:number}|null>(null);
+  const designCommandRef=useRef(onDesignCommand); designCommandRef.current=onDesignCommand;
   // menuPosition only reserves a fixed height; once the menu is drawn, lift it so its real height
   // (which grows with the card's actions) stays inside the stage.
   const [menuTop,setMenuTop]=useState<number|null>(null);
@@ -190,17 +196,17 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
   // wider than the gap between adjacent cards (~96px), and cards are opaque and drawn above
   // edges, so the label was overdrawn at both ends -- the text read "alls ×4 · depends o".
   // The full breakdown is one hover away and listed in full in the inspector.
-  const edgeLabel=(e:AtlasEdge)=>(e.explanationStatus==='READY'?'✦ ':'')+kindSummary(e,1);
+  const edgeLabel=(e:AtlasEdge)=>(e.design?'✎ ':e.explanationStatus==='READY'?'✦ ':'')+kindSummary(e,1);
   const childCounts=useMemo(()=>{const m=new Map<string,number>();for(const n of nodes)if(n.containerId)m.set(n.containerId,(m.get(n.containerId)||0)+1);return m;},[nodes]);
   // `parent` is left out on purpose: Cytoscape sets a node's parent only on add or move(), never through data().
   // Boolean flags are always written: data() merges, so a flag left out would keep its stale value.
   const nodeStyleData=(n:AtlasNode)=>{
-    const {containerId:_containerId,...rest}=n;
+    const {containerId:_containerId,design,...rest}=n;
     const card=nodeCard(n,sizes[n.id]),min=containerSizes[n.id];
     const childWord=n.kind==='PACKAGE'?'types':'methods';
     const reviewChange=n.reviewChange&&n.reviewChange!=='UNCHANGED'?n.reviewChange:null;
     const reviewLabel=reviewChange==='UNKNOWN'?' · NOT ANALYZED':reviewChange?` · ${reviewChange} +${n.reviewAddedLines||0} −${n.reviewRemovedLines||0}`:'';
-    return {...rest,...(n.reviewChange?{reviewChange:n.reviewChange}:{}),expanded:!!n.expanded,hiddenBox:!!n.hiddenBox,card:card.image,cardWidth:card.width,cardHeight:card.height,minW:min?.width||0,minH:min?.height||0,
+    return {...rest,...(n.reviewChange?{reviewChange:n.reviewChange}:{}),expanded:!!n.expanded,hiddenBox:!!n.hiddenBox,designOnly:!!design&&!design.codeId,card:card.image,cardWidth:card.width,cardHeight:card.height,minW:min?.width||0,minH:min?.height||0,
       containerLabel:`${n.kind==='PACKAGE'?n.qualifiedName||n.simpleName:n.simpleName}  ·  ${childCounts.get(n.id)||0} ${childWord}${reviewLabel}`,
       label:n.simpleName+'\n'+(n.roles?.[0]?.toLowerCase().replaceAll('_',' ')||n.kind.toLowerCase()),color:n.kind==='PACKAGE'?'#6c79b6':n.roles?.includes('SERVICE')?'#16888a':n.roles?.includes('REPOSITORY')?'#6287c8':'#8293a8'};
   };
@@ -230,6 +236,8 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         { selector: 'node[reviewChange = "REMOVED"]', style: { 'background-color': REVIEW_CHANGE_PALETTE.REMOVED.nodeFill, 'border-color': REVIEW_CHANGE_PALETTE.REMOVED.border } },
         { selector: 'node[reviewChange = "MODIFIED"]', style: { 'background-color': REVIEW_CHANGE_PALETTE.MODIFIED.nodeFill, 'border-color': REVIEW_CHANGE_PALETTE.MODIFIED.border } },
         { selector: 'node[reviewChange = "UNKNOWN"]', style: { 'border-color': REVIEW_CHANGE_PALETTE.UNKNOWN.border, 'border-style': 'dashed' } },
+        // A card that exists only in the design layer (ADR 0014): dashed violet, never mistaken for parsed code.
+        { selector: 'node[?designOnly]', style: { 'border-color': DESIGN_TONE.border, 'border-style': 'dashed', 'border-width': 2, 'background-color': DESIGN_TONE.nodeFill } },
         { selector: 'edge', style: { width: 'data(strengthWidth)', 'line-color': ORDINARY_ROUTE.line, 'target-arrow-color': ORDINARY_ROUTE.arrow, 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', label: 'data(label)', 'font-size': 11, color: '#5b6d83', 'text-opacity': .85, 'text-background-color': '#f7f9fc', 'text-background-opacity': 1, 'text-background-padding': '3px', 'text-rotation': 'autorotate', 'text-margin-y': -11, 'arrow-scale': 1.4, 'text-max-width': '88px', 'text-wrap': 'ellipsis' } },
         { selector: 'edge[explanationStatus = "READY"]', style: { color: '#7955b7', 'text-background-color': '#f3eeff', 'text-opacity': 1 } },
         // Resolution is not drawn on the line (user decision, ADR 0008 amendment 2026-09-25): an
@@ -260,6 +268,8 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         { selector: 'edge[reviewChange = "REMOVED"]', style: { 'line-color': REVIEW_CHANGE_PALETTE.REMOVED.route, 'target-arrow-color': REVIEW_CHANGE_PALETTE.REMOVED.arrow, color: '#a42b2b', 'line-style': 'dashed' } },
         // Unknown existence (change status, not resolution) is drawn amber and dotted.
         { selector: 'edge[reviewChange = "UNKNOWN"]', style: { 'line-color': REVIEW_CHANGE_PALETTE.UNKNOWN.route, 'target-arrow-color': REVIEW_CHANGE_PALETTE.UNKNOWN.arrow, color: '#805b12', 'line-style': 'dotted' } },
+        // A designed relation: intent, not a parsed fact. Dashed violet, kept as its own route.
+        { selector: 'edge[?designed]', style: { 'line-color': DESIGN_TONE.route, 'target-arrow-color': DESIGN_TONE.arrow, 'line-style': 'dashed', 'line-dash-pattern': [10, 6], color: DESIGN_TONE.text, 'text-background-color': DESIGN_TONE.badgeFill, 'target-arrow-shape': 'triangle-backcurve' } },
         { selector: 'edge.flow-out', style: { 'underlay-color': HALO.out } },
         { selector: 'edge.flow-in', style: { 'underlay-color': HALO.in } },
         // Direct edge inspection overrides change colors until deselection.
@@ -510,6 +520,15 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       menuOpenerRef.current=null;
       setContextMenu({node,addedId,...menuPosition(cy,position)});
     });
+    // A plain right-click on empty canvas (no drag: cxttap) offers the design commands that need no card.
+    cy.on('cxttap', e => {
+      if (e.target !== cy || !designCommandRef.current) return;
+      (e.originalEvent as Event | undefined)?.preventDefault();
+      setContextMenu(null); setHover(null);
+      const p = e.renderedPosition || { x: cy.width() / 2, y: cy.height() / 2 };
+      setCanvasMenu({ x: Math.max(8, Math.min(p.x, cy.width() - 238)), y: Math.max(8, Math.min(p.y, cy.height() - 120)) });
+    });
+    cy.on('pan zoom tap cxttapstart', e => { if (e.type !== 'cxttapstart' || e.target !== cy) setCanvasMenu(null); });
     // A plain click on empty canvas clears the multi-selection, like most canvas editors.
     cy.on('tap', e => { if (e.target === cy && !multiKey(e)) callbacks.current.onClearSelection(); });
 
@@ -563,6 +582,10 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       const a=currentModel.current.nodes.find(n=>n.id===edge.sourceId),b=currentModel.current.nodes.find(n=>n.id===edge.targetId);
       const position=e.renderedPosition || e.target.renderedMidpoint();
       const resolutions=(edge.resolutions||[edge.resolution]).map(r=>r.toLowerCase()).join(' + ');
+      if(edge.design){
+        setHover({ready:false,title:`${a?.simpleName} → ${b?.simpleName}`,description:`Designed ${kindSummary(edge)} (${edge.design.status.toLowerCase()}). ${edge.design.intent||'No explanation yet.'} Click to inspect.`,x:Math.max(12,Math.min(position.x,cy.width()-280)),y:Math.max(12,position.y-100)});
+        return;
+      }
       setHover({ready:edge.explanationStatus==='READY',title:`${a?.simpleName} → ${b?.simpleName}`,description:`${kindSummary(edge)} · ${edge.occurrenceCount||1} source occurrence(s) · ${resolutions}.${reviewRouteSummary(edge)} Click to inspect evidence.`,x:Math.max(12,Math.min(position.x,cy.width()-280)),y:Math.max(12,position.y-100)});
     });
     cy.on('mouseout pan zoom tap',()=>setHover(null));
@@ -734,7 +757,8 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         }
       }
       for (const e of edges) {
-        const data = { ...e, source: e.sourceId, target: e.targetId!, label: edgeLabel(e) };
+        const { design: _design, ...edgeRest } = e;
+        const data = { ...edgeRest, designed: !!e.design, source: e.sourceId, target: e.targetId!, label: edgeLabel(e) };
         const existing = cy.getElementById(e.id);
         if (existing.length) {
           for (const key of REVIEW_DATA_KEYS) if (!(key in data)) existing.removeData(key);
@@ -1013,9 +1037,20 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       {menuNode&&menuNode.expanded&&!menuNode.hiddenBox&&<button role="menuitem" onClick={()=>{setContextMenu(null);onUngroup(menuNode);}}><span aria-hidden="true">⬚</span> Ungroup {menuNode.simpleName}</button>}
       {/* Distinct from Collapse above: it brings back the nearest ungrouped box this card sits in. */}
       {menuHiddenAncestor&&<button role="menuitem" onClick={()=>menuSingle(()=>onCollapseInto(menuHiddenAncestor))}><span aria-hidden="true">⊟</span> Collapse into {menuHiddenAncestor.simpleName}</button>}
-      {menuNode&&hasCodeButton(menuNode)&&<button role="menuitem" onClick={()=>menuSingle(()=>onViewCode(menuNode))}><span aria-hidden="true">{'</>'}</span> View source</button>}
+      {menuNode&&hasCodeButton(menuNode)&&!(menuNode.design&&!menuNode.design.codeId)&&<button role="menuitem" onClick={()=>menuSingle(()=>onViewCode(menuNode))}><span aria-hidden="true">{'</>'}</span> View source</button>}
+      {menuNode&&onDesignCommand&&!menuGroup&&<>
+        {(menuNode.kind==='PACKAGE'||!['METHOD','CONSTRUCTOR','FIELD'].includes(menuNode.kind))&&<button role="menuitem" className="design-menuitem" onClick={()=>menuSingle(()=>onDesignCommand('add-child',menuNode))}><span aria-hidden="true">＋</span> {menuNode.kind==='PACKAGE'?'Add type…':'Add method or nested type…'}</button>}
+        <button role="menuitem" className="design-menuitem" onClick={()=>menuSingle(()=>onDesignCommand('add-relation',menuNode))}><span aria-hidden="true">⤳</span> Add relation from here…</button>
+        <button role="menuitem" className="design-menuitem" onClick={()=>menuSingle(()=>onDesignCommand('explain',menuNode))}><span aria-hidden="true">✎</span> {menuNode.design?.origin==='AUTHORED'?'Edit design…':menuNode.design?.explanation?'Edit explanation…':'Explain intent…'}</button>
+      </>}
       <button role="menuitem" onClick={()=>{onClearSelection();setContextMenu(null);}}><span aria-hidden="true">✕</span> {selectedNodes.length>1?'Clear selection':'Deselect'}</button>
       <p className="graph-context-menu-hint">Right-click or right-drag over more cards to add them. Drag any selected card to move the group.</p>
+    </div>}
+    {canvasMenu&&onDesignCommand&&<div className="graph-context-menu" role="menu" aria-label="Map actions" style={{left:canvasMenu.x,top:canvasMenu.y}} onKeyDown={e=>{if(e.key==='Escape')setCanvasMenu(null);}}>
+      <div className="graph-context-menu-heading">Design</div>
+      <button role="menuitem" className="design-menuitem" autoFocus onClick={()=>{setCanvasMenu(null);onDesignCommand('add-package',null);}}><span aria-hidden="true">＋</span> Add package…</button>
+      <button role="menuitem" className="design-menuitem" onClick={()=>{setCanvasMenu(null);onDesignCommand('add-relation',null);}}><span aria-hidden="true">⤳</span> Add relation…</button>
+      <button role="menuitem" onClick={()=>setCanvasMenu(null)}><span aria-hidden="true">✕</span> Close</button>
     </div>}
     {selectedNodes.length>0&&<div className="selection-bar" role="toolbar" aria-label="Selected resources"><strong>{selectedNodes.length} selected</strong><button className="danger" disabled={!removableNodes.length} title={removalTitle} onClick={removeSelectedFromScope}>{removalLabel}</button><button onClick={onClearSelection}>Clear</button></div>}
     {marquee&&<div className="graph-marquee" aria-hidden="true" style={{left:marquee.x1,top:marquee.y1,width:marquee.x2-marquee.x1,height:marquee.y2-marquee.y1}}/>}

@@ -1,4 +1,5 @@
 import { ScopeSelection, isNodeInScope } from './scopeModel';
+import type { DesignRelation, DesignResource } from '../design/designModel';
 export interface AtlasNode { id: string; simpleName: string; qualifiedName?: string; kind: string; parentId?: string; roles?: string[]; responsibilitySummary?: string; explanationStatus?: string; memberNames?: string[]; memberCount?: number; packageName?: string;
   /** A comparison overlay may mark a parser-owned resource; ordinary exploration leaves this absent. */
   reviewChange?: 'ADDED' | 'MODIFIED' | 'REMOVED' | 'UNCHANGED' | 'UNKNOWN'; reviewSnapshotId?: string; reviewSide?: 'base' | 'head'; reviewSourceId?: string; reviewAddedLines?: number; reviewRemovedLines?: number;
@@ -11,14 +12,18 @@ export interface AtlasNode { id: string; simpleName: string; qualifiedName?: str
   /** An ungrouped expanded card: its box is not drawn and it takes no pointer events (ADR 0011). */
   hiddenBox?: boolean;
   /** A method/constructor card's owning class name, shown on the card (ADR 0011). */
-  ownerName?: string }
+  ownerName?: string;
+  /** The design layer's record for this card (ADR 0014): an engineer explanation on parsed code, or a card that exists only in the design. */
+  design?: DesignResource }
 export interface AtlasEdge { id: string; sourceId: string; targetId: string | null; kind: string; resolution: string; descriptiveLabel?: string; occurrenceCount?: number; occurrenceIds?: string[]; hoverSummary?: string; explanationStatus?: string;
   /** Kept in the aggregate key for review overlay facts, so added/removed routes cannot cancel out. */
   reviewChange?: 'ADDED' | 'REMOVED' | 'UNCHANGED' | 'UNKNOWN'; reviewSnapshotId?: string; reviewSide?: 'base' | 'head';
   /** Review occurrence metadata; ordinary graph edges leave these absent. */
   reviewSourceId?: string;
   /** Aggregate-only (see aggregateEdges): per-occurrence kinds aligned with occurrenceIds, per-kind counts, distinct resolutions present, and the computed line width. */
-  occurrenceKinds?: string[]; kindCounts?: Record<string, number>; resolutions?: string[]; strengthWidth?: number }
+  occurrenceKinds?: string[]; kindCounts?: Record<string, number>; resolutions?: string[]; strengthWidth?: number;
+  /** A designed relation (ADR 0014, resolution DESIGNED); aggregateEdges keeps it on its own route. */
+  design?: DesignRelation }
 export interface AtlasGraph { nodes: AtlasNode[]; edges: AtlasEdge[]; metadata?: Record<string, any> }
 export type Level = 'PACKAGE' | 'CLASS' | 'METHOD';
 export const isType = (n: AtlasNode) => !['PACKAGE', 'METHOD', 'FIELD', 'CONSTRUCTOR'].includes(n.kind);
@@ -276,7 +281,8 @@ function aggregateEdges(graph: AtlasGraph, level: Level, all: Map<string, AtlasN
     if (source === target && !['METHOD', 'CONSTRUCTOR'].includes(all.get(source)!.kind)) continue;
     // A card and the container it sits in are drawn nested, so a route between them has nowhere to go.
     if (source !== target && (inside(source, target) || inside(target, source))) continue;
-    const key = e.reviewChange ? JSON.stringify([source, target, e.reviewChange]) : JSON.stringify([source, target]);
+    // A designed relation is intent, not a parser fact: it gets its own route so it never thickens or recolors one.
+    const key = e.design ? JSON.stringify([source, target, 'DESIGN']) : e.reviewChange ? JSON.stringify([source, target, e.reviewChange]) : JSON.stringify([source, target]);
     const group = grouped.get(key);
     if (group) {
       group.occurrenceIds!.push(e.id); group.occurrenceKinds!.push(e.kind); group.occurrenceCount!++;

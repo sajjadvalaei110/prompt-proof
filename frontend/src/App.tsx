@@ -23,6 +23,11 @@ import { useExplorerJourneys, flushExplorerCamera } from './features/explorer/us
 import { Journey, collapseInJourney, cycleRelationStack, newJourney, toggleJourneyReview, toggleRelationStack } from './features/explorer/explorerJourney';
 import { revalidateJourneyState } from './features/explorer/revalidateJourney';
 import { outgoingStack, stackSummary, type StackDirection } from './features/explorer/outgoingStack';
+import { DesignOverlay, keyOf, mergeDesignGraph, relationsOfRoute } from './features/design/designModel';
+import { applyLayout, captureLayout, isMapLayout, scopeFromLayout } from './features/design/designExchange';
+import DesignEditorDialog, { type DesignDraft } from './features/design/DesignEditorDialog';
+import type { DesignCommand } from './features/explorer/GraphCanvas';
+import type { DesignOperation } from './api/client';
 
 const REVIEW_BATCH_SIZE = 12;
 
@@ -50,7 +55,12 @@ export default function App() {
   // overlay for the currently loaded Git comparison. `graph` below (used by everything downstream --
   // projection, tree, search, inspector, canvas) picks whichever the ACTIVE TAB currently shows, so
   // one tab can browse the map while another reviews changes side by side.
-  const [mapGraph,setMapGraph]=useState<AtlasGraph|null>(null),[routes,setRoutes]=useState<any[]>([]),[recent,setRecent]=useState<any[]>([]);
+  const [rawMapGraph,setMapGraph]=useState<AtlasGraph|null>(null),[routes,setRoutes]=useState<any[]>([]),[recent,setRecent]=useState<any[]>([]);
+  // The engineer-owned design layer (ADR 0014), merged onto the ordinary map only: the Changes overlay
+  // stays purely parser facts. Showing it is a per-viewer preference, not exploration history.
+  const [designOverlay,setDesignOverlay]=useState<DesignOverlay|null>(null),[designDraft,setDesignDraft]=useState<DesignDraft|null>(null);
+  const [showDesign,setShowDesignState]=useState(()=>{try{return localStorage.getItem('showDesign')!=='false';}catch{return true;}});
+  const mapGraph=useMemo(()=>rawMapGraph&&showDesign?mergeDesignGraph(rawMapGraph,designOverlay):rawMapGraph,[rawMapGraph,designOverlay,showDesign]);
   const [status,setStatus]=useState('Open a project to begin'),[busy,setBusy]=useState(false),[error,setError]=useState('');
   const reviewComparison=useReviewComparison(workspace?.id||null,mapGraph);
   // Updates end an outgoing stack whose root they take off the map, judged against the graph each journey renders.
@@ -285,10 +295,14 @@ export default function App() {
   const unanalyzedFiles:string[]=(graph?.metadata as any)?.unanalyzedFiles||[];
   const mapStatus=node&&graph?(!isNodeInScope(node,scope,graph)?'OUT_OF_SCOPE':expansions[node.id]?.hidden?'UNGROUPED':(level===levelOf(node)&&displayedIds.includes(node.id))||projected.nodes.some(n=>n.id===node.id)?'DISPLAYED':'IN_SCOPE_NOT_DISPLAYED'):null;
   async function loadSnapshot(id:string, ws?:any) {
-    const [data,entryPoints]=await Promise.all([apiClient.getGraph(id),apiClient.getSpringRoutes(id)]);
+    let [data,entryPoints]=await Promise.all([apiClient.getGraph(id),apiClient.getSpringRoutes(id)]);
+    const rawData=data;
     if(!ws&&!data?.metadata?.workspaceId)throw new Error('Snapshot response is missing workspace metadata; try re-opening the project.');
     const owner=ws||await apiClient.getWorkspace(data.metadata.workspaceId);
-    setWorkspace(owner);setPath(owner.path);setLanguage(owner.language);setIndexer(owner.indexer||'');setAllowBuild(false);setSnapshot(id);setMapGraph(data);setRoutes(entryPoints);setQueue(null);setStatus('Source analysis ready');setShowOpen(false);reviewComparison.reset();
+    const design=await apiClient.getDesign(owner.id,id).catch(()=>null);
+    setDesignOverlay(design);designReconcile.current=false;
+    if(showDesign)data=mergeDesignGraph(data,design);
+    setWorkspace(owner);setPath(owner.path);setLanguage(owner.language);setIndexer(owner.indexer||'');setAllowBuild(false);setSnapshot(id);setMapGraph(rawData);setRoutes(entryPoints);setQueue(null);setStatus('Source analysis ready');setShowOpen(false);reviewComparison.reset();
     const placementIn=(g:AtlasGraph,ids:string[]):Record<string,PlacementDims>=>{const all=new Map(g.nodes.map(n=>[n.id,n]));const out:Record<string,PlacementDims>={};for(const id of ids){const n=all.get(id);if(n){const c=nodeCard(n);out[id]={width:c.width,height:c.height,name:n.qualifiedName||n.simpleName};}}return out;};
     const initialPackageIds=rankEligibleIds(data,'PACKAGE',getEligibleIds(data,'PACKAGE',wholeSystemScope()));
     let initialView=explorerViewReducer(initExplorerViewState(),{type:'RESET',level:'PACKAGE',eligibleIds:initialPackageIds,batchSize:Infinity,placement:placementIn(data,initialPackageIds)});
@@ -801,6 +815,98 @@ export default function App() {
       }
     });
   }
+  // ---- Design layer (ADR 0014) ----
+  // Design edits are server operations, like project documents: they never enter undo history. When
+  // the merged graph changes because of one, every tab's current journey is reconciled in place, so
+  // a new card is admitted (placed below, or inside its expanded container) and a deleted one leaves.
+  const designReconcile=useRef(false);
+  const pendingLayout=useRef<unknown>(null);
+  async function refreshDesign(){
+    if(!workspace)return;
+    const overlay=await apiClient.getDesign(workspace.id,snapshot);
+    designReconcile.current=true;
+    setDesignOverlay(overlay);
+  }
+  useEffect(()=>{
+    if(!designReconcile.current||!mapGraph)return;
+    designReconcile.current=false;
+    const target=mapGraph,comparison=reviewComparison.graph||undefined;
+    journeys.command({type:'RECONCILE_ALL',reconcile:j=>j.review?j:reconcileJourneyGraph(j,target,false,comparison)});
+    const layout=pendingLayout.current;
+    pendingLayout.current=null;
+    if(isMapLayout(layout))openLayoutTab(layout,target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[mapGraph]);
+  // AI agents change the design over REST while the engineer watches the map: pick their changes up
+  // without a reload. Serialized polling, only while the page is visible; an unchanged layer is a no-op.
+  const designOverlayRef=useRef(designOverlay); designOverlayRef.current=designOverlay;
+  useEffect(()=>{
+    if(!workspace?.id||!snapshot)return;
+    const ws=workspace.id,snap=snapshot;
+    return startSerialPolling({
+      load:()=>document.hidden?Promise.resolve(null):apiClient.getDesign(ws,snap),
+      onValue:overlay=>{if(overlay&&JSON.stringify(overlay)!==JSON.stringify(designOverlayRef.current)){designReconcile.current=true;setDesignOverlay(overlay);}},
+      shouldContinue:()=>true,
+      intervalMs:4000
+    });
+  },[workspace?.id,snapshot]);
+  async function applyDesign(operations:DesignOperation[]){
+    if(!workspace)throw new Error('Open a project first');
+    await apiClient.applyDesignChanges(workspace.id,operations,'user');
+    await refreshDesign();
+    // Engineer explanations feed generated ones; an edit can make a READY one stale.
+    setRevision(r=>r+1);
+  }
+  function setShowDesign(next:boolean){
+    try{localStorage.setItem('showDesign',String(next));}catch{}
+    designReconcile.current=true;
+    setShowDesignState(next);
+  }
+  const designEnabled=showDesign&&!active.present.review;
+  function designCommand(command:DesignCommand,n:AtlasNode|null){
+    if(command==='add-package'||!n){setDesignDraft(command==='add-relation'?{mode:'relation-new',sourceKey:null}:{mode:'resource-new',parentKey:null,parentKind:null,parentLabel:null});return;}
+    if(command==='add-child')setDesignDraft({mode:'resource-new',parentKey:keyOf(n),parentKind:n.kind,parentLabel:n.simpleName});
+    else if(command==='add-relation')setDesignDraft({mode:'relation-new',sourceKey:keyOf(n)});
+    else setDesignDraft({mode:'resource-edit',node:n});
+  }
+  /** The active tab's map as a Markdown design brief: scope, layout, design layer and explanations. */
+  async function exportBrief(){
+    if(!workspace||!graph)return;
+    try{
+      const layout=captureLayout(viewState,scope,kind,graph);
+      const brief=await apiClient.exportDesign(workspace.id,{scope:layout.scope,layout});
+      const url=URL.createObjectURL(new Blob([brief],{type:'text/markdown;charset=utf-8'}));
+      const a=document.createElement('a');
+      a.href=url;a.download=`${name.replace(/[^\w.-]+/g,'-')}-design-brief.md`;
+      document.body.appendChild(a);a.click();a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),1000);
+      setStatus('Design brief exported');
+    }catch(e:any){setError(e.message);}
+  }
+  async function importBrief(file:File){
+    if(!workspace)return;
+    if(file.size>8_000_000){setError('A design brief may be at most 8 MB.');return;}
+    try{
+      const result=await apiClient.importDesign(workspace.id,await file.text(),'user');
+      // The imported layout opens as a new tab once the merged graph carries the imported cards.
+      pendingLayout.current=showDesign?result.layout:null;
+      await refreshDesign();
+      setRevision(r=>r+1);
+      setStatus(`Imported ${result.resourcesCreated} new and ${result.resourcesUpdated} updated resources, ${result.relationsCreated+result.relationsUpdated} relations${result.placeholders?` (${result.placeholders} not found in this code)`:''}`);
+      if(result.warnings.length)setError(`Import skipped ${result.warnings.length} item(s): ${result.warnings.slice(0,3).join(' · ')}${result.warnings.length>3?' …':''}`);
+    }catch(e:any){setError(e.message);}
+  }
+  /** A new tab showing an imported layout, its keys resolved to this graph's cards. */
+  function openLayoutTab(layout:Parameters<typeof applyLayout>[1],g:AtlasGraph){
+    const layoutScope=scopeFromLayout(layout,g);
+    const ids=rankEligibleIds(g,'PACKAGE',getEligibleIds(g,'PACKAGE',layoutScope));
+    const placement:Record<string,PlacementDims>={};
+    for(const id of ids){const n=g.nodes.find(x=>x.id===id);if(n){const c=nodeCard(n);placement[id]={width:c.width,height:c.height,name:n.qualifiedName||n.simpleName};}}
+    const base=explorerViewReducer(initExplorerViewState(),{type:'RESET',level:'PACKAGE',eligibleIds:ids,batchSize:Infinity,placement});
+    const view=applyLayout(base,layout,g);
+    journeys.command({type:'NEW',present:{...newJourney(view),scope:layoutScope,kind:layout.kind||'ALL'}});
+  }
+  const designRelations=useMemo(()=>edge?relationsOfRoute(edge,designOverlay):[],[edge,designOverlay]);
   const reviewFilesByPath=useMemo(()=>Object.fromEntries((reviewComparison.review?.files||[]).map((f:any)=>[f.path,{status:f.status,hunks:f.hunks||[],lineCountsAvailable:f.lineCountsAvailable}])),[reviewComparison.review]);
   // SourceDialog's data-loading effect depends on this object by reference (P1.3): App re-renders on
   // every 2s queue poll, journey update, etc., so an inline object literal at the call site below
@@ -902,6 +1008,7 @@ export default function App() {
           <div className={`map-heading${headingCollapsed?' collapsed':''}`} onWheel={onHeadingWheel}>
           <div className="map-heading-collapsible" inert={headingCollapsed} aria-hidden={headingCollapsed}><div className="breadcrumbs"><button onClick={openCodeMap}>{scopeCrumb}</button><span>/</span><span className="breadcrumb-level">{levelWord}</span>{node&&<><span>/</span><button onClick={()=>inspectNode(node,'details')}>{node.simpleName}</button></>}</div><div className="page-heading"><div><h1>{node?node.simpleName:'Understand the whole system'}</h1><p>{node?'Follow the relationships around this part of the codebase.':`${typeCount} types across ${packages.length} packages. Choose a starting point.`}</p></div><button onClick={()=>{const entry=viewState.history[viewState.history.length-1];if(entry)dispatchView({type:'NAVIGATE_BACK',eligibleIds:eligibleFor(entry.level),preserveReviewOnly:!active.present.review,reviewOnlyIds:active.present.review?undefined:reviewOnly(parkedIdsFor(entry.level)||[]),parkedIds:parkedIdsFor(entry.level)});}} disabled={!viewState.history.length}>← Back</button></div></div>
           <div className="graph-toolbar"><select aria-label="Relationship kind" value={kind} onChange={e=>setKind(e.target.value)}><option value="ALL">All dependencies</option>{[...new Set(graph.edges.map(e=>e.kind))].sort().map(k=><option key={k} value={k}>{k.toLowerCase().replaceAll('_',' ')}</option>)}</select>
+            {workspace&&<div className="design-controls" role="group" aria-label="Design layer"><button className={`design-toggle${showDesign?' active':''}`} aria-pressed={showDesign} disabled={active.present.review} onClick={()=>setShowDesign(!showDesign)} title={active.present.review?'The design layer is hidden while Changes is shown':'Show the design layer: planned resources, designed relations and your explanations'}>{showDesign?'✓ Design':'Design'}</button><button disabled={!designEnabled} onClick={()=>designCommand('add-package',null)} title="Add a package to the design (right-click a card to add inside it)">＋ Add</button><button onClick={()=>void exportBrief()} title="Download this map as a Markdown design brief an AI agent can read, and Code Atlas can import">Export</button><label className={`file-button design-import${designEnabled?'':' disabled'}`} title="Import a design brief: adds its resources, relations and explanations, and opens its layout in a new tab"><span>Import</span><input type="file" accept=".md,.markdown,.txt" disabled={!designEnabled} onChange={e=>{const f=e.target.files?.[0];e.target.value='';if(f)void importBrief(f);}}/></label></div>}
             {workspace&&<div className="review-controls"><button className={`review-toggle${active.present.review?' active':''}`} aria-pressed={active.present.review} disabled={reviewComparison.loading} onClick={toggleChanges} title="Show Base + changes: amber changed cards, green added routes, red removed routes">{reviewComparison.loading?'Comparing…':active.present.review?'✓ Changes':'Changes'}</button><details className="review-options"><summary aria-label="Review comparison options">▾</summary><div><label>Base revision<input value={reviewComparison.baseRef} onChange={e=>reviewComparison.setBaseRef(e.target.value)} placeholder="Default merge base, or origin/main"/></label><button className="primary full-width" type="button" disabled={reviewComparison.loading} onClick={recompare}>{reviewComparison.loading?'Comparing…':'Recompare'}</button>{reviewComparison.review&&<p className="muted">Comparing against <code>{reviewComparison.review.base.resolvedRef||reviewComparison.review.base.requestedRef||'merge base'}</code></p>}{reviewComparison.review?.base.warning&&<p className="notice">{reviewComparison.review.base.warning}</p>}{reviewComparison.error&&<p className="notice" role="alert">{reviewComparison.error}</p>}</div></details></div>}
           </div>
           <div className="map-heading-collapsible" inert={headingCollapsed} aria-hidden={headingCollapsed}><div className="scope-banner"><span className="scope-banner-icon" aria-hidden="true">{scope.mode==='ALL'?'◈':'⌖'}</span><div className="scope-banner-text"><strong>{graph?scopeToLabel(graph,scope):''}</strong><span>Showing {levelWord.toLowerCase()} · {scopedCount} {levelWord.toLowerCase()}{scope.mode!=='ALL'?` in ${scopeUnitLabel()}`:''}</span></div><div className="scope-banner-actions">{node&&<span className="tag inspecting-chip">Inspecting {node.simpleName}</span>}{edge&&!node&&<span className="tag inspecting-chip">Inspecting a relationship</span>}{viewState.newlyAddedIds.length>0&&displayedIds.length>viewState.newlyAddedIds.length&&<span className="tag added-below-chip">{viewState.newlyAddedIds.length} added below</span>}{omittedCount>0&&<button className="show-more" onClick={()=>{const ids=eligibleFor(level);dispatchView({type:'SHOW_MORE',eligibleIds:ids,batchSize:BATCH_SIZE,placement:placementFor(ids),preserveReviewOnly:!active.present.review,reviewOnlyIds:active.present.review?undefined:reviewOnly(parkedIdsFor(level)||[]),parkedIds:parkedIdsFor(level)});}}>Showing {visibleCount} of {scopedCount} in scope · show {Math.min(BATCH_SIZE,omittedCount)} more</button>}{scope.mode==='CUSTOM'&&<button className="text-button" onClick={resetScope}>Reset to whole system</button>}</div></div></div>
@@ -913,14 +1020,15 @@ export default function App() {
               cancelReclick();
               arrangeAround(id);
               setMobilePane('details');
-            }} onViewCode={n=>openSource(n,'symbol')} restoreVersion={active.restoreVersion}/>}
-          {!active.present.review&&<div className="graph-legend"><span><i className="line-sample"/>Static dependency</span><span>Hover a line for its kinds and resolution</span></div>}
+            }} onViewCode={n=>openSource(n,'symbol')} restoreVersion={active.restoreVersion} onDesignCommand={designEnabled?designCommand:undefined}/>}
+          {!active.present.review&&<div className="graph-legend"><span><i className="line-sample"/>Static dependency</span>{designEnabled&&<span><i className="line-sample design"/>Designed relation</span>}{designEnabled&&<span><i className="card-sample design"/>Planned or not in code</span>}<span>Hover a line for its kinds and resolution</span>{designEnabled&&<span>Right-click empty map to add a package</span>}</div>}
         </>}
       </section>
-      {tab!=='context'&&<InspectorPanel selectedNode={node} selectedEdge={edge} mapStatus={mapStatus} edgeFilteredOut={edgeFilteredOut} edgeHiddenByExpansion={edgeHiddenByExpansion} selectedOccurrenceId={viewState.inspectedOccurrenceId} onSelectOccurrence={id=>dispatchView({type:'SELECT_OCCURRENCE',occurrenceId:id})} workspaceId={workspace?.id||null} snapshotId={snapshot} graph={graph} routes={routes} revision={revision} onExplanationReady={()=>setRevision(r=>r+1)} onInspectEdge={inspectEdge} onSelect={select} onViewClasses={viewClasses} onViewMethods={viewMethods} onArrangeAroundResource={n=>arrangeAround(n.id)} onSource={(n,type='symbol')=>openSource(n,type)} onClose={clearSelection} outgoingStackSummary={stack&&node&&node.id===stackRootId?stackSummary(stack,stackDirection):null} stackDirection={stackDirection}/>}
+      {tab!=='context'&&<InspectorPanel selectedNode={node} selectedEdge={edge} mapStatus={mapStatus} edgeFilteredOut={edgeFilteredOut} edgeHiddenByExpansion={edgeHiddenByExpansion} selectedOccurrenceId={viewState.inspectedOccurrenceId} onSelectOccurrence={id=>dispatchView({type:'SELECT_OCCURRENCE',occurrenceId:id})} workspaceId={workspace?.id||null} snapshotId={snapshot} graph={graph} routes={routes} revision={revision} onExplanationReady={()=>setRevision(r=>r+1)} onInspectEdge={inspectEdge} onSelect={select} onViewClasses={viewClasses} onViewMethods={viewMethods} onArrangeAroundResource={n=>arrangeAround(n.id)} onSource={(n,type='symbol')=>openSource(n,type)} onClose={clearSelection} outgoingStackSummary={stack&&node&&node.id===stackRootId?stackSummary(stack,stackDirection):null} stackDirection={stackDirection} designRelations={designRelations} onDesign={designEnabled?setDesignDraft:undefined}/>}
     </main></>}
     <footer className="app-footer">{graph?.metadata?.diagnostics?.warnings?.length>0&&<details className="analysis-warnings"><summary>{graph?.metadata?.diagnostics?.warnings.length} analysis warning(s)</summary><div>{graph?.metadata?.diagnostics?.warnings.map((w:string,i:number)=><p key={i}>{w}</p>)}</div></details>}<span><i className={`status-dot ${graph?'configured':''}`}/>{status}</span>{graph&&<span>{graph.metadata?.unresolvedCount||0} unresolved external targets</span>}{unanalyzedFiles.length>0&&<span className="unanalyzed-files" title={`These files could not be parsed, so the types they declare are missing from the map:\n${unanalyzedFiles.join('\n')}`}>{unanalyzedFiles.length} file(s) not analyzed</span>}<div className="queue-summary">{queue?.activeJobId&&queue.synthesisStatus!=='READY'&&<span className="synthesis-progress"><i aria-hidden="true"/>{queue.synthesisStage || 'Preparing architecture'} · {synthesisElapsed}s · {queue.synthesisCompleted || 0} validated</span>}{!queue?.activeJobId&&queue?.jobStatus==='CANCELLED'&&<span>Explain all cancelled</span>}{queue&&<span>{queue.completed} explained · {queue.pending+queue.inProgress} queued · {queue.failed} failed</span>}{snapshot&&<button className={queue?.activeJobId?'':'primary'} onClick={explainAll}>{queue?.activeJobId?'Stop explain all':'✧ Explain all'}</button>}</div></footer>
     <SettingsScreen isOpen={settings} onClose={()=>setSettings(false)}/>
+    {designDraft&&graph&&<DesignEditorDialog draft={designDraft} graph={graph} onApply={applyDesign} onClose={()=>setDesignDraft(null)}/>}
     {source&&(source.snapshotId||snapshot)&&<SourceDialog snapshot={source.snapshotId||snapshot!} subject={source.node} type={source.type} snapshotLabel={source.label||'analyzed snapshot'} historical={!!source.snapshotId} reviewDiff={reviewDiff} onClose={()=>setSource(null)}/>}
   </div>;
 }

@@ -249,3 +249,30 @@ h1 { font-size: 25px; letter-spacing: -.7px; line-height: 1.3; font-weight: 650;
 .welcome label.build-consent, .open-project-bar label.build-consent { flex: 1 1 100%; order: 10; display: flex; flex-direction: row; gap: 8px; align-items: flex-start; font-size: 12px; line-height: 1.4; }
 .welcome .build-consent input, .open-project-bar .build-consent input { flex: none; width: 16px; height: 16px; margin-top: 1px; }
 @media(max-width:760px) { .welcome label.build-consent, .open-project-bar label.build-consent { order: 0; } }
+
+/* Design layer (ADR 0014): violet and dashed, never confused with parsed facts or review colors. */
+.design-controls { display: flex; align-items: center; gap: 4px; }
+.design-controls > button, .design-controls .design-import { font-size: 12px; padding: 8px 12px; }
+.design-toggle.active { background: #f1ebff; border-color: #7c5cc4; color: #4f3592; }
+.design-controls .design-import { display: inline-flex; align-items: center; cursor: pointer; position: relative; border-radius: 6px; }
+.design-controls .design-import input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; padding: 0; }
+.design-controls .design-import.disabled { opacity: .5; cursor: not-allowed; }
+.inspector .design-section, .design-section { border-left: 3px solid #7c5cc4; padding-left: 14px; }
+.design-section .design-intent { font-weight: 600; color: #2b1d55; font-size: 14px; line-height: 1.6; }
+.design-section .design-detail { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.7; color: #3e4f66; margin-top: 8px; }
+.design-section .design-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.design-section .design-actions button { font-size: 12px; padding: 7px 10px; }
+.design-section .design-signature code, .design-key-preview code, .design-relation-ends code { font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere; }
+.design-section .muted { color: #7c8ea3; font-size: 13px; }
+.design-relation { border-top: 1px solid #ece6f8; padding-top: 10px; margin-top: 10px; }
+.design-relation-head { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+.tag.design-status { background: #f1ebff; color: #4f3592; }
+.tag.design-status-missing, .tag.design-status-orphaned { background: #fff3dc; color: #7a541a; }
+.tag.design-status-implemented, .tag.design-status-present { background: #e6f4f4; color: #087f86; }
+.design-provenance { color: #7c8ea3; }
+.design-dialog textarea.design-explanation-input { min-height: 180px; resize: vertical; line-height: 1.6; font-size: 13px; width: 100%; }
+.design-dialog label { display: grid; gap: 6px; font-size: 12px; }
+.design-key-preview { font-size: 12px; color: #4f3592; }
+.graph-context-menu .design-menuitem { color: #4f3592; }
+.line-sample.design { border-top: 2px dashed #8b6ad6; }
+.card-sample.design { display: inline-block; width: 14px; height: 10px; border: 1.5px dashed #7c5cc4; border-radius: 3px; background: #faf7ff; }
