@@ -777,6 +777,25 @@ Enter and Shift+Enter with real CDP input. It checks that the copies stay byte-i
 request stayed on the local app. Screenshots and `navigation-report.json` go under `build/code-navigation/`;
 inspect them. The accepted set is in `docs/evidence/code-navigation/`.
 
+Go to definition in the Changes diff (ADR 0014) and the repository root (ADR 0015):
+- `scripts/test-diff-navigation.mjs` maps unified and split rows (added, deleted, context, added files without
+  `oldNo`, left-only and blank cells) to head lines and tokens, and covers where a jump opens.
+- `test-navigation-stack.mjs`, `test-code-tokens.mjs` and `test-import-engine.mjs` cover snapshot-aware views, the
+  stale hint and the always/never-sent root.
+- `ReviewDiffNavigationTest` serves a review head from the active snapshot for a fake non-Java engine through the real
+  `runReviewAnalysis`: an added file, a matching modified file, a stale file, a deleted path, `servedFrom`, and
+  location snapshots.
+- `RepositoryRootIntegrationTest` covers validation, symlink escapes, the build-marker 400, the lifecycle, snapshot
+  provenance and module review with and without a root.
+- `GitReviewBoundaryTest`, `ScipJavaToolTest` and `AnalysisServiceDispatchTest` cover prefix scoping, the bounded
+  search and the root reaching a non-Java engine.
+- `python3 scripts/verify_diff_navigation_pipeline.py` (after `./gradlew bootJar` and `./gradlew installScipJava`,
+  with `gradle` and `git` on PATH) builds a Git repository from a copy of `test-fixtures/scip-gradle-project`, adds a
+  file and edits a line in its `app` module, and imports the module through the form with the root and scip-java. It
+  then drives Ctrl+click in unified and split diffs, back/forward, the deleted-row message, the stale hint after
+  Recompare and 390 px. The copy must be unchanged except the driver's own stale edit. Screenshots go under
+  `build/diff-navigation/`; the accepted set is in `docs/evidence/diff-navigation/`.
+
 `verify_filtering_zoom_settings.py` uses a local rejecting HTTP stub to verify profile
 handling; `verify_hierarchical_pipeline.py` uses synthetic explanation responses. Neither
 is a live-model check. `verify_explanation_pipeline.py --mock` runs its end-to-end

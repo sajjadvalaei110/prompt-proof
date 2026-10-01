@@ -89,6 +89,8 @@ with no viewer or endpoint change. The open decisions were settled with the owne
   tab's undo history. It resets when the dialog's subject changes or the dialog closes.
 - **No graph side effects**: a jump does not select or reveal anything on the map.
 - **Changes diff**: find works there. Go to definition is off in diff sections in v1, and the dialog says so.
+  (2026-10-01: shipped in [ADR 0014](0014-diff-navigation-source.md). The head side is served from the workspace's
+  active snapshot where the file is unchanged since, and deleted lines say they are not navigable.)
 
 ## Consequences
 
@@ -111,7 +113,7 @@ with no viewer or endpoint change. The open decisions were settled with the owne
   already support it; it needs a results UI.
 - **Show on map**: selecting or revealing a jump target that is a graph symbol (`symbolId` is returned). It
   would go through ADR 0009's selection-only path and needs reveal logic for hidden cards.
-- Go to definition inside the Changes diff, and a touch gesture for navigation.
+- ~~Go to definition inside the Changes diff~~ (ADR 0014), and a touch gesture for navigation.
 
 ## Alternatives considered
 

@@ -1,5 +1,5 @@
 # Project status
-Last updated: 2026-10-01 (source-viewer navigation and find in file, ADR 0013)
+Last updated: 2026-10-01 (go to definition in the Changes diff, ADR 0014; repository root, ADR 0015)
 Active milestone: R6 — Developer comprehension redesign (in progress)
 Current revision: Step11 language-neutral Java analysis integrated with step 14 Ungroup (an expanded box's box hidden, its children kept as free cards,
 ADR 0011) merged with main's step 13 (card menu Expand/Collapse + View source, cascading tree
@@ -28,6 +28,118 @@ toggle with a git-style diff code viewer, exploration tabs with per-tab undo/red
 and selection controls, the R6 change-edges slice (one line per direction,
 directional selection emphasis, file-grouped evidence), in-place card details
 (expand packages/classes) and resizable cards; Step 6A remains unstarted
+
+## Go to definition in the Changes diff and an optional repository root (2026-10-01, ADRs 0014 and 0015)
+
+Bounded acceptance criterion:
+- Ctrl/Cmd+click on a name in a Changes diff row (unified or split) jumps to its definition as it does in a plain
+  file, on added files and added lines included. Deleted rows say they are not navigable, and find in file keeps
+  working.
+- A workspace that is a module may name its repository root (Git root plus the build's upper boundary) in the import
+  form.
+
+Decisions:
+- D1–D6 were settled with the owner beforehand.
+- A grilling round settled the questions found in the code (all recommendations accepted):
+  - Q1: stack on PR #4, which was still open, on branch `claude/diff-navigation`;
+  - Q2: a module's review covers its own subtree, keyed workspace-relative;
+  - Q3: module workspaces with no root are reviewed from the detected top level;
+  - Q4: the existing endpoints serve the review head;
+  - Q5: the active snapshot at request time answers.
+- No AGENTS.md invariant changed: review captures still never build.
+
+Commits:
+1. `feat(workspace)`, the repository root:
+   - V014;
+   - `RepositoryRootValidator`;
+   - `AnalysisPort.locateBuildRoot` / `prepareWorkspace`, with scip-java's bounded `ScipJavaTool.find/locate`;
+   - the build-marker 400 at registration;
+   - review Git-root choice and top-level discovery without upward Git search, module-prefix scoping and the
+     `CHANGES_OUTSIDE_WORKSPACE` diagnostic;
+   - snapshot provenance.
+2. `feat(graph)`, review-head navigation:
+   - `NavigationService` serves `REVIEW_HEAD` from the active snapshot by per-file `content_hash`, with `stale`
+     otherwise;
+   - `servedFrom` on both endpoints;
+   - per-location `snapshotId` / `differsFromChange`.
+3. `feat(source)`, the viewer:
+   - `diffNavigation.ts`;
+   - `SourceDialog` navigates diff rows through the head snapshot;
+   - (snapshot, path) caches, so jumps open the head diff, plain source, or the current analysis with a chip;
+   - snapshot-aware `navigationStack` views;
+   - the stale hint and the "Navigation from …" note;
+   - the import form's Repository root field (`workspaceRequestBody`).
+4. Pipeline and docs:
+   - `scripts/verify_diff_navigation_pipeline.py` + `verify-diff-navigation-ui.mjs`;
+   - ADRs 0014 and 0015, plus amendments to ADRs 0006, 0012 and 0013;
+   - ARCHITECTURE, TESTING, GIT_REVIEW and CLAUDE.md;
+   - evidence.
+
+Checks run:
+- `./gradlew installScipJava` — PASS (the tool was already in `data/tools/scip-java/lib`).
+- `./gradlew test` — PASS: 229 tests, 0 failures, 0 skipped. `ScipJavaLiveIndexingTest` ran the real scip-java
+  and Gradle. New tests:
+  - `ReviewDiffNavigationTest` (6), with a fake non-Java engine through the real `runReviewAnalysis`: an added file
+    and an unchanged file served from the active snapshot with `servedFrom`; a modified file whose hash matches; a
+    target changed since the analysis opening the active snapshot with `differsFromChange`; a stale file on both
+    endpoints; a deleted path as `no_file`; the active engine's capability with the base answering for itself; a
+    workspace with no analysis; an ordinary snapshot naming itself.
+  - `RepositoryRootIntegrationTest` (6): not an ancestor, missing, a file, a symlink escape, and equal or linked
+    ancestors accepted; the build-marker 400 before any row is written; omitting keeps, the form replaces or clears,
+    nothing is analyzed, snapshots record the root; module review from an explicit root with the same paths and
+    hashes as the active snapshot, `build/` excluded and the outside diagnostic; auto-detected top level; a root that
+    is not a Git top level, or no Git at all, gives 400.
+  - Extended: `ScipJavaToolTest` (bounded search), `GitReviewBoundaryTest` (prefix scoping, `mod-two` is not
+    `mod`, top-level discovery), `AnalysisServiceDispatchTest` (the root reaches a non-Java engine and is recorded).
+  - `IndexerSelectionIntegrationTest` now gives its scip-java projects a `settings.gradle`, because registration
+    checks for a build marker (D5).
+- `./gradlew constrainedMemoryTest --no-daemon` — PASS (BUILD SUCCESSFUL in 4m 2s).
+- `cd frontend && npx tsc -b --force && npm run build` — PASS.
+- All 17 `node scripts/test-*.mjs` — PASS:
+  - new `test-diff-navigation.mjs`: unified and split rows, added files without `oldNo`, left-only and blank cells,
+    head line lengths, row and column to head line and token, jump targets, messages;
+  - extended navigation-stack, code-token and import-engine suites.
+- With `CHROMIUM=/opt/pw-browsers/chromium` (`/snap/bin/chromium` does not exist here), against the packaged jar:
+  - `verify_language_import_pipeline.py` — PASS;
+  - `verify_git_review_pipeline.py` — PASS (source tree and index unchanged);
+  - `verify_code_navigation_pipeline.py` — PASS;
+  - new `verify_diff_navigation_pipeline.py` — PASS.
+- The new pipeline's setup: a Git repository built from a copy of `test-fixtures/scip-gradle-project`, with
+  `Farewell.java` added and a `GreetingService` line edited in `app`. The module `app` was imported through the form
+  with the repository root set to the copy, and with scip-java and consent. Checks, all with real CDP input:
+  - the form at 390 px;
+  - Ctrl+hover and click in the added file jumps into `GreetingService.java`'s diff;
+  - Ctrl+click on the added line's `bye` and `Farewell` opens the added file's diff, in unified and split layouts;
+  - Alt+←/→;
+  - the deleted row's message in both layouts;
+  - the stale hint after editing `Main.java` and Recompare;
+  - an unchanged plain file still navigable;
+  - the dialog at 390 px;
+  - no page errors and no off-machine requests;
+  - the copy unchanged except the driver's own `Main.java` edit.
+
+  All 11 screenshots were inspected. They and `diff-navigation-report.json` are in `docs/evidence/diff-navigation/`.
+
+Found and fixed during verification:
+- Git's ceiling directory (the queried directory's parent) blocked top-level detection from a module, so the top
+  level is now found by walking to `.git` and confirmed by Git there.
+- The review file list includes non-Java changes under the module (as at the root before); only the capture
+  excludes `build/`, and the test was corrected.
+- At 375 px the indexer `<select>`'s long scip-java label pushed the import form past the screen (seen in the
+  language-import mobile screenshot). Fields now take their column's width, and the separate "optional" line that
+  misaligned desktop labels moved into the placeholder.
+- Split-layout cells collapsed leading indentation (also visible in `docs/evidence/git-review/05-diff-split.png`, so
+  it predates this work). Split code now keeps `white-space: pre`.
+
+Not run / limits:
+- The other browser pipelines (stable graph, hierarchical, change edges, ungroup, outgoing stack) were not rerun:
+  they do not open the source dialog's diff navigation or the import form's root.
+- The "Current analysis — differs from this change" chip is covered by `ReviewDiffNavigationTest` and the pure tests,
+  not in the browser: the fixture has no definition inside a file edited after analysis.
+- Navigation in the diff needs a navigation-providing engine on the workspace and an analysis newer than the change;
+  otherwise the hint explains why.
+- Deleted lines and the base side have no navigation.
+- Review still captures Java files only (ADR 0008 gap).
 
 ## Source-viewer navigation: find in file, Ctrl/Cmd+click go to definition (2026-10-01, ADR 0013)
 
