@@ -31,6 +31,20 @@ assert.deepEqual(currentView(s),file('main.dart',9,5));
 assert.equal(stepView(s,1,0),s,'forward at the end is a no-op');
 console.log('PASS: back/forward restore views and scroll; ends are no-ops');
 
+// A view left at the very top remembers 0, which is a real offset (Back restores it), while a view not yet
+// left remembers nothing (null), so the dialog centres a fresh jump's target instead.
+{
+  let t=initialNavStack();
+  assert.equal(t.entries[0].scrollTop,null,'the opening view has no remembered offset');
+  t=pushView(t,file('lib.go',4),0);
+  assert.equal(t.entries[0].scrollTop,0);assert.equal(t.entries[1].scrollTop,null,'a fresh jump has no remembered offset');
+  t=stepView(t,-1,1778);
+  assert.deepEqual(currentView(t),{kind:'evidence'});assert.equal(t.entries[t.index].scrollTop,0,'back restores the top, not the later offset');
+  assert.equal(t.entries[1].scrollTop,1778);
+  t=stepView(t,1,0);assert.equal(t.entries[t.index].scrollTop,1778);assert.equal(t.entries[0].scrollTop,0);
+}
+console.log('PASS: an offset of 0 is remembered and restored; fresh entries remember none');
+
 // A new jump after going back discards the forward branch, as a browser does.
 s=stepView(s,-1,0);
 s=pushView(s,file('other.ts',2),10);

@@ -21,7 +21,8 @@ const MAX_OCCURRENCE_REQUESTS = 4;
 type OccurrenceState = FileOccurrences | 'loading' | 'failed';
 type NavMessage = { text: string; hint?: boolean } | null;
 const fileName = (path: string) => path.slice(path.lastIndexOf('/') + 1);
-/** Cache key of one file of one snapshot: a dialog can now show files of several snapshots (ADR 0014). */
+/** Cache key of one file of one snapshot: a dialog can show files of several snapshots (ADR 0014), and a late
+ * answer for an earlier snapshot can never be read as the current one's. */
 const fileKey = (snapshot: string, path: string) => `${snapshot}\u0000${path}`;
 export default function SourceDialog({snapshot, subject, type='symbol', snapshotLabel='analyzed snapshot', historical=false, reviewDiff, onClose}: {snapshot: string; subject: SourceSubject; type?:string; snapshotLabel?: string; historical?: boolean; reviewDiff?: ReviewDiffContext; onClose:()=>void}) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -47,7 +48,9 @@ export default function SourceDialog({snapshot, subject, type='symbol', snapshot
   const [nav,setNav]=useState<NavStack>(initialNavStack);
   const [navMessage,setNavMessage]=useState<NavMessage>(null);
   const [picker,setPicker]=useState<DefinitionLocation[]|null>(null);
-  // Caches keyed by (snapshot, path): whole files opened by a jump, and each file's occurrences (fetched once per file).
+  // Caches keyed by (snapshot, path): whole files opened by a jump, and each file's occurrences (fetched once per
+  // file). Clearing them on a snapshot change is not enough on its own: a request still in flight would refill
+  // a path-only key with the previous snapshot's answer.
   const [fileCache,setFileCache]=useState<Map<string,{content?:string;error?:string}>>(new Map());
   const [occurrences,setOccurrences]=useState<Map<string,OccurrenceState>>(new Map());
   // Occurrences are fetched only once the user shows navigation intent (Ctrl/Cmd held, or a jump made).
@@ -95,7 +98,7 @@ export default function SourceDialog({snapshot, subject, type='symbol', snapshot
     return()=>{alive=false;};
   },[snapshot,subject.id,idsKey,type,reviewDiff,diffSide]);
   const view:NavView=currentView(nav);
-  useEffect(()=>{ if(view.kind==='evidence'&&nav.entries[nav.index].scrollTop===0)body.current?.querySelector('.highlighted')?.scrollIntoView({block:'center'}); },[files,diffRowsByPath,layout]);
+  useEffect(()=>{ if(view.kind==='evidence'&&nav.entries[nav.index].scrollTop===null)body.current?.querySelector('.highlighted')?.scrollIntoView({block:'center'}); },[files,diffRowsByPath,layout]);
   // A jump shows the target's whole file from the snapshot the server named (ADR 0014); a changed file of the
   // review's after-change snapshot also needs its base side to show as a diff. Each is fetched once.
   const viewSnapshot=view.kind==='file'?view.snapshot||snapshot:snapshot;
@@ -263,13 +266,14 @@ export default function SourceDialog({snapshot, subject, type='symbol', snapshot
       }
     }).catch(err=>setNavMessage({text:`Go to definition failed: ${err.message}`}));
   };
-  // Restore an entry's scroll offset after Back/Forward, or centre a fresh jump's target, once it renders.
+  // Restore an entry's remembered scroll offset after Back/Forward (0, the top, included), or centre a fresh
+  // jump's target, once it renders.
   const restored=useRef<NavStack|null>(null);
   useEffect(()=>{
     if(restored.current===nav||!sections.length)return;
     restored.current=nav;
     const entry=nav.entries[nav.index];
-    if(entry.scrollTop>0){if(dialog.current)dialog.current.scrollTop=entry.scrollTop;}
+    if(entry.scrollTop!==null){if(dialog.current)dialog.current.scrollTop=entry.scrollTop;}
     else if(view.kind==='file')body.current?.querySelector('.nav-target, .highlighted')?.scrollIntoView({block:'center'});
   },[nav,sections,view]);
   const trackModifier=(e:{ctrlKey:boolean;metaKey:boolean})=>{const held=e.ctrlKey||e.metaKey;if(held!==modHeld)setModHeld(held);if(held&&!navArmed)setNavArmed(true);};

@@ -116,6 +116,26 @@ try {
   await key('ArrowLeft', ALT);
   await until(`document.querySelectorAll('.source-dialog section').length===3`, 'back again');
 
+  // 3b. A view left at the very top comes back at the top: offset 0 is a remembered position, not "none".
+  // A short window makes the definition file tall enough to scroll.
+  await cdp('Emulation.setDeviceMetricsOverride', { width: 1280, height: 260, deviceScaleFactor: 1, mobile: false });
+  await pause(200);
+  await ev(`document.querySelector('.source-dialog').scrollTop=0`);
+  await pause(100);
+  await ev(`document.querySelector('.source-dialog [aria-label=Forward]').click()`);
+  await until(`(document.querySelector('.source-dialog .nav-target')?.textContent)==='greet'`, 'forward from the top');
+  await ev(`(()=>{const d=document.querySelector('.source-dialog');d.scrollTop=d.scrollHeight;})()`);
+  await pause(100);
+  results.topBefore = (await dialogState()).scrollTop;
+  assert.ok(results.topBefore > 0, `the definition view scrolls away from the top (${results.topBefore})`);
+  await key('ArrowLeft', ALT);
+  await until(`document.querySelectorAll('.source-dialog section').length===3`, 'back to the top');
+  await pause(300);
+  results.backToTop = (await dialogState()).scrollTop;
+  assert.equal(results.backToTop, 0, `back restores the top (${results.topBefore} -> ${results.backToTop})`);
+  await cdp('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+  await pause(200);
+
   // 4. A local variable: `name` in greeter.greet(name) jumps to its declaration in the for loop.
   await key('Control', CTRL, 'down');
   await ctrlClick(await tokenPoint('GreetingService.java', 14, 'name'));
@@ -204,5 +224,5 @@ try {
   assert.deepEqual(results.offPage, []);
   assert.deepEqual(errors, []);
   await fs.writeFile(out + '/navigation-report.json', JSON.stringify({ pass: true, results, screenshots: shots, pageErrors: errors }, null, 2));
-  console.log('PASS: Ctrl+click relationship evidence into another file, local variable jump, back/forward with scroll restore, external target, find with count/whole word/match case, 390 px fit, JavaParser hint, no page errors, no off-machine requests');
+  console.log('PASS: Ctrl+click relationship evidence into another file, local variable jump, back/forward with scroll restore (the top included), external target, find with count/whole word/match case, 390 px fit, JavaParser hint, no page errors, no off-machine requests');
 } finally { ws.close(); }
