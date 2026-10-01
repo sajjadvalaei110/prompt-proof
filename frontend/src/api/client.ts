@@ -1,11 +1,13 @@
 import type { Language } from '../types';
+import { workspaceRequestBody, type WorkspaceRegistration } from '../features/import/importEngine';
 
 const API_BASE = '/api';
 
 export type WorkspaceLanguage = Language;
 /** One definition site from go to definition (1-based, inclusive end column, UTF-16 code units). */
-export interface DefinitionLocation { path: string; startLine: number; startColumn: number; endLine: number; endColumn: number; displayName?: string | null; signature?: string | null; symbolId?: string | null }
-export interface DefinitionResult { status: 'found' | 'external' | 'no_symbol' | 'not_indexed'; locations: DefinitionLocation[]; indexer?: string | null; indexerLabel?: string | null; navigationIndexers?: string[] }
+/** `snapshotId`: where to open it (ADR 0014); `differsFromChange`: it opens in the current analysis, not the change. */
+export interface DefinitionLocation { path: string; startLine: number; startColumn: number; endLine: number; endColumn: number; displayName?: string | null; signature?: string | null; symbolId?: string | null; snapshotId?: string | null; differsFromChange?: boolean }
+export interface DefinitionResult { status: 'found' | 'external' | 'no_symbol' | 'not_indexed' | 'stale'; locations: DefinitionLocation[]; indexer?: string | null; indexerLabel?: string | null; navigationIndexers?: string[]; servedFrom?: { snapshotId: string; label?: string | null } | null }
 /** One indexing engine of a language (ADR 0012). `executesTargetBuild` engines need explicit consent;
  * `providesNavigation` engines fill the occurrence index behind go to definition (ADR 0013). */
 export interface IndexerOption {
@@ -98,12 +100,15 @@ export const apiClient = {
   getDefinition: (snapshot: string, path: string, line: number, column: number): Promise<DefinitionResult> =>
     requestJson(`${API_BASE}/snapshots/${snapshot}/files/definition?path=${encodeURIComponent(path)}&line=${line}&column=${column}`),
 
-  /** Registers (or reuses) a workspace. `engine.indexer` omitted keeps an existing workspace's engine (ADR 0012). */
-  createWorkspace: (path: string, language: WorkspaceLanguage = 'java', engine: { indexer?: string; allowBuildExecution?: boolean } = {}): Promise<any> =>
+  /**
+   * Registers (or reuses) a workspace. `engine.indexer` omitted keeps an existing workspace's engine (ADR 0012);
+   * `engine.repositoryRoot` omitted keeps its root, empty clears it (ADR 0015).
+   */
+  createWorkspace: (path: string, language: WorkspaceLanguage = 'java', engine: WorkspaceRegistration = {}): Promise<any> =>
     requestJson(`${API_BASE}/workspaces`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path, language, ...(engine.indexer ? { indexer: engine.indexer, allowBuildExecution: !!engine.allowBuildExecution } : {}) })
+      body: JSON.stringify(workspaceRequestBody(path, language, engine))
     }),
 
   /** Shipped indexing engines per language, with whether each can run on this machine. */

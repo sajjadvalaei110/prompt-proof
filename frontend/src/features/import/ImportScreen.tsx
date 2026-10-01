@@ -8,6 +8,9 @@ export interface ImportScreenProps {
   busy: boolean;
   graphOpen: boolean;
   onPathChange: (path: string) => void;
+  /** Optional repository root (ADR 0015): the Git repository and the build's upper boundary; empty = auto-detect. */
+  repositoryRoot?: string;
+  onRepositoryRootChange?: (root: string) => void;
   onLanguageChange: (language: WorkspaceLanguage) => void;
   /** Receives the engine the picker displays, always explicit (ADR 0012). */
   onSubmit: (engine: ImportEngineChoice) => void;
@@ -19,7 +22,7 @@ export interface ImportScreenProps {
   /** Explicit consent that a build-running engine may run this project's build (ADR 0012). */
   allowBuild?: boolean;
   onAllowBuildChange?: (allow: boolean) => void;
-  recent?: Array<{ id: string; path: string; language: WorkspaceLanguage; indexer?: string; activeSnapshotId?: string | null }>;
+  recent?: Array<{ id: string; path: string; language: WorkspaceLanguage; indexer?: string; activeSnapshotId?: string | null; repositoryRoot?: string | null }>;
   onOpenRecent?: (workspace: NonNullable<ImportScreenProps['recent']>[number]) => void;
 }
 
@@ -35,6 +38,8 @@ export function ImportScreen({
   busy,
   graphOpen,
   onPathChange,
+  repositoryRoot = '',
+  onRepositoryRootChange,
   onLanguageChange,
   onSubmit,
   indexers = [],
@@ -52,7 +57,7 @@ export function ImportScreen({
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (blocked || (needsConsent && !allowBuild)) return;
-    onSubmit(importEngineChoice(indexers, language, indexer, allowBuild));
+    onSubmit(importEngineChoice(indexers, language, indexer, allowBuild, repositoryRoot));
   };
 
   return (
@@ -69,6 +74,16 @@ export function ImportScreen({
             value={path}
             onChange={event => onPathChange(event.target.value)}
             placeholder="/path/to/your/java-project"
+            disabled={busy}
+          />
+        </label>
+        <label>Repository root <small>optional</small>
+          <input
+            aria-label="Repository root"
+            value={repositoryRoot}
+            onChange={event => onRepositoryRootChange?.(event.target.value)}
+            placeholder="Auto-detect (folder holding .git and the build)"
+            title="When the path above is a module or subdirectory: the directory that holds the Git repository and the build settings. Leave empty to auto-detect."
             disabled={busy}
           />
         </label>
@@ -123,7 +138,7 @@ export function ImportScreen({
           disabled={busy}
           onClick={() => onOpenRecent?.(workspace)}
         >
-          <span>▱ {workspace.path.split('/').filter(Boolean).pop() || workspace.path}<small>{workspace.path}</small></span>
+          <span>▱ {workspace.path.split('/').filter(Boolean).pop() || workspace.path}<small>{workspace.path}</small>{workspace.repositoryRoot && <small className="recent-root">Repository root: {workspace.repositoryRoot}</small>}</span>
           <span>Open ↗</span>
         </button>)}
       </div>}

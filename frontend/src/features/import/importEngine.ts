@@ -10,6 +10,11 @@ export const DEFAULT_INDEXER_BY_LANGUAGE: Record<WorkspaceLanguage, string> = { 
 export interface ImportEngineChoice {
   indexer: string;
   allowBuildExecution: boolean;
+  /**
+   * The repository root field (ADR 0015). The import form always sends it — empty means auto-detect — so the
+   * form replaces whatever was stored; omitted (Re-analyze source, Recent projects) keeps the stored root.
+   */
+  repositoryRoot?: string;
 }
 
 /**
@@ -27,8 +32,25 @@ export function displayedIndexer(indexers: readonly IndexerOption[], language: W
  * consent) while the form shows a source-only one. Build execution is allowed only when the displayed engine
  * runs the build and the consent box is ticked.
  */
-export function importEngineChoice(indexers: readonly IndexerOption[], language: WorkspaceLanguage, selected: string, allowBuild: boolean): ImportEngineChoice {
+export function importEngineChoice(indexers: readonly IndexerOption[], language: WorkspaceLanguage, selected: string, allowBuild: boolean, repositoryRoot?: string): ImportEngineChoice {
   const shown = displayedIndexer(indexers, language, selected);
-  if (!shown) return { indexer: DEFAULT_INDEXER_BY_LANGUAGE[language], allowBuildExecution: false };
-  return { indexer: shown.indexer, allowBuildExecution: shown.executesTargetBuild && allowBuild };
+  const root = repositoryRoot === undefined ? {} : { repositoryRoot: repositoryRoot.trim() };
+  if (!shown) return { indexer: DEFAULT_INDEXER_BY_LANGUAGE[language], allowBuildExecution: false, ...root };
+  return { indexer: shown.indexer, allowBuildExecution: shown.executesTargetBuild && allowBuild, ...root };
+}
+
+/** What a registration may carry beyond the path and language; every field omitted keeps the stored value. */
+export interface WorkspaceRegistration { indexer?: string; allowBuildExecution?: boolean; repositoryRoot?: string }
+
+/**
+ * The `POST /api/workspaces` body. The engine and its consent travel together (ADR 0012); the repository root
+ * travels whenever it is given, including empty (clear it: auto-detect), and is left out to keep it (ADR 0015).
+ */
+export function workspaceRequestBody(path: string, language: WorkspaceLanguage, engine: WorkspaceRegistration = {}) {
+  return {
+    path,
+    language,
+    ...(engine.indexer ? { indexer: engine.indexer, allowBuildExecution: !!engine.allowBuildExecution } : {}),
+    ...(engine.repositoryRoot !== undefined ? { repositoryRoot: engine.repositoryRoot.trim() } : {}),
+  };
 }

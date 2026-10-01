@@ -4,10 +4,16 @@
  * changes. Each entry remembers its scroll offset so Back restores exactly the earlier view.
  */
 
-/** What the dialog shows: the subject's evidence (its opening view) or a whole file at a jump target. */
+/**
+ * What the dialog shows: the subject's evidence (its opening view) or a whole file at a jump target. A file
+ * view may come from another snapshot than the dialog's own (`snapshot`, ADR 0014: a review's after-change
+ * snapshot or the current analysis), show that file as its diff (`mode`), and carry the "differs from this
+ * change" chip (`chip`). Omitted, they mean the dialog's own snapshot, plain source, no chip.
+ */
 export type NavView =
   | { kind: 'evidence' }
-  | { kind: 'file'; path: string; line: number; startColumn: number; endLine: number; endColumn: number };
+  | { kind: 'file'; path: string; line: number; startColumn: number; endLine: number; endColumn: number;
+      snapshot?: string; mode?: 'plain' | 'diff'; chip?: boolean };
 export interface NavEntry { view: NavView; scrollTop: number }
 export interface NavStack { entries: readonly NavEntry[]; index: number }
 
@@ -22,7 +28,8 @@ export const canGoForward = (stack: NavStack) => stack.index < stack.entries.len
 export function sameView(a: NavView, b: NavView): boolean {
   if (a.kind !== b.kind) return false;
   if (a.kind === 'evidence' || b.kind === 'evidence') return true;
-  return a.path === b.path && a.line === b.line && a.startColumn === b.startColumn && a.endLine === b.endLine && a.endColumn === b.endColumn;
+  return a.path === b.path && a.line === b.line && a.startColumn === b.startColumn && a.endLine === b.endLine && a.endColumn === b.endColumn
+    && (a.snapshot ?? null) === (b.snapshot ?? null) && (a.mode ?? 'plain') === (b.mode ?? 'plain') && !!a.chip === !!b.chip;
 }
 
 const withScroll = (stack: NavStack, scrollTop: number): NavEntry[] =>

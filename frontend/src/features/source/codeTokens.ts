@@ -12,8 +12,12 @@
 export interface OccurrenceSymbol { definitions: number; displayName?: string | null }
 /** One resolved name in the file (1-based, inclusive end column). `symbol` indexes the symbol table. */
 export interface Occurrence { line: number; startColumn: number; endLine: number; endColumn: number; symbol: number; definition: boolean }
+/** The snapshot whose occurrence index answered (ADR 0014): itself, or for a review head, the current analysis. */
+export interface ServedFrom { snapshotId: string; label?: string | null }
 export interface FileOccurrences {
-  status: 'indexed' | 'not_indexed' | 'no_file';
+  /** `stale`: a review head's file changed since the analysis that would answer for it (ADR 0014). */
+  status: 'indexed' | 'not_indexed' | 'no_file' | 'stale';
+  servedFrom?: ServedFrom | null;
   indexer?: string | null;
   indexerLabel?: string | null;
   navigationIndexers?: string[];
@@ -36,7 +40,8 @@ const finite = (n: unknown): n is number => typeof n === 'number' && Number.isFi
  * a missing symbol are dropped rather than trusted.
  */
 export function decodeOccurrences(payload: any): FileOccurrences {
-  const status = payload?.status === 'indexed' || payload?.status === 'no_file' ? payload.status : 'not_indexed';
+  const status = payload?.status === 'indexed' || payload?.status === 'no_file' || payload?.status === 'stale' ? payload.status : 'not_indexed';
+  const served = payload?.servedFrom;
   const symbols: OccurrenceSymbol[] = Array.isArray(payload?.symbols) ? payload.symbols.map((s: any) => ({
     definitions: finite(s?.definitions) ? s.definitions : 0,
     displayName: typeof s?.displayName === 'string' ? s.displayName : null })) : [];
@@ -54,6 +59,7 @@ export function decodeOccurrences(payload: any): FileOccurrences {
     indexer: typeof payload?.indexer === 'string' ? payload.indexer : null,
     indexerLabel: typeof payload?.indexerLabel === 'string' ? payload.indexerLabel : null,
     navigationIndexers: Array.isArray(payload?.navigationIndexers) ? payload.navigationIndexers.filter((x: unknown) => typeof x === 'string') : [],
+    servedFrom: typeof served?.snapshotId === 'string' ? { snapshotId: served.snapshotId, label: typeof served.label === 'string' ? served.label : null } : null,
     truncated: !!payload?.truncated,
     total: finite(payload?.total) ? payload.total : occurrences.length,
   };
@@ -127,11 +133,16 @@ export function occurrenceAt(byLine: Map<number, LineOccurrence[]>, line: number
   return inner?.occurrence ?? null;
 }
 
+/** Shown for a review file that changed since the analysis that would answer for it (ADR 0014). */
+export const STALE_HINT = 'This file changed since the last analysis; re-analyze to navigate it.';
+
 /**
  * The hint shown when a snapshot's engine provides no navigation. It names the engine and the
  * engines that do, from the server's data -- never from a language or engine name known here.
+ * A `stale` answer (a review file that changed since the last analysis) gets its own hint.
  */
-export function navigationHint(data: Pick<FileOccurrences, 'indexer' | 'indexerLabel' | 'navigationIndexers'>): string {
+export function navigationHint(data: Pick<FileOccurrences, 'indexer' | 'indexerLabel' | 'navigationIndexers'> & { status?: string }): string {
+  if (data.status === 'stale') return STALE_HINT;
   const label = data.indexerLabel || data.indexer || 'unknown';
   const others = data.navigationIndexers || [];
   return `This snapshot's indexer (${label}) doesn't provide go to definition; `
