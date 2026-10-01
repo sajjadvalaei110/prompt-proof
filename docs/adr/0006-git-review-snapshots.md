@@ -177,3 +177,13 @@ a DEPENDS_ON inferred from a call chain) vanished in Changes mode. `runReviewAna
 the workspace root, and `JavaParserAdapter.setupSymbolSolver(capturedRoot, workspaceRoot)` matches
 each capture directory as if it were laid out under the workspace root, so both sides find the
 same source roots as the ordinary analysis. Ordinary analysis is unchanged.
+
+### Amendment (2026-10-01): module workspaces and a repository root (ADR 0015)
+
+A workspace may now be a module or subdirectory of its repository. The Git root is the workspace's configured
+repository root, which must be a Git top level, or the top level found from the workspace. Git still never searches
+upwards on its own. Git always runs at that root. Only the workspace's subtree is captured and compared, keyed
+relative to the workspace like its ordinary snapshots. Other changed files appear as one
+`CHANGES_OUTSIDE_WORKSPACE` diagnostic. The "Review requires the workspace to be the Git worktree root" rejection is
+removed. Go to definition inside the diff is served from the workspace's active snapshot ([ADR 0014](0014-diff-navigation-source.md));
+captures are still analyzed source-only.

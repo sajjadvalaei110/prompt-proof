@@ -63,3 +63,18 @@ for(let i=0;i<MAX_NAV_ENTRIES+20;i++)big=pushView(big,file('f',i+1),i);
 assert.equal(big.entries.length,MAX_NAV_ENTRIES);assert.equal(big.index,MAX_NAV_ENTRIES-1);
 assert.deepEqual(currentView(big),file('f',MAX_NAV_ENTRIES+20));
 console.log('PASS: history is bounded to the most recent entries');
+
+// ADR 0014: a file view can come from another snapshot, as a diff, with the "differs" chip; each is its own view.
+const inChange={kind:'file',path:'a',line:1,startColumn:1,endLine:1,endColumn:1,snapshot:'head',mode:'diff'};
+assert.equal(sameView(inChange,{...inChange}),true);
+assert.equal(sameView(inChange,{...inChange,snapshot:'active'}),false);
+assert.equal(sameView(inChange,{...inChange,mode:'plain'}),false);
+assert.equal(sameView({...inChange,snapshot:'active',mode:undefined,chip:true},{...inChange,snapshot:'active',mode:undefined}),false);
+// Omitted fields mean the dialog's own snapshot, plain source: equal to an older-shaped view.
+assert.equal(sameView(file('a',1),{...file('a',1),mode:'plain'}),true);
+let mixed=pushView(initialNavStack(),inChange,10);
+mixed=pushView(mixed,{...inChange,snapshot:'active',mode:undefined,chip:true},20);
+assert.equal(mixed.entries.length,3);
+mixed=stepView(mixed,-1,5);assert.deepEqual(currentView(mixed),inChange);
+mixed=stepView(mixed,-1,0);assert.deepEqual(currentView(mixed),{kind:'evidence'});assert.equal(mixed.entries[2].scrollTop,5);
+console.log('PASS: back/forward covers views of other snapshots, diffs and chipped views');

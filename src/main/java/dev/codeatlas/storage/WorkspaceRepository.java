@@ -19,10 +19,19 @@ public class WorkspaceRepository {
     }
 
     public void insert(String id, String canonicalRoot, String displayName, String language, String indexer, String trustState) {
+        insert(id, canonicalRoot, displayName, language, indexer, trustState, null);
+    }
+
+    public void insert(String id, String canonicalRoot, String displayName, String language, String indexer, String trustState, String repositoryRoot) {
         jdbcTemplate.update(
-            "INSERT INTO workspaces (id, canonical_root, display_name, language, indexer, trust_state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
-            id, canonicalRoot, displayName, language, indexer, trustState
+            "INSERT INTO workspaces (id, canonical_root, display_name, language, indexer, trust_state, repository_root, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
+            id, canonicalRoot, displayName, language, indexer, trustState, repositoryRoot
         );
+    }
+
+    /** Replace or clear (null) a workspace's repository root (ADR 0015). It never starts an analysis. */
+    public void updateRepositoryRoot(String id, String repositoryRoot) {
+        jdbcTemplate.update("UPDATE workspaces SET repository_root = ?, updated_at = datetime('now') WHERE id = ?", repositoryRoot, id);
     }
 
     /** Switch an existing workspace's engine and the build permission that goes with it (ADR 0012). */
@@ -32,8 +41,8 @@ public class WorkspaceRepository {
 
     public Optional<WorkspaceResponse> findById(String id) {
         List<WorkspaceResponse> results = jdbcTemplate.query(
-            "SELECT id, canonical_root, active_snapshot_id, language, indexer FROM workspaces WHERE id = ?",
-            (rs, rowNum) -> new WorkspaceResponse(rs.getString("id"), rs.getString("canonical_root"), rs.getString("active_snapshot_id"), rs.getString("language"), rs.getString("indexer")),
+            "SELECT id, canonical_root, active_snapshot_id, language, indexer, repository_root FROM workspaces WHERE id = ?",
+            (rs, rowNum) -> new WorkspaceResponse(rs.getString("id"), rs.getString("canonical_root"), rs.getString("active_snapshot_id"), rs.getString("language"), rs.getString("indexer"), rs.getString("repository_root")),
             id
         );
         return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
@@ -41,8 +50,8 @@ public class WorkspaceRepository {
     
     public Optional<WorkspaceResponse> findByPath(String path) {
         List<WorkspaceResponse> results = jdbcTemplate.query(
-            "SELECT id, canonical_root, active_snapshot_id, language, indexer FROM workspaces WHERE canonical_root = ?",
-            (rs, rowNum) -> new WorkspaceResponse(rs.getString("id"), rs.getString("canonical_root"), rs.getString("active_snapshot_id"), rs.getString("language"), rs.getString("indexer")),
+            "SELECT id, canonical_root, active_snapshot_id, language, indexer, repository_root FROM workspaces WHERE canonical_root = ?",
+            (rs, rowNum) -> new WorkspaceResponse(rs.getString("id"), rs.getString("canonical_root"), rs.getString("active_snapshot_id"), rs.getString("language"), rs.getString("indexer"), rs.getString("repository_root")),
             path
         );
         return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
@@ -50,8 +59,8 @@ public class WorkspaceRepository {
 
     public List<WorkspaceResponse> findAll() {
         return jdbcTemplate.query(
-            "SELECT id, canonical_root, active_snapshot_id, language, indexer FROM workspaces ORDER BY created_at DESC",
-            (rs, rowNum) -> new WorkspaceResponse(rs.getString("id"), rs.getString("canonical_root"), rs.getString("active_snapshot_id"), rs.getString("language"), rs.getString("indexer"))
+            "SELECT id, canonical_root, active_snapshot_id, language, indexer, repository_root FROM workspaces ORDER BY created_at DESC",
+            (rs, rowNum) -> new WorkspaceResponse(rs.getString("id"), rs.getString("canonical_root"), rs.getString("active_snapshot_id"), rs.getString("language"), rs.getString("indexer"), rs.getString("repository_root"))
         );
     }
 }

@@ -27,7 +27,13 @@ public class GitReviewSourceAdapter {
     /** A non-text file has no trustworthy physical-line total. */
     public record FileDelta(String path, String status, int added, int removed, boolean javaFile, boolean lineCountsAvailable) {}
     public record Hunk(int oldStart, int oldCount, int newStart, int newCount) {}
-    public record Diff(List<FileDelta> files, Map<String, List<Hunk>> hunks) {}
+    /**
+     * {@code outsideWorkspace} counts changed files that lie outside the workspace's module path and were left out
+     * of the comparison (ADR 0015); paths in {@code files} and {@code hunks} are relative to the workspace.
+     */
+    public record Diff(List<FileDelta> files, Map<String, List<Hunk>> hunks, int outsideWorkspace) {
+        public Diff(List<FileDelta> files, Map<String, List<Hunk>> hunks) { this(files, hunks, 0); }
+    }
 
     public Base resolveBase(Path repo, String requested) {
         if (requested != null && !requested.isBlank()) return new Base(requested.trim(), commit(repo, requested.trim()), null);
@@ -40,6 +46,21 @@ public class GitReviewSourceAdapter {
     }
 
     public String headOid(Path repo) { return commit(repo, "HEAD"); }
+    /**
+     * The Git work tree that holds {@code workspace} (ADR 0015): the nearest directory at or above it with a
+     * {@code .git} entry, confirmed by Git as its own top level. Git itself is never asked to search upwards (every
+     * call keeps the ceiling at the directory's parent), so an unrelated repository above is never picked up.
+     */
+    public Path discoverTopLevel(Path workspace) {
+        for (Path dir = workspace.toAbsolutePath().normalize(); dir != null; dir = dir.getParent()) {
+            if (Files.exists(dir.resolve(".git"), LinkOption.NOFOLLOW_LINKS)) {
+                Path top = topLevel(dir);
+                if (top.equals(dir)) return dir;
+                break;
+            }
+        }
+        throw new IllegalArgumentException("Workspace is not inside a supported local Git worktree.");
+    }
     public Path topLevel(Path repo) {
         try { return Path.of(text(repo, List.of("rev-parse", "--show-toplevel"), 16 * 1024).trim()).toAbsolutePath().normalize(); }
         catch (RuntimeException e) { throw new IllegalArgumentException("Workspace is not a supported local Git worktree."); }
@@ -65,7 +86,14 @@ public class GitReviewSourceAdapter {
         catch (Exception e) { throw new IllegalArgumentException("Could not freeze the working-tree review input."); }
     }
 
-    public Capture materializeBase(Path repo, String oid, Path destination) {
+    public Capture materializeBase(Path repo, String oid, Path destination) { return materializeBase(repo, oid, destination, ""); }
+
+    /**
+     * Writes the base commit's source files under {@code modulePath} (a Git-root-relative directory, empty for the
+     * whole repository) to {@code destination}, keyed relative to that module so a capture is laid out like the
+     * workspace it belongs to (ADR 0015).
+     */
+    public Capture materializeBase(Path repo, String oid, Path destination, String modulePath) {
         createDirectory(destination);
         record TreeEntry(String mode, String type, String object, String path) {}
         List<TreeEntry> entries = new ArrayList<>();
@@ -74,12 +102,13 @@ public class GitReviewSourceAdapter {
             String[] metadata = row.substring(0, tab).split(" ");
             if (metadata.length == 3) entries.add(new TreeEntry(metadata[0], metadata[1], metadata[2], row.substring(tab + 1)));
         }
-        List<TreeEntry> javaEntries = entries.stream().filter(e -> javaPath(e.path())).toList();
+        List<TreeEntry> javaEntries = entries.stream().filter(e -> capturedPath(e.path(), modulePath) != null).toList();
         if (javaEntries.size() > MAX_FILES) throw new IllegalArgumentException("Review capture contains too many Java files.");
         long[] bytes = {0};
         List<String> written = new ArrayList<>();
         for (TreeEntry entry : javaEntries) {
-            String path = entry.path(); validatePath(path);
+            validatePath(entry.path());
+            String path = capturedPath(entry.path(), modulePath);
             // Raw-tree mode/type validation keeps symlinks and submodules out of parser input.
             if (!"blob".equals(entry.type()) || (!"100644".equals(entry.mode()) && !"100755".equals(entry.mode()))) continue;
             byte[] content = bytes(repo, List.of("cat-file", "blob", entry.object()), MAX_BLOB);
@@ -90,12 +119,15 @@ public class GitReviewSourceAdapter {
         return new Capture(oid, fingerprint(oid, written, destination), List.copyOf(written));
     }
 
-    public Capture materializeWorkingTree(Path repo, Path destination) {
+    public Capture materializeWorkingTree(Path repo, Path destination) { return materializeWorkingTree(repo, destination, ""); }
+
+    /** The working tree's counterpart of {@link #materializeBase(Path, String, Path, String)}. */
+    public Capture materializeWorkingTree(Path repo, Path destination, String modulePath) {
         createDirectory(destination);
         // --cached names are sufficient: each is read as a raw filesystem path below.  Asking Git to
         // determine modified/deleted state may invoke a repository-configured clean filter.
         List<String> listed = nulList(repo, List.of("ls-files", "-z", "--cached", "--others", "--exclude-standard"));
-        List<String> javaPaths = listed.stream().distinct().filter(this::javaPath).sorted().toList();
+        List<String> javaPaths = listed.stream().distinct().filter(p -> capturedPath(p, modulePath) != null).sorted().toList();
         if (javaPaths.size() > MAX_FILES) throw new IllegalArgumentException("Review capture contains too many Java files.");
         long[] bytes = {0};
         List<String> written = new ArrayList<>();
@@ -106,8 +138,9 @@ public class GitReviewSourceAdapter {
             try {
                 byte[] content = readFileBounded(source);
                 bytes[0] = addBounded(bytes[0], content.length);
-                write(destination, path, content);
-                written.add(path);
+                String captured = capturedPath(path, modulePath);
+                write(destination, captured, content);
+                written.add(captured);
             } catch (IOException e) {
                 throw new IllegalArgumentException("Could not read a working-tree source file.");
             }
@@ -123,7 +156,10 @@ public class GitReviewSourceAdapter {
      * Compares raw commit blobs to raw working-tree bytes.  The only diff process is run in a fresh
      * private directory, so repository attributes, filters, diff drivers, hooks, and fsmonitor cannot run.
      */
-    public Diff diff(Path repo, String base) {
+    public Diff diff(Path repo, String base) { return diff(repo, base, ""); }
+
+    /** Changed files under {@code modulePath}, keyed relative to it; the rest are only counted (ADR 0015). */
+    public Diff diff(Path repo, String base, String modulePath) {
         Map<String, Blob> baseObjects = treeBlobs(repo, base);
         Set<String> workingPaths = new TreeSet<>(nulList(repo, List.of("ls-files", "-z", "--cached")));
         workingPaths.addAll(nulList(repo, List.of("ls-files", "-z", "--others", "--exclude-standard")));
@@ -133,8 +169,10 @@ public class GitReviewSourceAdapter {
         List<FileDelta> files = new ArrayList<>();
         Map<String, List<Hunk>> hunks = new HashMap<>();
         long baseBytes = 0, headBytes = 0;
+        int outside = 0;
         for (String path : paths) {
             validatePath(path);
+            String scoped = scoped(path, modulePath);
             byte[] before = null, after = null;
             Blob object = baseObjects.get(path);
             if (object != null) { before = bytes(repo, List.of("cat-file", "blob", object.oid()), MAX_BLOB); baseBytes = addBounded(baseBytes, before.length); }
@@ -145,15 +183,16 @@ public class GitReviewSourceAdapter {
             boolean modeChanged = object != null && after != null
                     && (object.executable() != Files.isExecutable(repo.resolve(path)));
             if (Arrays.equals(before, after) && !modeChanged) continue;
+            if (scoped == null) { outside++; continue; }
             String status = before == null ? "ADDED" : after == null ? "DELETED" : "MODIFIED";
             boolean available = (before == null || isText(before)) && (after == null || isText(after));
             List<Hunk> fileHunks = available ? privateHunks(before, after) : List.of();
             int added = fileHunks.stream().mapToInt(Hunk::newCount).sum();
             int removed = fileHunks.stream().mapToInt(Hunk::oldCount).sum();
-            files.add(new FileDelta(path, status, added, removed, javaPath(path), available));
-            if (!fileHunks.isEmpty()) hunks.put(path, fileHunks);
+            files.add(new FileDelta(scoped, status, added, removed, javaPath(path) && javaPath(scoped), available));
+            if (!fileHunks.isEmpty()) hunks.put(scoped, fileHunks);
         }
-        return new Diff(List.copyOf(files), Map.copyOf(hunks));
+        return new Diff(List.copyOf(files), Map.copyOf(hunks), outside);
     }
 
     private String commit(Path repo, String expression) {
@@ -298,6 +337,17 @@ public class GitReviewSourceAdapter {
         digest.update(name); digest.update(bytes);
     }
     private static void validatePath(String path) { if (path.isBlank() || path.startsWith("/") || Arrays.asList(path.split("/", -1)).contains("..")) throw new IllegalArgumentException("Unsupported Git path in review capture."); }
+    /** {@code path} relative to {@code modulePath}, or null when it lies outside that directory. */
+    static String scoped(String path, String modulePath) {
+        if (modulePath == null || modulePath.isEmpty()) return path;
+        String prefix = modulePath.endsWith("/") ? modulePath : modulePath + "/";
+        return path.startsWith(prefix) && path.length() > prefix.length() ? path.substring(prefix.length()) : null;
+    }
+    /** A captured source path relative to the module, or null; build output is excluded at both levels. */
+    private String capturedPath(String path, String modulePath) {
+        String scoped = scoped(path, modulePath);
+        return scoped != null && javaPath(path) && javaPath(scoped) ? scoped : null;
+    }
     private boolean javaPath(String path) { return path.endsWith(".java") && !path.startsWith(".git/") && !path.startsWith("build/") && !path.startsWith("target/") && !path.contains("/build/") && !path.contains("/target/"); }
     private long addBounded(long existing, long add) { if (existing + add > MAX_CAPTURE) throw new IllegalArgumentException("Review capture exceeds the source limit."); return existing + add; }
     private static int count(String value) { return value == null ? 1 : Integer.parseInt(value); }

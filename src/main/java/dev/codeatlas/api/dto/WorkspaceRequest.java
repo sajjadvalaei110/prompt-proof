@@ -7,6 +7,11 @@ public class WorkspaceRequest {
     private String indexer;
     /** Explicit consent that the chosen engine may run the repository's own build (ADR 0012). */
     private boolean allowBuildExecution;
+    /**
+     * Optional directory holding the Git repository and bounding the build-root search (ADR 0015).
+     * Omitted ({@code null}) keeps an existing workspace's root; blank clears it (auto-detect); a path sets it.
+     */
+    private String repositoryRoot;
 
     public WorkspaceRequest() {}
     public WorkspaceRequest(String path) { this.path = path; }
@@ -22,4 +27,7 @@ public class WorkspaceRequest {
 
     public boolean isAllowBuildExecution() { return allowBuildExecution; }
     public void setAllowBuildExecution(boolean allowBuildExecution) { this.allowBuildExecution = allowBuildExecution; }
+
+    public String getRepositoryRoot() { return repositoryRoot; }
+    public void setRepositoryRoot(String repositoryRoot) { this.repositoryRoot = repositoryRoot; }
 }

@@ -95,6 +95,9 @@ end columns in UTF-16 code units, opaque symbol keys). `graph.NavigationService`
 engine to decide `not_indexed` and names the engines that do navigate. Its API has no language-specific code.
 The workspace path may be a module: the Gradle build root is found by walking up to the nearest
 settings file, never past the Git root, and only files under the workspace become graph facts.
+A workspace may name an optional repository root ([ADR 0015](adr/0015-repository-root.md), V014). It is validated in
+`workspace`, bounds the build-root search through `AnalysisPort.locateBuildRoot`, and is the Git root for review,
+which compares only the workspace's subtree, keyed like its ordinary snapshots. Snapshots record it as provenance.
 
 Before a second language ships, the following end-to-end contracts need explicit
 implementation decisions and real fixtures:
@@ -169,7 +172,9 @@ The frontend is structured by functional domain under `frontend/src/features/`:
 - **`source/`**: Embedded source code viewer with line/column highlighting mapped to evidence coordinates.
   Find in file (`findInFile.ts`, literal text, Unicode whole word) works for every snapshot. Ctrl/Cmd+click go to
   definition tokenizes lines only from occurrence rows (`codeTokens.ts`). Its dialog-local back/forward stack
-  (`navigationStack.ts`) is outside undo history, like selection. See ADR 0013.
+  (`navigationStack.ts`) is outside undo history, like selection. See ADR 0013. In the Changes diff,
+  `diffNavigation.ts` maps added/context rows to head lines. The review head's navigation is served from the
+  workspace's active snapshot where file hashes match (`stale` otherwise), and jumps stay in the change (ADR 0014).
 - **`settings/`**: Configuration interface for local model endpoints (LM Studio, Ollama), token budgets, and indexing rules.
 
 ### Explorer scope boundary

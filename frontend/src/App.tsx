@@ -45,7 +45,7 @@ export default function App() {
   const [language,setLanguage]=useState<WorkspaceLanguage>('java');
   // ADR 0012: the engine chosen on the import screen ('' = the language's default) and the explicit
   // consent a build-running engine needs; reset whenever another engine is picked.
-  const [indexers,setIndexers]=useState<IndexerOption[]>([]),[indexer,setIndexer]=useState(''),[allowBuild,setAllowBuild]=useState(false);
+  const [indexers,setIndexers]=useState<IndexerOption[]>([]),[indexer,setIndexer]=useState(''),[allowBuild,setAllowBuild]=useState(false),[repositoryRoot,setRepositoryRoot]=useState('');
   // `mapGraph` is the ordinary analyzed snapshot; `reviewComparison.graph` is the Base+changes
   // overlay for the currently loaded Git comparison. `graph` below (used by everything downstream --
   // projection, tree, search, inspector, canvas) picks whichever the ACTIVE TAB currently shows, so
@@ -288,7 +288,7 @@ export default function App() {
     const [data,entryPoints]=await Promise.all([apiClient.getGraph(id),apiClient.getSpringRoutes(id)]);
     if(!ws&&!data?.metadata?.workspaceId)throw new Error('Snapshot response is missing workspace metadata; try re-opening the project.');
     const owner=ws||await apiClient.getWorkspace(data.metadata.workspaceId);
-    setWorkspace(owner);setPath(owner.path);setLanguage(owner.language);setIndexer(owner.indexer||'');setAllowBuild(false);setSnapshot(id);setMapGraph(data);setRoutes(entryPoints);setQueue(null);setStatus('Source analysis ready');setShowOpen(false);reviewComparison.reset();
+    setWorkspace(owner);setPath(owner.path);setLanguage(owner.language);setIndexer(owner.indexer||'');setAllowBuild(false);setRepositoryRoot(owner.repositoryRoot||'');setSnapshot(id);setMapGraph(data);setRoutes(entryPoints);setQueue(null);setStatus('Source analysis ready');setShowOpen(false);reviewComparison.reset();
     const placementIn=(g:AtlasGraph,ids:string[]):Record<string,PlacementDims>=>{const all=new Map(g.nodes.map(n=>[n.id,n]));const out:Record<string,PlacementDims>={};for(const id of ids){const n=all.get(id);if(n){const c=nodeCard(n);out[id]={width:c.width,height:c.height,name:n.qualifiedName||n.simpleName};}}return out;};
     const initialPackageIds=rankEligibleIds(data,'PACKAGE',getEligibleIds(data,'PACKAGE',wholeSystemScope()));
     let initialView=explorerViewReducer(initExplorerViewState(),{type:'RESET',level:'PACKAGE',eligibleIds:initialPackageIds,batchSize:Infinity,placement:placementIn(data,initialPackageIds)});
@@ -866,7 +866,7 @@ export default function App() {
     {queue?.errorMessage&&<div className="error-banner" role="alert"><span>{queue.errorMessage}</span></div>}
     {error&&<div className="error-banner" role="alert"><span>{error}</span><button onClick={()=>setError('')} aria-label="Dismiss error">✕</button></div>}
     {(showOpen||!graph)&&<ImportScreen path={path} language={language} busy={busy} graphOpen={!!graph}
-      onPathChange={setPath} onLanguageChange={l=>{setLanguage(l);setIndexer('');setAllowBuild(false);}} onSubmit={engine=>{void analyze(path,language,engine);}} recent={recent}
+      onPathChange={setPath} repositoryRoot={repositoryRoot} onRepositoryRootChange={setRepositoryRoot} onLanguageChange={l=>{setLanguage(l);setIndexer('');setAllowBuild(false);}} onSubmit={engine=>{void analyze(path,language,engine);}} recent={recent}
       indexers={indexers} indexer={indexer} onIndexerChange={id=>{setIndexer(id);setAllowBuild(false);}} allowBuild={allowBuild} onAllowBuildChange={setAllowBuild}
       onOpenRecent={ws=>{if(ws.activeSnapshotId){setBusy(true);loadSnapshot(ws.activeSnapshotId,ws).catch(e=>setError(e.message)).finally(()=>setBusy(false));}else{setPath(ws.path);setLanguage(ws.language);void analyze(ws.path,ws.language,null);}}}/>}
     {graph&&<><div className="journey-bar">

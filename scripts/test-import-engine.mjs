@@ -5,7 +5,7 @@ const require=createRequire(new URL('../frontend/package.json',import.meta.url))
 const ts=require('typescript');
 const source=fs.readFileSync(new URL('../frontend/src/features/import/importEngine.ts',import.meta.url),'utf8');
 const compiled=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ES2022,target:ts.ScriptTarget.ES2022}}).outputText;
-const {importEngineChoice,displayedIndexer,DEFAULT_INDEXER_BY_LANGUAGE}=await import('data:text/javascript;base64,'+Buffer.from(compiled).toString('base64'));
+const {importEngineChoice,displayedIndexer,DEFAULT_INDEXER_BY_LANGUAGE,workspaceRequestBody}=await import('data:text/javascript;base64,'+Buffer.from(compiled).toString('base64'));
 
 const engines=[
  {language:'java',indexer:'javaparser',label:'JavaParser',defaultIndexer:true,executesTargetBuild:false,available:true,unavailableReason:null},
@@ -31,3 +31,16 @@ assert.equal(DEFAULT_INDEXER_BY_LANGUAGE.java,'javaparser');
 assert.equal(displayedIndexer([],'java','scip-java'),null);
 assert.deepEqual(importEngineChoice([],'java','scip-java',true),{indexer:'javaparser',allowBuildExecution:false});
 console.log('PASS: without an engine list the language default engine is still sent explicitly');
+
+// ADR 0015: the import form always sends the repository root (empty = auto-detect), so it replaces the stored one.
+assert.deepEqual(importEngineChoice(engines,'java','scip-java',true,'  /repo  '),{indexer:'scip-java',allowBuildExecution:true,repositoryRoot:'/repo'});
+assert.deepEqual(importEngineChoice(engines,'java','',false,''),{indexer:'javaparser',allowBuildExecution:false,repositoryRoot:''});
+assert.deepEqual(workspaceRequestBody('/repo/app','java',importEngineChoice(engines,'java','',false,'')),{path:'/repo/app',language:'java',indexer:'javaparser',allowBuildExecution:false,repositoryRoot:''});
+assert.deepEqual(workspaceRequestBody('/repo/app','java',{indexer:'scip-java',allowBuildExecution:true,repositoryRoot:'/repo'}),{path:'/repo/app',language:'java',indexer:'scip-java',allowBuildExecution:true,repositoryRoot:'/repo'});
+console.log('PASS: the import form always sends the repository root, empty meaning auto-detect');
+// Re-analyze source and Recent projects omit both the engine and the root, which keeps the stored ones.
+assert.deepEqual(workspaceRequestBody('/repo/app','java',{}),{path:'/repo/app',language:'java'});
+assert.deepEqual(workspaceRequestBody('/repo/app','java'),{path:'/repo/app',language:'java'});
+// The autoPath link names the default engine but not a root.
+assert.equal('repositoryRoot' in workspaceRequestBody('/x','java',{indexer:'javaparser',allowBuildExecution:false}),false);
+console.log('PASS: re-analysis omits the root and keeps the stored one');

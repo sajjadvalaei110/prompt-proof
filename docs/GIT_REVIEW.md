@@ -94,7 +94,9 @@ relationship does not establish unchanged runtime behavior.
   `git diff --no-index` on private temporary files, so repository clean filters,
   external diff drivers and text conversion cannot execute. Git attributes do not
   normalize captured source, and index flags cannot hide a source edit.
-- Select the Git worktree root. An initial commit is required. Symlinks and
+- The workspace may be the Git worktree root or any directory inside it. Name the root in the import form's
+  Repository root field, or leave it empty to auto-detect. Only the workspace's subtree is compared; other changed
+  files are counted in one diagnostic (ADR 0015). An initial commit is required. Symlinks and
   submodules are currently rejected by the comparison, and Git filenames must be
   UTF-8. Application data must be outside the source repository.
 - Captures are bounded to 20,000 files, 8 MiB per file and 128 MiB per side.

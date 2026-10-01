@@ -102,6 +102,9 @@ the engine that produced it.
   command on PATH also works. The install configuration is isolated from Spring Boot's BOM so
   scip-java runs with the dependency versions it was published with. The JVM running Code Atlas
   launches it.
+- (2026-10-01, [ADR 0015](0015-repository-root.md): `locate` now sits behind `AnalysisPort.locateBuildRoot`. A
+  workspace may name a repository root that bounds the search instead of the nearest `.git`, and a registration that
+  finds no build marker under that boundary is a 400.)
 - Gradle builds only for now (`--build-tool gradle`). scip-java also supports Maven and sbt; adding
   them is a detection change in `ScipJavaTool.locate`, not a new engine.
 

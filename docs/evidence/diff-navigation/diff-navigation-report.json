@@ -1,0 +1,146 @@
+{
+  "pass": true,
+  "results": {
+    "formOverflow390": false,
+    "workspace": {
+      "path": "/tmp/code-atlas-diff-navigation-<tmp>/repo/app",
+      "repositoryRoot": "/tmp/code-atlas-diff-navigation-<tmp>/repo",
+      "indexer": "scip-java"
+    },
+    "addedFile": {
+      "title": "Farewell",
+      "sub": "Read-only source from the after-change snapshot",
+      "paths": [
+        "src/main/java/com/example/app/Farewell.java"
+      ],
+      "diff": true,
+      "split": false,
+      "addRows": 12,
+      "delRows": 0,
+      "target": null,
+      "targetToken": null,
+      "message": null,
+      "hint": false,
+      "served": [],
+      "chip": null,
+      "scrollTop": 0,
+      "back": false,
+      "forward": false
+    },
+    "servedNote": [
+      "Navigation from Current analysis · scip-java (compiles with the project's Gradle build)"
+    ],
+    "addedFileJump": {
+      "title": "GreetingService.java",
+      "sub": "Definition at line 8 · read-only source from the after-change snapshot",
+      "paths": [
+        "src/main/java/com/example/app/GreetingService.java"
+      ],
+      "diff": true,
+      "split": false,
+      "addRows": 1,
+      "delRows": 1,
+      "target": "public class GreetingService {",
+      "targetToken": "GreetingService",
+      "message": null,
+      "hint": false,
+      "served": [
+        "Navigation from Current analysis · scip-java (compiles with the project's Gradle build)"
+      ],
+      "chip": null,
+      "scrollTop": 0,
+      "back": true,
+      "forward": false
+    },
+    "addedLineJump": {
+      "title": "Farewell.java",
+      "sub": "Definition at line 8 · read-only source from the after-change snapshot",
+      "paths": [
+        "src/main/java/com/example/app/Farewell.java"
+      ],
+      "diff": true,
+      "split": false,
+      "addRows": 12,
+      "delRows": 0,
+      "target": "    public String bye(Greeter greeter, String name) {",
+      "targetToken": "bye",
+      "message": null,
+      "hint": false,
+      "served": [
+        "Navigation from Current analysis · scip-java (compiles with the project's Gradle build)"
+      ],
+      "chip": null,
+      "scrollTop": 0,
+      "back": true,
+      "forward": false
+    },
+    "back": {
+      "title": "GreetingService.java",
+      "sub": "Definition at line 8 · read-only source from the after-change snapshot",
+      "paths": [
+        "src/main/java/com/example/app/GreetingService.java"
+      ],
+      "diff": true,
+      "split": false,
+      "addRows": 1,
+      "delRows": 1,
+      "target": "public class GreetingService {",
+      "targetToken": "GreetingService",
+      "message": null,
+      "hint": false,
+      "served": [
+        "Navigation from Current analysis · scip-java (compiles with the project's Gradle build)"
+      ],
+      "chip": null,
+      "scrollTop": 0,
+      "back": true,
+      "forward": true
+    },
+    "deletedRow": "Deleted lines aren't navigable; find in file still works here.",
+    "splitJump": {
+      "title": "Farewell.java",
+      "sub": "Definition at line 5 · read-only source from the after-change snapshot",
+      "paths": [
+        "src/main/java/com/example/app/Farewell.java"
+      ],
+      "diff": true,
+      "split": true,
+      "addRows": 12,
+      "delRows": 0,
+      "target": "public class Farewell {",
+      "targetToken": "Farewell",
+      "message": null,
+      "hint": false,
+      "served": [
+        "Navigation from Current analysis · scip-java (compiles with the project's Gradle build)"
+      ],
+      "chip": null,
+      "scrollTop": 0,
+      "back": true,
+      "forward": false
+    },
+    "stale": "This file changed since the last analysis; re-analyze to navigate it.",
+    "unchangedPlain": {
+      "diff": false,
+      "served": [
+        "Navigation from Current analysis · scip-java (compiles with the project's Gradle build)"
+      ]
+    },
+    "dialogOverflow390": false,
+    "offPage": []
+  },
+  "screenshots": [
+    "01-import-form-repository-root-390",
+    "02-added-file-as-diff-unified",
+    "03-ctrl-hover-added-file",
+    "04-jump-from-added-file-lands-in-diff",
+    "05-added-line-jumps-into-added-file",
+    "06-back-forward-restores-the-diff",
+    "07-deleted-row-message",
+    "08-split-layout-added-line",
+    "09-split-jump-into-added-file",
+    "10-stale-file-hint",
+    "11-dialog-390"
+  ],
+  "pageErrors": []
+}

@@ -103,9 +103,20 @@ public class ScipJavaAnalysisAdapter implements AnalysisPort {
 
     @java.lang.Override
     public void prepare(String workspacePath) {
+        prepareWorkspace(workspacePath, null);
+    }
+
+    /** The Gradle build root is searched from the workspace up to the repository root (or the nearest Git root). */
+    @java.lang.Override
+    public java.util.Optional<Path> locateBuildRoot(Path workspace, Path boundary) {
+        return ScipJavaTool.find(workspace, boundary).map(ScipJavaTool.BuildLayout::buildRoot);
+    }
+
+    @java.lang.Override
+    public void prepareWorkspace(String workspacePath, Path repositoryRoot) {
         releaseRunCaches();
         root = Path.of(workspacePath).toAbsolutePath().normalize();
-        ScipJavaTool.BuildLayout layout = ScipJavaTool.locate(root);
+        ScipJavaTool.BuildLayout layout = ScipJavaTool.locate(root, repositoryRoot);
         if (!layout.modulePath().isEmpty()) {
             diagnostics.add("scip-java: built the Gradle build at " + layout.buildRoot() + " and indexed its " + layout.modulePath() + " directory.");
         }
