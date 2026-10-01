@@ -1,5 +1,5 @@
 # Project status
-Last updated: 2026-10-01 (go to definition in the Changes diff, ADR 0014; repository root, ADR 0015)
+Last updated: 2026-10-01 (Changes-mode review fixes: empty-comparison notice, per-workspace Base revision; before that ADRs 0014 and 0015)
 Active milestone: R6 — Developer comprehension redesign (in progress)
 Current revision: Step11 language-neutral Java analysis integrated with step 14 Ungroup (an expanded box's box hidden, its children kept as free cards,
 ADR 0011) merged with main's step 13 (card menu Expand/Collapse + View source, cascading tree
@@ -28,6 +28,86 @@ toggle with a git-style diff code viewer, exploration tabs with per-tab undo/red
 and selection controls, the R6 change-edges slice (one line per direction,
 directional selection emphasis, file-grouped evidence), in-place card details
 (expand packages/classes) and resizable cards; Step 6A remains unstarted
+
+## Changes-mode review fixes (2026-10-01, ADR 0006 amendment)
+
+Owner report from the packaged app, data dir `/home/sajjad/projects/data`:
+1. Changes mode drew no colours.
+2. Nothing changed across several base commits.
+3. `second-review-assist/src` "could not find .git".
+
+Facts collected:
+- Workspaces in the owner's DB (read-only queries), all JavaParser and Java:
+  - `review-assist/src/main`: a module, with repository root `review-assist` set;
+  - `second-review-assist/src/main`: a module, auto-detect;
+  - `second-review-assist/src`: the Git root, with root = itself.
+- `prompt-proof/data` holds only Sep 28 test leftovers (V011), so it was not the tested database.
+- The owner compared `review-assist/src/main` against `c760d82`, `bf4f88b` and `9c2045e`. `git diff --stat <base> -- src/main`
+  is empty for all three: every change was in `frontend/`, `docs/`, `scripts/` and `src/test/`. The API returned
+  0 changed files, 864 UNCHANGED declarations and `CHANGES_OUTSIDE_WORKSPACE` "37 changed files … not compared". With
+  `fe97bde`, 7 MODIFIED, 8 ADDED and 3 REMOVED declarations came back.
+- The `second-review-assist` workspaces had no review snapshots. Replaying them on a copy of the owner's DB with the same
+  jar:
+  - an empty base returns 200 for both (12 MODIFIED, 124 ADDED);
+  - base `9c2045e` or `main` returns 400 "Could not resolve the requested local Git base revision." (that repository's
+    branch is `master`);
+  - the owner confirmed that this was the error they saw.
+
+Root causes:
+1+2. Working as designed: the comparison is base versus working tree, Java only, the module subtree only (the owner
+     confirmed that this is wanted). The defect was silence. The map gave no sign of an empty comparison, and the
+     outside-workspace diagnostic was never shown.
+3. The Base revision field outlived a workspace switch (`useReviewComparison` kept `baseRef`, and `reset()` did not
+   clear it), and the error named neither the revision nor the repository. Both predate PR #5 (the same code is on
+   `main`). PR #5 made case 1+2 reachable by making module workspaces reviewable.
+
+Hypotheses tested and ruled out for problem 3:
+- `.git` as a file (linked worktree): new test, passes before the fix;
+- auto-detect from a module and an explicit root equal to the top level: both work through the API;
+- symlinks, case and `/private/var`: not involved, because every path in the owner's DB is canonical and Linux.
+
+Fixes (tests written first and seen failing):
+- `reviewOutcomeNotice` / `reviewBaseRefFor` in `reviewModel.ts` (`scripts/test-review-model.mjs`):
+  - an all-UNCHANGED comparison shows "No Java declarations or relationships changed between <base> and the working
+    tree in this workspace." under the toolbar and in the popover;
+  - `CHANGES_OUTSIDE_WORKSPACE` is shown in the popover;
+  - Base revision is keyed by workspace.
+- `ReviewService.unresolvedBase`:
+  - the message is `Base revision "<ref>" is not a commit in the Git repository at <root>. Clear Base revision to compare
+    with the default …`;
+  - test: `ReviewApiIntegrationTest.reportsBadBaseAsClientErrorBeforeCreatingReviewSnapshots`, updated.
+- `GitReviewSourceAdapter.discoverTopLevel`:
+  - the errors name the checked path and say to set the repository root to the folder that contains .git;
+  - tests: `GitReviewBoundaryTest.noGitAtOrAboveTheWorkspaceNamesThePathAndWhatToDo` and
+    `aWorktreeWhoseGitEntryIsAFileIsItsOwnTopLevel`.
+
+Checks run:
+- `./gradlew test`: 231 tests, 1 failure, `ScipJavaLiveIndexingTest`. scip-java's `GradleBuildTool` needs a `gradle`
+  on PATH, and this machine has none. Re-run with
+  `PATH=~/.gradle/wrapper/dists/gradle-8.12.1-bin/…/gradle-8.12.1/bin:$PATH ./gradlew test --tests
+  "dev.codeatlas.analysis.ScipJavaLiveIndexingTest"`: PASS. This is environmental and unrelated to this change.
+- `cd frontend && npx tsc -b --force && npm run build`: PASS.
+- All 17 `node scripts/test-*.mjs`: PASS.
+- `python3 scripts/verify_git_review_pipeline.py`: PASS, both before the fix and after it (0 failed checks).
+- `python3 scripts/verify_diff_navigation_pipeline.py`:
+  - before the fix, without Gradle on PATH: FAIL, because scip-java exited 1 on its fixture (same environmental cause);
+  - after the fix, with the cached Gradle 8.12.1 on PATH: PASS (0 failed checks).
+- Real check on the owner's repositories (`docs/evidence/review-fixes/real-repo-check.mjs`):
+  - setup: a fresh copy of the owner's DB, the pre-fix jar versus the fixed jar, and the closed model port;
+  - the journey: `review-assist/src/main` against base `HEAD` (clean tree, so nothing changed in the module), then
+    Recompare `fe97bde`, then an in-app switch to `second-review-assist/src` and Changes on.
+  - Before: a blank overlay with no explanation; colours on `fe97bde`; the switch carried `fe97bde` over and failed
+    with the old message.
+  - After: the notice is shown; colours on `fe97bde` plus "43 changed files outside this workspace"; the base is empty
+    after the switch, and the overlay shows 4 MODIFIED and 1 ADDED cards with +7/−3 routes.
+  - Screenshots inspected; reports in `real-*-report.json`.
+- Screenshots inspected and copied to `docs/evidence/review-fixes/`: git-review 02/03/05 and diff-navigation 04/05/10.
+
+Not run:
+- `verify_stable_graph_pipeline.py` and the other browser suites, since the change does not touch layout or the
+  reducer;
+- `constrainedMemoryTest`;
+- the review path was not exercised on Windows or macOS.
 
 ## Go to definition in the Changes diff and an optional repository root (2026-10-01, ADRs 0014 and 0015)
 
