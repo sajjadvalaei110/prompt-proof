@@ -187,3 +187,32 @@ relative to the workspace like its ordinary snapshots. Other changed files appea
 `CHANGES_OUTSIDE_WORKSPACE` diagnostic. The "Review requires the workspace to be the Git worktree root" rejection is
 removed. Go to definition inside the diff is served from the workspace's active snapshot ([ADR 0014](0014-diff-navigation-source.md));
 captures are still analyzed source-only.
+
+### Amendment (2026-10-01): an empty comparison says so; Base revision belongs to one workspace
+
+The owner reported two failures that turned out to be two silent states:
+
+- **No colours.** They compared the module workspace `review-assist/src/main` against several commits that changed
+  only `frontend/`, `docs/` and `src/test/`. The comparison was correctly all-UNCHANGED, but the map looked the same
+  as a broken overlay. The `CHANGES_OUTSIDE_WORKSPACE` count that would have explained it was never shown, because the
+  diagnostics list went away with the report (first addendum).
+  - `reviewOutcomeNotice` (in `reviewModel.ts`, pure and tested) now builds the explanation from the comparison's own
+    facts.
+  - When no declaration or relationship changed, the map says "No Java declarations or relationships changed between
+    <base> and the working tree in this workspace" under the toolbar and in the options popover. It also counts the
+    changed files in the workspace that touch no declaration.
+  - The outside-workspace count is shown in the popover whenever it is present.
+  - This restores the one diagnostic that explains an empty or partial overlay. The rest of the diagnostics list stays
+    removed.
+- **"Can't find .git."**
+  - **Cause.** The Base revision field survived a workspace switch. A commit of one repository was sent to another,
+    and the error, "Could not resolve the requested local Git base revision.", named neither the revision nor the
+    repository.
+  - **Field.** The field is now keyed by workspace (`reviewBaseRefFor`), so another workspace starts from the default.
+  - **Base error.** The error now says `Base revision "<ref>" is not a commit in the Git repository at <root>. Clear Base
+    revision to compare with the default …`.
+  - **Git root errors.** The discovery errors name the directory that was checked and say to set the repository root
+    to the folder that contains .git.
+
+The comparison itself is unchanged: base commit versus the working tree, Java files only, the workspace's subtree only.
+The owner confirmed that this is the wanted behaviour.

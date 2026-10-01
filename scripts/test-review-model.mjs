@@ -5,7 +5,7 @@ const require = createRequire(new URL('../frontend/package.json', import.meta.ur
 const ts = require('typescript');
 const source = fs.readFileSync(new URL('../frontend/src/features/review/reviewModel.ts', import.meta.url), 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } }).outputText;
-const { projectReviewNodes, projectReviewRelationships, projectReviewGraph, reviewSourceIdentityMaps, toReviewAtlasGraph } = await import('data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'));
+const { projectReviewNodes, projectReviewRelationships, projectReviewGraph, reviewSourceIdentityMaps, toReviewAtlasGraph, reviewOutcomeNotice, reviewBaseRefFor } = await import('data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'));
 
 const node = (id, name, parentId) => ({ id, simpleName: name, qualifiedName: name, kind: parentId ? 'CLASS' : 'PACKAGE', ...(parentId ? { parentId } : {}) });
 const review = {
@@ -80,4 +80,44 @@ for (const mode of ['BASE', 'HEAD']) {
   assert.equal(identities.displayBySymbolId[excluded], undefined, 'side-only projection must not expose the other side');
   assert.equal(projection.sourceToDisplay.has(excluded), false);
 }
-console.log('PASS: review base/head/overlay side selection, pinned snapshots, display remapping, and occurrence-preserving routes');
+
+{
+  // A comparison that changed nothing inside the workspace must say so, instead of an uncoloured map
+  // (a module workspace whose base differs from the working tree only in other directories).
+  const unchanged = {
+    ...review,
+    base: { snapshotId: 'base', requestedRef: '9c2045e', resolvedRef: '9c2045ef4fbc87f6edc298d7850d2e736d7ea188' },
+    summary: { addedLines: 0, removedLines: 0, changedFiles: 0 }, files: [],
+    nodes: review.nodes.map(n => ({ ...n, change: 'UNCHANGED', base: n.base || n.head, head: n.head || n.base })),
+    relationships: review.relationships.map(r => ({ ...r, change: 'UNCHANGED', base: r.base || r.head, head: r.head || r.base })),
+    diagnostics: [
+      { severity: 'WARNING', code: 'UNRESOLVED_RELATIONSHIPS_BASE', message: '12 relationship occurrences are unresolved or provisional.' },
+      { severity: 'INFO', code: 'CHANGES_OUTSIDE_WORKSPACE', message: '37 changed files outside this workspace (src/main) are not compared.' }
+    ]
+  };
+  const empty = reviewOutcomeNotice(unchanged);
+  assert.equal(empty.empty, true);
+  assert.deepEqual(empty.messages, [
+    'No Java declarations or relationships changed between 9c2045e and the working tree in this workspace.',
+    '37 changed files outside this workspace (src/main) are not compared.'
+  ]);
+  // Changed files in the workspace that touch no declaration (non-Java, comments, imports) are named.
+  const touched = reviewOutcomeNotice({ ...unchanged, base: { snapshotId: 'base', resolvedRef: '92373d7bf05ca75dae0471be5ab44697d957b692' }, diagnostics: [],
+    files: [{ path: 'README.md', status: 'MODIFIED', addedLines: 1, removedLines: 0, javaFile: false }] });
+  assert.deepEqual(touched.messages, ['No Java declarations or relationships changed between 92373d7 and the working tree in this workspace. 1 changed file here changes no Java declaration.']);
+  // A comparison with changes is not empty, but still reports what was left out of it.
+  const changed = reviewOutcomeNotice({ ...review, diagnostics: unchanged.diagnostics });
+  assert.equal(changed.empty, false);
+  assert.deepEqual(changed.messages, ['37 changed files outside this workspace (src/main) are not compared.']);
+  assert.deepEqual(reviewOutcomeNotice(review), { empty: false, messages: [] });
+  assert.equal(reviewOutcomeNotice({ ...review, nodes: [], relationships: [] }).empty, true, 'nothing on either side is still an empty comparison');
+}
+{
+  // A typed Base revision belongs to the workspace it was typed for: switching to another repository
+  // must not carry it over (a commit of one repository does not resolve in another).
+  assert.equal(reviewBaseRefFor({ workspaceId: 'review-assist', value: '9c2045e' }, 'review-assist'), '9c2045e');
+  assert.equal(reviewBaseRefFor({ workspaceId: 'review-assist', value: '9c2045e' }, 'second-review-assist'), '');
+  assert.equal(reviewBaseRefFor({ workspaceId: null, value: 'main' }, 'second-review-assist'), '');
+  assert.equal(reviewBaseRefFor({ workspaceId: 'review-assist', value: '9c2045e' }, null), '');
+}
+console.log('PASS: review base/head/overlay side selection, pinned snapshots, display remapping, and occurrence-preserving routes, empty-comparison notices, per-workspace base revision');

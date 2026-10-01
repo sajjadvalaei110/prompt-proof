@@ -1,0 +1,93 @@
+[
+  {
+    "label": "1 review-assist src/main, base HEAD",
+    "toggle": "true",
+    "baseField": "HEAD",
+    "error": null,
+    "outcome": null,
+    "popoverNotices": [],
+    "workspace": "main ⌄",
+    "changes": {
+      "node:UNCHANGED": 15,
+      "edge:UNCHANGED": 41
+    },
+    "reviewRequests": [
+      {
+        "body": "{\"schemaVersion\":\"1\",\"baseRef\":\"HEAD\"}",
+        "status": 200
+      }
+    ]
+  },
+  {
+    "label": "2 review-assist src/main, Recompare base fe97bde",
+    "toggle": "true",
+    "baseField": "fe97bde",
+    "error": null,
+    "outcome": null,
+    "popoverNotices": [],
+    "workspace": "main ⌄",
+    "changes": {
+      "node:UNCHANGED": 13,
+      "node:MODIFIED": 2,
+      "edge:UNCHANGED": 41,
+      "edge:REMOVED": 1,
+      "edge:ADDED": 1
+    },
+    "reviewRequests": [
+      {
+        "body": "{\"schemaVersion\":\"1\",\"baseRef\":\"HEAD\"}",
+        "status": 200
+      },
+      {
+        "body": "{\"schemaVersion\":\"1\",\"baseRef\":\"fe97bde\"}",
+        "status": 200
+      }
+    ]
+  },
+  {
+    "label": "3a second-review-assist/src opened (before Changes)",
+    "toggle": "false",
+    "baseField": "fe97bde",
+    "error": null,
+    "outcome": null,
+    "popoverNotices": [],
+    "workspace": "src ⌄",
+    "changes": {},
+    "reviewRequests": [
+      {
+        "body": "{\"schemaVersion\":\"1\",\"baseRef\":\"HEAD\"}",
+        "status": 200
+      },
+      {
+        "body": "{\"schemaVersion\":\"1\",\"baseRef\":\"fe97bde\"}",
+        "status": 200
+      }
+    ]
+  },
+  {
+    "label": "3b second-review-assist/src, Changes on",
+    "toggle": "false",
+    "baseField": "fe97bde",
+    "error": "Could not resolve the requested local Git base revision.",
+    "outcome": null,
+    "popoverNotices": [
+      "Could not resolve the requested local Git base revision."
+    ],
+    "workspace": "src ⌄",
+    "changes": {},
+    "reviewRequests": [
+      {
+        "body": "{\"schemaVersion\":\"1\",\"baseRef\":\"HEAD\"}",
+        "status": 200
+      },
+      {
+        "body": "{\"schemaVersion\":\"1\",\"baseRef\":\"fe97bde\"}",
+        "status": 200
+      },
+      {
+        "body": "{\"schemaVersion\":\"1\",\"baseRef\":\"fe97bde\"}",
+        "status": 400
+      }
+    ]
+  }
+]

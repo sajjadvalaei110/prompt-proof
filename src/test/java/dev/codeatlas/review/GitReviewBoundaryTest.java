@@ -192,6 +192,23 @@ class GitReviewBoundaryTest {
         assertThrows(IllegalArgumentException.class, () -> adapter.discoverTopLevel(outside));
     }
 
+    @Test void noGitAtOrAboveTheWorkspaceNamesThePathAndWhatToDo() throws Exception {
+        Path outside = Files.createDirectories(temporary.resolve("plain/module")).toRealPath();
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () -> adapter.discoverTopLevel(outside));
+        assertEquals("Review is unavailable: no .git at or above " + outside + ". Set the repository root to the folder that contains .git.",
+                error.getMessage());
+    }
+
+    @Test void aWorktreeWhoseGitEntryIsAFileIsItsOwnTopLevel() throws Exception {
+        Path repo = repository();
+        Files.createDirectories(repo.resolve("mod"));
+        Files.writeString(repo.resolve("mod/A.java"), "class A {}\n"); commit(repo);
+        Path worktree = temporary.resolve("linked");
+        git(repo, "worktree", "add", "-b", "linked", worktree.toString());
+        assertTrue(Files.isRegularFile(worktree.resolve(".git")), "a linked worktree's .git is a file");
+        assertEquals(worktree.toRealPath(), adapter.discoverTopLevel(worktree.resolve("mod")).toRealPath());
+    }
+
     Path repository() throws Exception {
         Path repo = Files.createDirectory(temporary.resolve("repo"));
         git(repo, "init", "--initial-branch=main");

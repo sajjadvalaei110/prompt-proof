@@ -492,7 +492,11 @@ class ReviewApiIntegrationTest {
         assertEquals(400, result.getResponse().getStatus());
         JsonNode error = mapper.readTree(result.getResponse().getContentAsString());
         assertEquals("Bad Request", error.path("error").asText());
-        assertEquals("Could not resolve the requested local Git base revision.", error.path("message").asText());
+        // The message names the revision and the repository it was looked up in, and says what to do: a base typed
+        // for one repository does not exist in another.
+        assertEquals("Base revision \"missing-local-review-base\" is not a commit in the Git repository at " + repo.toRealPath()
+                + ". Clear Base revision to compare with the default (the merge base with the upstream branch, else HEAD),"
+                + " or enter a commit, branch or tag from that repository.", error.path("message").asText());
         assertEquals(0, reviewSnapshotCount(workspace));
     }
 

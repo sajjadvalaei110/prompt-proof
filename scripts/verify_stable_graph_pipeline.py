@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Stable-map browser regression: packaged application + Chromium + the 60-class fixture.
+"""Stable-map browser regression: packaged application + Chromium + the 37-package fixture.
 
 Graph exploration must work with no model provider reachable, so this runner points the
 model base URL at a closed local port and never starts an explanation job. It is therefore
 never a live-model verification, and it is not an explanation verification either.
 
 Usage:
-    python3 scripts/verify_stable_graph_pipeline.py [baseline|acceptance]
+    python3 scripts/verify_stable_graph_pipeline.py [acceptance]
 
-    baseline    (default) records today's behaviour and asserts the known R6 defects.
-    acceptance  asserts the stable-map contract; it is expected to fail until Steps 2-3 land.
+    acceptance  (default) asserts the stable-map contract on the package-only map (ADR 0007).
+    The Step 1 `baseline` mode (a known-defect snapshot) is retired: Steps 2-5 fixed every defect
+    it recorded, and its scenarios drove the level switcher ADR 0007 removed.
 """
 import hashlib
 import json
@@ -52,9 +53,12 @@ def hashes(directory):
 
 
 def main():
-    mode = sys.argv[1] if len(sys.argv) > 1 else 'baseline'
-    if mode not in ('baseline', 'acceptance'):
-        raise SystemExit(f'Unknown mode {mode!r}; use baseline or acceptance')
+    mode = sys.argv[1] if len(sys.argv) > 1 else 'acceptance'
+    if mode == 'baseline':
+        raise SystemExit('The baseline mode is retired (its defects are fixed and ADR 0007 removed the '
+                         'level switcher it drove); run: python3 scripts/verify_stable_graph_pipeline.py acceptance')
+    if mode != 'acceptance':
+        raise SystemExit(f'Unknown mode {mode!r}; use acceptance')
     if not JAR.exists():
         raise SystemExit(f'Missing {JAR}. Run ./gradlew bootJar first.')
     if not FIXTURE_SOURCE.exists():

@@ -52,14 +52,21 @@ public class GitReviewSourceAdapter {
      * call keeps the ceiling at the directory's parent), so an unrelated repository above is never picked up.
      */
     public Path discoverTopLevel(Path workspace) {
-        for (Path dir = workspace.toAbsolutePath().normalize(); dir != null; dir = dir.getParent()) {
+        Path start = workspace.toAbsolutePath().normalize();
+        for (Path dir = start; dir != null; dir = dir.getParent()) {
             if (Files.exists(dir.resolve(".git"), LinkOption.NOFOLLOW_LINKS)) {
-                Path top = topLevel(dir);
+                Path top;
+                try { top = topLevel(dir); }
+                catch (IllegalArgumentException e) {
+                    throw new IllegalArgumentException("Review is unavailable: Git cannot read the repository whose .git is in " + dir
+                            + ". Check that Git works in that folder, or set the repository root to the folder that contains .git.");
+                }
                 if (top.equals(dir)) return dir;
-                break;
+                throw new IllegalArgumentException("Review is unavailable: " + dir + " has a .git entry, but Git reports the top of its work tree as "
+                        + top + ". Set the repository root to the folder that contains .git.");
             }
         }
-        throw new IllegalArgumentException("Workspace is not inside a supported local Git worktree.");
+        throw new IllegalArgumentException("Review is unavailable: no .git at or above " + start + ". Set the repository root to the folder that contains .git.");
     }
     public Path topLevel(Path repo) {
         try { return Path.of(text(repo, List.of("rev-parse", "--show-toplevel"), 16 * 1024).trim()).toAbsolutePath().normalize(); }

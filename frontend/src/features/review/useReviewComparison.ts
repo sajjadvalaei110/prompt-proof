@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { apiClient } from '../../api/client';
 import { AtlasGraph } from '../explorer/graphModel';
-import { ReviewComparison, ReviewSourceIdentityMaps, projectReviewGraph, reviewSourceIdentityMaps, toReviewAtlasGraph } from './reviewModel';
+import { ReviewComparison, ReviewSourceIdentityMaps, projectReviewGraph, reviewBaseRefFor, reviewSourceIdentityMaps, toReviewAtlasGraph } from './reviewModel';
 
 export interface ReviewComparisonState {
   review: ReviewComparison | null;
@@ -28,7 +28,10 @@ export function useReviewComparison(workspaceId: string | null, currentGraph: At
   const [review, setReview] = useState<ReviewComparison | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [baseRef, setBaseRef] = useState('');
+  // Keyed by workspace: a revision typed for one repository usually does not exist in the next one opened.
+  const [storedBaseRef, setStoredBaseRef] = useState<{ workspaceId: string | null; value: string }>({ workspaceId: null, value: '' });
+  const baseRef = reviewBaseRefFor(storedBaseRef, workspaceId);
+  const setBaseRef = useCallback((value: string) => setStoredBaseRef({ workspaceId, value }), [workspaceId]);
   const requestInFlight = useRef(false);
 
   const load = useCallback(async () => {

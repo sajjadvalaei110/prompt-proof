@@ -1,0 +1,104 @@
+[
+  {
+    "label": "1 review-assist src/main, base HEAD",
+    "toggle": "true",
+    "baseField": "HEAD",
+    "error": null,
+    "outcome": "No Java declarations or relationships changed between HEAD and the working tree in this workspace.",
+    "popoverNotices": [
+      "No Java declarations or relationships changed between HEAD and the working tree in this workspace."
+    ],
+    "workspace": "main ⌄",
+    "changes": {
+      "node:UNCHANGED": 15,
+      "edge:UNCHANGED": 41
+    },
+    "reviewRequests": [
+      {
+        "body": "{\"schemaVersion\":\"1\",\"baseRef\":\"HEAD\"}",
+        "status": 200
+      }
+    ]
+  },
+  {
+    "label": "2 review-assist src/main, Recompare base fe97bde",
+    "toggle": "true",
+    "baseField": "fe97bde",
+    "error": null,
+    "outcome": null,
+    "popoverNotices": [
+      "43 changed files outside this workspace (src/main) are not compared."
+    ],
+    "workspace": "main ⌄",
+    "changes": {
+      "node:UNCHANGED": 13,
+      "node:MODIFIED": 2,
+      "edge:UNCHANGED": 41,
+      "edge:REMOVED": 1,
+      "edge:ADDED": 1
+    },
+    "reviewRequests": [
+      {
+        "body": "{\"schemaVersion\":\"1\",\"baseRef\":\"HEAD\"}",
+        "status": 200
+      },
+      {
+        "body": "{\"schemaVersion\":\"1\",\"baseRef\":\"fe97bde\"}",
+        "status": 200
+      }
+    ]
+  },
+  {
+    "label": "3a second-review-assist/src opened (before Changes)",
+    "toggle": "false",
+    "baseField": "",
+    "error": null,
+    "outcome": null,
+    "popoverNotices": [],
+    "workspace": "src ⌄",
+    "changes": {},
+    "reviewRequests": [
+      {
+        "body": "{\"schemaVersion\":\"1\",\"baseRef\":\"HEAD\"}",
+        "status": 200
+      },
+      {
+        "body": "{\"schemaVersion\":\"1\",\"baseRef\":\"fe97bde\"}",
+        "status": 200
+      }
+    ]
+  },
+  {
+    "label": "3b second-review-assist/src, Changes on",
+    "toggle": "true",
+    "baseField": "",
+    "error": null,
+    "outcome": null,
+    "popoverNotices": [
+      "No locally available upstream; comparing the working tree with HEAD."
+    ],
+    "workspace": "src ⌄",
+    "changes": {
+      "node:UNCHANGED": 9,
+      "node:MODIFIED": 4,
+      "node:ADDED": 1,
+      "edge:UNCHANGED": 37,
+      "edge:REMOVED": 3,
+      "edge:ADDED": 7
+    },
+    "reviewRequests": [
+      {
+        "body": "{\"schemaVersion\":\"1\",\"baseRef\":\"HEAD\"}",
+        "status": 200
+      },
+      {
+        "body": "{\"schemaVersion\":\"1\",\"baseRef\":\"fe97bde\"}",
+        "status": 200
+      },
+      {
+        "body": "{\"schemaVersion\":\"1\"}",
+        "status": 200
+      }
+    ]
+  }
+]

@@ -306,6 +306,31 @@ way back is Collapse into). Every collapse, the ⊟ square, the menu's Collapse 
 goes through `collapseInJourney`, so cards drawn inside leave the multi-selection in the same undo
 entry. The menu never opens on a hidden box, from the pointer or the keyboard.
 
+## Browser acceptance after ADR 0007 (2026-10-01)
+
+ADR 0007 removed the level switcher, and the package level has no display limit (every in-scope package
+is drawn; Show more never appears there). `verify-stable-graph-ui.mjs` was ported so every contract row
+that still exists is asserted through the controls that now exist:
+
+| Scenario | Before ADR 0007 | Now |
+| --- | --- | --- |
+| S1 | Click a class on the 12-class page | Click a class inside an expanded package box |
+| S2 | Reveal 36 classes with Show more, click one (the "36 -> 12" reset) | Expand packages until 36+ classes are drawn, click one; nothing revealed is dropped |
+| S3-S12, S14, S16, S16b, S17 | Classes page | Same assertions on the package map (S14 expands `domain`) |
+| S9b, second half | Drag survives a level switch away and back | Drag survives leaving the map (Entry points unmounts the canvas) and returning |
+| S10b | Double-click on the 36-class page | Double-click a package card on a map with expanded boxes |
+| S13 | Classes -> Methods -> Classes keeps subject, page and camera | Details (⊞) then Collapse (⊟) keeps subject, every card position and camera |
+| S15 | Remove and re-add a class while Classes is inactive | Remove and re-add a displayed package: survivors unmoved, it returns at the end with a fresh position |
+| S18 | A level first visited empty fits once it gains cards | **Retired**: one level; an empty scope shows the empty state, not the canvas |
+| S19 | An inspected edge is cleared on a level switch and Back restores it | An inspected line survives expanding an endpoint (inspector says "Not drawn right now") and is drawn and inspected again after collapsing |
+| `baseline` mode | Known-defect snapshot | **Retired**: every defect it recorded was fixed in Steps 2-5 |
+
+"No card moved" counts cards, which are the stored positions. An expanded box has no stored
+position: Cytoscape derives it from its children's bounds, including a child's selection halo. So a
+halo on a card at a box's edge shifts the box by a few units while no card moves. The report lists
+these shifts per scenario as `boxesShifted` instead of counting them as moved cards. The box edge then
+follows the halo's pulse, which is a known visual limit; see `PROJECT_STATUS.md`.
+
 ## Delivery and validation
 
 Implement stable selection/page state first, incremental canvas updates second, then
