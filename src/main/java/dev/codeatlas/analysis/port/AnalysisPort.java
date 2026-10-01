@@ -81,6 +81,24 @@ public interface AnalysisPort {
     /** Prepare parser/type-resolution state for a run rooted at {@code workspacePath}. */
     void prepare(String workspacePath);
 
+    /**
+     * Prepare a run for a workspace whose owner may have named a repository root (ADR 0015; null means
+     * auto-detect). Only an engine that locates a build needs the root; the default ignores it.
+     */
+    default void prepareWorkspace(String workspacePath, java.nio.file.Path repositoryRoot) {
+        prepare(workspacePath);
+    }
+
+    /**
+     * The build root this engine would build for {@code workspace}, searched no higher than {@code boundary}
+     * (the workspace's repository root, or null for the engine's own default boundary), or empty when none is
+     * found. Engines that do not run a build keep the default, empty: they have no build root (ADR 0015).
+     * Build markers (Gradle settings, go.mod, pubspec.yaml, ...) belong to the engine's adapter, never here.
+     */
+    default java.util.Optional<java.nio.file.Path> locateBuildRoot(java.nio.file.Path workspace, java.nio.file.Path boundary) {
+        return java.util.Optional.empty();
+    }
+
     /** Prepare a captured tree while retaining the original workspace layout for resolution. */
     default void prepare(String capturedPath, java.nio.file.Path workspaceRoot) {
         prepare(capturedPath);

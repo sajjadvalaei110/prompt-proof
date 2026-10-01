@@ -157,6 +157,41 @@ class GitReviewBoundaryTest {
         assertFalse(adapter.hunks(repo, adapter.headOid(repo)).containsKey("new.bin"));
     }
 
+    @Test void aModulePathScopesTheCaptureAndTheDiffAndKeysThemRelativeToTheModule() throws Exception {
+        Path repo = repository();
+        Files.createDirectories(repo.resolve("mod/src/demo"));
+        Files.createDirectories(repo.resolve("other"));
+        Files.writeString(repo.resolve("mod/src/demo/A.java"), "class A {}\n");
+        Files.writeString(repo.resolve("other/B.java"), "class B {}\n");
+        commit(repo);
+        Files.writeString(repo.resolve("mod/src/demo/A.java"), "class A { int a; }\n");
+        Files.writeString(repo.resolve("mod/src/demo/New.java"), "class New {}\n");
+        Files.writeString(repo.resolve("other/B.java"), "class B { int b; }\n");
+        Files.createDirectories(repo.resolve("mod/build"));
+        Files.writeString(repo.resolve("mod/build/Out.java"), "class Out {}\n");
+        // A directory that merely starts with the module's name is outside it.
+        Files.createDirectories(repo.resolve("mod-two"));
+        Files.writeString(repo.resolve("mod-two/C.java"), "class C {}\n");
+        String oid = adapter.headOid(repo);
+
+        GitReviewSourceAdapter.Diff diff = adapter.diff(repo, oid, "mod");
+        assertEquals(List.of("build/Out.java", "src/demo/A.java", "src/demo/New.java"), diff.files().stream().map(GitReviewSourceAdapter.FileDelta::path).sorted().toList());
+        assertFalse(diff.files().stream().filter(f -> f.path().equals("build/Out.java")).findFirst().orElseThrow().javaFile());
+        assertEquals(2, diff.outsideWorkspace());
+        assertTrue(diff.hunks().containsKey("src/demo/A.java"));
+
+        Path base = temporary.resolve("module-base"), head = temporary.resolve("module-head");
+        assertEquals(List.of("src/demo/A.java"), adapter.materializeBase(repo, oid, base, "mod").javaPaths());
+        assertEquals(List.of("src/demo/A.java", "src/demo/New.java"), adapter.materializeWorkingTree(repo, head, "mod").javaPaths());
+        assertEquals("class A { int a; }\n", Files.readString(head.resolve("src/demo/A.java")));
+        assertFalse(Files.exists(head.resolve("build")));
+        assertFalse(Files.exists(head.resolve("other")));
+        // Git's top level is found from the module, without asking Git to search upwards on its own.
+        assertEquals(repo.toRealPath(), adapter.discoverTopLevel(repo.resolve("mod/src")).toRealPath());
+        Path outside = Files.createDirectories(temporary.resolve("not-a-repository"));
+        assertThrows(IllegalArgumentException.class, () -> adapter.discoverTopLevel(outside));
+    }
+
     Path repository() throws Exception {
         Path repo = Files.createDirectory(temporary.resolve("repo"));
         git(repo, "init", "--initial-branch=main");

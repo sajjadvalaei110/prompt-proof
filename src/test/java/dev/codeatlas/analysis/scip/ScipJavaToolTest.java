@@ -47,6 +47,25 @@ class ScipJavaToolTest {
         assertTrue(error.getMessage().contains("needs a Gradle build"));
     }
 
+    @Test void anExplicitRepositoryRootBoundsTheSearchInsteadOfTheGitRoot() throws Exception {
+        // ADR 0015: the workspace names its repository root; a settings file above that root is never used, and
+        // without a root the walk still stops at the nearest Git root.
+        Path outer = Files.createDirectories(directory.resolve("outer"));
+        Files.writeString(outer.resolve("settings.gradle"), "// above the repository root");
+        Path root = Files.createDirectories(outer.resolve("monorepo/java"));
+        Path module = Files.createDirectories(root.resolve("services/app"));
+        assertTrue(ScipJavaTool.find(module, root).isEmpty());
+        assertEquals(outer, ScipJavaTool.find(module, null).orElseThrow().buildRoot());
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () -> ScipJavaTool.locate(module, root));
+        assertTrue(error.getMessage().contains("inside the repository root " + root), error.getMessage());
+
+        Files.writeString(root.resolve("settings.gradle"), "include 'services:app'");
+        ScipJavaTool.BuildLayout layout = ScipJavaTool.locate(module, root);
+        assertEquals(root, layout.buildRoot());
+        assertEquals("services/app", layout.modulePath());
+        assertThrows(IllegalArgumentException.class, () -> ScipJavaTool.locate(outer, root), "the root must contain the workspace");
+    }
+
     @Test void privateCopySkipsBuildOutputsVcsDataAndSymlinks() throws Exception {
         Path build = Files.createDirectories(directory.resolve("build-root"));
         Files.writeString(build.resolve("settings.gradle"), "");

@@ -37,6 +37,14 @@ class IndexerSelectionIntegrationTest {
         properties.add("codeatlas.indexers.scip-java.command", () -> "no-such-scip-java");
     }
 
+    /** A build engine needs a build marker under its boundary at registration (ADR 0015), so give it one. */
+    private static Path gradleProject(String prefix) throws Exception {
+        Path project = Files.createTempDirectory(DATA_DIR, prefix);
+        Files.createDirectory(project.resolve(".git"));
+        Files.writeString(project.resolve("settings.gradle"), "rootProject.name = 'fixture'\n");
+        return project;
+    }
+
     private String create(String path, String body) throws Exception {
         return mvc.perform(post("/api/workspaces").contentType(MediaType.APPLICATION_JSON).content(body.replace("PATH", path)))
                 .andReturn().getResponse().getContentAsString();
@@ -57,7 +65,7 @@ class IndexerSelectionIntegrationTest {
     }
 
     @Test void buildEngineNeedsExplicitConsentAndIsRejectedBeforeRegistration() throws Exception {
-        Path project = Files.createTempDirectory(DATA_DIR, "consent");
+        Path project = gradleProject("consent");
         Integer before = db.queryForObject("SELECT COUNT(*) FROM workspaces", Integer.class);
         mvc.perform(post("/api/workspaces").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"path\":\"" + project + "\",\"indexer\":\"scip-java\"}"))
@@ -74,7 +82,7 @@ class IndexerSelectionIntegrationTest {
     }
 
     @Test void omittingTheEngineKeepsItAndChoosingSourceOnlyDropsBuildPermission() throws Exception {
-        Path project = Files.createTempDirectory(DATA_DIR, "switch");
+        Path project = gradleProject("switch");
         String canonical = project.toRealPath().toString();
         create(project.toString(), "{\"path\":\"PATH\",\"indexer\":\"scip-java\",\"allowBuildExecution\":true}");
 

@@ -92,6 +92,19 @@ class AnalysisServiceDispatchTest {
     }
 
     @Test
+    void theWorkspacesRepositoryRootReachesTheEngineAndIsRecordedOnTheSnapshot() {
+        // ADR 0015: language-neutral -- the non-Java fixture engine receives the configured root, and the snapshot
+        // records it as provenance; an unset root reaches the engine as null (auto-detect).
+        db.update("UPDATE workspaces SET repository_root=? WHERE id=?", directory.toString(), WORKSPACE_ID);
+        service.runAnalysis(WORKSPACE_ID, insertJob());
+        String snapshotId = db.queryForObject("SELECT active_snapshot_id FROM workspaces WHERE id=?", String.class, WORKSPACE_ID);
+        assertEquals(directory.toString(), db.queryForObject("SELECT repository_root FROM snapshots WHERE id=?", String.class, snapshotId));
+        db.update("UPDATE workspaces SET repository_root=NULL WHERE id=?", WORKSPACE_ID);
+        service.runAnalysis(WORKSPACE_ID, insertJob());
+        assertEquals(java.util.Arrays.asList(directory, null), fixture.preparedRepositoryRoots);
+    }
+
+    @Test
     void reviewAnalysisDispatchesByRetainedSnapshotLanguageAndKeepsSpringJavaOnly() throws IOException {
         String snapshotId = UUID.randomUUID().toString();
         db.update("INSERT INTO snapshots(id,workspace_id,status,language,created_at) "
@@ -260,6 +273,14 @@ class AnalysisServiceDispatchTest {
             discoverCalls++;
             assertEquals(root.toAbsolutePath().normalize(), requestedRoot.toPath().toAbsolutePath().normalize());
             return List.of(root.resolve("Entry.fixture").toFile());
+        }
+
+        private final List<Path> preparedRepositoryRoots = new ArrayList<>();
+
+        @Override
+        public void prepareWorkspace(String workspacePath, Path repositoryRoot) {
+            preparedRepositoryRoots.add(repositoryRoot);
+            prepare(workspacePath);
         }
 
         @Override

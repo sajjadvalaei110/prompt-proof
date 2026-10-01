@@ -121,11 +121,26 @@ public class ScipJavaTool {
      * so a workspace inside a repository is never built with an unrelated build above it.
      */
     public static BuildLayout locate(Path workspaceRoot) {
+        return locate(workspaceRoot, null);
+    }
+
+    /**
+     * {@link #locate(Path)} bounded by an explicit repository root (ADR 0015), or by the nearest {@code .git} when
+     * {@code boundary} is null. The walk checks the boundary itself and never goes above it.
+     */
+    public static BuildLayout locate(Path workspaceRoot, Path boundary) {
         Path workspace = workspaceRoot.toAbsolutePath().normalize();
-        Path gitRoot = null;
-        for (Path dir = workspace; dir != null; dir = dir.getParent()) {
-            if (Files.exists(dir.resolve(".git"), LinkOption.NOFOLLOW_LINKS)) { gitRoot = dir; break; }
-        }
+        return find(workspace, boundary).orElseThrow(() -> {
+            Path limit = limit(workspace, boundary);
+            return new IllegalArgumentException("scip-java needs a Gradle build: no settings.gradle(.kts) or build.gradle(.kts) was found at "
+                    + workspace + (limit != null ? (boundary != null ? " or above it inside the repository root " : " or above it inside the Git repository at ") + limit : " or above it") + ".");
+        });
+    }
+
+    /** The build layout for {@code workspaceRoot} within {@code boundary} (null: the nearest Git root), or empty. */
+    public static Optional<BuildLayout> find(Path workspaceRoot, Path boundary) {
+        Path workspace = workspaceRoot.toAbsolutePath().normalize();
+        Path gitRoot = limit(workspace, boundary);
         Path settingsRoot = null, buildFileRoot = null;
         for (Path dir = workspace; dir != null; dir = dir.getParent()) {
             if (settingsRoot == null && containsAny(dir, SETTINGS_FILES)) settingsRoot = dir;
@@ -133,11 +148,20 @@ public class ScipJavaTool {
             if (settingsRoot != null || dir.equals(gitRoot)) break;
         }
         Path buildRoot = settingsRoot != null ? settingsRoot : buildFileRoot;
-        if (buildRoot == null) {
-            throw new IllegalArgumentException("scip-java needs a Gradle build: no settings.gradle(.kts) or build.gradle(.kts) was found at "
-                    + workspace + (gitRoot != null ? " or above it inside the Git repository at " + gitRoot : " or above it") + ".");
+        if (buildRoot == null) return Optional.empty();
+        return Optional.of(new BuildLayout(buildRoot, gitRoot, workspace, buildRoot.relativize(workspace).toString().replace(File.separatorChar, '/')));
+    }
+
+    private static Path limit(Path workspace, Path boundary) {
+        if (boundary != null) {
+            Path root = boundary.toAbsolutePath().normalize();
+            if (!workspace.startsWith(root)) throw new IllegalArgumentException("The repository root " + root + " does not contain the workspace " + workspace + ".");
+            return root;
         }
-        return new BuildLayout(buildRoot, gitRoot, workspace, buildRoot.relativize(workspace).toString().replace(File.separatorChar, '/'));
+        for (Path dir = workspace; dir != null; dir = dir.getParent()) {
+            if (Files.exists(dir.resolve(".git"), LinkOption.NOFOLLOW_LINKS)) return dir;
+        }
+        return null;
     }
 
     private static boolean containsAny(Path directory, List<String> names) {

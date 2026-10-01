@@ -59,8 +59,10 @@ public class AnalysisService {
         AnalysisPort adapter = null;
         try {
             Map<String, Object> workspace = jdbcTemplate.queryForMap(
-                    "SELECT canonical_root, language, indexer, trust_state, active_snapshot_id FROM workspaces WHERE id = ?", workspaceId);
+                    "SELECT canonical_root, language, indexer, trust_state, active_snapshot_id, repository_root FROM workspaces WHERE id = ?", workspaceId);
             String path = (String) workspace.get("canonical_root");
+            // ADR 0015: the configured repository root (null = auto-detect); recorded on the snapshot as provenance.
+            String repositoryRoot = (String) workspace.get("repository_root");
             // Resolve the adapter before creating a staging snapshot. Unsupported language errors
             // are still recorded on the existing job instead of leaving it RUNNING forever.
             adapter = portRegistry.require((String) workspace.get("language"), (String) workspace.get("indexer"));
@@ -79,8 +81,8 @@ public class AnalysisService {
             String previousSnapshotId = (String) workspace.get("active_snapshot_id");
             snapshotId = UUID.randomUUID().toString();
             jdbcTemplate.update(
-                    "INSERT INTO snapshots (id, workspace_id, language, indexer, status, created_at) VALUES (?, ?, ?, ?, 'staging', datetime('now'))",
-                    snapshotId, workspaceId, language, indexer);
+                    "INSERT INTO snapshots (id, workspace_id, language, indexer, repository_root, status, created_at) VALUES (?, ?, ?, ?, ?, 'staging', datetime('now'))",
+                    snapshotId, workspaceId, language, indexer, repositoryRoot);
             jdbcTemplate.update("UPDATE jobs SET snapshot_id = ? WHERE id = ?", snapshotId, jobId);
 
             // Phase 1: Discover files
@@ -92,7 +94,7 @@ public class AnalysisService {
             log.info("Analysis started: {} {} files discovered in {}", totalFiles, language, path);
 
             // Phase 2: Parse declarations (Pass 1)
-            adapter.prepare(path);
+            adapter.prepareWorkspace(path, repositoryRoot == null ? null : Path.of(repositoryRoot));
             int parsed = 0;
             for (File file : sourceFiles) {
                 try {

@@ -43,18 +43,23 @@ public class ReviewService {
         // Reject an unshipped language before any Git capture, temporary source copy, or review
         // snapshot is created. AnalysisService validates again from each retained snapshot.
         String language = portRegistry.require(workspace.language()).language();
-        Path repo = Path.of(root).toAbsolutePath().normalize();
-        if (!Files.isDirectory(repo.resolve(".git")) && !Files.isRegularFile(repo.resolve(".git"))) {
-            throw new IllegalArgumentException("Workspace is not a local Git repository.");
-        }
-        if (!git.topLevel(repo).equals(repo)) throw new IllegalArgumentException("Review requires the workspace to be the Git worktree root.");
+        Path workspaceRoot = Path.of(root).toAbsolutePath().normalize();
+        // ADR 0015: the Git root is the workspace's repository root when one is set (it must be the top of a Git
+        // work tree), else Git's own top level for the workspace path. The workspace may be any directory inside
+        // it; only its subtree is captured and compared, keyed relative to the workspace like ordinary snapshots.
+        Path repo = gitRoot(workspace, workspaceRoot);
+        if (!workspaceRoot.startsWith(repo)) throw new IllegalArgumentException("Review is unavailable: the workspace is not inside the Git work tree at " + repo + ".");
+        String modulePath = repo.relativize(workspaceRoot).toString().replace(java.io.File.separatorChar, '/');
         GitReviewSourceAdapter.Base base;
         try { base = git.resolveBase(repo, request.baseRef()); }
         catch (RuntimeException e) { throw new IllegalArgumentException("Could not resolve the requested local Git base revision."); }
         String frozenInput = git.comparisonFingerprint(repo, base.oid());
         List<ReviewResponse.ReviewDiagnostic> diagnostics = new ArrayList<>();
         if (base.warning() != null) diagnostics.add(new ReviewResponse.ReviewDiagnostic("WARNING", "BASE_UPSTREAM_UNAVAILABLE", base.warning()));
-        GitReviewSourceAdapter.Diff rawDiff = git.diff(repo, base.oid());
+        GitReviewSourceAdapter.Diff rawDiff = git.diff(repo, base.oid(), modulePath);
+        if (rawDiff.outsideWorkspace() > 0) diagnostics.add(new ReviewResponse.ReviewDiagnostic("INFO", "CHANGES_OUTSIDE_WORKSPACE",
+                rawDiff.outsideWorkspace() + " changed file" + (rawDiff.outsideWorkspace() == 1 ? "" : "s") + " outside this workspace (" + modulePath + ") "
+                        + (rawDiff.outsideWorkspace() == 1 ? "is" : "are") + " not compared."));
         List<GitReviewSourceAdapter.FileDelta> files = rawDiff.files();
         Map<String, List<GitReviewSourceAdapter.Hunk>> hunks = rawDiff.hunks();
         List<ReviewResponse.ReviewFile> responseFiles = files.stream().map(f -> new ReviewResponse.ReviewFile(f.path(), f.status(), f.added(), f.removed(), f.javaFile(), f.lineCountsAvailable(),
@@ -77,16 +82,16 @@ public class ReviewService {
                 throw new IllegalArgumentException("Application review capture storage must not be a symbolic link.");
             }
             capture = Files.createTempDirectory(captureParent, "capture-");
-            git.materializeBase(repo, base.oid(), capture.resolve("base"));
-            GitReviewSourceAdapter.Capture headCapture = git.materializeWorkingTree(repo, capture.resolve("head"));
+            git.materializeBase(repo, base.oid(), capture.resolve("base"), modulePath);
+            GitReviewSourceAdapter.Capture headCapture = git.materializeWorkingTree(repo, capture.resolve("head"), modulePath);
             if (!frozenInput.equals(git.comparisonFingerprint(repo, base.oid()))) {
                 throw new IllegalArgumentException("Working-tree changes occurred while the review was captured; retry the review.");
             }
             String capturedAt = Instant.now().toString();
-            baseSnapshot = createSnapshot(workspaceId, "REVIEW_BASE", "base=" + base.oid(), language);
-            analysis.runReviewAnalysis(workspaceId, baseSnapshot, capture.resolve("base"), repo);
-            headSnapshot = createSnapshot(workspaceId, "REVIEW_HEAD", "head=" + headCapture.headOid() + ";fingerprint=" + frozenInput, language);
-            analysis.runReviewAnalysis(workspaceId, headSnapshot, capture.resolve("head"), repo);
+            baseSnapshot = createSnapshot(workspaceId, "REVIEW_BASE", "base=" + base.oid(), language, workspace.repositoryRoot());
+            analysis.runReviewAnalysis(workspaceId, baseSnapshot, capture.resolve("base"), workspaceRoot);
+            headSnapshot = createSnapshot(workspaceId, "REVIEW_HEAD", "head=" + headCapture.headOid() + ";fingerprint=" + frozenInput, language, workspace.repositoryRoot());
+            analysis.runReviewAnalysis(workspaceId, headSnapshot, capture.resolve("head"), workspaceRoot);
             diagnostics.addAll(snapshotDiagnostics(baseSnapshot, "BASE"));
             diagnostics.addAll(snapshotDiagnostics(headSnapshot, "HEAD"));
             Comparison comparison = compare(baseSnapshot, headSnapshot, hunks, diagnostics);
@@ -106,10 +111,24 @@ public class ReviewService {
         }
     }
 
-    private String createSnapshot(String workspaceId, String purpose, String identity, String language) {
+    private String createSnapshot(String workspaceId, String purpose, String identity, String language, String repositoryRoot) {
         String id = UUID.randomUUID().toString();
-        db.update("INSERT INTO snapshots(id,workspace_id,status,purpose,review_identity,language,created_at) VALUES(?,?, 'staging',?,?,?,datetime('now'))", id, workspaceId, purpose, identity, language);
+        db.update("INSERT INTO snapshots(id,workspace_id,status,purpose,review_identity,language,repository_root,created_at) VALUES(?,?, 'staging',?,?,?,?,datetime('now'))",
+                id, workspaceId, purpose, identity, language, repositoryRoot);
         return id;
+    }
+    /** The Git root review reads from (ADR 0015): the configured repository root, or Git's top level for the workspace. */
+    private Path gitRoot(WorkspaceResponse workspace, Path workspaceRoot) {
+        if (workspace.repositoryRoot() == null) return git.discoverTopLevel(workspaceRoot);
+        Path configured = Path.of(workspace.repositoryRoot()).toAbsolutePath().normalize();
+        Path top;
+        try { top = Files.isDirectory(configured) ? git.topLevel(configured) : null; }
+        catch (IllegalArgumentException e) { top = null; }
+        if (top == null || !top.equals(configured)) {
+            throw new IllegalArgumentException("Review is unavailable: the repository root " + configured + " is not the top of a Git work tree. "
+                    + "Set the repository root to the directory that holds .git, or clear it to auto-detect.");
+        }
+        return configured;
     }
     private void fail(String snapshot) {
         if (snapshot == null) return;

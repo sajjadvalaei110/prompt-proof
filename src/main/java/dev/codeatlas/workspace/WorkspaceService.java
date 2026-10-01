@@ -8,6 +8,7 @@ import dev.codeatlas.api.dto.WorkspaceRequest;
 import dev.codeatlas.api.dto.WorkspaceResponse;
 import org.springframework.stereotype.Service;
 import java.io.File;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.UUID;
 import java.util.Optional;
@@ -35,21 +36,8 @@ public class WorkspaceService {
                     + "(its build scripts execute on this machine). Allow build execution to use it, or choose a source-only indexer.");
         }
 
-        String pathStr = request.getPath().trim();
-        // Remove surrounding quotes if pasted with quotes
-        if ((pathStr.startsWith("\"") && pathStr.endsWith("\"")) || (pathStr.startsWith("'") && pathStr.endsWith("'"))) {
-            pathStr = pathStr.substring(1, pathStr.length() - 1).trim();
-        }
-        // Expand tilde ~ to user home
-        if (pathStr.equals("~") || pathStr.startsWith("~" + File.separator) || pathStr.startsWith("~/")) {
-            String userHome = System.getProperty("user.home");
-            pathStr = userHome + pathStr.substring(1);
-        }
-
-        File file = new File(pathStr);
-        if (!file.isAbsolute()) {
-            file = file.getAbsoluteFile();
-        }
+        File file = WorkspacePaths.normalize(request.getPath());
+        String pathStr = file.getPath();
         if (!file.exists()) {
             throw new IllegalArgumentException("Path does not exist: " + pathStr);
         }
@@ -60,28 +48,45 @@ public class WorkspaceService {
         try {
             String canonicalPath = file.getCanonicalPath();
             Optional<WorkspaceResponse> existing = workspaceRepository.findByPath(canonicalPath);
-            if (existing.isPresent()) {
-                String existingLanguage = existing.get().language();
-                if (!existingLanguage.equals(language)) {
-                    throw new IllegalArgumentException("A workspace for this path already exists with language '"
-                            + existingLanguage + "'. Choose that language or use a different path.");
+            if (existing.isPresent() && !existing.get().language().equals(language)) {
+                throw new IllegalArgumentException("A workspace for this path already exists with language '"
+                        + existing.get().language() + "'. Choose that language or use a different path.");
+            }
+            // Omitting the root keeps the stored one; a blank root clears it (auto-detect); a path replaces it.
+            boolean rootGiven = request.getRepositoryRoot() != null;
+            String repositoryRoot = rootGiven
+                    ? RepositoryRootValidator.validate(Path.of(canonicalPath), request.getRepositoryRoot()).map(Path::toString).orElse(null)
+                    : existing.map(WorkspaceResponse::repositoryRoot).orElse(null);
+            AnalysisPort engine = requestedEngine != null ? requestedEngine
+                    : existing.flatMap(w -> portRegistry.find(language, w.indexer())).orElseGet(() -> portRegistry.require(language));
+            // A build engine must find its build under the root before anything is saved (ADR 0015).
+            if (engine.executesTargetBuild()) {
+                Path boundary = repositoryRoot == null ? null : Path.of(repositoryRoot);
+                if (engine.locateBuildRoot(Path.of(canonicalPath), boundary).isEmpty()) {
+                    throw new IllegalArgumentException("The " + AnalysisPortRegistry.indexerOf(engine) + " indexer found no build for "
+                            + canonicalPath + (boundary != null ? " under the repository root " + boundary : " inside its repository")
+                            + ". " + engine.indexerLabel() + " needs one; set the repository root to the directory that holds the build.");
                 }
+            }
+            if (existing.isPresent()) {
+                String id = existing.get().id();
                 // Omitting the engine keeps the workspace's current one; naming one switches to it.
                 if (requestedEngine != null && !AnalysisPortRegistry.indexerOf(requestedEngine).equals(existing.get().indexer())) {
-                    String indexer = AnalysisPortRegistry.indexerOf(requestedEngine);
-                    workspaceRepository.updateIndexer(existing.get().id(), indexer, trustFor(requestedEngine));
-                    return workspaceRepository.findById(existing.get().id()).orElseThrow();
+                    workspaceRepository.updateIndexer(id, AnalysisPortRegistry.indexerOf(requestedEngine), trustFor(requestedEngine));
                 }
-                return existing.get();
+                // Like the engine, the root only changes what the next analysis or Recompare uses; nothing starts here.
+                if (rootGiven && !java.util.Objects.equals(repositoryRoot, existing.get().repositoryRoot())) {
+                    workspaceRepository.updateRepositoryRoot(id, repositoryRoot);
+                }
+                return workspaceRepository.findById(id).orElseThrow();
             }
             
             String id = UUID.randomUUID().toString();
             String name = file.getName();
-            AnalysisPort engine = requestedEngine != null ? requestedEngine : portRegistry.require(language);
             String indexer = AnalysisPortRegistry.indexerOf(engine);
-            workspaceRepository.insert(id, canonicalPath, name, language, indexer, trustFor(engine));
+            workspaceRepository.insert(id, canonicalPath, name, language, indexer, trustFor(engine), repositoryRoot);
             
-            return new WorkspaceResponse(id, canonicalPath, null, language, indexer);
+            return new WorkspaceResponse(id, canonicalPath, null, language, indexer, repositoryRoot);
         } catch (IllegalArgumentException e) {
             // Preserve client-facing validation failures so the API advice can return 400. In
             // particular, a path that is already registered for another language is a conflict
