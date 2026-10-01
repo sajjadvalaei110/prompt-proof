@@ -1,5 +1,5 @@
 # Project status
-Last updated: 2026-10-01 (scip-java indexer review fixes, ADR 0012)
+Last updated: 2026-10-01 (source-viewer navigation and find in file, ADR 0013)
 Active milestone: R6 — Developer comprehension redesign (in progress)
 Current revision: Step11 language-neutral Java analysis integrated with step 14 Ungroup (an expanded box's box hidden, its children kept as free cards,
 ADR 0011) merged with main's step 13 (card menu Expand/Collapse + View source, cascading tree
@@ -28,6 +28,110 @@ toggle with a git-style diff code viewer, exploration tabs with per-tab undo/red
 and selection controls, the R6 change-edges slice (one line per direction,
 directional selection emphasis, file-grouped evidence), in-place card details
 (expand packages/classes) and resizable cards; Step 6A remains unstarted
+
+## Source-viewer navigation: find in file, Ctrl/Cmd+click go to definition (2026-10-01, ADR 0013)
+
+Bounded acceptance criterion: in the read-only source dialog, find in file works for every snapshot. For a
+snapshot whose engine provides navigation, Ctrl/Cmd+click on a resolved name (from relationship evidence or any
+file shown) jumps to its definition, in the same or another file, with back/forward. Navigation is a declared
+engine capability with a language-neutral contract, so a future Go/Dart/TS engine lights it up by filling
+`code_occurrences`. Decisions were settled with the owner in a grilling round (all recommendations accepted): no
+graph side effects on a jump; Find references deferred; the capability is a port method; limits of 50,000
+occurrences per file and 10,000 find matches; a jump replaces the dialog body, with a dialog-local
+back/forward stack; `not_indexed` answers carry the engine labels.
+
+Commits (each verified before the next):
+1. Find in file: `findInFile.ts` and `codeTokens.ts` (pure); the dialog find bar (Ctrl/Cmd+F, "N of M",
+   Enter/Shift+Enter, match case, Unicode whole word) over the plain lines or the current diff layout's rows.
+2. Backend: `AnalysisPort.providesNavigation()` (scip-java true), `IndexerDescriptor.providesNavigation`,
+   `AnalysisPortRegistry.find` / `navigationIndexerLabels`; `NavigationService` capability from the snapshot's
+   recorded engine (rows only as a fallback for retired engines); `GET /files/occurrences` (compact symbol table
+   and rows, no engine keys exposed, 50,000 cap with `truncated`/`total`); capability fields on `not_indexed`.
+3. Viewer: tokens only from occurrence rows; Ctrl/Cmd hover underline; click goes to definition (one location
+   jumps, several open a `path:line` picker, external shows "<name> · outside workspace", not_indexed shows
+   the data-driven hint); `navigationStack.ts` back/forward (buttons, Alt+←/→) restoring scroll, never undo
+   history; the dialog is focusable so keys work after a click in code; go to definition off in diff sections
+   (and says so). New pipeline `scripts/verify_code_navigation_pipeline.py` + `verify-code-navigation-ui.mjs`.
+4. Docs: ADR 0013, ARCHITECTURE.md (analysis boundary, `source/`), ADR 0012 note, TESTING.md, CLAUDE.md
+   commands, evidence in `docs/evidence/code-navigation/`.
+
+Checks run:
+- `./gradlew installScipJava` — PASS on the second attempt (the first got HTTP 429 from Maven Central; retried
+  with backoff).
+- `./gradlew test` — PASS: 214 tests, 0 failures, 0 skipped (`ScipJavaLiveIndexingTest` ran the real scip-java
+  and Gradle). New: `NavigationServiceTest` (5), which drives `/api/indexers`, `/files/occurrences` and
+  `/files/definition` over MockMvc for a fake non-Java `fixture` language. Its two engines run through the real
+  `AnalysisService`; the navigating one writes `code_occurrences` for `.fx` files. Covered: a local jump, a
+  cross-file jump, external, several definitions, a comment word with no row, truncation, a source-only engine
+  (`not_indexed` with labels), and a retired engine (row fallback). `ScipJavaAnalysisIntegrationTest` also
+  checks the occurrences payload.
+- `./gradlew constrainedMemoryTest --no-daemon` — PASS (BUILD SUCCESSFUL in 4m 6s).
+- `cd frontend && npx tsc -b --force && npm run build` — PASS.
+- All 16 `node scripts/test-*.mjs` — PASS. New: `test-find-in-file.mjs`, `test-code-tokens.mjs` (Go- and
+  Dart-shaped files tokenized from occurrence rows; UTF-16/emoji columns; stale and nested rows; hint text),
+  `test-navigation-stack.mjs`.
+- `CHROMIUM=/opt/pw-browsers/chromium python3 scripts/verify_language_import_pipeline.py` — PASS. (Its default
+  `/snap/bin/chromium` does not exist in this container.)
+- `python3 scripts/verify_code_navigation_pipeline.py` — PASS against the packaged jar and real Chromium, with
+  real CDP key and mouse input. Both fixture copies were imported through the form (scip-java with consent, and
+  JavaParser) and were byte-identical afterwards. The model URL pointed at a closed port, and every page request
+  stayed on the local app. Checked:
+  - Ctrl+hover underlines `greet` in `greeter.greet(name)` in the app→core route's evidence;
+  - Ctrl+click jumps to `core/.../Greeter.java:4` (another module);
+  - Alt+← restores the evidence at the same scroll offset, and Forward returns;
+  - the local `name` jumps to its `for` declaration (line 13);
+  - `add` and `List` show "· outside workspace" and do not navigate;
+  - find "greet": 1 of 27, Enter → 2, Shift+Enter ×2 wraps to 27; whole word plus match case → 1 of 2;
+  - 390 px with the find bar: no horizontal page scroll, and the header fits;
+  - on the JavaParser snapshot, Ctrl+click shows "This snapshot's indexer (JavaParser (source only)) doesn't
+    provide go to definition; engines that do: scip-java (…)", and find still works.
+
+  All nine screenshots were inspected; they are in `docs/evidence/code-navigation/` with
+  `navigation-report.json`.
+
+Found and fixed during verification:
+- the hint rendered below the sticky header, out of view once the user had scrolled, so it moved into the header;
+- after a click in code, focus could leave the dialog (Alt+arrows and Ctrl+F lost), so the dialog is now
+  focusable;
+- at 390 px the find bar wrapped awkwardly, so the input takes its own row on narrow screens.
+
+Not run / limits: the other browser pipelines (stable graph, hierarchical, change edges, git review, ungroup) were
+not rerun; they do not open the source dialog's new paths, and find/tokens leave plain lines as one text node.
+The several-definitions picker is covered by the backend test (two definitions) but not exercised in the browser:
+the fixture has no symbol with two definition sites. Touch devices get find but not go to definition (a modifier
+key is needed). There is no virtualization for very large files. Go to definition is off inside the Changes diff.
+Find references and "show on map" are deferred (ADR 0013 follow-ups).
+
+### Review fixes (2026-10-01)
+
+Two P2 findings from a Codex review of PR #4, both in `SourceDialog.tsx`:
+- **Back did not restore an offset of 0.** A fresh entry and a view left at the very top both stored
+  `scrollTop: 0`, and restoring ran only for `> 0`. So Back to a view left at the top kept the later view's
+  offset (Codex reproduced 0 → 1778 → 1778). In `navigationStack.ts`, an entry not yet left now stores `null`;
+  any number, 0 included, is a remembered position. The dialog restores every remembered offset and centres the
+  target only for a fresh jump. The evidence view's "scroll to the highlight" also now runs only when the offset
+  is `null`.
+- **A late answer could fill the new snapshot's cache with the old snapshot's file.** The whole-file and
+  occurrence caches were keyed by path alone. They were cleared when `snapshot` changed, but a request still in
+  flight from the earlier snapshot refilled the same path key afterwards, so OLD source showed under NEW. Both
+  caches are now keyed by (snapshot, path), as on the diff-navigation branch (PR #5), so a late answer lands
+  under a key nothing reads.
+
+Checks run:
+- `node scripts/test-navigation-stack.mjs`: PASS. A new case checks that a view left at the top remembers 0,
+  that Back restores 0 and not the later offset, and that fresh entries remember `null`.
+- All 16 `node scripts/test-*.mjs`: PASS.
+- `cd frontend && npx tsc -b --force && npm run build`: PASS.
+- `./gradlew bootJar`, then `CHROMIUM=/opt/pw-browsers/chromium python3 scripts/verify_code_navigation_pipeline.py`:
+  PASS. Step 3b is new: in a 260 px tall window, leave the evidence view at the top, go Forward, scroll the
+  definition to the bottom, and press Alt+←. The view must come back at `scrollTop` 0. Run against the jar
+  built before the fix, the same step failed with "back restores the top (75 -> 75)", which is the reported
+  bug. It passes against the rebuilt jar.
+
+Not run: `./gradlew test` (the change is frontend only, and no backend file changed), and the other browser
+pipelines. The cache race has no browser check, because it needs a response delayed past a snapshot change.
+The fix holds by construction: no key that the current snapshot reads can be written by another snapshot's
+request.
 
 ## scip-java: a second, opt-in Java indexer (2026-09-30, ADR 0012)
 

@@ -53,6 +53,17 @@ public interface AnalysisPort {
     }
 
     /**
+     * Whether this engine fills the occurrence index ({@code code_occurrences}) that source navigation reads
+     * (ADR 0013): every resolved name in an indexed file, definitions and references, with 1-based lines,
+     * 1-based start and inclusive end columns counted in UTF-16 code units, and an engine-scoped symbol key the
+     * API never parses. Navigation is a capability of the engine, not of its language; the viewer offers go to
+     * definition exactly for snapshots whose engine declares it.
+     */
+    default boolean providesNavigation() {
+        return false;
+    }
+
+    /**
      * Why this engine cannot run on this machine right now (for example a missing tool), or empty when
      * it can. Callers show the reason instead of offering an engine that would fail every run.
      */

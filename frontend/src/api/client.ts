@@ -3,7 +3,11 @@ import type { Language } from '../types';
 const API_BASE = '/api';
 
 export type WorkspaceLanguage = Language;
-/** One indexing engine of a language (ADR 0012). `executesTargetBuild` engines need explicit consent. */
+/** One definition site from go to definition (1-based, inclusive end column, UTF-16 code units). */
+export interface DefinitionLocation { path: string; startLine: number; startColumn: number; endLine: number; endColumn: number; displayName?: string | null; signature?: string | null; symbolId?: string | null }
+export interface DefinitionResult { status: 'found' | 'external' | 'no_symbol' | 'not_indexed'; locations: DefinitionLocation[]; indexer?: string | null; indexerLabel?: string | null; navigationIndexers?: string[] }
+/** One indexing engine of a language (ADR 0012). `executesTargetBuild` engines need explicit consent;
+ * `providesNavigation` engines fill the occurrence index behind go to definition (ADR 0013). */
 export interface IndexerOption {
   language: WorkspaceLanguage;
   indexer: string;
@@ -12,6 +16,7 @@ export interface IndexerOption {
   executesTargetBuild: boolean;
   available: boolean;
   unavailableReason: string | null;
+  providesNavigation?: boolean;
 }
 
 export interface ApiErrorResponse {
@@ -85,6 +90,13 @@ export const apiClient = {
   /** Whole retained file content by path, for building a git-style diff between two snapshots. */
   getSnapshotFile: (snapshot: string, path: string): Promise<{schemaVersion:string;path:string;content:string}> =>
     requestJson(`${API_BASE}/snapshots/${snapshot}/files/source?path=${encodeURIComponent(path)}`),
+
+  /** Every resolved name in one file of a snapshot, for go to definition (ADR 0013). Decode with `codeTokens.decodeOccurrences`. */
+  getFileOccurrences: (snapshot: string, path: string): Promise<any> =>
+    requestJson(`${API_BASE}/snapshots/${snapshot}/files/occurrences?path=${encodeURIComponent(path)}`),
+  /** Go to definition for the resolved name at a 1-based line and column (UTF-16 code units). */
+  getDefinition: (snapshot: string, path: string, line: number, column: number): Promise<DefinitionResult> =>
+    requestJson(`${API_BASE}/snapshots/${snapshot}/files/definition?path=${encodeURIComponent(path)}&line=${line}&column=${column}`),
 
   /** Registers (or reuses) a workspace. `engine.indexer` omitted keeps an existing workspace's engine (ADR 0012). */
   createWorkspace: (path: string, language: WorkspaceLanguage = 'java', engine: { indexer?: string; allowBuildExecution?: boolean } = {}): Promise<any> =>

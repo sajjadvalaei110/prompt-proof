@@ -61,6 +61,9 @@ node scripts/test-node-card.mjs
 node scripts/test-source-evidence.mjs
 node scripts/test-review-model.mjs
 node scripts/test-import-engine.mjs
+node scripts/test-find-in-file.mjs
+node scripts/test-code-tokens.mjs
+node scripts/test-navigation-stack.mjs
 
 # Browser acceptance pipelines (need Chromium — override with CHROMIUM=/path, Java 21, Node 22, Python 3)
 # Each spins up an isolated SQLite dir + browser profile under build/<name>/run-*/,
@@ -71,6 +74,7 @@ python3 scripts/verify_change_edges_pipeline.py
 python3 scripts/verify_git_review_pipeline.py
 python3 scripts/verify_stable_graph_pipeline.py baseline    # known-defect snapshot
 python3 scripts/verify_stable_graph_pipeline.py acceptance  # product-contract assertions
+python3 scripts/verify_code_navigation_pipeline.py          # source-viewer navigation (needs installScipJava + gradle on PATH)
 ```
 
 There is deliberately **no separate lint step** (see `docs/TESTING.md` §9 / an ADR would be needed

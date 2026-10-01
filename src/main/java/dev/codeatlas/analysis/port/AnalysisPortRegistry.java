@@ -25,7 +25,8 @@ public class AnalysisPortRegistry {
 
     /** What the import screen needs to offer an engine honestly. */
     public record IndexerDescriptor(String language, String indexer, String label, boolean defaultIndexer,
-                                    boolean executesTargetBuild, boolean available, String unavailableReason) {}
+                                    boolean executesTargetBuild, boolean available, String unavailableReason,
+                                    boolean providesNavigation) {}
 
     private final Map<String, Map<String, AnalysisPort>> ports;
     private final Map<String, AnalysisPort> defaults;
@@ -93,10 +94,34 @@ public class AnalysisPortRegistry {
             for (AnalysisPort port : engines.values()) {
                 String reason = port.unavailableReason().orElse(null);
                 result.add(new IndexerDescriptor(normalize(port.language()), indexerOf(port), port.indexerLabel(),
-                        defaults.get(normalize(port.language())) == port, port.executesTargetBuild(), reason == null, reason));
+                        defaults.get(normalize(port.language())) == port, port.executesTargetBuild(), reason == null, reason,
+                        port.providesNavigation()));
             }
         }
         return result;
+    }
+
+    /**
+     * The engine a snapshot recorded, when it is still registered. Unlike {@link #require(String, String)} this
+     * never throws: a snapshot can outlive the engine that produced it. A blank indexer is the language's default.
+     */
+    public java.util.Optional<AnalysisPort> find(String language, String indexer) {
+        if (language == null || language.isBlank()) return java.util.Optional.empty();
+        Map<String, AnalysisPort> engines = ports.get(normalize(language));
+        if (engines == null) return java.util.Optional.empty();
+        if (indexer == null || indexer.isBlank()) return java.util.Optional.ofNullable(defaults.get(normalize(language)));
+        return java.util.Optional.ofNullable(engines.get(normalizeIndexer(indexer)));
+    }
+
+    /** Labels of the engines of {@code language} that provide source navigation, default first. */
+    public List<String> navigationIndexerLabels(String language) {
+        if (language == null || language.isBlank() || !ports.containsKey(normalize(language))) return List.of();
+        List<String> labels = new ArrayList<>();
+        for (String id : indexers(language)) {
+            AnalysisPort port = ports.get(normalize(language)).get(id);
+            if (port.providesNavigation()) labels.add(port.indexerLabel());
+        }
+        return labels;
     }
 
     /** Engine ids of one language, default first. */

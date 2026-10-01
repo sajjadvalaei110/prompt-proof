@@ -765,6 +765,18 @@ imports a copied fixture through the real form, checks the Java-only selector an
 payload, re-analysis, recent projects without snapshots, and graph loading with an unreachable model endpoint. Desktop/mobile
 screenshots and the report are written under `build/language-import/`; inspect them.
 
+Source-viewer navigation (ADR 0013) has three pure suites: `scripts/test-find-in-file.mjs` (literal matching,
+Unicode whole word, cap, stepping), `scripts/test-code-tokens.mjs` (tokenizing Go- and Dart-shaped files from
+occurrence rows, UTF-16 columns, stale rows, the data-driven hint) and `scripts/test-navigation-stack.mjs`
+(back/forward with scroll offsets). `NavigationServiceTest` drives `/files/occurrences` and `/files/definition`
+over HTTP with a fake non-Java `fixture` language whose engine writes `code_occurrences`.
+`python3 scripts/verify_code_navigation_pipeline.py` (after `./gradlew bootJar` and `./gradlew installScipJava`,
+with a `gradle` on PATH) imports two copies of `test-fixtures/scip-gradle-project` through the real form, one with
+scip-java and consent and one with JavaParser. It drives Ctrl/Cmd+hover and click, Alt+arrows, Ctrl/Cmd+F,
+Enter and Shift+Enter with real CDP input. It checks that the copies stay byte-identical and that every page
+request stayed on the local app. Screenshots and `navigation-report.json` go under `build/code-navigation/`;
+inspect them. The accepted set is in `docs/evidence/code-navigation/`.
+
 `verify_filtering_zoom_settings.py` uses a local rejecting HTTP stub to verify profile
 handling; `verify_hierarchical_pipeline.py` uses synthetic explanation responses. Neither
 is a live-model check. `verify_explanation_pipeline.py --mock` runs its end-to-end

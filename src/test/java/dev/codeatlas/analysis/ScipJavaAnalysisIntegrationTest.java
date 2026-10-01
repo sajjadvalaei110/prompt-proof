@@ -182,6 +182,18 @@ class ScipJavaAnalysisIntegrationTest {
         // ...and a JDK call reports that it is outside the workspace.
         assertEquals("external", navigationService.definition(snapshot, "app/src/main/java/com/example/app/GreetingService.java", 14, 21).status());
         assertEquals("no_symbol", navigationService.definition(snapshot, "app/src/main/java/com/example/app/GreetingService.java", 14, 1).status());
+
+        // The file's occurrences (ADR 0013): the call token is one row whose symbol has one definition; the JDK's
+        // `add` resolves outside the workspace (no definition in this snapshot).
+        NavigationService.FileOccurrences occurrences = navigationService.occurrences(snapshot, "app/src/main/java/com/example/app/GreetingService.java");
+        assertEquals("indexed", occurrences.status());
+        assertEquals("scip-java", occurrences.indexer());
+        assertFalse(occurrences.truncated());
+        int[] call = occurrences.occurrences().stream().filter(r -> r[0] == 14 && r[1] == 32).findFirst().orElseThrow();
+        assertEquals(36, call[3]);
+        assertEquals(1, occurrences.symbols().get(call[4]).definitions());
+        int[] add = occurrences.occurrences().stream().filter(r -> r[0] == 14 && r[1] == 20).findFirst().orElseThrow();
+        assertEquals(0, occurrences.symbols().get(add[4]).definitions());
     }
 
     @Test void moduleWorkspaceIndexesOnlyItsModuleAndTreatsSiblingModulesAsExternal() throws Exception {
