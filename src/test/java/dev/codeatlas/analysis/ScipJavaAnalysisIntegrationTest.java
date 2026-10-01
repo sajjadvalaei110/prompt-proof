@@ -1,5 +1,6 @@
 package dev.codeatlas.analysis;
 
+import dev.codeatlas.analysis.scip.ScipBuildFailedException;
 import dev.codeatlas.analysis.scip.ScipIndex;
 import dev.codeatlas.analysis.scip.ScipJavaTool;
 import dev.codeatlas.graph.NavigationService;
@@ -51,9 +52,25 @@ class ScipJavaAnalysisIntegrationTest {
     @Autowired NavigationService navigationService;
     @Autowired JdbcTemplate db;
 
+    private static ScipIndex golden() throws Exception {
+        return ScipIndex.read(Path.of("src/test/resources/scip/scip-gradle-project.scip"));
+    }
+
+    /** What the real tool returns for the golden index: the indexed sources as the build compiled them (here, the fixture's). */
+    private static ScipJavaTool.IndexedBuild goldenBuild(ScipJavaTool.BuildLayout layout, Map<String, String> replacedSources) throws Exception {
+        ScipIndex index = golden();
+        Map<String, String> sources = new java.util.HashMap<>(ScipJavaTool.captureSources(index, layout.buildRoot(), layout.modulePath()));
+        replacedSources.forEach((path, content) -> { if (content == null) sources.remove(path); else sources.put(path, content); });
+        return new ScipJavaTool.IndexedBuild(index, sources);
+    }
+
     private String analyze(Path workspace, String trust) throws Exception {
+        return analyze(workspace, trust, invocation -> goldenBuild(invocation.getArgument(0), Map.of()));
+    }
+
+    private String analyze(Path workspace, String trust, org.mockito.stubbing.Answer<ScipJavaTool.IndexedBuild> build) throws Exception {
         when(tool.unavailableReason()).thenReturn(Optional.empty());
-        when(tool.index(any(), any())).thenReturn(ScipIndex.read(Path.of("src/test/resources/scip/scip-gradle-project.scip")));
+        when(tool.index(any(), any())).thenAnswer(build);
         // canonical_root is unique, so each path has one workspace; every test sets its engine and trust afresh.
         List<String> existing = db.queryForList("SELECT id FROM workspaces WHERE canonical_root = ?", String.class, workspace.toString());
         String workspaceId = existing.isEmpty() ? UUID.randomUUID().toString() : existing.get(0), jobId = UUID.randomUUID().toString();
@@ -89,6 +106,9 @@ class ScipJavaAnalysisIntegrationTest {
                 Map.entry("com.example.app.Main", "CLASS"), Map.entry("com.example.app.Main.main(String[])", "METHOD"),
                 Map.entry("com.example.app.GreetingService", "CLASS"),
                 Map.entry("com.example.app.GreetingService.greetAll(List<String>)", "METHOD"),
+                Map.entry("com.example.app.Factories", "CLASS"), Map.entry("com.example.app.Factories.plain()", "METHOD"),
+                Map.entry("com.example.app.Factories.commented()", "METHOD"), Map.entry("com.example.app.Factories.qualified()", "METHOD"),
+                Map.entry("com.example.app.Factories.reference()", "METHOD"),
                 Map.entry("com.example.core.Greeter", "INTERFACE"), Map.entry("com.example.core.Greeter.greet(String)", "METHOD"),
                 Map.entry("com.example.core.BaseGreeter", "CLASS"), Map.entry("com.example.core.BaseGreeter.BaseGreeter(String)", "CONSTRUCTOR"),
                 Map.entry("com.example.core.BaseGreeter.decorate(String)", "METHOD"), Map.entry("com.example.core.BaseGreeter.decorate(String,int)", "METHOD"),
@@ -118,9 +138,14 @@ class ScipJavaAnalysisIntegrationTest {
                 "com.example.app.Main.main(String[]) -> com.example.app.GreetingService",
                 "com.example.app.Main.main(String[]) -> com.example.core.Greeting.Builder",
                 "com.example.core.Greeting.Builder.build() -> com.example.core.Greeting",
-                "com.example.app.GreetingService -> com.example.core.FriendlyGreeter.FriendlyGreeter()"),
+                "com.example.app.GreetingService -> com.example.core.FriendlyGreeter.FriendlyGreeter()",
+                "com.example.app.Factories.plain() -> com.example.app.GreetingService",
+                "com.example.app.Factories.commented() -> com.example.app.GreetingService",
+                "com.example.app.Factories.qualified() -> com.example.core.FriendlyGreeter.FriendlyGreeter()",
+                "com.example.app.Factories.reference() -> com.example.app.GreetingService"),
                 relationships(snapshot, "CONSTRUCTS"),
-                "field initializers belong to the type; `new Outer.Inner()` is a construction; super(..) is not; implicit constructors target the type");
+                "field initializers belong to the type; `new Outer.Inner()` is a construction; super(..) is not; implicit constructors target the type; "
+                        + "`new` split from its type by newlines, comments or a qualifier, and `T\n::new`, are constructions");
         assertEquals(Set.of("com.example.core.FriendlyGreeter.greet(String) -> com.example.core.Greeter.greet(String)",
                 "com.example.core.Greeting.greet(String) -> com.example.core.Greeter.greet(String)"), relationships(snapshot, "OVERRIDES"),
                 "subtype side only, including a record whose supertypes javac's SemanticDB omits");
@@ -162,7 +187,7 @@ class ScipJavaAnalysisIntegrationTest {
     @Test void moduleWorkspaceIndexesOnlyItsModuleAndTreatsSiblingModulesAsExternal() throws Exception {
         String snapshot = analyze(FIXTURE.resolve("app"), WorkspaceTrust.BUILD_ALLOWED);
         assertFalse(snapshot.startsWith("FAILED"), snapshot);
-        assertEquals(List.of("src/main/java/com/example/app/GreetingService.java", "src/main/java/com/example/app/Main.java"),
+        assertEquals(List.of("src/main/java/com/example/app/Factories.java", "src/main/java/com/example/app/GreetingService.java", "src/main/java/com/example/app/Main.java"),
                 db.queryForList("SELECT relative_path FROM source_file_versions WHERE snapshot_id = ? ORDER BY relative_path", String.class, snapshot));
         assertEquals(0, db.queryForObject("SELECT COUNT(*) FROM symbol_versions WHERE snapshot_id = ? AND qualified_name LIKE 'com.example.core%'", Integer.class, snapshot));
         assertEquals(Set.of("com.example.app.Main.main(String[]) -> com.example.app.GreetingService.greetAll(List<String>)"), relationships(snapshot, "CALLS"));
@@ -182,5 +207,81 @@ class ScipJavaAnalysisIntegrationTest {
         assertTrue(db.queryForObject("SELECT COUNT(*) FROM code_occurrences WHERE snapshot_id = ?", Integer.class, snapshot) > 0);
         db.update("DELETE FROM snapshots WHERE id = ?", snapshot);
         assertEquals(0, db.queryForObject("SELECT COUNT(*) FROM code_occurrences WHERE snapshot_id = ?", Integer.class, snapshot));
+    }
+
+    private static final String SERVICE = "app/src/main/java/com/example/app/GreetingService.java";
+
+    /**
+     * The index's ranges belong to the text the build compiled. When the file on disk differs (edited during the
+     * build, or rewritten by a build task in the private copy), the snapshot keeps the indexed text — stored content,
+     * symbol and relationship evidence — and says the disk changed.
+     */
+    @Test void snapshotKeepsTheIndexedTextWhenTheFileOnDiskDiffers() throws Exception {
+        String disk = Files.readString(FIXTURE.resolve(SERVICE));
+        String indexed = disk.replace("result.add(greeter.greet(name));", "result.add(greeter.greet(name)); // as compiled");
+        assertNotEquals(disk, indexed);
+
+        String snapshot = analyze(FIXTURE, WorkspaceTrust.BUILD_ALLOWED, invocation -> goldenBuild(invocation.getArgument(0), Map.of(SERVICE, indexed)));
+        assertFalse(snapshot.startsWith("FAILED"), snapshot);
+
+        assertEquals(indexed, db.queryForObject("SELECT source_content FROM source_file_versions WHERE snapshot_id = ? AND relative_path = ?", String.class, snapshot, SERVICE));
+        Map<String, Object> callEvidence = db.queryForMap("SELECT e.start_line, e.start_column, e.snippet FROM relationship_occurrences r " +
+                "JOIN relationship_evidence re ON re.relationship_id = r.id JOIN evidence e ON e.id = re.evidence_id " +
+                "JOIN symbol_versions t ON t.id = r.target_symbol_id WHERE r.snapshot_id = ? AND r.kind = 'CALLS' AND t.qualified_name = 'com.example.core.Greeter.greet(String)'", snapshot);
+        assertEquals("result.add(greeter.greet(name)); // as compiled", callEvidence.get("snippet"));
+        String methodEvidence = db.queryForObject("SELECT e.snippet FROM symbol_versions s JOIN symbol_evidence se ON se.symbol_version_id = s.id " +
+                "JOIN evidence e ON e.id = se.evidence_id WHERE s.snapshot_id = ? AND s.qualified_name = 'com.example.app.GreetingService.greetAll(List<String>)'", String.class, snapshot);
+        assertTrue(methodEvidence.contains("// as compiled"), methodEvidence);
+        String warnings = db.queryForObject("SELECT diagnostics FROM snapshots WHERE id = ?", String.class, snapshot);
+        assertTrue(warnings.contains(SERVICE + ": changed on disk while scip-java indexed it"), warnings);
+        assertFalse(warnings.contains("app/src/main/java/com/example/app/Main.java: changed on disk"), "unchanged files get no diagnostic: " + warnings);
+    }
+
+    /** A compiled file whose indexed text was not captured gets its disk content, a diagnostic and no facts. */
+    @Test void fileWithoutCapturedIndexedTextIsStoredWithoutFacts() throws Exception {
+        Map<String, String> missing = new java.util.HashMap<>();
+        missing.put(SERVICE, null);
+        String snapshot = analyze(FIXTURE, WorkspaceTrust.BUILD_ALLOWED, invocation -> goldenBuild(invocation.getArgument(0), missing));
+        assertFalse(snapshot.startsWith("FAILED"), snapshot);
+
+        assertEquals(Files.readString(FIXTURE.resolve(SERVICE)),
+                db.queryForObject("SELECT source_content FROM source_file_versions WHERE snapshot_id = ? AND relative_path = ?", String.class, snapshot, SERVICE));
+        assertEquals(0, db.queryForObject("SELECT COUNT(*) FROM symbol_versions WHERE snapshot_id = ? AND qualified_name LIKE 'com.example.app.GreetingService%'", Integer.class, snapshot));
+        String warnings = db.queryForObject("SELECT diagnostics FROM snapshots WHERE id = ?", String.class, snapshot);
+        assertTrue(warnings.contains(SERVICE + ": the text the Gradle build compiled is unavailable"), warnings);
+    }
+
+    /**
+     * A failing build's output can contain credentials or source text: the job's error (display data) shows its
+     * tail, while the application log gets only the sanitized message (AGENTS.md: keep them out of logs).
+     */
+    @Test void failedBuildOutputReachesTheJobErrorButNotTheLog() throws Exception {
+        String secret = "ORG_GRADLE_PROJECT_token=s3cr3t-from-build-output";
+        ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(AnalysisService.class);
+        ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender = new ch.qos.logback.core.read.ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            String result = analyze(FIXTURE, WorkspaceTrust.BUILD_ALLOWED, invocation -> {
+                throw new ScipBuildFailedException("scip-java could not index the Gradle build at /x (exit code 1).", "> Task :compileJava FAILED\n" + secret);
+            });
+
+            assertTrue(result.startsWith("FAILED: scip-java could not index the Gradle build at /x (exit code 1)."), result);
+            assertTrue(result.contains("Last build output:\n> Task :compileJava FAILED\n" + secret), "the user still sees the build output: " + result);
+            String failedSnapshot = db.queryForObject("SELECT id FROM snapshots WHERE status = 'failed' ORDER BY rowid DESC LIMIT 1", String.class);
+            assertTrue(db.queryForObject("SELECT diagnostics FROM snapshots WHERE id = ?", String.class, failedSnapshot).contains(secret));
+
+            List<ch.qos.logback.classic.spi.ILoggingEvent> failures = appender.list.stream().filter(e -> e.getFormattedMessage().startsWith("Analysis failed")).toList();
+            assertEquals(1, failures.size());
+            assertNotNull(failures.get(0).getThrowableProxy(), "the failure is still logged with its stack trace");
+            for (ch.qos.logback.classic.spi.ILoggingEvent event : appender.list) {
+                assertFalse(event.getFormattedMessage().contains(secret), event.getFormattedMessage());
+                for (var t = event.getThrowableProxy(); t != null; t = t.getCause()) {
+                    assertFalse(String.valueOf(t.getMessage()).contains(secret), t.getMessage());
+                }
+            }
+        } finally {
+            logger.detachAppender(appender);
+        }
     }
 }

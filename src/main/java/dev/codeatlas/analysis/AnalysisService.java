@@ -2,6 +2,7 @@ package dev.codeatlas.analysis;
 
 import dev.codeatlas.analysis.port.AnalysisPort;
 import dev.codeatlas.analysis.port.AnalysisPortRegistry;
+import dev.codeatlas.analysis.scip.ScipBuildFailedException;
 import dev.codeatlas.workspace.WorkspaceTrust;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -178,16 +179,42 @@ public class AnalysisService {
                     symbolCount, relCount, routeCount, injectionCount);
 
         } catch (Exception e) {
+            // The logged text is the exception's message and stack trace only. Build output (ADR 0012) is never part
+            // of a message: it travels in ScipBuildFailedException.buildOutputTail() and is stored for display only.
             log.error("Analysis failed for workspace {}: {}", workspaceId, e.getMessage(), e);
+            String userFacingError = userFacingError(e);
             if (snapshotId != null) {
                 jdbcTemplate.update("UPDATE snapshots SET status = 'failed' WHERE id = ?", snapshotId);
+                if (adapter != null && !Objects.equals(userFacingError, e.getMessage())) {
+                    try {
+                        List<String> warnings = new ArrayList<>(adapter.diagnostics());
+                        warnings.add(userFacingError);
+                        jdbcTemplate.update("UPDATE snapshots SET diagnostics = ? WHERE id = ?",
+                                new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(Map.of("warnings", warnings)), snapshotId);
+                    } catch (Exception ignored) {
+                        // The job's error message below still carries the diagnostic.
+                    }
+                }
             }
             jdbcTemplate.update(
                     "UPDATE jobs SET status = 'FAILED', error_message = ?, updated_at = datetime('now') WHERE id = ?",
-                    e.getMessage(), jobId);
+                    userFacingError, jobId);
         } finally {
             if (adapter != null) adapter.releaseRunCaches();
         }
+    }
+
+    /**
+     * The error shown to the user for a failed run: the exception's message, plus the tail of the build output when
+     * a build-running engine's build failed. Stored as display data on the job (and failed snapshot), never logged.
+     */
+    static String userFacingError(Throwable error) {
+        for (Throwable t = error; t != null; t = t.getCause()) {
+            if (t instanceof ScipBuildFailedException build && !build.buildOutputTail().isBlank()) {
+                return error.getMessage() + " Last build output:\n" + build.buildOutputTail();
+            }
+        }
+        return error.getMessage();
     }
 
     /**

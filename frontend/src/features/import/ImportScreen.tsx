@@ -1,5 +1,6 @@
 import type { FormEvent } from 'react';
 import type { IndexerOption, WorkspaceLanguage } from '../../api/client';
+import { displayedIndexer, importEngineChoice, type ImportEngineChoice } from './importEngine';
 
 export interface ImportScreenProps {
   path: string;
@@ -8,7 +9,8 @@ export interface ImportScreenProps {
   graphOpen: boolean;
   onPathChange: (path: string) => void;
   onLanguageChange: (language: WorkspaceLanguage) => void;
-  onSubmit: () => void;
+  /** Receives the engine the picker displays, always explicit (ADR 0012). */
+  onSubmit: (engine: ImportEngineChoice) => void;
   /** Engines the backend ships (all languages); only the selected language's are offered. */
   indexers?: IndexerOption[];
   /** Selected engine id; empty means the language's default engine. */
@@ -44,13 +46,13 @@ export function ImportScreen({
   onOpenRecent,
 }: ImportScreenProps) {
   const engines = indexers.filter(option => option.language === language);
-  const selected = engines.find(option => option.indexer === indexer) ?? engines.find(option => option.defaultIndexer);
+  const selected = displayedIndexer(indexers, language, indexer) ?? undefined;
   const needsConsent = !!selected?.executesTargetBuild;
   const blocked = !!selected && !selected.available;
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (blocked || (needsConsent && !allowBuild)) return;
-    onSubmit();
+    onSubmit(importEngineChoice(indexers, language, indexer, allowBuild));
   };
 
   return (

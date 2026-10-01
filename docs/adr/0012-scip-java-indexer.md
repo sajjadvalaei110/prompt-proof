@@ -64,6 +64,13 @@ the engine that produced it.
 - The import screen offers the engine picker only when a language has more than one engine, shows
   an engine that is not installed as disabled with its setup instruction, and keeps Analyze
   disabled until the consent checkbox is ticked.
+- **The submitted engine is always explicit.** The import form sends the engine its picker displays
+  (the language's default from `GET /api/indexers` when nothing was chosen, or the built-in
+  source-only default when that list could not be loaded) with `allowBuildExecution` from the
+  checkbox, and an `autoPath` link sends the source-only default. So re-registering a path that an
+  earlier registration gave scip-java switches it back to source-only, exactly as the form shows.
+  Omitting the engine (keep the workspace's recorded engine and consent) is reserved for deliberate
+  re-analysis: **Re-analyze source** and re-analysis from Recent projects.
 - **Review captures never run a build.** Git review snapshots are always analyzed by the language's
   default (source-only) engine, whatever the workspace uses, so a comparison's two sides are
   analyzed alike. `ScipJavaAnalysisAdapter.prepare(captured, root)` refuses to run.
@@ -75,6 +82,10 @@ the engine that produced it.
   `build.gradle(.kts)`), never past the enclosing Git root (found by walking up to `.git`).
   The whole build is compiled; only documents under the workspace path become graph facts, and
   symbols defined in sibling modules are treated like library symbols (no edge, occurrence only).
+- **Build output stays out of logs.** A failed build throws `ScipBuildFailedException`, whose message
+  names the build and the failure only; the tail of the build output (which can contain credentials
+  or source text) is a separate field. `AnalysisService` logs the message alone and stores the tail
+  as display data in the job's error message and the failed snapshot's diagnostics.
 - **Private copy.** The build root is copied — regular files only, no symlinks, without `.git`,
   `.gradle`, `build`, `out`, `target`, `node_modules`, `.idea` — into
   `<data-dir>/indexer-work/scip-java-<uuid>/source`, and Gradle runs there. The copy is deleted
@@ -111,17 +122,25 @@ vocabulary:
 - **Relationships**, all `RESOLVED` because javac resolved them, each with evidence:
   EXTENDS/IMPLEMENTS for direct supertypes in the type header (javac's transitive supertypes are
   not edges); CALLS to in-workspace methods (overloads distinguished); CONSTRUCTS for `new T(..)`
-  (the explicit constructor, else the type) and `T::new` (the type), never for `super(..)`/`this(..)`;
+  (the explicit constructor, else the type) and `T::new` (the type), never for `super(..)`/`this(..)`.
+  The tokens around the name are read across lines, skipping whitespace, line and block comments,
+  a qualifier (`pkg.Outer.`), constructor type arguments and type annotations, so `new` on one line
+  and the type on the next is still a construction, while `renew Foo()` is not;
   USES_TYPE per (member, type) per file; DEPENDS_ON per (type, type) summarizing all of them, field
   accesses included; OVERRIDES from javac's overridden-symbol facts, subtype side only.
   Code outside members (field initializers) belongs to the type, and code in lambdas and
   anonymous classes to the enclosing member, as in the JavaParser engine.
+- **Indexed text.** The index's ranges belong to the text the build compiled, so `ScipJavaTool`
+  returns, with the index, the workspace's indexed `.java` sources read from the private copy after
+  the build. The snapshot stores that text and builds every evidence snippet and the Spring pass
+  from it; when the file on disk differs (edited during the build, or rewritten by a build task), a
+  diagnostic says so. A file without indexed text keeps the disk content with a diagnostic and no facts.
 - **Deliberate differences.** Relationship evidence is the exact name token javac resolved (its
   snippet is the source line), which is what Ctrl+click needs. Calls to the JDK, libraries or other
   modules produce no edge — they are resolved, just not in the workspace — instead of the
   JavaParser engine's UNRESOLVED CALLS rows. A file the build did not compile (outside every
   source set) is stored as source with a diagnostic and no facts. A build that fails to compile
-  fails the analysis with the tail of the build output: the engine does not degrade to guessing
+  fails the analysis, showing the user (not the log) the tail of the build output: the engine does not degrade to guessing
   (the JavaParser engine remains available for such projects).
 - **Spring.** The source-only Spring pass (`SpringFrameworkPass`, shared by both engines) runs
   after the scip-java passes and finds its symbols by the same names.

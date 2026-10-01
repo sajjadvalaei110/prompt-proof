@@ -1,6 +1,7 @@
 import { SetStateAction, useEffect, useMemo, useRef, useState } from 'react';
 import './styles/App.css';
 import { apiClient, type IndexerOption, type WorkspaceLanguage } from './api/client';
+import { DEFAULT_INDEXER_BY_LANGUAGE, type ImportEngineChoice } from './features/import/importEngine';
 import { ImportScreen } from './features/import/ImportScreen';
 import GraphCanvas from './features/explorer/GraphCanvas';
 import { AtlasGraph, AtlasNode, AtlasEdge, Level, isType, ownerAt, getEligibleIds, rankEligibleIds, projectDisplayed, childrenOf, revealContainers } from './features/explorer/graphModel';
@@ -319,8 +320,13 @@ export default function App() {
     historyReplace(id);
   }
   function historyReplace(id:string){const url=new URL(location.href);url.search='';url.searchParams.set('snapshotId',id);window.history.replaceState(null,'',url);}
-  /** `engine` null keeps an existing workspace's engine (re-analysis from Recent projects). */
-  async function analyze(input=path, selectedLanguage=language, engine:{indexer?:string;allowBuildExecution?:boolean}|null={indexer:indexer||undefined,allowBuildExecution:allowBuild}) {
+  /**
+   * `engine` null keeps an existing workspace's engine; only deliberate re-analysis (Re-analyze source, Recent
+   * projects) passes null. Every other registration names its engine explicitly (ADR 0012): the import form sends
+   * the engine its picker displays, and the default here (used by the `autoPath` link) is the language's
+   * source-only default engine, never an engine an earlier registration of the same path chose.
+   */
+  async function analyze(input=path, selectedLanguage=language, engine:ImportEngineChoice|null={indexer:DEFAULT_INDEXER_BY_LANGUAGE[selectedLanguage],allowBuildExecution:false}) {
     if(!input.trim()){setError('Enter a repository path accessible to the local server.');return;}
     setBusy(true);setError('');try{setStatus('Registering project…');const ws=await apiClient.createWorkspace(input.trim(), selectedLanguage, engine??{});setStatus('Analyzing source…');let job=await apiClient.triggerAnalysis(ws.id);while(!['COMPLETED','FAILED','CANCELLED'].includes(job.status)){await new Promise(r=>setTimeout(r,500));job=await apiClient.getJob(job.id);}if(job.status!=='COMPLETED')throw new Error(job.errorMessage||`Analysis ${job.status.toLowerCase()}`);const current=await apiClient.getWorkspace(ws.id);if(!current.activeSnapshotId)throw new Error('Analysis did not publish a snapshot');await loadSnapshot(current.activeSnapshotId,current);setRecent(await apiClient.listWorkspaces());}catch(e:any){setError(e.message);setStatus('Analysis could not finish');}finally{setBusy(false);}
   }
@@ -860,7 +866,7 @@ export default function App() {
     {queue?.errorMessage&&<div className="error-banner" role="alert"><span>{queue.errorMessage}</span></div>}
     {error&&<div className="error-banner" role="alert"><span>{error}</span><button onClick={()=>setError('')} aria-label="Dismiss error">✕</button></div>}
     {(showOpen||!graph)&&<ImportScreen path={path} language={language} busy={busy} graphOpen={!!graph}
-      onPathChange={setPath} onLanguageChange={l=>{setLanguage(l);setIndexer('');setAllowBuild(false);}} onSubmit={()=>{void analyze();}} recent={recent}
+      onPathChange={setPath} onLanguageChange={l=>{setLanguage(l);setIndexer('');setAllowBuild(false);}} onSubmit={engine=>{void analyze(path,language,engine);}} recent={recent}
       indexers={indexers} indexer={indexer} onIndexerChange={id=>{setIndexer(id);setAllowBuild(false);}} allowBuild={allowBuild} onAllowBuildChange={setAllowBuild}
       onOpenRecent={ws=>{if(ws.activeSnapshotId){setBusy(true);loadSnapshot(ws.activeSnapshotId,ws).catch(e=>setError(e.message)).finally(()=>setBusy(false));}else{setPath(ws.path);setLanguage(ws.language);void analyze(ws.path,ws.language,null);}}}/>}
     {graph&&<><div className="journey-bar">

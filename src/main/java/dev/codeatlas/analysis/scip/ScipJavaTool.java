@@ -17,8 +17,10 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -143,10 +145,25 @@ public class ScipJavaTool {
     }
 
     /**
-     * Runs scip-java for {@code layout} and returns the parsed index, whose document paths are relative to the
-     * build root. The private copy is deleted afterwards unless {@code keep-work-directory} is set.
+     * What one scip-java run produced: the index, whose document paths are relative to the build root, and the
+     * exact text of the workspace's indexed Java sources as the build compiled them (build-root relative path ->
+     * content), read from the private copy after the build finished. The index's ranges belong to that text, which
+     * can differ from the repository's files when they change during the build or a build task rewrites sources.
      */
-    public ScipIndex index(BuildLayout layout, Consumer<String> diagnostics) {
+    public record IndexedBuild(ScipIndex index, Map<String, String> sources) {
+        public IndexedBuild {
+            sources = Map.copyOf(sources);
+        }
+    }
+
+    /**
+     * Runs scip-java for {@code layout} and returns the parsed index with the indexed sources of the workspace.
+     * The private copy is deleted afterwards unless {@code keep-work-directory} is set.
+     *
+     * <p>A failing build throws {@link ScipBuildFailedException}: its message names the failure only, and the
+     * build output's tail travels separately so it is never written to the application log.</p>
+     */
+    public IndexedBuild index(BuildLayout layout, Consumer<String> diagnostics) {
         List<String> launcher = launcher().orElseThrow(() -> new IllegalStateException(unavailableReason().orElse("scip-java is unavailable")));
         Path work = Path.of(properties.getDataDir(), "indexer-work", "scip-java-" + UUID.randomUUID()).toAbsolutePath().normalize();
         try {
@@ -162,15 +179,42 @@ public class ScipJavaTool {
                 attempt = run(launcher, source, output, work.resolve("scip-java-online.log"), false);
             }
             if (!attempt.succeeded()) {
-                throw new IllegalStateException("scip-java could not index the Gradle build at " + layout.buildRoot()
-                        + " (" + attempt.failure() + "). Last build output:\n" + attempt.tail());
+                throw new ScipBuildFailedException("scip-java could not index the Gradle build at " + layout.buildRoot()
+                        + " (" + attempt.failure() + ").", attempt.tail());
             }
-            return ScipIndex.read(output);
+            ScipIndex index = ScipIndex.read(output);
+            return new IndexedBuild(index, captureSources(index, source, layout.modulePath()));
         } catch (IOException e) {
             throw new IllegalStateException("scip-java indexing failed: " + e.getMessage(), e);
         } finally {
             if (!settings().isKeepWorkDirectory()) deleteRecursively(work);
         }
+    }
+
+    /**
+     * The text of every indexed {@code .java} document under {@code modulePath} (the workspace, relative to the
+     * build root), read from {@code sourceRoot}, keyed by its build-root relative path. Only the workspace's own
+     * indexed documents are kept, so memory stays proportional to what becomes graph facts. A document that cannot
+     * be read as UTF-8 text is left out; the adapter then treats its file as not indexed.
+     */
+    public static Map<String, String> captureSources(ScipIndex index, Path sourceRoot, String modulePath) {
+        String prefix = modulePath == null || modulePath.isEmpty() ? "" : modulePath.endsWith("/") ? modulePath : modulePath + "/";
+        Path root = sourceRoot.toAbsolutePath().normalize();
+        Map<String, String> sources = new HashMap<>();
+        for (ScipIndex.Document document : index.documents()) {
+            String relative = document.relativePath();
+            if (!relative.startsWith(prefix) || !relative.endsWith(".java")) continue;
+            Path file = root.resolve(relative).normalize();
+            // Only a plain path inside the copy (no `..` or `.` segments, no symlink) is read.
+            if (!file.startsWith(root) || !root.relativize(file).toString().replace(File.separatorChar, '/').equals(relative)
+                    || !Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) continue;
+            try {
+                sources.put(relative, Files.readString(file, StandardCharsets.UTF_8));
+            } catch (IOException e) {
+                // Not UTF-8 or unreadable: no indexed text, so the file gets no scip-java facts.
+            }
+        }
+        return sources;
     }
 
     private record Attempt(boolean succeeded, String failure, String tail, boolean missingOfflineDependency) {}

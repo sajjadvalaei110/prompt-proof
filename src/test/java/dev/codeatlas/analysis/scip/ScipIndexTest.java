@@ -24,6 +24,7 @@ class ScipIndexTest {
         assertEquals(java.util.Set.of(
                 "app/src/main/java/com/example/app/Main.java",
                 "app/src/main/java/com/example/app/GreetingService.java",
+                "app/src/main/java/com/example/app/Factories.java",
                 "core/src/main/java/com/example/core/BaseGreeter.java",
                 "core/src/main/java/com/example/core/FriendlyGreeter.java",
                 "core/src/main/java/com/example/core/Greeting.java",

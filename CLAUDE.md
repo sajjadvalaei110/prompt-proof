@@ -60,6 +60,7 @@ node scripts/test-explorer-journeys.mjs
 node scripts/test-node-card.mjs
 node scripts/test-source-evidence.mjs
 node scripts/test-review-model.mjs
+node scripts/test-import-engine.mjs
 
 # Browser acceptance pipelines (need Chromium — override with CHROMIUM=/path, Java 21, Node 22, Python 3)
 # Each spins up an isolated SQLite dir + browser profile under build/<name>/run-*/,

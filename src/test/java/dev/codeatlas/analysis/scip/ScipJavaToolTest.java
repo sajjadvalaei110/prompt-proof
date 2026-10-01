@@ -134,9 +134,10 @@ class ScipJavaToolTest {
         ScipJavaTool tool = toolWith(fakeScipJava("Could not resolve x:y:1. No cached version of x:y:1 available for offline mode."), "offline-first");
         java.util.List<String> diagnostics = new java.util.ArrayList<>();
 
-        ScipIndex index = tool.index(build(), diagnostics::add);
+        ScipJavaTool.IndexedBuild indexed = tool.index(build(), diagnostics::add);
 
-        assertEquals(0, index.documents().size());
+        assertEquals(0, indexed.index().documents().size());
+        assertEquals(java.util.Map.of(), indexed.sources());
         java.util.List<String> calls = Files.readAllLines(directory.resolve("calls.log"));
         assertEquals(2, calls.size());
         assertTrue(calls.get(0).contains("--offline") && calls.get(0).endsWith("clean scipPrintDependencies scipCompileAll"), calls.get(0));
@@ -151,13 +152,69 @@ class ScipJavaToolTest {
 
     @Test void offlineModeNeverGoesOnlineAndACompileFailureIsNotRetried() throws Exception {
         ScipJavaTool offlineOnly = toolWith(fakeScipJava("No cached version of x:y:1 available for offline mode."), "offline");
-        IllegalStateException error = assertThrows(IllegalStateException.class, () -> offlineOnly.index(build(), m -> { }));
-        assertTrue(error.getMessage().contains("No cached version"), error.getMessage());
+        ScipBuildFailedException error = assertThrows(ScipBuildFailedException.class, () -> offlineOnly.index(build(), m -> { }));
+        assertTrue(error.buildOutputTail().contains("No cached version"), error.buildOutputTail());
+        assertFalse(error.getMessage().contains("No cached version"), "build output is not part of the message: " + error.getMessage());
         assertEquals(1, Files.readAllLines(directory.resolve("calls.log")).size());
 
         Files.delete(directory.resolve("calls.log"));
         ScipJavaTool compileError = toolWith(fakeScipJava("error: cannot find symbol"), "offline-first");
         assertThrows(IllegalStateException.class, () -> compileError.index(build(), m -> { }));
         assertEquals(1, Files.readAllLines(directory.resolve("calls.log")).size(), "a build error is not a cache miss");
+    }
+
+    /**
+     * Build output can hold credentials or source text (AGENTS.md: keep them out of logs). The thrown exception's
+     * message — what AnalysisService logs with its stack trace — names the failure only; the tail is a separate field,
+     * and nothing ScipJavaTool logs itself contains it.
+     */
+    @Test void failedBuildKeepsItsOutputOutOfTheExceptionMessageAndTheLog() throws Exception {
+        String secret = "deployToken=s3cr3t-value-from-build-output";
+        ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(ScipJavaTool.class);
+        ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender = new ch.qos.logback.core.read.ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            ScipJavaTool tool = toolWith(fakeScipJava("FAILURE: Build failed with an exception. " + secret), "offline");
+            ScipBuildFailedException error = assertThrows(ScipBuildFailedException.class, () -> tool.index(build(), m -> { }));
+
+            assertTrue(error.getMessage().startsWith("scip-java could not index the Gradle build at "), error.getMessage());
+            assertTrue(error.getMessage().contains("exit code 1"), error.getMessage());
+            assertFalse(error.getMessage().contains(secret), error.getMessage());
+            assertFalse(error.toString().contains(secret), "a logged stack trace starts with toString()");
+            assertTrue(error.buildOutputTail().contains(secret), "the tail stays available for the user-facing job error");
+            assertFalse(appender.list.isEmpty(), "the run itself is logged");
+            for (var event : appender.list) {
+                assertFalse(event.getFormattedMessage().contains(secret), event.getFormattedMessage());
+                assertNull(event.getThrowableProxy(), "ScipJavaTool logs no exception carrying build output");
+            }
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
+
+    /**
+     * The workspace's indexed sources are captured from the private copy the build compiled — only {@code .java}
+     * documents under the workspace module — so the adapter applies the index's ranges to exactly that text.
+     */
+    @Test void capturedSourcesAreTheIndexedWorkspaceDocumentsFromThePrivateCopy() throws Exception {
+        Path copy = Files.createDirectories(directory.resolve("copy"));
+        Files.createDirectories(copy.resolve("app/src/main/java/a"));
+        Files.createDirectories(copy.resolve("core/src/main/java/b"));
+        Files.writeString(copy.resolve("app/src/main/java/a/A.java"), "class A { /* as compiled */ }");
+        Files.writeString(copy.resolve("app/src/main/java/a/Gen.kt"), "class Gen");
+        Files.writeString(copy.resolve("core/src/main/java/b/B.java"), "class B {}");
+        Files.writeString(copy.resolve("app/src/main/java/a/NotIndexed.java"), "class NotIndexed {}");
+        Files.createDirectories(copy.resolve("outside"));
+        Files.writeString(copy.resolve("outside/X.java"), "class X {}");
+        ScipIndex index = new ScipIndex("file://" + copy, java.util.List.of(
+                new ScipIndex.Document("app/src/main/java/a/A.java", java.util.List.of(), java.util.List.of()),
+                new ScipIndex.Document("app/src/main/java/a/Gen.kt", java.util.List.of(), java.util.List.of()),
+                new ScipIndex.Document("app/src/main/java/a/Missing.java", java.util.List.of(), java.util.List.of()),
+                new ScipIndex.Document("app/../outside/X.java", java.util.List.of(), java.util.List.of()),
+                new ScipIndex.Document("core/src/main/java/b/B.java", java.util.List.of(), java.util.List.of())));
+
+        assertEquals(java.util.Map.of("app/src/main/java/a/A.java", "class A { /* as compiled */ }"), ScipJavaTool.captureSources(index, copy, "app"));
+        assertEquals(java.util.Set.of("app/src/main/java/a/A.java", "core/src/main/java/b/B.java"), ScipJavaTool.captureSources(index, copy, "").keySet());
     }
 }

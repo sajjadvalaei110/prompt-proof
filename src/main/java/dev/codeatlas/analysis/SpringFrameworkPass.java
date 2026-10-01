@@ -9,6 +9,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.IntConsumer;
 
 /**
@@ -24,12 +25,22 @@ final class SpringFrameworkPass {
 
     static int run(SpringAnnotationAnalyzer springAnalyzer, List<File> files, String workspaceId, String snapshotId,
                    IntConsumer completedFileCount, Consumer<String> diagnostics) {
+        return run(springAnalyzer, files, file -> null, workspaceId, snapshotId, completedFileCount, diagnostics);
+    }
+
+    /**
+     * As above, parsing the text {@code storedContent} returns for a file (the text its engine stored for the snapshot)
+     * instead of the file on disk; null falls back to the file.
+     */
+    static int run(SpringAnnotationAnalyzer springAnalyzer, List<File> files, Function<File, String> storedContent, String workspaceId,
+                   String snapshotId, IntConsumer completedFileCount, Consumer<String> diagnostics) {
         List<SpringAnnotationAnalyzer.SpringAnalysisResult> results = new ArrayList<>();
         int filesWithFacts = 0;
         int processed = 0;
         for (File file : files) {
             try {
-                CompilationUnit unit = StaticJavaParser.parse(file);
+                String content = storedContent.apply(file);
+                CompilationUnit unit = content != null ? StaticJavaParser.parse(content) : StaticJavaParser.parse(file);
                 SpringAnnotationAnalyzer.SpringAnalysisResult result = springAnalyzer.analyze(unit);
                 if (!result.isEmpty()) {
                     results.add(result);

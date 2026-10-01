@@ -3,7 +3,9 @@
 Compiling two-module Gradle fixture for the scip-java indexer (ADR 0012). It has no external
 dependencies, so the build needs nothing beyond a Gradle distribution. It covers inheritance
 (`extends`/`implements`), constructor calls, cross-module method calls, field access, an overloaded
-method, `super(..)`, and locals/parameters that exist only in the occurrence index.
+method, `super(..)`, constructor expressions split across lines, comments and qualifiers
+(`app/.../Factories.java`, including a `T\n::new` reference), and locals/parameters that exist only in
+the occurrence index.
 
 Tests use it two ways:
 
