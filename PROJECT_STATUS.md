@@ -1,5 +1,5 @@
 # Project status
-Last updated: 2026-10-01 (source-viewer navigation and find in file, ADR 0013)
+Last updated: 2026-10-01 (design layer: authored resources/relations, agent change sets, design brief export/import, ADR 0014)
 Active milestone: R6 — Developer comprehension redesign (in progress)
 Current revision: Step11 language-neutral Java analysis integrated with step 14 Ungroup (an expanded box's box hidden, its children kept as free cards,
 ADR 0011) merged with main's step 13 (card menu Expand/Collapse + View source, cascading tree
@@ -28,6 +28,59 @@ toggle with a git-style diff code viewer, exploration tabs with per-tab undo/red
 and selection controls, the R6 change-edges slice (one line per direction,
 directional selection emphasis, file-grouped evidence), in-place card details
 (expand packages/classes) and resizable cards; Step 6A remains unstarted
+
+## Design layer: authored resources and relations, agent API, design brief (2026-10-01, ADR 0014)
+
+Bounded acceptance criterion: on the ordinary Code map the engineer can add packages, types and methods (also
+inside parsed packages/classes) and relations at any level, edit authored ones, and write an explanation on any
+resource or relation whose first paragraph is the intent. AI agents make the same changes through an atomic REST
+change set, with no review step. The map exports to one Markdown design brief an agent can read cold, and the
+brief imports back into any workspace to rebuild the same map, layout included. Decisions were settled with the
+owner in a grilling round. Owner overrides: no proposals or comments (agents write directly, the engineer edits
+afterwards); intent is the leading part of the one explanation, not a separate field; change intent on parsed
+code is free text; author is stored and shown quietly, not as a badge.
+
+Commits:
+1. Backend: V014 `design_resources`/`design_relations`; `design` module (`DesignKeys`, `DesignService`,
+   `DesignExchangeService`, `AgentGuide`); `DesignController` (`GET /design`, `POST /design/changes[?dryRun]`,
+   `GET|POST /design/export`, `POST /design/import`, `GET /api/agent-guide`); engineer explanation as an untrusted
+   `design-` context block, prompt v4.1, `design-` added to the SOURCE_FACT citation rule, narrow staleness.
+2. Frontend: `features/design/` (pure `designModel.ts`, `designExchange.ts`; `DesignEditorDialog`,
+   `DesignSection`); designed routes kept apart in `aggregateEdges`; design-only card badge and styling;
+   card-menu and empty-canvas design commands; inspector design sections (generated explanation relabelled);
+   toolbar Design toggle / Add / Export / Import; 4 s polling so agent changes appear; `RECONCILE_ALL`
+   journey action.
+3. Tests, pipeline, docs: `DesignLayerIntegrationTest`, `scripts/test-design-model.mjs`,
+   `scripts/test-design-exchange.mjs`, `scripts/verify_design_layer_pipeline.py` + `verify-design-layer-ui.mjs`,
+   ADR 0014, AGENTS.md invariant amendment, ARCHITECTURE.md §2/§3/§8, DATA_MODEL.md, TESTING.md, CLAUDE.md.
+
+Checks run:
+- `./gradlew test --tests "dev.codeatlas.design.DesignLayerIntegrationTest"` — 5/5 PASS.
+- `./gradlew test` — first run: 219 tests, 1 failure, 1 skipped. The failure was
+  `LargeProjectBenchmarkTest` ("Must extract 1005 total relationships", got 993); it touches no design code.
+  The test passed when run alone, the full suite on the base commit 9ec2e2e passed, and a second full run on
+  this branch passed (219 tests, 0 failures, 1 skipped). Recorded as intermittent; the cause is not
+  investigated.
+- `cd frontend && npx tsc -b --force && npm run build` — PASS (existing >500 kB chunk warning only).
+- `node scripts/test-*.mjs` — all 18 PASS (16 existing + `test-design-model.mjs` + `test-design-exchange.mjs`).
+- `./gradlew bootJar` then, with `CHROMIUM=/opt/pw-browsers/chromium-1194/chrome-linux/chrome`:
+  - `python3 scripts/verify_design_layer_pipeline.py` — PASS; screenshots inspected and copied to
+    `docs/evidence/design-layer/` with `report.json` and the exported brief.
+  - `verify_change_edges_pipeline.py` — PASS.
+  - `verify_ungroup_pipeline.py` — PASS (33/33).
+  - `verify_git_review_pipeline.py` — PASS.
+- `python3 scripts/verify_stable_graph_pipeline.py acceptance` — FAILS before reaching any design code: the
+  script still clicks the removed Packages/Classes/Methods `.segmented` switcher (ADR 0007). This is
+  pre-existing and not caused by this change.
+
+Not run: live-model verification (no provider configured). The `design-` context block and prompt v4.1 are
+covered only by the integration test's context assertions, not by a real model response.
+`constrainedMemoryTest` was not run (no change to bounded explanation work).
+
+Remaining limits: an ORPHANED type has no package card and is not drawn (it is listed in the API and the brief);
+planned methods match the JavaParser key format, so one may not become IMPLEMENTED under scip-java's signature
+printing; the Design toggle is a per-viewer preference, not per-tab undoable state; Design and Changes are not
+shown together.
 
 ## Source-viewer navigation: find in file, Ctrl/Cmd+click go to definition (2026-10-01, ADR 0013)
 

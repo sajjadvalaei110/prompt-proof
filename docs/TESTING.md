@@ -727,6 +727,29 @@ under a colour-vision deficiency (WCAG 2.1 SC 1.4.1). The suite asserts all thre
 
 `docs/evidence/change-edges/` holds the report and the inspected screenshots from a full run.
 
+## Design layer (ADR 0014)
+
+- Backend: `./gradlew test --tests "dev.codeatlas.design.DesignLayerIntegrationTest"` — MockMvc over the analyzed
+  `spring-project` fixture in a private SQLite directory: authoring at every level and parser-shaped keys;
+  status against parser facts (a designed CALLS between parsed classes whose methods call each other is
+  IMPLEMENTED); atomic change sets (a bad second operation saves nothing, `dryRun` never persists); rejected
+  kinds, parents, endpoints and renames of parsed code; rename re-keys children (a constructor follows its type)
+  and relations; delete cascades without touching unrelated explanations; the engineer explanation reaches the
+  model context as an untrusted `design-` block and stales a READY generated explanation; export → import into
+  another workspace yields MISSING placeholders, PLANNED resources, preserved authors, layout, and an idempotent
+  second import; a brief without the JSON block is a 400.
+- Frontend pure logic: `node scripts/test-design-model.mjs` (overlay merge, design-only vs annotated cards,
+  designed routes kept apart by `aggregateEdges`, keys mirroring `DesignKeys`, parameter parsing, intent) and
+  `node scripts/test-design-exchange.mjs` (layout capture by key and re-application to other snapshot IDs:
+  positions, nested/ungrouped expansions, sizes, camera, scope; copies, never aliases).
+- Browser: `python3 scripts/verify_design_layer_pipeline.py` (packaged jar, headless Chromium, COPIES of
+  `spring-project` and `stable-graph-fixture` hashed before/after, model URL on a closed port). Adds a package
+  from the empty-canvas menu and a class from the card menu, explains a parsed class (intent shown first,
+  generated explanation labelled), applies an agent change set over REST while the map is open (picked up
+  without reload, author shown), checks a planned method and that Undo leaves design edits alone, exports the
+  brief from the toolbar, imports it into the second workspace and checks the same card position in the new
+  tab. Screenshots: `docs/evidence/design-layer/`.
+
 ## 9. On linting
 
 There is deliberately no lint step. `frontend/package.json` previously declared

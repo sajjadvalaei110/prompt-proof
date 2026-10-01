@@ -17,7 +17,8 @@ inside a Cytoscape.js graph canvas. SQLite (WAL mode) via Flyway migrations is t
 An optional local, OpenAI-compatible model server (LM Studio/Ollama) supplies natural-language
 explanations; there is no cloud fallback and no hidden network egress.
 
-The whole point of the architecture is a strict two-layer trust split:
+The whole point of the architecture is a strict two-layer trust split (plus the engineer-owned design
+layer of ADR 0014, stored and drawn apart from both):
 - **Parser/rule facts** (JavaParser + `SpringAnnotationAnalyzer`) own graph topology — nodes, edges,
   resolution status (`resolved`/`candidate`/`unresolved`). Deterministic, no model involved.
 - **AI explanations** describe existing facts in prose. They cannot create/modify/delete graph
@@ -64,6 +65,8 @@ node scripts/test-import-engine.mjs
 node scripts/test-find-in-file.mjs
 node scripts/test-code-tokens.mjs
 node scripts/test-navigation-stack.mjs
+node scripts/test-design-model.mjs
+node scripts/test-design-exchange.mjs
 
 # Browser acceptance pipelines (need Chromium — override with CHROMIUM=/path, Java 21, Node 22, Python 3)
 # Each spins up an isolated SQLite dir + browser profile under build/<name>/run-*/,
@@ -75,6 +78,7 @@ python3 scripts/verify_git_review_pipeline.py
 python3 scripts/verify_stable_graph_pipeline.py baseline    # known-defect snapshot
 python3 scripts/verify_stable_graph_pipeline.py acceptance  # product-contract assertions
 python3 scripts/verify_code_navigation_pipeline.py          # source-viewer navigation (needs installScipJava + gradle on PATH)
+python3 scripts/verify_design_layer_pipeline.py             # design layer: authoring, agent change set, export/import
 ```
 
 There is deliberately **no separate lint step** (see `docs/TESTING.md` §9 / an ADR would be needed
@@ -98,6 +102,7 @@ Strict module boundaries — don't reach across them without going through the i
 | `jobs` | Background job orchestration, progress, cancellation, resume |
 | `storage` | SQLite/JDBC, Flyway migrations, WAL + foreign keys |
 | `review` | Read-only local Git capture (base commit + working tree) for the Changes overlay — isolated from the normal workspace snapshot; see ADR 0006 |
+| `design` | Engineer-owned design layer (ADR 0014): authored resources/relations + explanations keyed by stable keys, agent change sets, design brief export/import |
 | `api` (+ `dto`) | REST controllers, DTOs |
 | `config` | Spring wiring |
 
@@ -116,6 +121,9 @@ Strict module boundaries — don't reach across them without going through the i
 - `review/` — `reviewModel.ts` / `useReviewComparison.ts`, the deterministic (no-model) git comparison
   that feeds the Changes toggle drawn directly on the ordinary Code map (there is no separate review
   page).
+- `design/` — the design layer on the ordinary map (ADR 0014): `designModel.ts` (pure overlay merge),
+  `designExchange.ts` (pure layout capture/apply by key), `DesignEditorDialog.tsx`, `DesignSection.tsx`.
+  Design edits are server operations: outside undo history, reconciled into every tab via `RECONCILE_ALL`.
 - `import/`, `settings/` — workspace registration and model-profile configuration.
 
 Exploration state is intentionally layered: pure reducer (`explorerViewState.ts`) → pure layout

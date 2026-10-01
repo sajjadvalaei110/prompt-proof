@@ -183,3 +183,19 @@ graph facts or explanation data. Ordinary and review snapshot creation explicitl
 the selected workspace language. Adapter registration controls accepted API values; the
 schema does not restrict future languages to a fixed enum. Java is currently the sole
 shipped adapter.
+
+## Design layer (V014, ADR 0014)
+
+`design_resources(workspace_id, resource_key UNIQUE per workspace, kind, simple_name, parent_key,
+parameter_types JSON, signature, origin AUTHORED|CODE, explanation, created_by, updated_by, revision, timestamps)`
+and `design_relations(workspace_id, source_key, target_key, kind UNIQUE per workspace with the endpoints,
+explanation, created_by, updated_by, revision, timestamps)`.
+
+- Identity is the parser's logical key (`qualified_name`), so rows survive re-analysis; snapshot deletion
+  and the cleanup trigger never touch them.
+- Status is never stored: it is computed per snapshot on read (`PLANNED`, `IMPLEMENTED`, `PRESENT`,
+  `MISSING`, `ORPHANED`).
+- A designed relation's resolution is `DESIGNED`; it has no `relationship_evidence`. Its explanation is
+  its provenance, and `created_by`/`updated_by` record the engineer or agent.
+- An explanation feeds generated explanations as an untrusted `design-<id>-r<revision>` context block;
+  changing it marks the subject's READY generated explanation STALE.
