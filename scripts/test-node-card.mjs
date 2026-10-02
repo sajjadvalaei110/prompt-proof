@@ -54,6 +54,10 @@ console.log('nodeCard tests: PASS');
   assert.deepEqual(cornerButtons({kind:'METHOD'}).map(b=>b.action),['code']);
   assert.deepEqual(cornerButtons({kind:'PACKAGE',detailCount:1}).map(b=>[b.action,b.right]),[['details',12]]);
   assert.equal(hasDetailsButton({kind:'CLASS',memberCount:1,detailCount:0}),false,'a class holding only a nested type has nothing to expand into');
+  // ADR 0017: in design mode an empty package or class still opens, onto its one add block.
+  assert.equal(hasDetailsButton({kind:'CLASS',detailCount:0,designExpandable:true}),true,'an empty class expands in design mode');
+  assert.equal(hasDetailsButton({kind:'PACKAGE',detailCount:0,designExpandable:true}),true,'an empty package expands in design mode');
+  assert.equal(hasDetailsButton({kind:'METHOD',detailCount:0,designExpandable:true}),false,'a method never expands');
   console.log('nodeCard resize/corner tests: PASS');
 }
 

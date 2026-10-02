@@ -1,7 +1,9 @@
 # ADR 0015: Design-mode direct manipulation, the agent prompt, and Design toggles that keep geometry
 
 - Status: Accepted; amended by [ADR 0016](0016-quick-intent-plain-prompt-design-only-projects.md) (two-click relations default to
-  CALLS, a quick intent popup follows every create, the Prompt is a plain request without report-back)
+  CALLS, a quick intent popup follows every create, the Prompt is a plain request without report-back), and by
+  [ADR 0017](0017-design-add-blocks.md) (§1: add blocks fill a box's empty space, a small reserve only when none is
+  left; empty packages and types expand in design mode; a new card keeps its block's corner)
 - Date: 2026-10-02
 - Amends: ADR 0014 (design layer); `docs/STABLE_GRAPH_INTERACTIONS.md` (double-click row)
 - Scope: `GraphCanvas` (design overlays, two-click relation, double-click), `expansionLayout` /

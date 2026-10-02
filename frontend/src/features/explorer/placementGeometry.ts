@@ -1,16 +1,16 @@
 import { AtlasGraph, AtlasNode, AtlasEdge, projectDisplayed } from './graphModel';
 import { ScopeSelection, isNodeInScope } from './scopeModel';
 import { ExplorerViewState, PlacementDims } from './explorerViewState';
-import { defaultCardSize } from './nodeCard';
-import { Box, Size, boxOfCard, containerBox, designSlot, minSizeWithSlot, placeMissingChildren } from './expansionLayout';
+import { MIN_CARD_SIZE, defaultCardSize } from './nodeCard';
+import { BlockSizes, Box, Size, boxOfCard, containerBox, designBlocks, minSizeWithSlot, placeMissingChildren } from './expansionLayout';
 import type { Point } from './graphPlacement';
 
 export interface JourneyGeometry {
   positions: Record<string, Point>;
   boxes: Record<string, Box>;
-  /** Design mode only (ADR 0015): each visible expanded package/type's add slot, and the inner
-   * minimum that makes its drawn box hold that slot. */
-  slots: Record<string, Box>;
+  /** Design mode only (ADR 0015, 0017): each visible expanded package/type's add blocks (its gaps, or
+   * else the one reserve block), and the inner minimum that makes its drawn box hold the reserve. */
+  slots: Record<string, Box[]>;
   slotMinSizes: Record<string, Size>;
   projected: { nodes: AtlasNode[]; edges: AtlasEdge[] };
 }
@@ -36,7 +36,7 @@ export function geometryForJourney(
   };
   const displayed = projectedInput || projectDisplayed(graph, level, displayedIdsInput ?? levelView.displayedIds, kind, expansionInput);
   const positions: Record<string, Point> = { ...levelView.positions }, boxes: Record<string, Box> = {};
-  const slots: Record<string, Box> = {}, slotMinSizes: Record<string, Size> = {};
+  const slots: Record<string, Box[]> = {}, slotMinSizes: Record<string, Size> = {};
   const kids = new Map<string, AtlasNode[]>();
   for (const n of displayed.nodes) if (n.containerId) {
     const list = kids.get(n.containerId);
@@ -63,12 +63,14 @@ export function geometryForJourney(
     }));
     const expansion = levelView.expansions[n.id];
     let minSize = expansion?.minSize || null;
-    const slotSize = options.designSlots && !expansion?.hidden && childBoxes.length ? addSlotSize(n.kind) : null;
-    if (slotSize) {
+    const slotSizes = options.designSlots && !expansion?.hidden ? addSlotSizes(n.kind) : null;
+    if (slotSizes) {
       const size = cardSize(n), center = positions[n.id] || { x: 0, y: 0 };
-      const slot = designSlot({ x: center.x - size.width / 2, y: center.y - size.height / 2 }, childBoxes.map((b, i) => ({ id: String(i), width: b.x2 - b.x1, height: b.y2 - b.y1, x: (b.x1 + b.x2) / 2, y: (b.y1 + b.y2) / 2 })), slotSize);
-      slots[n.id] = slot;
-      minSize = slotMinSizes[n.id] = minSizeWithSlot(childBoxes, minSize, slot);
+      const { gaps, reserve } = designBlocks({ x: center.x - size.width / 2, y: center.y - size.height / 2 }, childBoxes, minSize, slotSizes.card, slotSizes.least);
+      slots[n.id] = reserve ? [reserve] : gaps;
+      // Only a reserve grows the box; an empty box is exactly its reserve.
+      if (reserve) minSize = slotMinSizes[n.id] = childBoxes.length ? minSizeWithSlot(childBoxes, minSize, reserve) : { width: reserve.x2 - reserve.x1, height: reserve.y2 - reserve.y1 };
+      if (!childBoxes.length && reserve) { boxes[n.id] = containerBox([reserve], minSize)!; continue; }
     }
     const box = containerBox(childBoxes, minSize, !!expansion?.hidden);
     if (box) boxes[n.id] = box;
@@ -76,13 +78,18 @@ export function geometryForJourney(
   return { positions, boxes, slots, slotMinSizes, projected: displayed };
 }
 
-/** The card an add slot holds: a type in a package, a method in a type (ADR 0015); null for anything else. */
+/**
+ * What an add block holds (ADR 0015, 0017): a type in a package, a method in a type; null for anything
+ * else. `card` is the card a block is created as; `least` the smallest gap that still counts as a
+ * block, and the size of the reserve that grows a box with no gap left.
+ */
 const ADD_TYPE_KINDS = ['CLASS', 'INTERFACE', 'ENUM', 'RECORD', 'ANNOTATION'];
-export function addSlotSize(containerKind: string): Size | null {
-  if (containerKind === 'PACKAGE') return defaultCardSize({ kind: 'CLASS' } as AtlasNode);
-  if (ADD_TYPE_KINDS.includes(containerKind)) return defaultCardSize({ kind: 'METHOD' } as AtlasNode);
-  return null;
+export function addSlotSizes(containerKind: string): BlockSizes | null {
+  const kind = containerKind === 'PACKAGE' ? 'CLASS' : ADD_TYPE_KINDS.includes(containerKind) ? 'METHOD' : null;
+  return kind ? { card: defaultCardSize({ kind } as AtlasNode), least: MIN_CARD_SIZE } : null;
 }
+/** Packages and types: the cards that expand in design mode even with nothing inside (ADR 0017). */
+export const expandsWhenEmpty = (kind: string) => kind === 'PACKAGE' || ADD_TYPE_KINDS.includes(kind);
 
 const unionBox = (a?: Box, b?: Box): Box | undefined => {
   if (!a) return b;

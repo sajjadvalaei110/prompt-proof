@@ -42,20 +42,98 @@
     "kind": "INTERFACE",
     "intent": "Append-only store of audit entries."
   },
+  "auditReserve": [
+    {
+      "x1": 699.0862542955326,
+      "y1": -11.19815292096223,
+      "x2": 879.0862542955326,
+      "y2": 118.80184707903777
+    }
+  ],
   "slotLanding": {
-    "slot": {
-      "x": 824.0719770189004,
-      "y": 91.78748926116842
+    "block": {
+      "x1": 699.0862542955326,
+      "y1": -11.19815292096223,
+      "x2": 879.0862542955326,
+      "y2": 118.80184707903777
     },
     "card": {
-      "x": 824.0862542955326,
-      "y": 91.80184707903777
+      "x": 699.0862542955326,
+      "y": -11.19815292096223
+    }
+  },
+  "emptyClass": {
+    "blocks": [
+      {
+        "x1": 743.0862542955326,
+        "y1": 32.80184707903777,
+        "x2": 993.0862542955326,
+        "y2": 216.80184707903777
+      }
+    ],
+    "box": {
+      "x1": 697.0862542955326,
+      "y1": -13.19815292096223,
+      "w": 342,
+      "h": 276
+    },
+    "collapsedTopLeft": {
+      "x": 699.0862542955326,
+      "y": -11.19815292096223
     }
   },
   "inspector": {
     "intent": "Owns the order lifecycle from creation to completion.",
     "detail": "Planned change: publish an OrderCompleted event instead of calling billing directly.",
     "generatedHeading": "✧ Generated explanation"
+  },
+  "serviceGaps": {
+    "gaps": [
+      {
+        "x1": 1696,
+        "y1": 964,
+        "x2": 1946,
+        "y2": 1170
+      },
+      {
+        "x1": 1978,
+        "y1": 964,
+        "x2": 2228,
+        "y2": 1170
+      }
+    ],
+    "sizeBefore": {
+      "w": 921.4565708186656,
+      "h": 788.9065708186658
+    }
+  },
+  "gapLanding": {
+    "block": {
+      "x1": 1696,
+      "y1": 964,
+      "x2": 1946,
+      "y2": 1170
+    },
+    "card": {
+      "x": 1696,
+      "y": 964
+    },
+    "sizeBefore": {
+      "w": 921.4565708186656,
+      "h": 788.9065708186658
+    },
+    "sizeAfter": {
+      "w": 917.5676434257161,
+      "h": 785.3176434257161
+    },
+    "gapsAfter": [
+      {
+        "x1": 1978,
+        "y1": 964,
+        "x2": 2228,
+        "y2": 1170
+      }
+    ]
   },
   "agent": {
     "schemaVersion": "1",
@@ -77,14 +155,14 @@
     ]
   },
   "designedEdge": {
-    "id": "aggregate:[\"95ff4fd1-fe22-4838-90a1-797d3dab684a\",\"design:com.example.audit.AuditLog\",\"DESIGN\"]",
+    "id": "aggregate:[\"b3f990f6-88b0-42bb-a33c-2b29ac412836\",\"design:com.example.audit.AuditLog\",\"DESIGN\"]",
     "style": "dashed",
     "color": "rgb(139,106,214)",
     "label": "✎ calls",
     "source": "OrderService",
     "target": "AuditLog"
   },
-  "edgeProvenance": "Written by claude-code · 2026-10-02 10:38:47",
+  "edgeProvenance": "Written by claude-code · 2026-10-02 12:23:50",
   "badNameError": "Write a method as name or name(Type, Type)",
   "rubberBand": {
     "sourceId": "design:com.example.audit.AuditQuery",
@@ -130,22 +208,29 @@
       },
       "design:com.example.audit": {
         "x": 824.0862542955326,
-        "y": 89.80184707903777,
+        "y": 51.80184707903777,
         "parent": null,
         "w": 254,
-        "h": 682
+        "h": 606
+      },
+      "design:com.example.spring.service.OrderAudit": {
+        "x": 1821,
+        "y": 1565,
+        "parent": "92c61f8a-57d7-4e29-a5bc-f3d0dc9e4fbb",
+        "w": 250,
+        "h": 206
       },
       "design:com.example.spring.service.OrderService.complete(Long)": {
         "x": 2429,
-        "y": 700,
-        "parent": "95ff4fd1-fe22-4838-90a1-797d3dab684a",
+        "y": 624,
+        "parent": "b3f990f6-88b0-42bb-a33c-2b29ac412836",
         "w": 250,
         "h": 184
       },
       "design:com.example.spring.service.OrderService.findByCustomer(Long)": {
         "x": 2147,
-        "y": 1132,
-        "parent": "95ff4fd1-fe22-4838-90a1-797d3dab684a",
+        "y": 1056,
+        "parent": "b3f990f6-88b0-42bb-a33c-2b29ac412836",
         "w": 250,
         "h": 184
       }
@@ -153,10 +238,17 @@
     "after": {
       "design:com.example.audit": {
         "x": 824.0862542955326,
-        "y": 89.80184707903777,
+        "y": 51.80184707903777,
         "parent": null,
         "w": 254,
-        "h": 682
+        "h": 606
+      },
+      "design:com.example.spring.service.OrderAudit": {
+        "x": 1821,
+        "y": 1565,
+        "parent": "92c61f8a-57d7-4e29-a5bc-f3d0dc9e4fbb",
+        "w": 250,
+        "h": 206
       },
       "design:com.example.audit.AuditLog": {
         "x": 824.0862542955326,
@@ -174,28 +266,28 @@
       },
       "design:com.example.spring.service.OrderService.complete(Long)": {
         "x": 2429,
-        "y": 700,
-        "parent": "95ff4fd1-fe22-4838-90a1-797d3dab684a",
+        "y": 624,
+        "parent": "b3f990f6-88b0-42bb-a33c-2b29ac412836",
         "w": 250,
         "h": 184
       },
       "design:com.example.spring.service.OrderService.findByCustomer(Long)": {
         "x": 2147,
-        "y": 1132,
-        "parent": "95ff4fd1-fe22-4838-90a1-797d3dab684a",
+        "y": 1056,
+        "parent": "b3f990f6-88b0-42bb-a33c-2b29ac412836",
         "w": 250,
         "h": 184
       }
     },
     "arrangedBoxes": {
       "design:com.example.audit": null,
-      "95ff4fd1-fe22-4838-90a1-797d3dab684a": {
+      "b3f990f6-88b0-42bb-a33c-2b29ac412836": {
         "x": 1622,
-        "y": 340
+        "y": 372
       }
     }
   },
-  "promptBytes": 1332,
+  "promptBytes": 1488,
   "fileActions": {
     "actions": {
       "left": 1052.515625,
@@ -206,11 +298,11 @@
       "y": 924
     },
     "zoom": {
-      "left": 963.421875,
+      "left": 964.609375,
       "top": 838.5,
-      "width": 238.578125,
+      "width": 237.390625,
       "height": 37.5,
-      "x": 1082.7109375,
+      "x": 1083.3046875,
       "y": 857.25
     },
     "prompt": {
@@ -222,11 +314,11 @@
       "y": 281.9375
     }
   },
-  "briefBytes": 83657,
+  "briefBytes": 84884,
   "imported": {
     "position": {
       "x": 824.0862542955326,
-      "y": 89.80184707903777
+      "y": 51.80184707903777
     },
     "missing": [
       "design:com.example.spring.service",
@@ -236,6 +328,7 @@
       "design:com.example.spring.config",
       "design:com.example.spring.service.CreditCardPaymentService",
       "design:com.example.spring.service.NotificationService",
+      "design:com.example.spring.service.OrderAudit",
       "design:com.example.spring.service.OrderService",
       "design:com.example.spring.service.PayPalPaymentService",
       "design:com.example.spring.service.PaymentService",
@@ -247,14 +340,14 @@
       "design:com.example.spring.service.OrderService.findByCustomer(Long)",
       "design:com.example.spring.service.OrderService.findById(Long)"
     ],
-    "status": "Imported 79 new and 0 updated resources, 117 relations (74 not found in this code)23 unresolved external targets0 explained · 0 queued · 0 failed✧ Explain all"
+    "status": "Imported 81 new and 0 updated resources, 117 relations (74 not found in this code)23 unresolved external targets0 explained · 0 queued · 0 failed✧ Explain all"
   },
   "designOnlyImport": {
-    "cards": 20,
+    "cards": 21,
     "extra": [],
     "diffs": [],
     "project": {
-      "summary": "spring-project19 types across 6 packagesDesign only · no source folder",
+      "summary": "spring-project20 types across 6 packagesDesign only · no source folder",
       "changes": true,
       "design": "true"
     },

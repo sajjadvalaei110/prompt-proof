@@ -49,7 +49,8 @@ export const hasCodeButton = (node: AtlasNode) => node.kind !== 'PACKAGE' && !(n
  * members are nested types shows no button). Mirrors graphModel.isExpandable, kept inline so this module stays
  * free of runtime imports (scripts/test-node-card.mjs loads it on its own).
  */
-export const hasDetailsButton = (node: AtlasNode) => !['METHOD', 'FIELD', 'CONSTRUCTOR'].includes(node.kind) && (node.detailCount || 0) > 0;
+// `designExpandable`: an empty package or type in design mode, which opens onto one add block (ADR 0017).
+export const hasDetailsButton = (node: AtlasNode) => !['METHOD', 'FIELD', 'CONSTRUCTOR'].includes(node.kind) && ((node.detailCount || 0) > 0 || !!(node as { designExpandable?: boolean }).designExpandable);
 /**
  * The quick-code button's square in card-local pixels, measured from the card's top-right corner.
  * The SVG keeps this corner free and GraphCanvas positions a real DOM button over it, scaled by the

@@ -123,7 +123,7 @@ Strict module boundaries — don't reach across them without going through the i
   page).
 - `design/` — the design layer on the ordinary map (ADR 0014): `designModel.ts` (pure overlay merge),
   `designExchange.ts` (pure layout capture/apply by key), `DesignEditorDialog.tsx`, `DesignSection.tsx`,
-  `DesignPopover.tsx`, `DesignQuickPopup.tsx`, `DesignPromptDialog.tsx`. Design mode (ADR 0015/0016): add slots,
+  `DesignPopover.tsx`, `DesignQuickPopup.tsx`, `DesignPromptDialog.tsx`. Design mode (ADR 0015/0016/0017): add blocks in a box's empty space (a small reserve only when none is left; empty packages/types expand),
   inline drafts, two-click relations (CALLS), the quick intent popup after every create, and the double-click popover; design cards are parked, not dropped, while Design is off.
   Design edits are server operations: outside undo history, reconciled into every tab via `RECONCILE_ALL`.
 - `import/`, `settings/` — workspace registration and model-profile configuration.

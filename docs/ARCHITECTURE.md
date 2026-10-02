@@ -372,14 +372,17 @@ an inactive workspace.
   design edits are server operations outside undo history. The Changes overlay never shows the design layer.
 - Design mode (ADR 0015), by layer:
   - pure: `designModel.ts` (`parseInlineName`, `defaultRelationKind`, change-set builders, `unionGraphs`) and
-    `expansionLayout.designSlot` / `minSizeWithSlot`, through `placementGeometry` (`{designSlots}` → `slots`,
-    `slotMinSizes`);
+    `expansionLayout.designBlocks` / `boxWithBlocks` (ADR 0017: a box's empty gaps, else one small reserve;
+    an empty box is one card-sized block), through `placementGeometry` (`{designSlots}` → `slots` as a list
+    per box, `slotMinSizes`);
   - reducer: `explorerViewState` pins a card typed in place (`PlacementDims.pinned`) and carries parked children
     with a moved box (`carryUnreportedChildren`);
-  - App: the inline draft, the popover, the two-click relation and room-making when a slot card grows its box,
-    inside `RECONCILE_ALL`. While Design is off, App parks the design-merged graph, so design geometry survives
+  - App: the inline draft, the popover, the two-click relation, and, inside `RECONCILE_ALL`, storing a new
+    card at its block's corner and making room when it grows its box (measured against the boxes before the
+    change, so nested growth cascades). While Design is off, App parks the design-merged graph, so design geometry survives
     the toggle;
-  - adapter: `GraphCanvas` only draws the slot, the handle, the rubber band (direction-overlay canvas, never a
+  - adapter: `GraphCanvas` only draws the hovered add block, an empty expanded box (a plain node sized by its
+    block), the handle, the rubber band (direction-overlay canvas, never a
     Cytoscape element) and the draft card.
 - `design.DesignPromptService` (`GET /design/prompt`) renders the outstanding designed work as a plain request
   any coding agent can follow without knowing the tool (ADR 0016): **Add** (planned resources), **Change**

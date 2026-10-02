@@ -6,7 +6,7 @@ const require = createRequire(new URL('../frontend/package.json', import.meta.ur
 const ts = require('typescript');
 // Only type imports from graphPlacement.ts, which transpileModule elides.
 const compiled = ts.transpileModule(fs.readFileSync(new URL('../frontend/src/features/explorer/expansionLayout.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } }).outputText;
-const { layoutChildren, placeMissingChildren, containerBox, roomShifts, roomMoves, boxOfCard, designSlot, minSizeWithSlot, CONTAINER_PADDING: PAD } = await import('data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'));
+const { layoutChildren, placeMissingChildren, containerBox, roomShifts, roomMoves, boxOfCard, designSlot, designBlocks, boxWithBlocks, minSizeWithSlot, CONTAINER_PADDING: PAD } = await import('data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'));
 // A single sibling with no one else to clamp against behaves exactly like the old single-card rule.
 const roomShift = (card, before, after) => roomShifts([card], before, after)[0];
 
@@ -168,4 +168,59 @@ console.log('PASS: a hidden box inside a visible one passes its growth to the vi
   assert.equal(withSlot.y2, slot.y2 + PAD, 'the box holds the slot plus padding');
   assert.deepEqual(minSizeWithSlot(childBoxes, { width: 5000, height: 10 }, slot).width, 5000, 'a larger user minimum wins');
   console.log('PASS: design add slot');
+}
+
+// ADR 0017: add blocks fill the empty space a box already has; only a box without any reserves a small block.
+{
+  const CARD = { width: 250, height: 206 }, LEAST = { width: 180, height: 130 };
+  const lay = ids => { const cs = ids.map(id => card(id)); const g = layoutChildren({ x: 0, y: 0 }, cs); return cs.map(c => boxOfCard({ ...c, ...g[c.id] })); };
+  // Three classes in a 2-column grid: the short last row has one gap, right of the third card, and no reserve.
+  const three = lay(['a', 'b', 'c']);
+  const r3 = designBlocks({ x: 0, y: 0 }, three, null, CARD, LEAST);
+  assert.equal(r3.reserve, null, 'a gap means no reserve');
+  assert.equal(r3.gaps.length, 1);
+  assert.deepEqual(r3.gaps[0], { x1: three[2].x2 + 32, y1: three[2].y1, x2: three[1].x2, y2: three[2].y2 }, 'the gap sits in the empty grid cell, card-sized');
+  const box3 = containerBox(three, null);
+  assert.ok(r3.gaps[0].x2 <= box3.x2 - PAD && r3.gaps[0].y2 <= box3.y2 - PAD, 'the gap lies inside the drawn box: it does not stretch it');
+  // A full 2x2 grid: no gap, one least-sized reserve below the cards, where the next child goes.
+  const four = lay(['a', 'b', 'c', 'd']);
+  const r4 = designBlocks({ x: 0, y: 0 }, four, null, CARD, LEAST);
+  assert.equal(r4.gaps.length, 0);
+  assert.deepEqual([r4.reserve.x1, r4.reserve.y1, r4.reserve.x2 - r4.reserve.x1, r4.reserve.y2 - r4.reserve.y1], [four[0].x1, four[2].y2 + 32, 180, 130], 'the reserve is small and starts the next row');
+  // A box the user resized wider: gaps to the right, no reserve.
+  const wide = designBlocks({ x: 0, y: 0 }, four, { width: 1200, height: 0 }, CARD, LEAST);
+  assert.equal(wide.reserve, null);
+  assert.ok(wide.gaps.length >= 2 && wide.gaps.every(g => g.x1 >= four[1].x2 + 32), 'gaps beside the right column');
+  // A gap only counts when a full card fits there without touching a child: space tall enough for a
+  // least block but too close to a card below is not a gap.
+  const blocked = [boxOfCard({ id: 'a', ...CARD, x: 169, y: 147 }), boxOfCard({ id: 'b', ...CARD, x: 169 + 282, y: 147 }), boxOfCard({ id: 'c', ...CARD, x: 169 + 282 + 100, y: 147 + 380 })];
+  const rb = designBlocks({ x: 0, y: 0 }, blocked, null, CARD, LEAST);
+  for (const g of rb.gaps) for (const c of blocked) assert.ok(g.x1 + 250 <= c.x1 - 31 || c.x2 <= g.x1 - 31 || g.y1 + 206 <= c.y1 - 31 || c.y2 <= g.y1 - 31, 'no full card in a gap touches a child: ' + JSON.stringify(g));
+  // A sliver narrower than the least block is no gap.
+  const sliver = designBlocks({ x: 0, y: 0 }, four, { width: 532 + 32 + 100, height: 0 }, CARD, LEAST);
+  assert.equal(sliver.gaps.length, 0);
+  assert.ok(sliver.reserve, 'too small to use: reserve instead');
+  // An empty box: one card-sized block at its top-left, at least the user minimum.
+  const empty = designBlocks({ x: 10, y: 20 }, [], null, CARD, LEAST);
+  assert.deepEqual(empty, { gaps: [], reserve: { x1: 10 + PAD, y1: 20 + PAD, x2: 10 + PAD + 250, y2: 20 + PAD + 206 } });
+  assert.equal(designBlocks({ x: 0, y: 0 }, [], { width: 400, height: 50 }, CARD, LEAST).reserve.x2, PAD + 400);
+  console.log('PASS: design add blocks');
+}
+
+// ADR 0017: make-room keeps a box's reserve block as a child grows, so the box's neighbours clear all of it.
+{
+  const BLOCKS = { card: { width: 250, height: 206 }, least: { width: 180, height: 130 } };
+  const child = boxOfCard({ id: 'c', width: 250, height: 206, x: PAD + 125, y: PAD + 103 });
+  const pkg = boxWithBlocks({ x: 0, y: 0 }, [child], null, BLOCKS);
+  assert.equal(pkg.y2, child.y2 + 32 + 130 + PAD, 'the reserve sits below the only child');
+  const below = { id: 'n', containerId: null, box: { x1: 0, y1: pkg.y2 + 40, x2: 280, y2: pkg.y2 + 290 }, position: { x: 140, y: pkg.y2 + 165 } };
+  const cards = [
+    { id: 'p', containerId: null, expanded: true, box: pkg, position: { x: 140, y: 125 }, blocks: BLOCKS },
+    { id: 'c', containerId: 'p', box: child, position: { x: PAD + 125, y: PAD + 103 } },
+    below,
+  ];
+  const grown = { ...child, y2: child.y2 + 12 };
+  const moves = roomMoves(cards, 'c', child, grown);
+  assert.equal(moves.positions.n.y - below.position.y, 12, 'the card below moves by the growth, not up by the reserve');
+  console.log('PASS: make-room keeps the reserve block');
 }

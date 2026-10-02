@@ -64,6 +64,53 @@ export function designSlot(topLeft: Point, placed: PlacedCard[], slot: Size): Bo
 }
 
 /**
+ * The design layer's add blocks for one expanded card (ADR 0017). `gaps` are the empty spaces its
+ * drawn box already has (a short last row, a box the user resized larger): each is where a full
+ * `card` fits beside its children without touching any of them, clipped by the box's own right and
+ * bottom edge but never below `least`. Only when there is no gap is there a `reserve`: a `least`-sized
+ * block where the next child would be placed (designSlot), which the box grows to hold. A box with no
+ * children reserves one card-sized block at its top-left corner. Gaps are searched on the box without the
+ * reserve, so the reserve's own row never counts as a gap. Blocks are top-left anchored: a card
+ * created in one keeps the block's top-left corner, and the box grows right and down if it is larger.
+ */
+export function designBlocks(topLeft: Point, children: Box[], minSize: Size | null, card: Size, least: Size): { gaps: Box[]; reserve: Box | null } {
+  if (!children.length) {
+    const x1 = topLeft.x + CONTAINER_PADDING, y1 = topLeft.y + CONTAINER_PADDING;
+    // A full card's room: the first card fills it exactly, and the header keeps space for its label.
+    return { gaps: [], reserve: { x1, y1, x2: x1 + Math.max(card.width, minSize?.width ?? 0), y2: y1 + Math.max(card.height, minSize?.height ?? 0) } };
+  }
+  const outer = containerBox(children, minSize)!;
+  const inner = { x1: outer.x1 + CONTAINER_PADDING, y1: outer.y1 + CONTAINER_PADDING, x2: outer.x2 - CONTAINER_PADDING, y2: outer.y2 - CONTAINER_PADDING };
+  // Strict overlap with a GAP margin: a block may sit exactly GAP away from a card, never closer.
+  const clear = (a: Box, b: Box) => a.x2 <= b.x1 - GAP + 0.5 || b.x2 <= a.x1 - GAP + 0.5 || a.y2 <= b.y1 - GAP + 0.5 || b.y2 <= a.y1 - GAP + 0.5;
+  const seen = new Set<string>(), candidates: Point[] = [];
+  const add = (x: number, y: number) => { const k = `${Math.round(x)},${Math.round(y)}`; if (!seen.has(k)) { seen.add(k); candidates.push({ x, y }); } };
+  add(inner.x1, inner.y1);
+  for (const c of children) { add(c.x2 + GAP, c.y1); add(c.x1, c.y2 + GAP); add(inner.x1, c.y2 + GAP); }
+  candidates.sort((a, b) => a.y - b.y || a.x - b.x);
+  const gaps: Box[] = [];
+  for (const { x, y } of candidates) {
+    const width = Math.min(card.width, inner.x2 - x), height = Math.min(card.height, inner.y2 - y);
+    if (width < least.width - 0.5 || height < least.height - 0.5) continue;
+    const full = { x1: x, y1: y, x2: x + card.width, y2: y + card.height }, block = { x1: x, y1: y, x2: x + width, y2: y + height };
+    if (children.every(c => clear(full, c)) && gaps.every(g => clear(block, g))) gaps.push(block);
+  }
+  return gaps.length ? { gaps, reserve: null } : { gaps, reserve: designSlot(topLeft, children.map((b, i) => ({ id: String(i), width: b.x2 - b.x1, height: b.y2 - b.y1, x: (b.x1 + b.x2) / 2, y: (b.y1 + b.y2) / 2 })), least) };
+}
+
+/** What an expanded card's add blocks hold in design mode (ADR 0017): the card one becomes, and the smallest block. */
+export interface BlockSizes { card: Size; least: Size }
+
+/**
+ * An expanded card's drawn box with design mode's reserve block (ADR 0017) when it has no gap left;
+ * without `blocks` it is exactly containerBox. `topLeft` is the card's own top-left corner.
+ */
+export function boxWithBlocks(topLeft: Point, children: Box[], minSize: Size | null, blocks?: BlockSizes | null): Box | null {
+  const reserve = blocks ? designBlocks(topLeft, children, minSize, blocks.card, blocks.least).reserve : null;
+  return containerBox(reserve ? [...children, reserve] : children, minSize);
+}
+
+/**
  * The inner (padding-free) minimum that makes an expanded card's box also hold `slot`, never
  * smaller than the user's own `minSize`. Fed to the same min-width/min-height biases (right and
  * bottom) as a resize, so the box only grows right and down and no other card moves.
@@ -149,6 +196,8 @@ export interface RoomCard {
   position?: Point;
   /** An expanded card's user-resized inner minimum. */
   minSize?: Size | null;
+  /** Design mode (ADR 0017): its add blocks, so a box that keeps a reserve still holds it as it grows. */
+  blocks?: BlockSizes | null;
 }
 
 /**
@@ -198,7 +247,7 @@ export function roomMoves(cards: RoomCard[], id: string, before: Box, after: Box
     const container = parent === null ? undefined : byId.get(parent);
     if (!container) return moves;
     const containerBefore = container.box;
-    const nextAfter = containerBox(layer(container.id).map(k => (k.id === current ? after : shifted.get(k.id) || k.box)), container.minSize || null);
+    const nextAfter = boxWithBlocks({ x: containerBefore.x1, y: containerBefore.y1 }, layer(container.id).map(k => (k.id === current ? after : shifted.get(k.id) || k.box)), container.minSize || null, container.blocks);
     if (!nextAfter) return moves;
     // The container's own box did not change, so nothing further up the hierarchy can have changed
     // either: stop the cascade here instead of walking every remaining ancestor (F-11).

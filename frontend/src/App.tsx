@@ -9,8 +9,8 @@ import { ScopeSelection, wholeSystemScope, scopeToLabel, isNodeInScope, isClassI
 import { explorerViewReducer, initExplorerViewState, nearestHiddenAncestor, collapseTargets, ExplorerViewState, ExplorerAction, PlacementDims, Point, Camera, CardMoves } from './features/explorer/explorerViewState';
 import { arrangeDisplayed, ArrangeEdge, DisplayedCard } from './features/explorer/focusedArrangement';
 import { nodeCard, defaultCardSize, CardSize } from './features/explorer/nodeCard';
-import { Box, RoomCard, boxOfCard, containerBox, designSlot, layoutChildren, minSizeWithSlot, roomMoves } from './features/explorer/expansionLayout';
-import { addSlotSize, geometryForJourney, placementForGraphs } from './features/explorer/placementGeometry';
+import { Box, RoomCard, boxOfCard, boxWithBlocks, layoutChildren, roomMoves } from './features/explorer/expansionLayout';
+import { addSlotSizes, expandsWhenEmpty, geometryForJourney, placementForGraphs } from './features/explorer/placementGeometry';
 import NavigationPane from './features/explorer/NavigationPane';
 import InspectorPanel from './features/inspector/InspectorPanel';
 import SettingsScreen from './features/settings/SettingsScreen';
@@ -43,6 +43,10 @@ function initialViewForGraph(g: AtlasGraph) {
   }
   return explorerViewReducer(initExplorerViewState(), { type: 'RESET', level: 'PACKAGE', eligibleIds: initialPackageIds, batchSize: Infinity, placement });
 }
+
+/** A card typed into an expanded box (ADR 0015, 0017): the box before, and the new card's stored center inside it.
+ * `boxes` are every expanded box before the change, so a nested box's growth cascades through the boxes around it. */
+interface Growth { containerId:string; before:Box; boxes:Record<string,Box>; child:{ id:string; position:Point } }
 
 export default function App() {
   const searchId = 'global-search';
@@ -245,9 +249,9 @@ export default function App() {
   // particular, an expanded card is placed using its derived compound box (including a user
   // minimum size), rather than its stale ordinary card dimensions.
   const geometry=useMemo(()=>{
-    if(!graph)return {positions:{} as Record<string,Point>,boxes:{} as Record<string,Box>,slots:{} as Record<string,Box>,slotMinSizes:{} as Record<string,CardSize>};
-    // Design mode keeps one empty card slot in every expanded package/type for "+ class"/"+ method"
-    // (ADR 0015). The slot only grows the box right and down; nothing else moves.
+    if(!graph)return {positions:{} as Record<string,Point>,boxes:{} as Record<string,Box>,slots:{} as Record<string,Box[]>,slotMinSizes:{} as Record<string,CardSize>};
+    // Design mode offers "+ class"/"+ method" in every expanded package/type's empty blocks; a box with
+    // none left reserves one small block (ADR 0015, 0017), which grows it right and down only.
     const derived=geometryForJourney(graph,viewState,scope,kind,projected,undefined,{designSlots:showDesign&&!active.present.review});
     return {positions:derived.positions,boxes:derived.boxes,slots:derived.slots,slotMinSizes:derived.slotMinSizes};
   },[graph,level,displayedIds,projected,levelGeometry.positions,expansions,sizes,scope,kind,showDesign,active.present.review]);
@@ -581,7 +585,8 @@ export default function App() {
   // resulting change makes room around it in turn, up to the map itself. Returns the moves to dispatch
   // together with the change, so one action updates everything at once.
   function makeRoom(n:AtlasNode,before:Box,after:Box):CardMoves{
-    const cards:RoomCard[]=projected.nodes.map(k=>({id:k.id,containerId:k.containerId??null,expanded:k.expanded,hidden:k.hiddenBox,box:boxOf(k),position:geometry.positions[k.id],minSize:expansions[k.id]?.minSize??null}));
+    const designMode=showDesign&&!active.present.review;
+    const cards:RoomCard[]=projected.nodes.map(k=>({id:k.id,containerId:k.containerId??null,expanded:k.expanded,hidden:k.hiddenBox,box:boxOf(k),position:geometry.positions[k.id],minSize:expansions[k.id]?.minSize??null,blocks:designMode&&k.expanded&&!k.hiddenBox?addSlotSizes(k.kind):null}));
     return roomMoves(cards,n.id,before,after);
   }
   // Details: expand a package/type card in place into a box of its children laid out from the card's
@@ -603,14 +608,14 @@ export default function App() {
       return true;
     }
     const before=boxOf(n),children=childrenOf(graph,n,scope).map(c=>({id:c.id,...cardSizeOf(c)}));
-    // Nothing in scope to show: an empty box would only hide the card.
-    if(!children.length)return false;
+    // In design mode the new box offers its add blocks (ADR 0015, 0017), so neighbours make room for a
+    // reserve too; a package or type with nothing inside opens on its single block.
+    const slotSizes=showDesign&&!active.present.review?addSlotSizes(n.kind):null;
+    // Nothing in scope to show: outside design mode an empty box would only hide the card.
+    if(!children.length&&!(slotSizes&&expandsWhenEmpty(n.kind)))return false;
     const childPositions=layoutChildren({x:before.x1,y:before.y1},children);
     const childBoxes=children.map(c=>boxOfCard({...c,...childPositions[c.id]}));
-    // In design mode the new box also holds its add slot (ADR 0015), so neighbours make room for it too.
-    const slotSize=showDesign&&!active.present.review?addSlotSize(n.kind):null;
-    const slotMin=slotSize?minSizeWithSlot(childBoxes,null,designSlot({x:before.x1,y:before.y1},children.map(c=>({...c,...childPositions[c.id]})),slotSize)):null;
-    const after=containerBox(childBoxes,slotMin)||before;
+    const after=boxWithBlocks({x:before.x1,y:before.y1},childBoxes,null,slotSizes)||before;
     const action:ExplorerAction={type:'EXPAND_RESOURCE',level,id:n.id,ownerId:n.containerId??null,childPositions,moves:makeRoom(n,before,after),generation:viewState.generation};
     // The same state the dispatch applies to, so a reveal chain learns now whether to wait for it.
     if(explorerViewReducer(viewState,action)===viewState)return false;
@@ -664,8 +669,10 @@ export default function App() {
   function resizeContainer(id:string,minSize:CardSize){
     const n=projected.nodes.find(k=>k.id===id);
     if(!n)return;
-    const after=containerBox(projected.nodes.filter(k=>k.containerId===id).map(boxOf),minSize);
-    dispatchView({type:'RESIZE_CONTAINER',level,id,minSize,moves:after?makeRoom(n,boxOf(n),after):undefined,generation:viewState.generation});
+    const before=boxOf(n);
+    // In design mode a box with no gap left keeps its reserve block (ADR 0017) at the new size too.
+    const after=boxWithBlocks({x:before.x1,y:before.y1},projected.nodes.filter(k=>k.containerId===id).map(boxOf),minSize,showDesign&&!active.present.review&&!n.hiddenBox?addSlotSizes(n.kind):null);
+    dispatchView({type:'RESIZE_CONTAINER',level,id,minSize,moves:after?makeRoom(n,before,after):undefined,generation:viewState.generation});
   }
   // Story 6: "Code map" returns to the last map view -- whatever level, scope, and inspection the
   // user had -- rather than resetting to Packages or clearing selection. viewState already
@@ -778,7 +785,7 @@ export default function App() {
    * geometry. Existing eligible IDs retain their order/positions; only newly admitted IDs are
    * placed by the reducer. In map mode review-only IDs are parked only while they remain eligible
    * in the current comparison, so an ordinary scope edit cannot resurrect an excluded resource. */
-  function reconcileJourneyGraph(j:Journey,targetGraph:AtlasGraph,targetIsReview:boolean,reviewGraph?:AtlasGraph,pins:Record<string,Point>={},growth?:{containerId:string;before:Box}):Journey {
+  function reconcileJourneyGraph(j:Journey,targetGraph:AtlasGraph,targetIsReview:boolean,reviewGraph?:AtlasGraph,pins:Record<string,Point>={},growth?:Growth):Journey {
     const levels=(['PACKAGE','CLASS','METHOD'] as Level[]);
     const eligible=Object.fromEntries(levels.map(l=>[l,eligibleByLevel(targetGraph,j.scope,l)])) as Record<Level,string[]>;
     const parkedGraph=targetIsReview?reviewParkedGraph():mapParkedGraph(reviewGraph);
@@ -791,17 +798,24 @@ export default function App() {
     // A card typed in place on the map lands where it was typed (ADR 0015).
     for(const [id,p] of Object.entries(pins)) if(placement[id]) placement[id]={...placement[id],pinned:p};
     let view=explorerViewReducer(j.view,{type:'SCOPE_UPDATED',eligibleIds:eligible[activeLevel],batchSize:activeLevel==='PACKAGE'?Infinity:REVIEW_BATCH_SIZE,placement,otherLevels:Object.fromEntries(levels.filter(l=>l!==activeLevel).map(l=>[l,eligible[l]])) as Partial<Record<Level,string[]>>,expansionChildren:expansionChildrenFor(targetGraph,j,parkedGraph),preserveReviewOnly:!targetIsReview,reviewOnlyIds:reviewOnlyByLevel[activeLevel],otherReviewOnlyIds:reviewOnlyByLevel,parkedIds:parkedByLevel[activeLevel],otherParkedIds:parkedByLevel});
-    if(growth&&!targetIsReview)view=makeRoomForGrowth(view,j,targetGraph,growth);
+    if(growth&&!targetIsReview){
+      // The card typed into an add block is stored where it was typed (ADR 0017), not below the others.
+      const e=view.levelViews[activeLevel].expansions[growth.containerId];
+      if(e&&!e.childPositions[growth.child.id]&&expansionChildrenFor(targetGraph,{...j,view},parkedGraph)[growth.containerId]?.includes(growth.child.id))
+        view=explorerViewReducer(view,{type:'ARRANGE_AROUND_RESOURCE',level:activeLevel,positions:{},childPositions:{[growth.containerId]:{[growth.child.id]:growth.child.position}},generation:view.generation});
+      view=makeRoomForGrowth(view,j,targetGraph,growth);
+    }
     return revalidateJourney({ ...j, view },targetGraph,targetIsReview);
   }
-  /** A card created in a box's add slot grows the box by a row (ADR 0015): its neighbours make room, as for any expand. */
-  function makeRoomForGrowth(view:ExplorerViewState,j:Journey,targetGraph:AtlasGraph,growth:{containerId:string;before:Box}):ExplorerViewState{
+  /** A card created in a box's add block may grow the box (ADR 0015, 0017): its neighbours make room, as for any expand. */
+  function makeRoomForGrowth(view:ExplorerViewState,j:Journey,targetGraph:AtlasGraph,growth:Growth):ExplorerViewState{
     const lv=view.levelViews[view.activeLevel],e=lv.expansions[growth.containerId];
     if(!e)return view;
     const g=geometryForJourney(targetGraph,view,j.scope,j.kind,undefined,undefined,{designSlots:true});
     const after=g.boxes[growth.containerId];
     if(!after)return view;
-    const cards:RoomCard[]=g.projected.nodes.map(k=>({id:k.id,containerId:k.containerId??null,expanded:k.expanded,hidden:k.hiddenBox,box:g.boxes[k.id]||boxOfCard({id:k.id,...(lv.sizes[k.id]||defaultCardSize(k)),...(g.positions[k.id]||{x:0,y:0})}),position:g.positions[k.id],minSize:lv.expansions[k.id]?.minSize??null}));
+        // Boxes as they were before the card was added: the cascade measures each one's growth against them.
+    const cards:RoomCard[]=g.projected.nodes.map(k=>({id:k.id,containerId:k.containerId??null,expanded:k.expanded,hidden:k.hiddenBox,box:growth.boxes[k.id]||g.boxes[k.id]||boxOfCard({id:k.id,...(lv.sizes[k.id]||defaultCardSize(k)),...(g.positions[k.id]||{x:0,y:0})}),position:g.positions[k.id],minSize:lv.expansions[k.id]?.minSize??null,blocks:k.expanded&&!k.hiddenBox?addSlotSizes(k.kind):null}));
     const moves=roomMoves(cards,growth.containerId,growth.before,after);
     if(!Object.keys(moves.positions).length&&!Object.keys(moves.childPositions).length)return view;
     return explorerViewReducer(view,{type:'ARRANGE_AROUND_RESOURCE',level:view.activeLevel,positions:moves.positions,childPositions:moves.childPositions,generation:view.generation});
@@ -914,30 +928,32 @@ export default function App() {
   const designEnabled=showDesign&&!active.present.review;
   // ---- Direct manipulation in design mode (ADR 0015) ----
   // A new card is a local draft until Enter: never in history, never on the server, never seen by agents.
-  const [inlineDraft,setInlineDraft]=useState<{parent:AtlasNode|null;kind:string;box:Box;pinned:Point|null;error:string|null;busy:boolean}|null>(null);
+  // `inBox`: the draft fills one of an expanded parent's add blocks, so the card is stored at the draft's place (ADR 0017).
+  const [inlineDraft,setInlineDraft]=useState<{parent:AtlasNode|null;kind:string;box:Box;pinned:Point|null;inBox:boolean;error:string|null;busy:boolean}|null>(null);
   const [designPopover,setDesignPopover]=useState<{target:PopoverTarget;anchor:Point}|null>(null);
   const [promptView,setPromptView]=useState<{text:string;copied:boolean}|null>(null);
   // Right after a relation or resource is created (ADR 0016): intent first, then kind; double-click edits in full.
   const [quickPopup,setQuickPopup]=useState<{target:QuickTarget;anchor:Point}|null>(null);
   // Where a new top-level card was typed: consumed by the next reconciliation so it lands there.
   const pendingPins=useRef<Record<string,Point>>({});
-  // The box a slot card was typed into, and its box before: the reconciliation that admits the card makes room.
-  const pendingGrowth=useRef<{containerId:string;before:Box}|null>(null);
-  /** "+ class"/"+ method" in a box's slot, or a card menu "Add …": the draft sits where the card will live. */
-  function startInlineAdd(parent:AtlasNode,kind?:string){
+  // The box a card was typed into, its box before, and where in it the card goes: the reconciliation
+  // that admits the card stores it there and makes room around the box.
+  const pendingGrowth=useRef<Growth|null>(null);
+  /** "+ class"/"+ method" in a box's add block, or a card menu "Add …" (its first block): the draft sits where the card will live. */
+  function startInlineAdd(parent:AtlasNode,kind?:string,block?:Box){
     const childKind=kind||slotKind(parent.kind);
     const size=defaultCardSize({kind:childKind} as AtlasNode);
-    const slot=geometry.slots[parent.id];
-    // An expanded box's slot is exactly where the new card will be placed (designSlot). A collapsed card
-    // holds its new child out of sight, so the draft sits just below it.
+    // A block is top-left anchored (ADR 0017): the card keeps its corner and the box grows if it is larger.
+    const at=parent.expanded?block||geometry.slots[parent.id]?.[0]:undefined;
+    // A collapsed card holds its new child out of sight, so the draft sits just below it.
     const below=()=>{const b=boxOf(parent);return {x1:b.x1,y1:b.y2+24,x2:b.x1+size.width,y2:b.y2+24+size.height};};
     setDesignPopover(null);setQuickPopup(null);
-    setInlineDraft({parent,kind:childKind,box:slot&&parent.expanded?slot:below(),pinned:null,error:null,busy:false});
+    setInlineDraft({parent,kind:childKind,box:at?{x1:at.x1,y1:at.y1,x2:at.x1+size.width,y2:at.y1+size.height}:below(),pinned:null,inBox:!!at,error:null,busy:false});
   }
   function startPackageAt(point:Point){
     const size=defaultCardSize({kind:'PACKAGE'} as AtlasNode);
     setDesignPopover(null);setQuickPopup(null);
-    setInlineDraft({parent:null,kind:'PACKAGE',box:{x1:point.x-size.width/2,y1:point.y-size.height/2,x2:point.x+size.width/2,y2:point.y+size.height/2},pinned:point,error:null,busy:false});
+    setInlineDraft({parent:null,kind:'PACKAGE',box:{x1:point.x-size.width/2,y1:point.y-size.height/2,x2:point.x+size.width/2,y2:point.y+size.height/2},pinned:point,inBox:false,error:null,busy:false});
   }
   async function commitInlineDraft(text:string,anchor:Point){
     const d=inlineDraft;
@@ -952,7 +968,7 @@ export default function App() {
     setInlineDraft({...d,error:null,busy:true});
     try{
       if(d.pinned)pendingPins.current[designNodeId(key)]=d.pinned;
-      if(d.parent&&geometry.slots[d.parent.id]&&geometry.boxes[d.parent.id])pendingGrowth.current={containerId:d.parent.id,before:geometry.boxes[d.parent.id]};
+      if(d.parent&&d.inBox&&geometry.boxes[d.parent.id])pendingGrowth.current={containerId:d.parent.id,before:geometry.boxes[d.parent.id],boxes:{...geometry.boxes},child:{id:designNodeId(key),position:{x:(d.box.x1+d.box.x2)/2,y:(d.box.y1+d.box.y2)/2}}};
       await applyDesign(createResourceOps(parentKey,parsed));
       setInlineDraft(null);
       setQuickPopup({target:{resource:{key,kind:parsed.kind,name:parsed.name}},anchor});

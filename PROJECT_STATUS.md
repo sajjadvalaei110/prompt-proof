@@ -1,5 +1,5 @@
 # Project status
-Last updated: 2026-10-02 (quick intent popup, plain prompt, faithful import and design-only projects, ADR 0016; on top of design-mode direct manipulation, ADR 0015, and the design layer, ADR 0014)
+Last updated: 2026-10-02 (add blocks in a box's empty space and empty boxes that expand in design mode, ADR 0017; on top of the quick intent popup, plain prompt, faithful import and design-only projects, ADR 0016; on top of design-mode direct manipulation, ADR 0015, and the design layer, ADR 0014)
 Active milestone: R6 — Developer comprehension redesign (in progress)
 Current revision: Step11 language-neutral Java analysis integrated with step 14 Ungroup (an expanded box's box hidden, its children kept as free cards,
 ADR 0011) merged with main's step 13 (card menu Expand/Collapse + View source, cascading tree
@@ -28,6 +28,79 @@ toggle with a git-style diff code viewer, exploration tabs with per-tab undo/red
 and selection controls, the R6 change-edges slice (one line per direction,
 directional selection emphasis, file-grouped evidence), in-place card details
 (expand packages/classes) and resizable cards; Step 6A remains unstarted
+
+## Design layer round 4: add blocks in a box's empty space, empty boxes expand (2026-10-02, ADR 0017)
+
+Bounded acceptance criterion, from the owner's feedback on round 3:
+- in design mode, an expanded package does not stretch just to fit "+ class";
+- hovering any empty block inside it shows "+ class" ("+ method" in an expanded class);
+- the box grows only when no empty block is left, and that block may be smaller than a card;
+- an empty package or class expands in design mode onto a single block for its first class or method.
+
+Changes (frontend only; no backend, API or migration change):
+- `expansionLayout.designBlocks` is the one pure rule:
+  - gaps are where a full card fits beside the children without touching any. They are clipped only by the
+    box's own right and bottom edge, and never below `MIN_CARD_SIZE` (180×130);
+  - a 180×130 reserve exists only when there is no gap, placed where the next child would go;
+  - an empty box is one card-sized block.
+- `boxWithBlocks` feeds `geometryForJourney`, `toggleExpand`, `resizeContainer` and `roomMoves`
+  (`RoomCard.blocks`).
+- `slots` is a list of blocks per box. Only the hovered block is drawn. The hover key is the block's corner,
+  so a stale key cannot light a block that moved into its place.
+- A card created in a block is stored at the block's top-left corner, through `Growth.child` and
+  `ARRANGE_AROUND_RESOURCE`, inside `RECONCILE_ALL`. This removes the round-2 limit "may land one row below
+  its slot".
+- Empty packages and types:
+  - `hasDetailsButton` accepts `designExpandable`, set by `GraphCanvas` in design mode only;
+  - `toggleExpand` and the menu's Expand allow them in design mode;
+  - the empty box is a plain Cytoscape node, `node[?expanded][?emptyBox]` sized by `minW`/`minH` and
+    positioned at the card's corner.
+- Two round-2 room-making bugs became visible and are fixed:
+  - the cascade dropped an ancestor's reserve, so the card below moved up into the box;
+  - nested growth was measured against the outer box after the change, so the cascade stopped and the
+    package overlapped the row below. `Growth.boxes` snapshots the boxes before the change.
+- Docs: ADR 0017, a pointer in ADR 0015, ARCHITECTURE §8, TESTING, CLAUDE.md.
+
+Checks run:
+- `node scripts/test-*.mjs`: all 18 PASS. `test-expansion-layout.mjs` has two new blocks ("design add blocks",
+  "make-room keeps the reserve block"). `test-node-card.mjs` covers `designExpandable`.
+- `cd frontend && npx tsc -b --force && npm run build`: PASS (existing >500 kB chunk warning only).
+- `./gradlew bootJar`: PASS.
+- `./gradlew test`: 221 tests, 1 failure, 0 skipped. The failure is `ScipJavaLiveIndexingTest`. scip-java is
+  installed on this machine, so the test runs instead of being skipped, as it was in round 3. scip-java then
+  exits 1 indexing `test-fixtures/scip-gradle-project`'s real Gradle build. This change touches no backend
+  code (`git diff --stat` is frontend and scripts only), so the failure comes from the environment (the
+  fixture's Gradle build on this machine). It is not a regression.
+- With `CHROMIUM=/snap/bin/chromium` (the `/opt/pw-browsers` Chromium of round 3 is not on this machine):
+  - `python3 scripts/verify_design_layer_pipeline.py`: PASS. 23 screenshots inspected and copied to
+    `docs/evidence/design-layer-ux/`, with `report.json` and `design-prompt.md`. They replace round 3's;
+    05b, 05c, 06b and 06c are new. Measured:
+    - a one-class package has one reserve of 180×130;
+    - the service package (7 types, 3 columns) offers 2 gaps. A class made in the first keeps the gap's
+      corner exactly. The package size is unchanged within 4 px of border/hover outline, and 1 gap remains;
+    - an empty planned class expands onto 1 block at its own corner, within 2 px. Its first method lands on
+      that block;
+    - no top-level card overlaps another after each create.
+  - The first runs of the new steps failed, and each failure is fixed:
+    - a 3.9 px size tolerance (border, not stretch);
+    - screenshots showed a stale "+ class" on the next gap, which led to the corner-keyed hover;
+    - screenshots showed the package below moving up into the box, which led to `RoomCard.blocks`;
+    - screenshots showed the outer package overlapping the row below after a nested create, which led to
+      `Growth.boxes`.
+  - `verify_change_edges_pipeline.py`: PASS. `verify_ungroup_pipeline.py`: 33/33 PASS.
+    `verify_git_review_pipeline.py`: PASS. Sample screenshots inspected: Design-off geometry is unchanged.
+  - `python3 scripts/verify_stable_graph_pipeline.py acceptance`: still FAILS at `revealClasses`, the removed
+    `.segmented` switcher. The failure predates this work.
+
+Not run:
+- live-model verification: nothing here calls the model;
+- `constrainedMemoryTest`: no change to bounded explanation work.
+
+Remaining limits:
+- Cards created in reserves stack in a column at the box's left, so gaps mostly come from parsed packages,
+  resized boxes and dragged children.
+- In a narrow (empty) box, a long header label can run under the corner buttons.
+- An empty box expanded in design mode stays expanded when Design is off, drawn as a childless dashed node.
 
 ## Design layer round 3: quick intent popup, plain prompt, faithful import, design-only projects (2026-10-02, ADR 0016)
 

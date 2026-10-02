@@ -763,7 +763,10 @@ under a colour-vision deficiency (WCAG 2.1 SC 1.4.1). The suite asserts all thre
 - Pure:
   - `test-design-model.mjs`: inline names, default relation kinds, intent/details join, change-set builders.
   - `test-expansion-layout.mjs`: the slot is the next `placeMissingChildren` cell, and it only grows the box
-    right and down.
+    right and down. ADR 0017 (`designBlocks`): a short last row gives a card-sized gap inside the box and no
+    reserve; a full grid gives one 180×130 reserve; a resized box gives gaps on the right; no full card in a
+    gap touches a child; a sliver below the least size is no gap; an empty box is one card-sized block; and
+    `roomMoves` keeps a box's reserve as a child grows.
   - `test-explorer-view-state.mjs`:
     - design IDs parked through Design off and on keep top-level and in-box geometry;
     - a collapsed parent drops them;
@@ -773,6 +776,11 @@ under a colour-vision deficiency (WCAG 2.1 SC 1.4.1). The suite asserts all thre
   - an inline package from a real right-click lands where it was typed;
   - double-click opens the popover in design mode (no arrangement);
   - "+ class" on hover of an expanded package: the draft sits on the slot, and the card lands exactly there;
+  - ADR 0017: only the block under the pointer shows a button. A one-class package has one small reserve.
+    The service package's short last row has gaps: a class made in one keeps the gap's corner, the package
+    does not stretch, one gap fewer remains, and no stale button shows. An empty planned class expands onto
+    one block at its own corner, and its first method lands there. No top-level card overlaps another after
+    any of these;
   - Esc and empty-blur cancel with nothing on the server;
   - "+ method" in a parsed class: a bad name shows the inline error, then `findByCustomer(Long customerId)`
     gives key `…findByCustomer(Long)`;
