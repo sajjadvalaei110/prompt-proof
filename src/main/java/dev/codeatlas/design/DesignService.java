@@ -41,10 +41,11 @@ public class DesignService {
     public record ResourceView(String id, String key, String kind, String name, String parentKey, List<String> parameterTypes,
                                String signature, String origin, String status, String explanation, String intent,
                                String createdBy, String updatedBy, String createdAt, String updatedAt, int revision,
-                               String codeId, String parentCodeId) {}
+                               String codeId, String parentCodeId, List<String> roles) {}
+    /** {@code origin} AUTHORED: a relation drawn as design; CODE: a parsed dependency carried along (ADR 0016). */
     public record RelationView(String id, String sourceKey, String targetKey, String kind, String resolution, String status,
                                String explanation, String intent, String createdBy, String updatedBy, String createdAt,
-                               String updatedAt, int revision, String sourceCodeId, String targetCodeId) {}
+                               String updatedAt, int revision, String sourceCodeId, String targetCodeId, String origin) {}
     public record Overlay(String schemaVersion, String workspaceId, String snapshotId, List<ResourceView> resources, List<RelationView> relations) {}
 
     /** A parsed declaration of one snapshot, addressed by its stable key. */
@@ -84,18 +85,21 @@ public class DesignService {
             params((String) r.get("parameter_types")), (String) r.get("signature"), origin, status, explanation,
             DesignKeys.intent(explanation), (String) r.get("created_by"), (String) r.get("updated_by"),
             (String) r.get("created_at"), (String) r.get("updated_at"), ((Number) r.get("revision")).intValue(),
-            own == null ? null : own.id(), parent == null ? null : parent.id());
+            own == null ? null : own.id(), parent == null ? null : parent.id(), params((String) r.get("roles")));
     }
 
     RelationView relationView(Map<String, Object> r, CodeIndex code, Set<String> designKeys, Set<String> evidenced) {
         String source = (String) r.get("source_key"), target = (String) r.get("target_key"), kind = (String) r.get("kind");
         CodeSymbol s = code.get(source), t = code.get(target);
         boolean known = (s != null || designKeys.contains(source)) && (t != null || designKeys.contains(target));
-        String status = !known ? "ORPHANED" : evidenced.contains(relationIdentity(source, target, kind)) ? "IMPLEMENTED" : "PLANNED";
+        String origin = Objects.requireNonNullElse((String) r.get("origin"), "AUTHORED");
+        boolean inCode = evidenced.contains(relationIdentity(source, target, kind));
+        // A CODE relation is a parsed dependency carried along: present when the code has it, else missing.
+        String status = !known ? "ORPHANED" : "CODE".equals(origin) ? (inCode ? "PRESENT" : "MISSING") : inCode ? "IMPLEMENTED" : "PLANNED";
         String explanation = (String) r.get("explanation");
-        return new RelationView((String) r.get("id"), source, target, kind, "DESIGNED", status, explanation, DesignKeys.intent(explanation),
+        return new RelationView((String) r.get("id"), source, target, kind, "CODE".equals(origin) ? "CODE" : "DESIGNED", status, explanation, DesignKeys.intent(explanation),
             (String) r.get("created_by"), (String) r.get("updated_by"), (String) r.get("created_at"), (String) r.get("updated_at"),
-            ((Number) r.get("revision")).intValue(), s == null ? null : s.id(), t == null ? null : t.id());
+            ((Number) r.get("revision")).intValue(), s == null ? null : s.id(), t == null ? null : t.id(), origin);
     }
 
     static String relationIdentity(String source, String target, String kind) { return source + "\u0000" + target + "\u0000" + kind; }
@@ -321,7 +325,11 @@ public class DesignService {
         }
         if (db.queryForObject("SELECT COUNT(*) FROM design_relations WHERE workspace_id = ?", Integer.class, ws) >= MAX_RELATIONS)
             throw new IllegalArgumentException("A workspace design layer holds at most " + MAX_RELATIONS + " relations");
-        insertRelation(ws, source, target, kind, explanation == null ? "" : explanation, author, author);
+        // Explaining a relation the code already has carries a parsed dependency along (origin CODE), so it
+        // is never mistaken for designed work; a relation the code lacks is design (ADR 0016).
+        var probe = new HashMap<String, Object>(Map.of("source_key", source, "target_key", target, "kind", kind));
+        String origin = evidencedRelations(code.snapshotId(), code, List.of(probe)).isEmpty() ? "AUTHORED" : "CODE";
+        insertRelation(ws, source, target, kind, explanation == null ? "" : explanation, author, author, origin);
         if (explanation != null && !explanation.isEmpty()) staleRelationExplanations(ws, source, target, kind);
         return new OperationResult(index, op.op(), identity, "created");
     }
@@ -345,9 +353,9 @@ public class DesignService {
             UUID.randomUUID().toString(), ws, key, kind, name, parentKey, params == null ? null : toJson(params), signature, origin, explanation, createdBy, updatedBy);
     }
 
-    void insertRelation(String ws, String source, String target, String kind, String explanation, String createdBy, String updatedBy) {
-        db.update("INSERT INTO design_relations (id, workspace_id, source_key, target_key, kind, explanation, created_by, updated_by) VALUES (?,?,?,?,?,?,?,?)",
-            UUID.randomUUID().toString(), ws, source, target, kind, explanation, createdBy, updatedBy);
+    void insertRelation(String ws, String source, String target, String kind, String explanation, String createdBy, String updatedBy, String origin) {
+        db.update("INSERT INTO design_relations (id, workspace_id, source_key, target_key, kind, explanation, created_by, updated_by, origin) VALUES (?,?,?,?,?,?,?,?,?)",
+            UUID.randomUUID().toString(), ws, source, target, kind, explanation, createdBy, updatedBy, origin);
     }
 
     Map<String, Object> designRow(String ws, String key) {

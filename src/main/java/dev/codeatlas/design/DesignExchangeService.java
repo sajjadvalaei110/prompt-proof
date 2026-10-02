@@ -77,6 +77,11 @@ public class DesignExchangeService {
         Map<String, DesignService.ResourceView> designByKey = new LinkedHashMap<>();
         for (var r : overlay.resources()) designByKey.put(r.key(), r);
 
+        // Spring roles of parsed resources, so an import elsewhere draws each card like the original (ADR 0016).
+        Map<String, String> roles = new HashMap<>();
+        if (snapshot != null) db.query("SELECT id, roles FROM symbol_versions WHERE snapshot_id = ? AND roles IS NOT NULL AND roles NOT IN ('', '[]')",
+            rs -> { roles.put(rs.getString(1), rs.getString(2)); }, snapshot);
+
         // Resource entries: every parsed one in scope (with its design explanation, if any), then every design row.
         Map<String, ObjectNode> resources = new LinkedHashMap<>();
         for (var s : parsed) {
@@ -85,6 +90,8 @@ public class DesignExchangeService {
             String parentKey = code.parentKey(s);
             if (parentKey != null) n.put("parentKey", parentKey);
             n.put("origin", "CODE").put("status", "PRESENT");
+            List<String> parsedRoles = design.params(roles.get(s.id()));
+            if (parsedRoles != null && !parsedRoles.isEmpty()) n.set("roles", json.valueToTree(parsedRoles));
             if (generated.containsKey(s.key())) n.put("generatedSummary", generated.get(s.key()));
             resources.put(s.key(), n);
         }
@@ -94,6 +101,7 @@ public class DesignExchangeService {
             if (r.parentKey() != null) n.put("parentKey", r.parentKey());
             if (r.parameterTypes() != null) n.set("parameterTypes", json.valueToTree(r.parameterTypes()));
             if (r.signature() != null) n.put("signature", r.signature());
+            if (r.roles() != null && !r.roles().isEmpty() && !n.has("roles")) n.set("roles", json.valueToTree(r.roles()));
             n.put("origin", r.origin()).put("status", r.status());
             if (!r.explanation().isEmpty()) n.put("explanation", r.explanation());
             n.put("createdBy", r.createdBy()).put("updatedBy", r.updatedBy()).put("updatedAt", r.updatedAt());
@@ -122,11 +130,12 @@ public class DesignExchangeService {
         for (var r : overlay.relations()) {
             String id = DesignService.relationIdentity(r.sourceKey(), r.targetKey(), r.kind());
             ObjectNode n = json.createObjectNode();
-            n.put("sourceKey", r.sourceKey()).put("targetKey", r.targetKey()).put("kind", r.kind()).put("layer", "DESIGN")
-                .put("resolution", "DESIGNED").put("status", r.status());
+            boolean carried = "CODE".equals(r.origin());
+            ObjectNode parsedTwin = relations.get(id);
+            n.put("sourceKey", r.sourceKey()).put("targetKey", r.targetKey()).put("kind", r.kind()).put("layer", carried ? "CODE" : "DESIGN")
+                .put("resolution", carried ? (parsedTwin != null ? parsedTwin.get("resolution").asText() : "CODE") : "DESIGNED").put("status", r.status());
             if (!r.explanation().isEmpty()) n.put("explanation", r.explanation());
             n.put("createdBy", r.createdBy()).put("updatedBy", r.updatedBy()).put("updatedAt", r.updatedAt());
-            ObjectNode parsedTwin = relations.get(id);
             if (parsedTwin != null) n.put("occurrences", parsedTwin.get("occurrences").asInt());
             relations.put(id, n);
         }
@@ -261,8 +270,11 @@ public class DesignExchangeService {
         if (facts.isEmpty()) md.append("None in scope.\n");
         for (JsonNode r : facts) {
             md.append("- `").append(inline(r.get("sourceKey").asText())).append("` ").append(verb(r.get("kind").asText())).append(" `")
-              .append(inline(r.get("targetKey").asText())).append("` (").append(r.get("occurrences").asInt()).append("×, ")
+              .append(inline(r.get("targetKey").asText())).append("` (")
+              // A carried relation of a design-only project has no occurrences here: it came from another map.
+              .append(r.has("occurrences") ? r.get("occurrences").asInt() + "×, " : "imported, ")
               .append(r.get("resolution").asText().toLowerCase()).append(")\n");
+            quote(md, r.path("explanation").asText(""), 1);
         }
         md.append("\n").append(AgentGuide.markdown(workspaceId)).append("\n");
 
@@ -371,6 +383,9 @@ public class DesignExchangeService {
                         var s = code.get(key);
                         design.insertResource(ws, key, s != null ? s.kind() : kind, s != null ? s.simpleName() : Objects.requireNonNullElse(text(r, "name"), DesignKeys.simpleName(key)),
                             s != null ? code.parentKey(s) : text(r, "parentKey"), null, null, "CODE", explanation == null ? "" : explanation, createdBy, updatedBy);
+                        // An imported reference keeps the original card's Spring roles, so it looks the same (ADR 0016).
+                        if (s == null && r.has("roles") && r.get("roles").isArray() && !r.get("roles").isEmpty())
+                            db.update("UPDATE design_resources SET roles = ? WHERE workspace_id = ? AND resource_key = ?", json.valueToTree(strings(r.get("roles"))).toString(), ws, key);
                         c[0]++;
                         if (!present) c[4]++;
                     } else if (hasText && updateImported(row, (String) row.get("kind"), null, explanation, updatedBy)) c[1]++;
@@ -395,7 +410,10 @@ public class DesignExchangeService {
                     throw new IllegalArgumentException("an endpoint is not in the imported map or the code");
                 var rows = db.queryForList("SELECT id, explanation FROM design_relations WHERE workspace_id = ? AND source_key = ? AND target_key = ? AND kind = ?", ws, source, target, kind);
                 if (rows.isEmpty()) {
-                    design.insertRelation(ws, source, target, kind, explanation == null ? "" : explanation, safeAuthor(text(r, "createdBy"), author), safeAuthor(text(r, "updatedBy"), author));
+                    // A parsed dependency is carried along as a CODE relation, drawn like the original and never
+                    // prompt work; only a DESIGN-layer relation is design (ADR 0016).
+                    design.insertRelation(ws, source, target, kind, explanation == null ? "" : explanation, safeAuthor(text(r, "createdBy"), author), safeAuthor(text(r, "updatedBy"), author),
+                        designLayer ? "AUTHORED" : "CODE");
                     c[2]++;
                 } else if (hasText && !explanation.equals(rows.get(0).get("explanation"))) {
                     db.update("UPDATE design_relations SET explanation = ?, updated_by = ?, revision = revision + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?", explanation, safeAuthor(text(r, "updatedBy"), author), rows.get(0).get("id"));

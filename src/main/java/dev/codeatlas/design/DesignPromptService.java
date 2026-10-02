@@ -6,11 +6,12 @@ import org.springframework.stereotype.Service;
 import java.util.*;
 
 /**
- * The design "prompt" (ADR 0015): a work order for an AI coding agent, rendered from the design layer
- * only. Unlike the design brief (ADR 0014) it carries no parsed dependency dump and no import block:
- * it lists what the engineer designed (planned resources, intentions on any resource, designed
- * relations) with just enough parsed context to find each item (key, kind, parent chain, signature),
- * states what a designed relation asks for, and ends with how to report back through the change-set API.
+ * The design "prompt" (ADR 0015, rewritten by ADR 0016): a plain request an engineer hands to an AI coding
+ * agent. It reads like a person asking for changes ("Add class X in package Y. Purpose: ...", "X should call
+ * Z. Reason: ...") and says nothing about this tool, its keys, statuses or API. It lists only work still to
+ * do: planned resources, designed relations the code does not have yet, and intentions written on existing
+ * code (resources or relations), which are requested behaviour changes. What the code already implements,
+ * imported code without an intention, and orphaned items are left out.
  *
  * Always the whole workspace: a designed item outside the tab's scope is still work.
  */
@@ -24,20 +25,20 @@ public class DesignPromptService {
         this.design = design;
     }
 
-    /** What a designed relation of each kind asks the source to do to the target. */
+    /** What a relation of each kind asks the source to do, as a phrase before the target's name. */
     static String ask(String kind) {
         return switch (kind) {
             case "CALLS" -> "call";
             case "DEPENDS_ON" -> "depend on";
-            case "USES_TYPE" -> "use the type";
-            case "INJECTS" -> "have injected";
-            case "CONSTRUCTS" -> "construct (instantiate)";
+            case "USES_TYPE" -> "use";
+            case "INJECTS" -> "get injected with";
+            case "CONSTRUCTS" -> "create instances of";
             case "EXTENDS" -> "extend";
             case "IMPLEMENTS" -> "implement";
             case "OVERRIDES" -> "override";
             case "READS_FIELD" -> "read a field of";
             case "WRITES_FIELD" -> "write a field of";
-            case "DECLARES_BEAN" -> "declare as a bean";
+            case "DECLARES_BEAN" -> "declare a bean of";
             case "HANDLES_ROUTE" -> "handle the route of";
             default -> kind.toLowerCase(Locale.ROOT).replace('_', ' ');
         };
@@ -45,132 +46,158 @@ public class DesignPromptService {
 
     public String render(String workspaceId) {
         design.requireWorkspace(workspaceId);
-        var workspace = db.queryForMap("SELECT display_name, active_snapshot_id FROM workspaces WHERE id = ?", workspaceId);
-        String snapshot = (String) workspace.get("active_snapshot_id");
+        String snapshot = db.queryForObject("SELECT active_snapshot_id FROM workspaces WHERE id = ?", String.class, workspaceId);
         DesignService.Overlay overlay = design.overlay(workspaceId, null);
-        DesignService.CodeIndex code = design.codeIndex(snapshot);
-        Map<String, DesignService.ResourceView> designed = new HashMap<>();
-        for (var r : overlay.resources()) designed.put(r.key(), r);
+        Names names = new Names(design.codeIndex(snapshot), overlay);
         Map<String, String> signatures = parsedSignatures(snapshot);
 
-        StringBuilder md = new StringBuilder();
-        md.append("# Implement the engineer's design: ").append(inline(String.valueOf(workspace.get("display_name")))).append("\n\n");
-        md.append("""
-            You are working in a Java codebase. The software engineer designed changes on a map of it in Code Atlas.
-            This prompt lists **only what they designed**; read the source for everything else.
+        var add = overlay.resources().stream().filter(r -> "AUTHORED".equals(r.origin()) && "PLANNED".equals(r.status()))
+            .sorted(Comparator.comparingInt((DesignService.ResourceView r) -> DesignService.category(r.kind())).thenComparing(DesignService.ResourceView::key)).toList();
+        var changeResources = overlay.resources().stream().filter(r -> "CODE".equals(r.origin()) && !"ORPHANED".equals(r.status()) && !blank(r.explanation())).toList();
+        var changeRelations = overlay.relations().stream().filter(r -> "CODE".equals(r.origin()) && !"ORPHANED".equals(r.status()) && !blank(r.explanation())).toList();
+        var connect = overlay.relations().stream().filter(r -> "AUTHORED".equals(r.origin()) && "PLANNED".equals(r.status())).toList();
 
-            - **Keys** are the static analyzer's qualified names: package `com.acme.billing`, type
-              `com.acme.billing.InvoiceService`, method `com.acme.billing.InvoiceService.issue(OrderId,boolean)`
-              (parameter types as written in source).
-            - Each item's **intention** (the quoted text; its first paragraph is the intent) is a requirement to
-              implement. An intention on code that already exists is a **requested behaviour change**.
-            - The source code is the authority on what exists. Intentions are the engineer's requirements, not facts
-              about the code; where they conflict with the code, change the code, and say so when you report back.
-
-            """);
-
-        var planned = overlay.resources().stream().filter(r -> "AUTHORED".equals(r.origin()) && "PLANNED".equals(r.status())).toList();
-        var changes = overlay.resources().stream().filter(r -> "CODE".equals(r.origin()) && "PRESENT".equals(r.status()) && !blank(r.explanation())).toList();
-        var relations = overlay.relations().stream().filter(r -> "PLANNED".equals(r.status())).toList();
-        var implemented = overlay.resources().stream().filter(r -> "IMPLEMENTED".equals(r.status())).toList();
-        var implementedRelations = overlay.relations().stream().filter(r -> "IMPLEMENTED".equals(r.status())).toList();
-        var attention = overlay.resources().stream().filter(r -> "ORPHANED".equals(r.status()) || "MISSING".equals(r.status())).toList();
-        var attentionRelations = overlay.relations().stream().filter(r -> "ORPHANED".equals(r.status())).toList();
-        if (planned.isEmpty() && changes.isEmpty() && relations.isEmpty() && implemented.isEmpty() && implementedRelations.isEmpty()
-            && attention.isEmpty() && attentionRelations.isEmpty()) {
-            md.append("Nothing is designed in this workspace yet.\n");
+        StringBuilder md = new StringBuilder("# Changes to make\n\n");
+        if (add.isEmpty() && changeResources.isEmpty() && changeRelations.isEmpty() && connect.isEmpty()) {
+            md.append("Nothing to change: no planned additions, connections or intentions.\n");
             return md.toString();
         }
-
-        int section = 0;
-        if (!planned.isEmpty()) {
-            md.append("## ").append(++section).append(". Build: designed, not in the code yet\n\n");
-            md.append("Create each of these with exactly this key, inside its parent.\n\n");
-            for (var r : planned) resource(md, r, designed, code, signatures);
-            md.append("\n");
+        md.append("Please make these changes to this Java codebase. Each item says what to add or change and why; ")
+          .append("the purpose or reason is a requirement. Read the existing code for everything else.\n");
+        int[] n = {0};
+        if (!add.isEmpty()) {
+            md.append("\n## Add\n\n");
+            for (var r : add) {
+                md.append(++n[0]).append(". Add ").append(article(r.kind())).append(' ').append(kindWord(r.kind())).append(" `").append(inline(declared(r, names))).append('`');
+                String where = names.where(r.parentKey(), r.kind());
+                if (!where.isEmpty()) md.append(' ').append(where);
+                md.append('.');
+                purpose(md, "Purpose", r.explanation());
+            }
         }
-        if (!changes.isEmpty()) {
-            md.append("## ").append(++section).append(". Change existing code\n\n");
-            md.append("These already exist. Make their behaviour match the intention.\n\n");
-            for (var r : changes) resource(md, r, designed, code, signatures);
-            md.append("\n");
+        if (!changeResources.isEmpty() || !changeRelations.isEmpty()) {
+            md.append("\n## Change\n\n");
+            for (var r : changeResources) {
+                md.append(++n[0]).append(". Change ").append(kindWord(r.kind())).append(" `").append(inline(names.label(r.key()))).append('`');
+                String sig = r.codeId() == null ? null : signatures.get(r.codeId());
+                if (sig != null && !sig.isBlank() && DesignKeys.MEMBER_KINDS.contains(r.kind())) md.append(" (`").append(inline(sig)).append("`)");
+                String where = names.container(r.key());
+                if (!where.isEmpty()) md.append(", ").append(where);
+                md.append('.');
+                purpose(md, "What should change", r.explanation());
+            }
+            for (var r : changeRelations) {
+                md.append(++n[0]).append(". Change how ").append(names.mention(r.sourceKey())).append(' ').append(present(r.kind())).append(' ')
+                  .append(names.mention(r.targetKey())).append('.');
+                purpose(md, "What should change", r.explanation());
+            }
         }
-        if (!relations.isEmpty()) {
-            md.append("## ").append(++section).append(". Relations to implement\n\n");
-            md.append("A designed relation `A -KIND-> B` means: the engineer wants A, or code inside A, to do KIND to B or to a ")
-              .append("resource inside B, for the reason given. Implement each relation in your change.\n\n");
-            for (var r : relations) relation(md, r, designed, code);
-            md.append("\n");
+        if (!connect.isEmpty()) {
+            md.append("\n## Connect\n\n");
+            for (var r : connect) {
+                md.append(++n[0]).append(". ").append(capitalize(names.mention(r.sourceKey()))).append(" should ").append(ask(r.kind())).append(' ')
+                  .append(names.mention(r.targetKey())).append('.');
+                purpose(md, "Reason", r.explanation());
+            }
         }
-        if (!implemented.isEmpty() || !implementedRelations.isEmpty()) {
-            md.append("## ").append(++section).append(". Already implemented: verify\n\n");
-            md.append("The code already declares these. Check each still matches its intention, and change the code where it does not.\n\n");
-            for (var r : implemented) resource(md, r, designed, code, signatures);
-            for (var r : implementedRelations) relation(md, r, designed, code);
-            md.append("\n");
-        }
-        if (!attention.isEmpty() || !attentionRelations.isEmpty()) {
-            md.append("## ").append(++section).append(". Needs attention\n\n");
-            md.append("Not actionable as designed. Do not invent these; mention them when you report back.\n\n");
-            for (var r : attention) md.append("- ").append(kindWord(r.kind())).append(" `").append(inline(r.key())).append("`: ")
-                .append("ORPHANED".equals(r.status()) ? "its parent no longer exists" : "referenced, but not found in this code").append("\n");
-            for (var r : attentionRelations) md.append("- relation `").append(inline(r.sourceKey())).append("` -").append(r.kind()).append("-> `")
-                .append(inline(r.targetKey())).append("`: an endpoint no longer exists\n");
-            md.append("\n");
-        }
-        md.append(AgentGuide.reportBack(workspaceId));
         return md.toString();
     }
 
-    private void resource(StringBuilder md, DesignService.ResourceView r, Map<String, DesignService.ResourceView> designed,
-                          DesignService.CodeIndex code, Map<String, String> signatures) {
-        md.append("- ").append(kindWord(r.kind())).append(" `").append(inline(r.key())).append("`");
-        String parents = chain(r.parentKey(), designed, code);
-        if (!parents.isEmpty()) md.append(" in ").append(parents);
-        String signature = r.signature() != null ? r.signature() : r.codeId() == null ? null : signatures.get(r.codeId());
-        if (signature != null && !signature.isBlank()) md.append("\n  Signature: `").append(inline(signature)).append("`");
-        md.append("\n");
-        if (blank(r.explanation())) md.append("  (no intention written)\n");
-        else quote(md, r.explanation());
-    }
-
-    private void relation(StringBuilder md, DesignService.RelationView r, Map<String, DesignService.ResourceView> designed, DesignService.CodeIndex code) {
-        String source = r.sourceKey(), target = r.targetKey();
-        md.append("- `").append(inline(source)).append("` -").append(r.kind()).append("-> `").append(inline(target)).append("`\n");
-        md.append("  The engineer wants ").append(endpoint(source, designed, code)).append(" `").append(inline(source)).append("` (or code inside it) to ")
-          .append(ask(r.kind())).append(" ").append(endpoint(target, designed, code)).append(" `").append(inline(target)).append("`");
-        if (!isMember(kindOf(target, designed, code))) md.append(" or a resource inside it");
-        md.append(blank(r.explanation()) ? ". No reason was written." : ", because:").append("\n");
-        if (!blank(r.explanation())) quote(md, r.explanation());
-    }
-
-    /** "the existing class" / "the planned method": where an endpoint stands. */
-    private static String endpoint(String key, Map<String, DesignService.ResourceView> designed, DesignService.CodeIndex code) {
-        String kind = kindOf(key, designed, code);
-        String word = kind == null ? "resource" : kindWord(kind);
-        return (code.get(key) != null ? "the existing " : designed.containsKey(key) ? "the planned " : "the unknown ") + word;
-    }
-
-    private static String kindOf(String key, Map<String, DesignService.ResourceView> designed, DesignService.CodeIndex code) {
-        var s = code.get(key);
-        if (s != null) return s.kind();
-        var r = designed.get(key);
-        return r == null ? null : r.kind();
-    }
-
-    /** Parent chain from the outermost resource: "package `a.b` › class `a.b.C`". Each link says whether it exists yet. */
-    private static String chain(String parentKey, Map<String, DesignService.ResourceView> designed, DesignService.CodeIndex code) {
-        List<String> links = new ArrayList<>();
-        Set<String> seen = new HashSet<>();
-        for (String key = parentKey; key != null && seen.add(key); ) {
-            var s = code.get(key);
-            var r = designed.get(key);
-            String kind = s != null ? s.kind() : r != null ? r.kind() : null;
-            links.add((kind == null ? "" : kindWord(kind) + " ") + "`" + inline(key) + "`" + (s != null ? "" : r != null ? " (planned)" : " (unknown)"));
-            key = s != null ? code.parentKey(s) : r != null ? r.parentKey() : null;
+    /** How a resource is declared: a method by its signature when one was written, else `name(Types)`. */
+    private static String declared(DesignService.ResourceView r, Names names) {
+        if (DesignKeys.MEMBER_KINDS.contains(r.kind())) {
+            if (r.signature() != null && !r.signature().isBlank()) return r.signature().strip();
+            return r.name() + "(" + String.join(", ", Optional.ofNullable(r.parameterTypes()).orElse(List.of())) + ")";
         }
-        Collections.reverse(links);
-        return String.join(" › ", links);
+        return "PACKAGE".equals(r.kind()) ? r.key() : r.name();
+    }
+
+    /** The intent paragraph after a label, then any further paragraphs indented under the item. */
+    private static void purpose(StringBuilder md, String label, String explanation) {
+        if (blank(explanation)) { md.append('\n'); return; }
+        String text = explanation.strip();
+        int gap = text.split("\\R\\s*\\R", 2)[0].length();
+        String intent = text.substring(0, gap).replaceAll("\\s+", " ").strip(), rest = text.substring(gap).strip();
+        md.append(' ').append(label).append(": ").append(intent).append('\n');
+        if (!rest.isEmpty()) for (String line : rest.split("\\R", -1)) md.append(line.isBlank() ? "" : "   " + line).append('\n');
+    }
+
+    private static String present(String kind) {
+        String verb = ask(kind);
+        int space = verb.indexOf(' ');
+        String head = space < 0 ? verb : verb.substring(0, space), tail = space < 0 ? "" : verb.substring(space);
+        String third = head.endsWith("y") ? head.substring(0, head.length() - 1) + "ies" : head.endsWith("s") || head.endsWith("h") ? head + "es" : head + "s";
+        return (head.equals("get") ? "gets" : third) + tail;
+    }
+
+    /**
+     * Human names for keys: a type by its simple name, a member as `Type.name(Types)`, a package by its full name;
+     * a simple name shared by two types anywhere in the code or design falls back to the qualified one.
+     */
+    private static final class Names {
+        final Map<String, String> kinds = new HashMap<>(), parents = new HashMap<>(), simple = new HashMap<>();
+        final Set<String> designed = new HashSet<>(), inCode = new HashSet<>();
+        final Map<String, Integer> typeNameCount = new HashMap<>();
+
+        Names(DesignService.CodeIndex code, DesignService.Overlay overlay) {
+            for (var s : code.byId().values()) {
+                if (!DesignKeys.isResourceKind(s.kind())) continue;
+                kinds.putIfAbsent(s.key(), s.kind()); simple.putIfAbsent(s.key(), s.simpleName()); inCode.add(s.key());
+                String parent = code.parentKey(s);
+                if (parent != null) parents.putIfAbsent(s.key(), parent);
+            }
+            for (var r : overlay.resources()) {
+                kinds.putIfAbsent(r.key(), r.kind()); simple.putIfAbsent(r.key(), r.name());
+                if (r.parentKey() != null) parents.putIfAbsent(r.key(), r.parentKey());
+                if ("AUTHORED".equals(r.origin()) && !"IMPLEMENTED".equals(r.status())) designed.add(r.key());
+            }
+            for (var e : kinds.entrySet()) if (DesignKeys.TYPE_KINDS.contains(e.getValue())) typeNameCount.merge(simpleOf(e.getKey()), 1, Integer::sum);
+        }
+
+        String kind(String key) { return kinds.get(key); }
+        String simpleOf(String key) { String s = simple.get(key); return s != null ? s : DesignKeys.simpleName(key); }
+
+        String label(String key) {
+            String kind = kind(key);
+            if (kind == null || "PACKAGE".equals(kind)) return key;
+            if (DesignKeys.MEMBER_KINDS.contains(kind)) {
+                String owner = parents.get(key);
+                String tail = key.startsWith(owner == null ? "\u0000" : owner + ".") ? key.substring(owner.length() + 1) : key;
+                return (owner == null ? "" : label(owner) + ".") + tail.replace(",", ", ");
+            }
+            return typeNameCount.getOrDefault(simpleOf(key), 0) > 1 ? key : simpleOf(key);
+        }
+
+        /** "class `AuditLog` (new)", "package `com.acme`", "method `OrderService.complete(Long)`". */
+        String mention(String key) {
+            String kind = kind(key);
+            return (kind == null ? "" : kindWord(kind) + " ") + "`" + inline(label(key)) + "`" + (designed.contains(key) ? " (new)" : "");
+        }
+
+        /** "in package `a.b`" / "to class `C` (package `a.b`)" for a resource being added under `parentKey`. */
+        String where(String parentKey, String kind) {
+            if (parentKey == null || DesignKeys.DEFAULT_PACKAGE.equals(parentKey)) return "";
+            String parentKind = kind(parentKey);
+            if ("PACKAGE".equals(parentKind) || parentKind == null && !DesignKeys.MEMBER_KINDS.contains(kind)) return "in package `" + inline(parentKey) + "`";
+            String where = (DesignKeys.MEMBER_KINDS.contains(kind) ? "to " : "inside ") + kindWord(parentKind) + " `" + inline(label(parentKey)) + "`";
+            String pkg = packageOf(parentKey);
+            return pkg == null ? where : where + " (package `" + inline(pkg) + "`)";
+        }
+
+        /** "in package `a.b`" for an existing type, "in class `C` (package `a.b`)" for a member. */
+        String container(String key) {
+            String parent = parents.get(key);
+            if (parent == null) return "";
+            String pkg = packageOf(key);
+            if ("PACKAGE".equals(kind(parent))) return "in package `" + inline(parent) + "`";
+            return "in " + kindWord(Objects.requireNonNullElse(kind(parent), "CLASS")) + " `" + inline(label(parent)) + "`" + (pkg == null ? "" : " (package `" + inline(pkg) + "`)");
+        }
+
+        String packageOf(String key) {
+            Set<String> seen = new HashSet<>();
+            for (String k = key; k != null && seen.add(k); k = parents.get(k)) if ("PACKAGE".equals(kind(k))) return k;
+            return null;
+        }
     }
 
     private Map<String, String> parsedSignatures(String snapshot) {
@@ -181,11 +208,9 @@ public class DesignPromptService {
         return out;
     }
 
-    private static boolean isMember(String kind) { return "METHOD".equals(kind) || "CONSTRUCTOR".equals(kind); }
-    private static String kindWord(String kind) { return kind.toLowerCase(Locale.ROOT); }
+    private static String kindWord(String kind) { return "ANNOTATION".equals(kind) ? "annotation type" : kind.toLowerCase(Locale.ROOT); }
+    private static String article(String kind) { return "INTERFACE".equals(kind) || "ENUM".equals(kind) || "ANNOTATION".equals(kind) ? "an" : "a"; }
+    private static String capitalize(String s) { return s.isEmpty() ? s : Character.toUpperCase(s.charAt(0)) + s.substring(1); }
     private static boolean blank(String s) { return s == null || s.isBlank(); }
     private static String inline(String s) { return s == null ? "" : s.replace("`", "'").replace("\n", " "); }
-    private static void quote(StringBuilder md, String text) {
-        for (String line : text.strip().split("\\R", -1)) md.append("  > ").append(line).append("\n");
-    }
 }

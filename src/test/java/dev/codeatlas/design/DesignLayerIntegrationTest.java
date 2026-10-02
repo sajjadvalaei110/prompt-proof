@@ -97,8 +97,10 @@ class DesignLayerIntegrationTest {
 
         Map<String, JsonNode> relations = new HashMap<>();
         overlay.get("relations").forEach(r -> relations.put(r.get("targetKey").asText(), r));
-        assertEquals("IMPLEMENTED", relations.get(PKG + ".OrderService").get("status").asText(), "OrderController's methods call OrderService's methods");
-        assertEquals("DESIGNED", relations.get(PKG + ".OrderService").get("resolution").asText());
+        // Explaining a relation the code already has carries it along as code (ADR 0016), not designed work.
+        assertEquals("PRESENT", relations.get(PKG + ".OrderService").get("status").asText(), "OrderController's methods call OrderService's methods");
+        assertEquals("CODE", relations.get(PKG + ".OrderService").get("origin").asText());
+        assertEquals("CODE", relations.get(PKG + ".OrderService").get("resolution").asText());
         assertEquals("PLANNED", relations.get("com.example.billing.InvoiceService").get("status").asText());
     }
 
@@ -210,11 +212,15 @@ class DesignLayerIntegrationTest {
         mvc.perform(get("/api/agent-guide")).andExpect(status().isOk()).andExpect(content().string(org.hamcrest.Matchers.containsString("putResource")));
     }
 
-    /** ADR 0015: the prompt carries only designed work, states relation semantics, and treats intentions on code as change requests. */
-    @Test void promptListsOnlyDesignedWork() throws Exception {
+    /**
+     * ADR 0016: the prompt is a plain request with no product vocabulary. It lists planned additions,
+     * intentions on existing code (resources and relations) as changes, and designed relations not yet in
+     * the code; it leaves out implemented and orphaned items.
+     */
+    @Test void promptIsAPlainRequestForOutstandingWork() throws Exception {
         String empty = mvc.perform(get("/api/workspaces/" + workspace + "/design/prompt")).andExpect(status().isOk())
             .andExpect(header().string("Cache-Control", "no-store")).andReturn().getResponse().getContentAsString();
-        assertTrue(empty.contains("Nothing is designed in this workspace yet."), empty);
+        assertTrue(empty.contains("Nothing to change"), empty);
         changes(workspace, false, """
             {"author":"user","operations":[
               {"op":"putResource","kind":"PACKAGE","name":"com.example.billing","explanation":"Billing context."},
@@ -222,36 +228,87 @@ class DesignLayerIntegrationTest {
               {"op":"putResource","kind":"METHOD","parentKey":"%1$s.OrderService","name":"invoice","parameterTypes":["Long"],"explanation":"Invoices a completed order."},
               {"op":"putResource","key":"%1$s.OrderService","explanation":"Must emit an OrderCompleted event when an order completes."},
               {"op":"putRelation","sourceKey":"%1$s.OrderService","targetKey":"com.example.billing.InvoiceService","kind":"CALLS","explanation":"Completed orders are invoiced."},
-              {"op":"putRelation","sourceKey":"com.example.spring.controller.OrderController","targetKey":"%1$s.OrderService","kind":"CALLS","explanation":"Controller delegates."}
+              {"op":"putRelation","sourceKey":"%1$s.OrderService","targetKey":"com.example.billing","kind":"DEPENDS_ON"},
+              {"op":"putRelation","sourceKey":"com.example.spring.controller.OrderController","targetKey":"%1$s.OrderService","kind":"CALLS","explanation":"Controller must validate before delegating."}
             ]}""".formatted(PKG));
         // A designed class the code now declares, and a type whose parent no longer exists.
         db.update("INSERT INTO design_resources (id, workspace_id, resource_key, kind, simple_name, parent_key, origin, explanation, created_by, updated_by) VALUES (?,?,?,?,?,?,?,?,?,?)",
             UUID.randomUUID().toString(), workspace, PKG + ".NotificationService", "CLASS", "NotificationService", PKG, "AUTHORED", "Sends notifications.", "user", "user");
         db.update("INSERT INTO design_resources (id, workspace_id, resource_key, kind, simple_name, parent_key, origin, explanation, created_by, updated_by) VALUES (?,?,?,?,?,?,?,?,?,?)",
             UUID.randomUUID().toString(), workspace, "com.gone.Ghost", "CLASS", "Ghost", "com.gone", "AUTHORED", "", "user", "user");
+        // Explaining a relation the code already has carries it along as code, never as designed work.
+        JsonNode overlay = json.readTree(mvc.perform(get("/api/workspaces/" + workspace + "/design")).andReturn().getResponse().getContentAsString());
+        for (JsonNode r : overlay.get("relations"))
+            assertEquals(r.get("sourceKey").asText().endsWith("OrderController") ? "CODE" : "AUTHORED", r.get("origin").asText(), r.toString());
+
         String prompt = mvc.perform(get("/api/workspaces/" + workspace + "/design/prompt")).andExpect(status().isOk())
             .andExpect(content().contentTypeCompatibleWith("text/markdown")).andReturn().getResponse().getContentAsString();
+        int add = prompt.indexOf("## Add"), change = prompt.indexOf("## Change"), connect = prompt.indexOf("## Connect");
+        assertTrue(add > 0 && change > add && connect > change, prompt);
+        assertTrue(prompt.contains("1. Add a package `com.example.billing`. Purpose: Billing context."), prompt);
+        assertTrue(prompt.contains("Add a class `InvoiceService` in package `com.example.billing`. Purpose: Issues invoices.\n   Idempotent per order."), prompt);
+        assertTrue(prompt.contains("Add a method `invoice(Long)` to class `OrderService` (package `" + PKG + "`). Purpose: Invoices a completed order."), prompt);
+        assertTrue(prompt.contains("Change class `OrderService`, in package `" + PKG + "`. What should change: Must emit an OrderCompleted event"), prompt);
+        assertTrue(prompt.contains("Change how class `OrderController` calls class `OrderService`. What should change: Controller must validate"), prompt);
+        assertTrue(prompt.contains("Class `OrderService` should call class `InvoiceService` (new). Reason: Completed orders are invoiced."), prompt);
+        assertTrue(prompt.contains("Class `OrderService` should depend on package `com.example.billing` (new)."), prompt);
+        // Nothing about the tool, and nothing already done or orphaned.
+        for (String word : List.of("Code Atlas", "127.0.0.1", "/api/", "key", "IMPLEMENTED", "PLANNED", "design layer", "NotificationService", "Ghost", "UserServiceImpl", "```json"))
+            assertFalse(prompt.contains(word), "the prompt must not mention " + word + "\n" + prompt);
+    }
 
-        int build = prompt.indexOf("## 1. Build"), change = prompt.indexOf("## 2. Change existing code"), rel = prompt.indexOf("## 3. Relations to implement"),
-            verify = prompt.indexOf("## 4. Already implemented: verify"), attention = prompt.indexOf("## 5. Needs attention"), report = prompt.indexOf("## Report back");
-        assertTrue(build > 0 && change > build && rel > change && verify > rel && attention > verify && report > attention, prompt);
-        String buildPart = prompt.substring(build, change);
-        assertTrue(buildPart.contains("class `com.example.billing.InvoiceService` in package `com.example.billing` (planned)"), buildPart);
-        assertTrue(buildPart.contains("method `" + PKG + ".OrderService.invoice(Long)` in package `" + PKG + "` › class `" + PKG + ".OrderService`"), buildPart);
-        assertTrue(buildPart.contains("  > Idempotent per order."), buildPart);
-        assertTrue(prompt.substring(change, rel).contains("class `" + PKG + ".OrderService`") && prompt.substring(change, rel).contains("> Must emit an OrderCompleted event"),
-            "an intention on parsed code is a requested behaviour change");
-        String relPart = prompt.substring(rel, verify);
-        assertTrue(relPart.contains("means: the engineer wants A, or code inside A, to do KIND to B or to a resource inside B"), relPart);
-        assertTrue(relPart.contains("The engineer wants the existing class `" + PKG + ".OrderService` (or code inside it) to call the planned class `com.example.billing.InvoiceService` or a resource inside it, because:"), relPart);
-        assertFalse(relPart.contains("OrderController"), "an implemented relation is not listed as work to do");
-        String verifyPart = prompt.substring(verify, attention);
-        assertTrue(verifyPart.contains("NotificationService") && verifyPart.contains("OrderController` -CALLS->"), verifyPart);
-        assertTrue(prompt.substring(attention, report).contains("`com.gone.Ghost`: its parent no longer exists"));
-        // Only designed things: no undesigned parsed class, no dependency dump, no import block.
-        assertFalse(prompt.contains("UserServiceImpl") || prompt.contains("PaymentService"), "undesigned parsed code is not listed");
-        assertFalse(prompt.contains("codeatlas-design") || prompt.contains("```json"), "the prompt is prose only");
-        assertTrue(prompt.contains("/api/workspaces/" + workspace + "/design/changes"));
+    /**
+     * ADR 0016: a design-only project has no source folder, is never analyzed, and an exported map imported
+     * into it comes back whole: parsed code becomes CODE references (relations too), not designed work.
+     */
+    @Test void designOnlyProjectHoldsAnImportedMap() throws Exception {
+        changes(workspace, false, """
+            {"author":"user","operations":[
+              {"op":"putResource","kind":"CLASS","parentKey":"%1$s","name":"AuditLog","explanation":"Audit trail."},
+              {"op":"putRelation","sourceKey":"%1$s.OrderService","targetKey":"%1$s.AuditLog","kind":"CALLS","explanation":"Record completions."}
+            ]}""".formatted(PKG));
+        String brief = mvc.perform(get("/api/workspaces/" + workspace + "/design/export")).andReturn().getResponse().getContentAsString();
+
+        JsonNode project = json.readTree(mvc.perform(post("/api/workspaces/design-only").contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"Shared map\"}"))
+            .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        String ws = project.get("id").asText();
+        assertTrue(project.get("designOnly").asBoolean());
+        assertEquals("Shared map", project.get("name").asText());
+        String snap = project.get("activeSnapshotId").asText();
+        assertFalse(snap.isBlank());
+        mvc.perform(get("/api/snapshots/" + snap + "/graph")).andExpect(status().isOk());
+        mvc.perform(post("/api/workspaces/" + ws + "/analysis-jobs").contentType(MediaType.APPLICATION_JSON).content("{}")).andExpect(status().isBadRequest());
+
+        JsonNode imported = json.readTree(mvc.perform(post("/api/workspaces/" + ws + "/design/import").contentType(MediaType.APPLICATION_JSON)
+            .content(json.writeValueAsString(Map.of("content", brief)))).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertTrue(imported.get("relationsCreated").asInt() > 1, imported.toString());
+        JsonNode overlay = json.readTree(mvc.perform(get("/api/workspaces/" + ws + "/design")).andReturn().getResponse().getContentAsString());
+        boolean designed = false, carried = false;
+        for (JsonNode r : overlay.get("relations")) {
+            if (r.get("targetKey").asText().endsWith("AuditLog")) { designed = true; assertEquals("AUTHORED", r.get("origin").asText()); assertEquals("PLANNED", r.get("status").asText()); }
+            else { carried = true; assertEquals("CODE", r.get("origin").asText(), r.toString()); assertEquals("MISSING", r.get("status").asText()); assertEquals("CODE", r.get("resolution").asText()); }
+        }
+        assertTrue(designed && carried, overlay.toString());
+        // Imported references keep the original card's Spring roles, so they are drawn the same.
+        JsonNode service = null;
+        for (JsonNode r : overlay.get("resources")) if (r.get("key").asText().equals(PKG + ".OrderService")) service = r;
+        assertNotNull(service);
+        assertEquals("CODE", service.get("origin").asText());
+        assertEquals("MISSING", service.get("status").asText());
+        assertTrue(service.get("roles").toString().contains("SERVICE"), service.toString());
+        // Imported code dependencies are never prompt work; the designed relation and class are.
+        String prompt = mvc.perform(get("/api/workspaces/" + ws + "/design/prompt")).andReturn().getResponse().getContentAsString();
+        assertTrue(prompt.contains("Add a class `AuditLog` in package `" + PKG + "`") && prompt.contains("should call class `AuditLog` (new)"), prompt);
+        assertEquals(1, prompt.split("should ", -1).length - 1, prompt);
+        // Exporting the design-only project again keeps parsed dependencies as code, not design.
+        var exportAgain = mvc.perform(get("/api/workspaces/" + ws + "/design/export")).andReturn();
+        assertEquals(200, exportAgain.getResponse().getStatus(), String.valueOf(exportAgain.getResolvedException()));
+        String again = exportAgain.getResponse().getContentAsString();
+        assertTrue(again.contains("\"layer\" : \"CODE\""), "carried relations re-export as code");
+        var listed = json.readTree(mvc.perform(get("/api/workspaces")).andReturn().getResponse().getContentAsString());
+        boolean found = false;
+        for (JsonNode w : listed) if (w.get("id").asText().equals(ws)) found = w.get("designOnly").asBoolean();
+        assertTrue(found);
     }
 
     private JsonNode changes(String ws, boolean dryRun, String body) throws Exception {
