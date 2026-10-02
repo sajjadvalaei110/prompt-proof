@@ -2,22 +2,25 @@ package dev.codeatlas.api;
 
 import dev.codeatlas.design.AgentGuide;
 import dev.codeatlas.design.DesignExchangeService;
+import dev.codeatlas.design.DesignPromptService;
 import dev.codeatlas.design.DesignService;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-/** The engineer-owned design layer (ADR 0014): read, change, export and import. */
+/** The engineer-owned design layer (ADR 0014): read, change, export and import; the agent prompt (ADR 0015). */
 @RestController
 public class DesignController {
     private static final MediaType MARKDOWN = new MediaType("text", "markdown", java.nio.charset.StandardCharsets.UTF_8);
     private final DesignService design;
     private final DesignExchangeService exchange;
+    private final DesignPromptService prompts;
 
-    public DesignController(DesignService design, DesignExchangeService exchange) {
+    public DesignController(DesignService design, DesignExchangeService exchange, DesignPromptService prompts) {
         this.design = design;
         this.exchange = exchange;
+        this.prompts = prompts;
     }
 
     @GetMapping("/api/workspaces/{workspaceId}/design")
@@ -39,6 +42,12 @@ public class DesignController {
     @PostMapping("/api/workspaces/{workspaceId}/design/export")
     public ResponseEntity<String> export(@PathVariable String workspaceId, @RequestBody(required = false) DesignExchangeService.ExportRequest request) {
         return markdown(exchange.export(workspaceId, request));
+    }
+
+    /** The design prompt (ADR 0015): only what the engineer designed, as a work order for a coding agent. */
+    @GetMapping("/api/workspaces/{workspaceId}/design/prompt")
+    public ResponseEntity<String> prompt(@PathVariable String workspaceId) {
+        return markdown(prompts.render(workspaceId));
     }
 
     @PostMapping("/api/workspaces/{workspaceId}/design/import")

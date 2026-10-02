@@ -102,6 +102,16 @@ export function mergeDesignGraph(graph: AtlasGraph, overlay: DesignOverlay | nul
   return { ...graph, nodes, edges };
 }
 
+/**
+ * Two graphs' cards and routes as one parked graph (ADR 0015): the Changes overlay's hidden cards and,
+ * while Design is off, the design cards. The first graph wins an ID both carry.
+ */
+export function unionGraphs(a: AtlasGraph | undefined, b: AtlasGraph | undefined): AtlasGraph | undefined {
+  if (!a || !b || a === b) return a || b;
+  const ids = new Set(a.nodes.map(n => n.id)), edgeIds = new Set(a.edges.map(e => e.id));
+  return { ...a, nodes: [...a.nodes, ...b.nodes.filter(n => !ids.has(n.id))], edges: [...a.edges, ...b.edges.filter(e => !edgeIds.has(e.id))] };
+}
+
 /** The design relations behind a drawn (possibly aggregated) route. */
 export function relationsOfRoute(edge: AtlasEdge, overlay: DesignOverlay | null | undefined): DesignRelation[] {
   if (!overlay) return [];

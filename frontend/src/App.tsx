@@ -9,8 +9,8 @@ import { ScopeSelection, wholeSystemScope, scopeToLabel, isNodeInScope, isClassI
 import { explorerViewReducer, initExplorerViewState, nearestHiddenAncestor, collapseTargets, ExplorerViewState, ExplorerAction, PlacementDims, Point, Camera, CardMoves } from './features/explorer/explorerViewState';
 import { arrangeDisplayed, ArrangeEdge, DisplayedCard } from './features/explorer/focusedArrangement';
 import { nodeCard, defaultCardSize, CardSize } from './features/explorer/nodeCard';
-import { Box, RoomCard, boxOfCard, containerBox, layoutChildren, roomMoves } from './features/explorer/expansionLayout';
-import { geometryForJourney, placementForGraphs } from './features/explorer/placementGeometry';
+import { Box, RoomCard, boxOfCard, containerBox, designSlot, layoutChildren, minSizeWithSlot, roomMoves } from './features/explorer/expansionLayout';
+import { addSlotSize, geometryForJourney, placementForGraphs } from './features/explorer/placementGeometry';
 import NavigationPane from './features/explorer/NavigationPane';
 import InspectorPanel from './features/inspector/InspectorPanel';
 import SettingsScreen from './features/settings/SettingsScreen';
@@ -23,7 +23,7 @@ import { useExplorerJourneys, flushExplorerCamera } from './features/explorer/us
 import { Journey, collapseInJourney, cycleRelationStack, newJourney, toggleJourneyReview, toggleRelationStack } from './features/explorer/explorerJourney';
 import { revalidateJourneyState } from './features/explorer/revalidateJourney';
 import { outgoingStack, stackSummary, type StackDirection } from './features/explorer/outgoingStack';
-import { DesignOverlay, keyOf, mergeDesignGraph, relationsOfRoute } from './features/design/designModel';
+import { DesignOverlay, keyOf, mergeDesignGraph, relationsOfRoute, unionGraphs } from './features/design/designModel';
 import { applyLayout, captureLayout, isMapLayout, scopeFromLayout } from './features/design/designExchange';
 import DesignEditorDialog, { type DesignDraft } from './features/design/DesignEditorDialog';
 import type { DesignCommand } from './features/explorer/GraphCanvas';
@@ -60,7 +60,15 @@ export default function App() {
   // stays purely parser facts. Showing it is a per-viewer preference, not exploration history.
   const [designOverlay,setDesignOverlay]=useState<DesignOverlay|null>(null),[designDraft,setDesignDraft]=useState<DesignDraft|null>(null);
   const [showDesign,setShowDesignState]=useState(()=>{try{return localStorage.getItem('showDesign')!=='false';}catch{return true;}});
-  const mapGraph=useMemo(()=>rawMapGraph&&showDesign?mergeDesignGraph(rawMapGraph,designOverlay):rawMapGraph,[rawMapGraph,designOverlay,showDesign]);
+  // The map with its design layer, whether or not it is shown. While Design is off its design cards
+  // are parked like the Changes overlay's hidden cards (ADR 0015), so toggling never moves them.
+  const designMergedGraph=useMemo(()=>rawMapGraph?mergeDesignGraph(rawMapGraph,designOverlay):null,[rawMapGraph,designOverlay]);
+  const mapGraph=showDesign?designMergedGraph:rawMapGraph;
+  const hiddenDesignGraph=!showDesign&&designMergedGraph!==rawMapGraph?designMergedGraph:null;
+  /** What the ordinary map parks: the comparison overlay's cards and, with Design off, the design cards. */
+  const mapParkedGraph=(reviewGraph:AtlasGraph|null|undefined):AtlasGraph|undefined=>unionGraphs(reviewGraph||undefined,hiddenDesignGraph||undefined);
+  /** What Changes parks: the ordinary map, design cards included even while Design is off. */
+  const reviewParkedGraph=():AtlasGraph|undefined=>designMergedGraph||mapGraph||undefined;
   const [status,setStatus]=useState('Open a project to begin'),[busy,setBusy]=useState(false),[error,setError]=useState('');
   const reviewComparison=useReviewComparison(workspace?.id||null,mapGraph);
   // Updates end an outgoing stack whose root they take off the map, judged against the graph each journey renders.
@@ -170,7 +178,7 @@ export default function App() {
     // They are absent from `graph`, but still occupy the map and may enlarge a shared expanded
     // card. This is deliberately symmetric: ordinary-only cards stay parked while Changes is on,
     // just as review-only cards do while it is off.
-    const parkedGraph=active.present.review?mapGraph||undefined:reviewComparison.graph||undefined;
+    const parkedGraph=active.present.review?reviewParkedGraph():mapParkedGraph(reviewComparison.graph);
     return placementForGraphs(graph,viewState,targetScope,kind,ids,parkedGraph);
   };
   const node=graph&&viewState.inspectedKind==='NODE'&&viewState.inspectedSubjectId?graph.nodes.find(n=>n.id===viewState.inspectedSubjectId)||null:null;
@@ -232,10 +240,13 @@ export default function App() {
   // particular, an expanded card is placed using its derived compound box (including a user
   // minimum size), rather than its stale ordinary card dimensions.
   const geometry=useMemo(()=>{
-    if(!graph)return {positions:{} as Record<string,Point>,boxes:{} as Record<string,Box>};
-    const derived=geometryForJourney(graph,viewState,scope,kind,projected);
-    return {positions:derived.positions,boxes:derived.boxes};
-  },[graph,level,displayedIds,projected,levelGeometry.positions,expansions,sizes,scope,kind]);
+    if(!graph)return {positions:{} as Record<string,Point>,boxes:{} as Record<string,Box>,slots:{} as Record<string,Box>,slotMinSizes:{} as Record<string,CardSize>};
+    // Design mode keeps one empty card slot in every expanded package/type for "+ class"/"+ method"
+    // (ADR 0015). The slot only grows the box right and down; nothing else moves.
+    const derived=geometryForJourney(graph,viewState,scope,kind,projected,undefined,{designSlots:showDesign&&!active.present.review});
+    return {positions:derived.positions,boxes:derived.boxes,slots:derived.slots,slotMinSizes:derived.slotMinSizes};
+  },[graph,level,displayedIds,projected,levelGeometry.positions,expansions,sizes,scope,kind,showDesign,active.present.review]);
+  const canvasContainerSizes=useMemo(()=>Object.keys(geometry.slotMinSizes).length?{...containerSizes,...geometry.slotMinSizes}:containerSizes,[containerSizes,geometry.slotMinSizes]);
   // An inspected aggregate edge must survive a relationship-filter change that excludes its kind
   // (Step 4, Appendix F3): its identity is resolved independently of the currently filtered
   // `projected.edges` by also checking an unfiltered ('ALL') projection of the same displayed page.
@@ -581,7 +592,11 @@ export default function App() {
     // Nothing in scope to show: an empty box would only hide the card.
     if(!children.length)return false;
     const childPositions=layoutChildren({x:before.x1,y:before.y1},children);
-    const after=containerBox(children.map(c=>boxOfCard({...c,...childPositions[c.id]})),null)||before;
+    const childBoxes=children.map(c=>boxOfCard({...c,...childPositions[c.id]}));
+    // In design mode the new box also holds its add slot (ADR 0015), so neighbours make room for it too.
+    const slotSize=showDesign&&!active.present.review?addSlotSize(n.kind):null;
+    const slotMin=slotSize?minSizeWithSlot(childBoxes,null,designSlot({x:before.x1,y:before.y1},children.map(c=>({...c,...childPositions[c.id]})),slotSize)):null;
+    const after=containerBox(childBoxes,slotMin)||before;
     const action:ExplorerAction={type:'EXPAND_RESOURCE',level,id:n.id,ownerId:n.containerId??null,childPositions,moves:makeRoom(n,before,after),generation:viewState.generation};
     // The same state the dispatch applies to, so a reveal chain learns now whether to wait for it.
     if(explorerViewReducer(viewState,action)===viewState)return false;
@@ -657,7 +672,7 @@ export default function App() {
     // Every expanded card, on any level, learns which of its children are still in scope.
     const all=new Map(graph.nodes.map(n=>[n.id,n]));
     // Scope reconciliation retains eligible cards from the hidden graph in either direction.
-    const parkedGraph=active.present.review?mapGraph:reviewComparison.graph;
+    const parkedGraph=active.present.review?reviewParkedGraph():mapParkedGraph(reviewComparison.graph);
     const parkedAll=parkedGraph&&new Map(parkedGraph.nodes.map(n=>[n.id,n]));
     const expansionChildren:Record<string,string[]>={};
     for(const lvl of (['PACKAGE','CLASS','METHOD'] as Level[]))for(const id of Object.keys(viewState.levelViews[lvl].expansions)){
@@ -723,7 +738,7 @@ export default function App() {
    * graph. This includes ordinary IDs that have no comparison row, which are the cards whose
    * geometry would otherwise be pruned on entry to Changes. */
   const parkedIdsFor = (lvl:Level,s:ScopeSelection=scope) => {
-    const hidden=active.present.review?mapGraph:reviewComparison.graph;
+    const hidden=active.present.review?reviewParkedGraph():mapParkedGraph(reviewComparison.graph);
     return hidden ? eligibleByLevel(hidden,s,lvl) : undefined;
   };
 
@@ -752,7 +767,7 @@ export default function App() {
   function reconcileJourneyGraph(j:Journey,targetGraph:AtlasGraph,targetIsReview:boolean,reviewGraph?:AtlasGraph):Journey {
     const levels=(['PACKAGE','CLASS','METHOD'] as Level[]);
     const eligible=Object.fromEntries(levels.map(l=>[l,eligibleByLevel(targetGraph,j.scope,l)])) as Record<Level,string[]>;
-    const parkedGraph=targetIsReview?mapGraph||undefined:reviewGraph;
+    const parkedGraph=targetIsReview?reviewParkedGraph():mapParkedGraph(reviewGraph);
     const parkedByLevel:Partial<Record<Level,string[]>>={};
     if(parkedGraph) for(const l of levels) parkedByLevel[l]=eligibleByLevel(parkedGraph,j.scope,l);
     const reviewOnlyByLevel:Partial<Record<Level,string[]>>={};
@@ -1016,7 +1031,7 @@ export default function App() {
           </div>
           {scopeEmpty
             ? <div className="scope-empty-state"><h2>No packages or classes selected</h2><p>Check packages or classes in the left tree to define what the graph shows.</p><button className="primary" onClick={resetScope}>Select all</button></div>
-            : <GraphCanvas multiIds={active.present.multiIds} onMultiIdsChange={v=>journeys.set('multiIds',v)} mapOpen={active.present.mapOpen} onMapOpenChange={v=>journeys.setTransient('mapOpen',v)} fullscreen={active.present.fullscreen} onFullscreenChange={v=>journeys.setTransient('fullscreen',v)} onClearSelection={clearSelection} nodes={projected.nodes} edges={projected.edges} positions={geometry.positions} sizes={sizes} containerSizes={containerSizes} onToggleExpand={toggleExpand} onToggleExpandMany={toggleExpandMany} onUngroup={ungroup} hiddenAncestorOf={hiddenAncestorOf} onCollapseInto={collapseInto} outgoingStack={stack} stackRoot={stack&&relationStack?relationStack:null} onCycleStack={cycleStack} onToggleStack={toggleStack} onResizeNode={resizeNode} onResizeContainer={resizeContainer} camera={levelGeometry.camera} selectedId={node?.id||edge?.id} onNodeSelect={select} onEdgeSelect={inspectEdge} canRemoveFromScope={n=>isNodeInScope(n,scope,graph)} onRemoveFromScope={removeFromScope} scopeRemovalTargets={nodes=>planScopeRemoval(nodes).removed} onCameraChange={handleCameraChange} onNodeMoved={handleNodeMoved} onNodesMoved={handleNodesMoved} onArrangeAroundResource={id=>{
+            : <GraphCanvas multiIds={active.present.multiIds} onMultiIdsChange={v=>journeys.set('multiIds',v)} mapOpen={active.present.mapOpen} onMapOpenChange={v=>journeys.setTransient('mapOpen',v)} fullscreen={active.present.fullscreen} onFullscreenChange={v=>journeys.setTransient('fullscreen',v)} onClearSelection={clearSelection} nodes={projected.nodes} edges={projected.edges} positions={geometry.positions} sizes={sizes} containerSizes={canvasContainerSizes} onToggleExpand={toggleExpand} onToggleExpandMany={toggleExpandMany} onUngroup={ungroup} hiddenAncestorOf={hiddenAncestorOf} onCollapseInto={collapseInto} outgoingStack={stack} stackRoot={stack&&relationStack?relationStack:null} onCycleStack={cycleStack} onToggleStack={toggleStack} onResizeNode={resizeNode} onResizeContainer={resizeContainer} camera={levelGeometry.camera} selectedId={node?.id||edge?.id} onNodeSelect={select} onEdgeSelect={inspectEdge} canRemoveFromScope={n=>isNodeInScope(n,scope,graph)} onRemoveFromScope={removeFromScope} scopeRemovalTargets={nodes=>planScopeRemoval(nodes).removed} onCameraChange={handleCameraChange} onNodeMoved={handleNodeMoved} onNodesMoved={handleNodesMoved} onArrangeAroundResource={id=>{
               cancelReclick();
               arrangeAround(id);
               setMobilePane('details');

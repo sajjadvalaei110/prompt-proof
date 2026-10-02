@@ -210,6 +210,50 @@ class DesignLayerIntegrationTest {
         mvc.perform(get("/api/agent-guide")).andExpect(status().isOk()).andExpect(content().string(org.hamcrest.Matchers.containsString("putResource")));
     }
 
+    /** ADR 0015: the prompt carries only designed work, states relation semantics, and treats intentions on code as change requests. */
+    @Test void promptListsOnlyDesignedWork() throws Exception {
+        String empty = mvc.perform(get("/api/workspaces/" + workspace + "/design/prompt")).andExpect(status().isOk())
+            .andExpect(header().string("Cache-Control", "no-store")).andReturn().getResponse().getContentAsString();
+        assertTrue(empty.contains("Nothing is designed in this workspace yet."), empty);
+        changes(workspace, false, """
+            {"author":"user","operations":[
+              {"op":"putResource","kind":"PACKAGE","name":"com.example.billing","explanation":"Billing context."},
+              {"op":"putResource","kind":"CLASS","parentKey":"com.example.billing","name":"InvoiceService","explanation":"Issues invoices.\\n\\nIdempotent per order."},
+              {"op":"putResource","kind":"METHOD","parentKey":"%1$s.OrderService","name":"invoice","parameterTypes":["Long"],"explanation":"Invoices a completed order."},
+              {"op":"putResource","key":"%1$s.OrderService","explanation":"Must emit an OrderCompleted event when an order completes."},
+              {"op":"putRelation","sourceKey":"%1$s.OrderService","targetKey":"com.example.billing.InvoiceService","kind":"CALLS","explanation":"Completed orders are invoiced."},
+              {"op":"putRelation","sourceKey":"com.example.spring.controller.OrderController","targetKey":"%1$s.OrderService","kind":"CALLS","explanation":"Controller delegates."}
+            ]}""".formatted(PKG));
+        // A designed class the code now declares, and a type whose parent no longer exists.
+        db.update("INSERT INTO design_resources (id, workspace_id, resource_key, kind, simple_name, parent_key, origin, explanation, created_by, updated_by) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            UUID.randomUUID().toString(), workspace, PKG + ".NotificationService", "CLASS", "NotificationService", PKG, "AUTHORED", "Sends notifications.", "user", "user");
+        db.update("INSERT INTO design_resources (id, workspace_id, resource_key, kind, simple_name, parent_key, origin, explanation, created_by, updated_by) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            UUID.randomUUID().toString(), workspace, "com.gone.Ghost", "CLASS", "Ghost", "com.gone", "AUTHORED", "", "user", "user");
+        String prompt = mvc.perform(get("/api/workspaces/" + workspace + "/design/prompt")).andExpect(status().isOk())
+            .andExpect(content().contentTypeCompatibleWith("text/markdown")).andReturn().getResponse().getContentAsString();
+
+        int build = prompt.indexOf("## 1. Build"), change = prompt.indexOf("## 2. Change existing code"), rel = prompt.indexOf("## 3. Relations to implement"),
+            verify = prompt.indexOf("## 4. Already implemented: verify"), attention = prompt.indexOf("## 5. Needs attention"), report = prompt.indexOf("## Report back");
+        assertTrue(build > 0 && change > build && rel > change && verify > rel && attention > verify && report > attention, prompt);
+        String buildPart = prompt.substring(build, change);
+        assertTrue(buildPart.contains("class `com.example.billing.InvoiceService` in package `com.example.billing` (planned)"), buildPart);
+        assertTrue(buildPart.contains("method `" + PKG + ".OrderService.invoice(Long)` in package `" + PKG + "` › class `" + PKG + ".OrderService`"), buildPart);
+        assertTrue(buildPart.contains("  > Idempotent per order."), buildPart);
+        assertTrue(prompt.substring(change, rel).contains("class `" + PKG + ".OrderService`") && prompt.substring(change, rel).contains("> Must emit an OrderCompleted event"),
+            "an intention on parsed code is a requested behaviour change");
+        String relPart = prompt.substring(rel, verify);
+        assertTrue(relPart.contains("means: the engineer wants A, or code inside A, to do KIND to B or to a resource inside B"), relPart);
+        assertTrue(relPart.contains("The engineer wants the existing class `" + PKG + ".OrderService` (or code inside it) to call the planned class `com.example.billing.InvoiceService` or a resource inside it, because:"), relPart);
+        assertFalse(relPart.contains("OrderController"), "an implemented relation is not listed as work to do");
+        String verifyPart = prompt.substring(verify, attention);
+        assertTrue(verifyPart.contains("NotificationService") && verifyPart.contains("OrderController` -CALLS->"), verifyPart);
+        assertTrue(prompt.substring(attention, report).contains("`com.gone.Ghost`: its parent no longer exists"));
+        // Only designed things: no undesigned parsed class, no dependency dump, no import block.
+        assertFalse(prompt.contains("UserServiceImpl") || prompt.contains("PaymentService"), "undesigned parsed code is not listed");
+        assertFalse(prompt.contains("codeatlas-design") || prompt.contains("```json"), "the prompt is prose only");
+        assertTrue(prompt.contains("/api/workspaces/" + workspace + "/design/changes"));
+    }
+
     private JsonNode changes(String ws, boolean dryRun, String body) throws Exception {
         return json.readTree(mvc.perform(post("/api/workspaces/" + ws + "/design/changes?dryRun=" + dryRun).contentType(MediaType.APPLICATION_JSON).content(body))
             .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
