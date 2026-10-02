@@ -84,6 +84,13 @@ geometry and the expand rules are unchanged.
   - the reconciliation positions it so that its top-left corner is the card's own corner. `cardMove`
     reads the same anchor back on a drag.
 - When its first child arrives, it becomes an ordinary compound.
+- A drag reads its anchor back with the exact inverse of that position (`cardMove`). The bounding box
+  includes the border, so reading the anchor from it would move the box 2 px on every drag.
+- Outside design mode (Design off, or Changes), App's projection draws a childless expansion as its
+  card (`expanded: false`). That covers both one opened empty in design mode and one emptied by a
+  scope edit. Geometry already gives such an expansion no box, so drawing, room-making and drag agree.
+  The card looks and behaves exactly as an unexpanded one. Before this, a childless expansion was drawn
+  as a padded dashed node, and every drag stored its anchor 44 px off.
 
 ### 5. Room-making keeps the reserve and measures nested growth against the boxes before the change
 
@@ -107,5 +114,5 @@ geometry and the expand rules are unchanged.
   from dragged children.
 - An empty box's header label shares its width with the corner buttons, as in any narrow box. A long
   name can run under them.
-- An empty expanded box stays expanded when Design is turned off. It is then drawn as before: a
-  childless dashed node the size of its card. Design-only cards are parked anyway.
+- An empty box opened in design mode keeps its expansion when Design is turned off, but it is drawn as
+  its card until Design is on again. It then reopens on its block, at the same corner.

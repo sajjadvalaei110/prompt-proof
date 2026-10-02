@@ -229,7 +229,16 @@ export default function App() {
   function handleNodeMoved(id:string,position:Point,containerId:string|null){dispatchView({type:'NODE_MOVED',level,id,position,containerId,generation:viewState.generation});}
   function handleNodesMoved(moves:{id:string;position:Point;containerId:string|null}[]){dispatchView({type:'NODES_MOVED',level,moves,generation:viewState.generation});}
   const expansionInput=useMemo(()=>({expansions:Object.entries(expansions).map(([id,e])=>({id,ownerId:e.ownerId,hidden:e.hidden})),scope}),[expansions,scope]);
-  const projected=useMemo(()=>graph?projectDisplayed(graph,level,displayedIds,kind,expansionInput):{nodes:[] as AtlasNode[],edges:[] as AtlasEdge[]},[graph,level,displayedIds,kind,expansionInput]);
+  const projectedDesignMode=showDesign&&!active.present.review;
+  const projected=useMemo(()=>{
+    const p=graph?projectDisplayed(graph,level,displayedIds,kind,expansionInput):{nodes:[] as AtlasNode[],edges:[] as AtlasEdge[]};
+    if(projectedDesignMode)return p;
+    // Outside design mode an expansion with nothing inside (opened empty in design mode, ADR 0017, or emptied
+    // by a scope edit) is drawn, measured and dragged as its card: geometry already gives it no box.
+    const parents=new Set(p.nodes.map(n=>n.containerId));
+    const empty=(n:AtlasNode)=>!!n.expanded&&!n.hiddenBox&&!parents.has(n.id);
+    return p.nodes.some(empty)?{...p,nodes:p.nodes.map(n=>empty(n)?{...n,expanded:false}:n)}:p;
+  },[graph,level,displayedIds,kind,expansionInput,projectedDesignMode]);
   // The relation stack (outgoing, or incoming over reversed facts): a walk over the tab's parser facts
   // (`graph`, ordinary or Changes) at the root's granularity, mapped onto the drawn cards and routes and
   // recomputed whenever they, the filter or the expansions change (docs/OUTGOING_STACK.md). GraphCanvas

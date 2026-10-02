@@ -103,8 +103,8 @@
       }
     ],
     "sizeBefore": {
-      "w": 921.4565708186656,
-      "h": 788.9065708186658
+      "w": 921.4377237522599,
+      "h": 788.8877237522602
     }
   },
   "gapLanding": {
@@ -119,12 +119,12 @@
       "y": 964
     },
     "sizeBefore": {
-      "w": 921.4565708186656,
-      "h": 788.9065708186658
+      "w": 921.4377237522599,
+      "h": 788.8877237522602
     },
     "sizeAfter": {
-      "w": 917.5676434257161,
-      "h": 785.3176434257161
+      "w": 917.5195316847958,
+      "h": 785.2695316847958
     },
     "gapsAfter": [
       {
@@ -155,15 +155,27 @@
     ]
   },
   "designedEdge": {
-    "id": "aggregate:[\"b3f990f6-88b0-42bb-a33c-2b29ac412836\",\"design:com.example.audit.AuditLog\",\"DESIGN\"]",
+    "id": "aggregate:[\"ebd0170b-c1ef-4a86-b24f-fa18536fb3dc\",\"design:com.example.audit.AuditLog\",\"DESIGN\"]",
     "style": "dashed",
     "color": "rgb(139,106,214)",
     "label": "✎ calls",
     "source": "OrderService",
     "target": "AuditLog"
   },
-  "edgeProvenance": "Written by claude-code · 2026-10-02 12:23:50",
+  "edgeProvenance": "Written by claude-code · 2026-10-02 12:41:40",
   "badNameError": "Write a method as name or name(Type, Type)",
+  "methodLanding": {
+    "block": {
+      "x1": 2022,
+      "y1": 964,
+      "x2": 2202,
+      "y2": 1094
+    },
+    "card": {
+      "x": 2022,
+      "y": 964
+    }
+  },
   "rubberBand": {
     "sourceId": "design:com.example.audit.AuditQuery",
     "from": {
@@ -216,21 +228,21 @@
       "design:com.example.spring.service.OrderAudit": {
         "x": 1821,
         "y": 1565,
-        "parent": "92c61f8a-57d7-4e29-a5bc-f3d0dc9e4fbb",
+        "parent": "38ea2b51-a27f-44bf-8fbd-3ded2caf488e",
         "w": 250,
         "h": 206
       },
       "design:com.example.spring.service.OrderService.complete(Long)": {
         "x": 2429,
         "y": 624,
-        "parent": "b3f990f6-88b0-42bb-a33c-2b29ac412836",
+        "parent": "ebd0170b-c1ef-4a86-b24f-fa18536fb3dc",
         "w": 250,
         "h": 184
       },
       "design:com.example.spring.service.OrderService.findByCustomer(Long)": {
         "x": 2147,
         "y": 1056,
-        "parent": "b3f990f6-88b0-42bb-a33c-2b29ac412836",
+        "parent": "ebd0170b-c1ef-4a86-b24f-fa18536fb3dc",
         "w": 250,
         "h": 184
       }
@@ -246,7 +258,7 @@
       "design:com.example.spring.service.OrderAudit": {
         "x": 1821,
         "y": 1565,
-        "parent": "92c61f8a-57d7-4e29-a5bc-f3d0dc9e4fbb",
+        "parent": "38ea2b51-a27f-44bf-8fbd-3ded2caf488e",
         "w": 250,
         "h": 206
       },
@@ -267,21 +279,21 @@
       "design:com.example.spring.service.OrderService.complete(Long)": {
         "x": 2429,
         "y": 624,
-        "parent": "b3f990f6-88b0-42bb-a33c-2b29ac412836",
+        "parent": "ebd0170b-c1ef-4a86-b24f-fa18536fb3dc",
         "w": 250,
         "h": 184
       },
       "design:com.example.spring.service.OrderService.findByCustomer(Long)": {
         "x": 2147,
         "y": 1056,
-        "parent": "b3f990f6-88b0-42bb-a33c-2b29ac412836",
+        "parent": "ebd0170b-c1ef-4a86-b24f-fa18536fb3dc",
         "w": 250,
         "h": 184
       }
     },
     "arrangedBoxes": {
       "design:com.example.audit": null,
-      "b3f990f6-88b0-42bb-a33c-2b29ac412836": {
+      "ebd0170b-c1ef-4a86-b24f-fa18536fb3dc": {
         "x": 1622,
         "y": 372
       }
@@ -341,6 +353,30 @@
       "design:com.example.spring.service.OrderService.findById(Long)"
     ],
     "status": "Imported 81 new and 0 updated resources, 117 relations (74 not found in this code)23 unresolved external targets0 explained · 0 queued · 0 failed✧ Explain all"
+  },
+  "emptyParsedDrag": {
+    "zoom": 0.8,
+    "box0": {
+      "x1": 1026,
+      "y1": 340
+    },
+    "box1": {
+      "x1": 1176,
+      "y1": 390
+    }
+  },
+  "emptyParsedDesignOff": {
+    "off": {
+      "expanded": false,
+      "w": 250,
+      "cw": 250,
+      "x": 1303,
+      "y": 495
+    },
+    "offAfter": {
+      "x": 1190.5,
+      "y": 557.5
+    }
   },
   "designOnlyImport": {
     "cards": 21,

@@ -614,6 +614,11 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     // centroid here would silently disagree with where a later collapse puts the card.
     const cardMove = (d: cytoscape.NodeSingular) => {
       const containerId = d.parent().length ? d.parent().first().id() : null;
+      // An empty box (ADR 0017): the exact inverse of where reconciliation draws it, so a drag never creeps by its border.
+      if (d.data('emptyBox')) {
+        const q = d.position(), w = d.data('cardWidth') as number, h = d.data('cardHeight') as number;
+        return { id: d.id(), position: { x: q.x - (d.data('minW') as number) / 2 - CONTAINER_PADDING + w / 2, y: q.y - (d.data('minH') as number) / 2 - CONTAINER_PADDING + h / 2 }, containerId };
+      }
       if (d.data('expanded')) {
         const bb = d.boundingBox({ includeLabels: false, includeOverlays: false });
         const w = d.data('cardWidth') as number, h = d.data('cardHeight') as number;

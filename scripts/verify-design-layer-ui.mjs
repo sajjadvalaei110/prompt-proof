@@ -299,7 +299,7 @@ await shot('08-planned-method');
 
 // 4b. "+ method" in an expanded parsed class: `name(Type)` sets the parameter types; a bad name shows inline.
 const orderServiceId=await evaluate(`${CY}.nodes().filter(n=>n.data('simpleName')==='OrderService')[0].id()`);
-await openSlot(orderServiceId,'method');
+const methodSlot=await openSlot(orderServiceId,'method');
 await typeText('find by customer');await enter();
 await until(`!!document.querySelector('.design-draft-error')`,'inline error for a bad method name');
 results.badNameError=await evaluate(`document.querySelector('.design-draft-error').textContent`);
@@ -314,6 +314,9 @@ const methodRow=(await designOverlay()).resources.find(r=>r.key===methodKey);
 assert.deepEqual(methodRow.parameterTypes,['Long'],'parameter types parsed from name(Long customerId)');
 assert.equal(methodRow.kind,'METHOD');
 assert.equal(await evaluate(`${CY}.getElementById(${q('design:'+methodKey)}).parent().id()`),orderServiceId,'drawn inside its class');
+{const tl=await cardTopLeft('design:'+methodKey);results.methodLanding={block:methodSlot.block,card:tl};
+ assert.ok(Math.abs(tl.x-methodSlot.block.x1)<2&&Math.abs(tl.y-methodSlot.block.y1)<2,'the method keeps its block\'s corner: '+JSON.stringify(results.methodLanding));}
+assert.deepEqual(await topLevelOverlaps(),[],'the class grows for its method without overlapping the map');
 await quickPopup('a new method');
 assert.deepEqual(await quickKinds(),[],'a method offers no kind choice');
 await typeText('Lists the orders of one customer.');await enter();
@@ -467,6 +470,47 @@ results.imported=await evaluate(`(()=>{const cy=${CY};const n=cy.getElementById(
 assert.deepEqual(results.imported.position,packagePosition,'the imported layout keeps the card where it was exported');
 assert.ok(results.imported.missing.length>0,'parsed resources absent from this code come back as placeholders');
 await shot('16-imported-map-in-other-workspace');
+// 6a. ADR 0017 with parsed code: the method-less marker type RegionTag expands in design mode onto one block,
+// and with Design off it is an ordinary card again; a drag lands exactly where it was dropped, either way.
+{
+  const dragBy=async(id,dx,dy)=>{const c=await cardPoint(id,.3,.6);await mouse('mouseMoved',c.x,c.y);await mouse('mousePressed',c.x,c.y);for(let i=1;i<=8;i++)await mouse('mouseMoved',c.x+dx*i/8,c.y+dy*i/8,{buttons:1});await mouse('mouseReleased',c.x+dx,c.y+dy);await pause(700);};
+  const markerPkg=await evaluate(`${CY}.nodes().filter(n=>n.data('kind')==='PACKAGE'&&(n.data('qualifiedName')||'').endsWith('.marker'))[0]?.id()`);
+  assert.ok(markerPkg,'fixture B shows the marker package');
+  await evaluate(`(()=>{const cy=${CY};cy.zoom(.8);cy.center(cy.getElementById(${q(markerPkg)}));return true;})()`);
+  await mouse('mouseMoved',5,5);await pause(400);
+  const pkgName=await evaluate(`${CY}.getElementById(${q(markerPkg)}).data('simpleName')`);
+  await until(`!!document.querySelector(${q(`button[aria-label="Show types inside ${pkgName}"]`)})`,'marker package can expand');
+  await evaluate(`document.querySelector(${q(`button[aria-label="Show types inside ${pkgName}"]`)}).click(),true`);
+  await until(`${CY}.nodes().some(n=>n.data('simpleName')==='RegionTag')`,'RegionTag card');
+  const tagId=await evaluate(`${CY}.nodes().filter(n=>n.data('simpleName')==='RegionTag')[0].id()`);
+  assert.equal(await evaluate(`${CY}.getElementById(${q(tagId)}).data('detailCount')||0`),0,'RegionTag has no methods');
+  await evaluate(`(()=>{const cy=${CY};cy.center(cy.getElementById(${q(tagId)}));return true;})()`);await pause(300);
+  await until(`!!document.querySelector('button[aria-label="Show methods inside RegionTag"]')`,'an empty parsed type can expand in design mode');
+  await evaluate(`document.querySelector('button[aria-label="Show methods inside RegionTag"]').click(),true`);
+  await until(`${CY}.getElementById(${q(tagId)}).data('emptyBox')===true`,'RegionTag opens as an empty box');
+  assert.equal((await blocksOf(tagId)).length,1,'one block in the empty parsed type');
+  const box0=await evaluate(`(()=>{const b=${CY}.getElementById(${q(tagId)}).boundingBox({includeLabels:false,includeOverlays:false});return {x1:b.x1,y1:b.y1};})()`);
+  const z=await evaluate(`${CY}.zoom()`);
+  await dragBy(tagId,120,40);
+  const box1=await evaluate(`(()=>{const b=${CY}.getElementById(${q(tagId)}).boundingBox({includeLabels:false,includeOverlays:false});return {x1:b.x1,y1:b.y1};})()`);
+  results.emptyParsedDrag={zoom:z,box0,box1};
+  assert.ok(Math.abs(box1.x1-box0.x1-120/z)<1.5&&Math.abs(box1.y1-box0.y1-40/z)<1.5,'an empty box lands where it was dropped, no creep: '+JSON.stringify(results.emptyParsedDrag));
+  await shot('16b-empty-parsed-type-design-on');
+  // Design off: an ordinary card again (drawn, measured and dragged as before this change).
+  await evaluate(`document.querySelector('.design-toggle').click(),true`);
+  await until(`${CY}.nodes().filter(n=>n.id().startsWith('design:')).length===0`,'design hidden in B');
+  const off=await evaluate(`(()=>{const n=${CY}.getElementById(${q(tagId)});return {expanded:n.data('expanded'),w:n.width(),cw:n.data('cardWidth'),x:n.position().x,y:n.position().y};})()`);
+  assert.equal(off.expanded,false,'with Design off the empty expansion is drawn as its card');
+  assert.equal(off.w,off.cw,'card-sized');
+  await dragBy(tagId,-90,50);
+  const offAfter=await evaluate(`(()=>{const n=${CY}.getElementById(${q(tagId)});return {x:n.position().x,y:n.position().y};})()`);
+  results.emptyParsedDesignOff={off,offAfter};
+  assert.ok(Math.abs(offAfter.x-off.x+90/z)<1.5&&Math.abs(offAfter.y-off.y-50/z)<1.5,'with Design off it lands where it was dropped: '+JSON.stringify(results.emptyParsedDesignOff));
+  assert.deepEqual(await topLevelOverlaps(),[],'nothing overlaps with Design off');
+  await shot('16c-empty-parsed-type-design-off');
+  await evaluate(`document.querySelector('.design-toggle').click(),true`);
+  await until(`${CY}.getElementById(${q(tagId)}).data('emptyBox')===true`,'the empty box returns with Design on');
+}
 const overlayB=await (await fetch(`${base}/api/workspaces/${wsB}/design`)).json();
 const byKey=Object.fromEntries(overlayB.resources.map(r=>[r.key,r]));
 assert.equal(byKey['com.example.spring.service.OrderService'].status,'MISSING');

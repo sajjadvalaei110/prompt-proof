@@ -72,9 +72,8 @@ Checks run:
   code (`git diff --stat` is frontend and scripts only), so the failure comes from the environment (the
   fixture's Gradle build on this machine). It is not a regression.
 - With `CHROMIUM=/snap/bin/chromium` (the `/opt/pw-browsers` Chromium of round 3 is not on this machine):
-  - `python3 scripts/verify_design_layer_pipeline.py`: PASS. 23 screenshots inspected and copied to
-    `docs/evidence/design-layer-ux/`, with `report.json` and `design-prompt.md`. They replace round 3's;
-    05b, 05c, 06b and 06c are new. Measured:
+  - `python3 scripts/verify_design_layer_pipeline.py`: PASS, 23 screenshots (05b, 05c, 06b and 06c new); see
+    the follow-up below for the inspected 25. Measured:
     - a one-class package has one reserve of 180×130;
     - the service package (7 types, 3 columns) offers 2 gaps. A class made in the first keeps the gap's
       corner exactly. The package size is unchanged within 4 px of border/hover outline, and 1 gap remains;
@@ -96,11 +95,37 @@ Not run:
 - live-model verification: nothing here calls the model;
 - `constrainedMemoryTest`: no change to bounded explanation work.
 
+Follow-up (second commit, after review):
+- Outside design mode, App's projection now draws a childless expansion as its card (`expanded: false`).
+  - Before: an empty box opened in design mode, or one emptied by a scope edit, was drawn with Design off
+    as a padded dashed node, while geometry measured it as a card. Every drag stored its anchor 44 px off.
+  - Now drawing, room-making and drag agree, and the card is exactly an unexpanded one.
+- `cardMove` reads an empty box's anchor with the exact inverse of its drawn position, which removes a 2 px
+  creep per drag.
+- New pipeline checks:
+  - 4b: the method keeps its block's corner, and nothing overlaps;
+  - 6a, in fixture B: the method-less parsed type `RegionTag` expands in design mode onto one block. Dragged
+    by (120, 40) px, its box moves by exactly that over the zoom (±1.5). With Design off it is a card-sized,
+    unexpanded card that lands exactly where it was dropped, and nothing overlaps. Screenshots 16b and 16c.
+- Reruns on the follow-up jar:
+  - `npx tsc -b --force && npm run build`: PASS;
+  - all 18 `node scripts/test-*.mjs`: PASS;
+  - `./gradlew bootJar`: PASS;
+  - `verify_design_layer_pipeline.py`: PASS. All 25 screenshots inspected (01–18, including 05b, 05c, 06b,
+    06c, 16b and 16c) and copied to `docs/evidence/design-layer-ux/`, replacing the first commit's 23;
+  - `verify_change_edges_pipeline.py`: PASS; `verify_ungroup_pipeline.py`: 33/33 PASS;
+    `verify_git_review_pipeline.py`: PASS. Sample screenshots inspected;
+  - `verify_stable_graph_pipeline.py acceptance`: the same failure as before this work, at `revealClasses`.
+  - `./gradlew test` was not rerun: no backend change since the first run.
+- In the first commit's checks, "23 screenshots inspected" was too strong. About 8 of them had been looked
+  at. The follow-up run above is the one fully inspected.
+
 Remaining limits:
 - Cards created in reserves stack in a column at the box's left, so gaps mostly come from parsed packages,
   resized boxes and dragged children.
 - In a narrow (empty) box, a long header label can run under the corner buttons.
-- An empty box expanded in design mode stays expanded when Design is off, drawn as a childless dashed node.
+- A drag of a child inside a box does not make room around the box (unchanged behaviour). Screenshot 16b
+  shows the marker package overlapping a neighbour after the drag of `RegionTag`.
 
 ## Design layer round 3: quick intent popup, plain prompt, faithful import, design-only projects (2026-10-02, ADR 0016)
 
