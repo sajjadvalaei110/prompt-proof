@@ -4,13 +4,13 @@ import { apiClient, type IndexerOption, type WorkspaceLanguage } from './api/cli
 import { DEFAULT_INDEXER_BY_LANGUAGE, type ImportEngineChoice } from './features/import/importEngine';
 import { ImportScreen } from './features/import/ImportScreen';
 import GraphCanvas from './features/explorer/GraphCanvas';
-import { AtlasGraph, AtlasNode, AtlasEdge, Level, isType, ownerAt, getEligibleIds, rankEligibleIds, projectDisplayed, childrenOf, revealContainers } from './features/explorer/graphModel';
+import { AtlasGraph, AtlasNode, AtlasEdge, Level, isType, ownerAt, getEligibleIds, rankEligibleIds, projectDisplayed, childlessExpansionsAsCards, childrenOf, revealContainers } from './features/explorer/graphModel';
 import { ScopeSelection, wholeSystemScope, scopeToLabel, isNodeInScope, isClassInScope, togglePackages, toggleClass } from './features/explorer/scopeModel';
 import { explorerViewReducer, initExplorerViewState, nearestHiddenAncestor, collapseTargets, ExplorerViewState, ExplorerAction, PlacementDims, Point, Camera, CardMoves } from './features/explorer/explorerViewState';
 import { arrangeDisplayed, ArrangeEdge, DisplayedCard } from './features/explorer/focusedArrangement';
-import { nodeCard, defaultCardSize, CardSize } from './features/explorer/nodeCard';
+import { nodeCard, defaultCardSize, expandsWhenEmpty, CardSize } from './features/explorer/nodeCard';
 import { AddArea, Box, RoomCard, boxOfCard, boxWithBlocks, layoutChildren, roomMoves } from './features/explorer/expansionLayout';
-import { addSlotSizes, expandsWhenEmpty, geometryForJourney, placementForGraphs } from './features/explorer/placementGeometry';
+import { addSlotSizes, geometryForJourney, placementForGraphs } from './features/explorer/placementGeometry';
 import NavigationPane from './features/explorer/NavigationPane';
 import InspectorPanel from './features/inspector/InspectorPanel';
 import SettingsScreen from './features/settings/SettingsScreen';
@@ -23,7 +23,7 @@ import { useExplorerJourneys, flushExplorerCamera } from './features/explorer/us
 import { Journey, collapseInJourney, cycleRelationStack, newJourney, toggleJourneyReview, toggleRelationStack } from './features/explorer/explorerJourney';
 import { revalidateJourneyState } from './features/explorer/revalidateJourney';
 import { outgoingStack, stackSummary, type StackDirection } from './features/explorer/outgoingStack';
-import { DesignOverlay, MEMBER_KINDS, childKey, createResourceOps, defaultRelationKind, designNodeId, keyOf, mergeDesignGraph, parseInlineName, relationOps, relationsOfRoute, unionGraphs } from './features/design/designModel';
+import { DesignOverlay, MEMBER_KINDS, childKey, createResourceOps, defaultRelationKind, designNodeId, keyOf, mergeDesignGraph, parseInlineName, relationOps, relationsOfRoute, takeAdmitted, unionGraphs } from './features/design/designModel';
 import { applyLayout, captureLayout, isMapLayout, scopeFromLayout } from './features/design/designExchange';
 import DesignEditorDialog, { type DesignDraft } from './features/design/DesignEditorDialog';
 import { slotKind, type DesignCanvas } from './features/explorer/GraphCanvas';
@@ -46,7 +46,9 @@ function initialViewForGraph(g: AtlasGraph) {
 
 /** A card typed into an expanded box (ADR 0015, 0017): the box before, and the new card's stored center inside it.
  * `boxes` are every expanded box before the change, so a nested box's growth cascades through the boxes around it. */
-interface Growth { containerId:string; before:Box; boxes:Record<string,Box>; child:{ id:string; position:Point; size:CardSize } }
+/** A card typed into an add block (ADR 0017): the box it went into and that box before, every box then, the
+ * card's place and shape, and the tab it was typed in (only that tab pins it there and makes room). */
+interface Growth { containerId:string; before:Box; boxes:Record<string,Box>; child:{ id:string; position:Point; size:CardSize }; tabId:number }
 
 export default function App() {
   const searchId = 'global-search';
@@ -230,15 +232,9 @@ export default function App() {
   function handleNodesMoved(moves:{id:string;position:Point;containerId:string|null}[]){dispatchView({type:'NODES_MOVED',level,moves,generation:viewState.generation});}
   const expansionInput=useMemo(()=>({expansions:Object.entries(expansions).map(([id,e])=>({id,ownerId:e.ownerId,hidden:e.hidden})),scope}),[expansions,scope]);
   const projectedDesignMode=showDesign&&!active.present.review;
-  const projected=useMemo(()=>{
-    const p=graph?projectDisplayed(graph,level,displayedIds,kind,expansionInput):{nodes:[] as AtlasNode[],edges:[] as AtlasEdge[]};
-    if(projectedDesignMode)return p;
-    // Outside design mode an expansion with nothing inside (opened empty in design mode, ADR 0017, or emptied
-    // by a scope edit) is drawn, measured and dragged as its card: geometry already gives it no box.
-    const parents=new Set(p.nodes.map(n=>n.containerId));
-    const empty=(n:AtlasNode)=>!!n.expanded&&!n.hiddenBox&&!parents.has(n.id);
-    return p.nodes.some(empty)?{...p,nodes:p.nodes.map(n=>empty(n)?{...n,expanded:false}:n)}:p;
-  },[graph,level,displayedIds,kind,expansionInput,projectedDesignMode]);
+  const rawProjected=useMemo(()=>graph?projectDisplayed(graph,level,displayedIds,kind,expansionInput):{nodes:[] as AtlasNode[],edges:[] as AtlasEdge[]},[graph,level,displayedIds,kind,expansionInput]);
+  // An expansion with nothing drawn inside is drawn as its card, still collapsible (ADR 0017 §4).
+  const projected=useMemo(()=>childlessExpansionsAsCards(rawProjected,projectedDesignMode),[rawProjected,projectedDesignMode]);
   // The relation stack (outgoing, or incoming over reversed facts): a walk over the tab's parser facts
   // (`graph`, ordinary or Changes) at the root's granularity, mapped onto the drawn cards and routes and
   // recomputed whenever they, the filter or the expansions change (docs/OUTGOING_STACK.md). GraphCanvas
@@ -589,6 +585,20 @@ export default function App() {
     dispatchView({type:'ARRANGE_AROUND_RESOURCE',level,positions:moves.positions,childPositions:moves.childPositions,generation:viewState.generation});
   }
   const boxOf=(k:AtlasNode):Box=>geometry.boxes[k.id]||boxOfCard({id:k.id,...cardSizeOf(k),...(geometry.positions[k.id]||{x:0,y:0})});
+  // The collapse of an expansion drawn as its card, in design-mode geometry (ADR 0017 §4): its box is its
+  // empty box (its card-sized block, or the user's larger size), and every box around it keeps its add blocks
+  // as the cascade goes up, exactly as when it expanded in design mode. So a round trip (expand with Design
+  // on, collapse with Design off) puts every other card back. Null for an ungrouped one: it takes no room.
+  function collapseRoomAsInDesign(n:AtlasNode,size:CardSize):{before:Box;moves:CardMoves}|null{
+    if(!graph)return null;
+    const designProjection=childlessExpansionsAsCards(rawProjected,true);
+    const g=geometryForJourney(graph,viewState,scope,kind,designProjection,undefined,{designSlots:true});
+    const before=g.boxes[n.id];
+    if(!before)return null;
+    const after={x1:before.x1,y1:before.y1,x2:before.x1+size.width,y2:before.y1+size.height};
+    const cards:RoomCard[]=designProjection.nodes.map(k=>({id:k.id,containerId:k.containerId??null,expanded:k.expanded,hidden:k.hiddenBox,box:g.boxes[k.id]||boxOfCard({id:k.id,...cardSizeOf(k),...(g.positions[k.id]||{x:0,y:0})}),position:g.positions[k.id],minSize:expansions[k.id]?.minSize??null,blocks:k.expanded&&!k.hiddenBox?addSlotSizes(k.kind):null}));
+    return {before,moves:roomMoves(cards,n.id,before,after)};
+  }
   // When card `n`'s box changes from `before` to `after` (expand, collapse, resize), cards to its right
   // or below make room (expansionLayout.roomMoves, which looks through an ungrouped box). When it sits inside a container, that container's
   // resulting change makes room around it in turn, up to the map itself. Returns the moves to dispatch
@@ -610,8 +620,11 @@ export default function App() {
     if(!graph||!n)return false;
     const size=cardSizeOf(n);
     if(expansions[n.id]){
-      const before=boxOf(n),after={x1:before.x1,y1:before.y1,x2:before.x1+size.width,y2:before.y1+size.height};
-      const action:Extract<ExplorerAction,{type:'COLLAPSE_RESOURCE'}>={type:'COLLAPSE_RESOURCE',level,id:n.id,position:{x:before.x1+size.width/2,y:before.y1+size.height/2},moves:makeRoom(n,before,after),generation:viewState.generation};
+      // An expansion drawn as its card (ADR 0017 §4: Design off or Changes) made its room in design mode,
+      // around its empty box: collapsing it gives that room back, measured as design mode measures it.
+      const asInDesign=n.drawnAsCard?collapseRoomAsInDesign(n,size):null;
+      const before=asInDesign?.before||boxOf(n),after={x1:before.x1,y1:before.y1,x2:before.x1+size.width,y2:before.y1+size.height};
+      const action:Extract<ExplorerAction,{type:'COLLAPSE_RESOURCE'}>={type:'COLLAPSE_RESOURCE',level,id:n.id,position:{x:before.x1+size.width/2,y:before.y1+size.height/2},moves:asInDesign?asInDesign.moves:makeRoom(n,before,after),generation:viewState.generation};
       if(explorerViewReducer(viewState,action)===viewState)return false;
       collapse(action,group);
       return true;
@@ -794,7 +807,7 @@ export default function App() {
    * geometry. Existing eligible IDs retain their order/positions; only newly admitted IDs are
    * placed by the reducer. In map mode review-only IDs are parked only while they remain eligible
    * in the current comparison, so an ordinary scope edit cannot resurrect an excluded resource. */
-  function reconcileJourneyGraph(j:Journey,targetGraph:AtlasGraph,targetIsReview:boolean,reviewGraph?:AtlasGraph,pins:Record<string,Point>={},growth?:Growth):Journey {
+  function reconcileJourneyGraph(j:Journey,targetGraph:AtlasGraph,targetIsReview:boolean,reviewGraph?:AtlasGraph,pins:Record<string,Point>={},growths:Growth[]=[],tabId?:number):Journey {
     const levels=(['PACKAGE','CLASS','METHOD'] as Level[]);
     const eligible=Object.fromEntries(levels.map(l=>[l,eligibleByLevel(targetGraph,j.scope,l)])) as Record<Level,string[]>;
     const parkedGraph=targetIsReview?reviewParkedGraph():mapParkedGraph(reviewGraph);
@@ -807,13 +820,22 @@ export default function App() {
     // A card typed in place on the map lands where it was typed (ADR 0015).
     for(const [id,p] of Object.entries(pins)) if(placement[id]) placement[id]={...placement[id],pinned:p};
     let view=explorerViewReducer(j.view,{type:'SCOPE_UPDATED',eligibleIds:eligible[activeLevel],batchSize:activeLevel==='PACKAGE'?Infinity:REVIEW_BATCH_SIZE,placement,otherLevels:Object.fromEntries(levels.filter(l=>l!==activeLevel).map(l=>[l,eligible[l]])) as Partial<Record<Level,string[]>>,expansionChildren:expansionChildrenFor(targetGraph,j,parkedGraph),preserveReviewOnly:!targetIsReview,reviewOnlyIds:reviewOnlyByLevel[activeLevel],otherReviewOnlyIds:reviewOnlyByLevel,parkedIds:parkedByLevel[activeLevel],otherParkedIds:parkedByLevel});
-    if(growth&&!targetIsReview){
-      // The card typed into an add block is stored where it was typed, in the block's shape (ADR 0017).
-      // RESIZE_RESOURCE sets both at once; inside RECONCILE_ALL it stays outside undo history.
-      const e=view.levelViews[activeLevel].expansions[growth.containerId];
-      if(e&&!e.childPositions[growth.child.id]&&expansionChildrenFor(targetGraph,{...j,view},parkedGraph)[growth.containerId]?.includes(growth.child.id))
-        view=explorerViewReducer(view,{type:'RESIZE_RESOURCE',level:activeLevel,id:growth.child.id,containerId:growth.containerId,size:growth.child.size,position:growth.child.position,generation:view.generation});
-      view=makeRoomForGrowth(view,j,targetGraph,growth);
+    if(!targetIsReview)for(const growth of growths){
+      // The card typed into an add block takes the block's shape in every tab whose box admits it (ADR 0017).
+      // RESIZE_RESOURCE sets position and size at once; inside RECONCILE_ALL it stays outside undo history.
+      const id=growth.child.id,lv=view.levelViews[activeLevel],e=lv.expansions[growth.containerId];
+      if(!e||e.childPositions[id]||!expansionChildrenFor(targetGraph,{...j,view},parkedGraph)[growth.containerId]?.includes(id))continue;
+      if(growth.tabId===tabId){
+        // The tab it was typed in: exactly where it was typed, and the box's neighbours make room (ADR 0015).
+        view=explorerViewReducer(view,{type:'RESIZE_RESOURCE',level:activeLevel,id,containerId:growth.containerId,size:growth.child.size,position:growth.child.position,generation:view.generation});
+        view=makeRoomForGrowth(view,j,targetGraph,growth);
+      }else{
+        // Any other tab: the same shape, placed below the box's other children like any new card. The place is
+        // stored with the size, so the next reconciliation keeps both.
+        const sized={...view,levelViews:{...view.levelViews,[activeLevel]:{...lv,sizes:{...lv.sizes,[id]:growth.child.size}}}};
+        const at=geometryForJourney(targetGraph,sized,j.scope,j.kind).positions[id];
+        if(at)view=explorerViewReducer(view,{type:'RESIZE_RESOURCE',level:activeLevel,id,containerId:growth.containerId,size:growth.child.size,position:at,generation:view.generation});
+      }
     }
     return revalidateJourney({ ...j, view },targetGraph,targetIsReview);
   }
@@ -900,11 +922,15 @@ export default function App() {
     if(!designReconcile.current||!mapGraph)return;
     designReconcile.current=false;
     const target=mapGraph,comparison=reviewComparison.graph||undefined;
-    // The command may run its reconcile later (a state updater), so it takes the pins with it.
-    const pins=pendingPins.current,growth=pendingGrowth.current,shown=active.present;
-    pendingPins.current={};pendingGrowth.current=null;
-    // Only the tab the card was typed in grows around it; other tabs admit it like any new card.
-    journeys.command({type:'RECONCILE_ALL',reconcile:j=>j.review?j:reconcileJourneyGraph(j,target,false,comparison,pins,j===shown&&growth?growth:undefined)});
+    // A pin or growth is used only by the reconciliation that admits its card (takeAdmitted): one that lands
+    // before the card exists (the overlay poll, while the create is in flight) leaves it for the next one.
+    // The command may run its reconcile later (a state updater), so it takes them with it.
+    const ids=new Set(target.nodes.map(n=>n.id));
+    const pinned=takeAdmitted(pendingPins.current,id=>ids.has(id)),grown=takeAdmitted(pendingGrowth.current,id=>ids.has(id));
+    pendingPins.current=pinned.kept;pendingGrowth.current=grown.kept;
+    const pins=pinned.taken,growths=Object.values(grown.taken);
+    // Only the tab the card was typed in pins it and grows around it; other tabs give it the same shape.
+    journeys.command({type:'RECONCILE_ALL',reconcile:(j,tabId)=>j.review?j:reconcileJourneyGraph(j,target,false,comparison,pins,growths,tabId)});
     const layout=pendingLayout.current;
     pendingLayout.current=null;
     if(isMapLayout(layout))openLayoutTab(layout,target);
@@ -948,7 +974,7 @@ export default function App() {
   const pendingPins=useRef<Record<string,Point>>({});
   // The box a card was typed into, its box before, and where in it the card goes: the reconciliation
   // that admits the card stores it there and makes room around the box.
-  const pendingGrowth=useRef<Growth|null>(null);
+  const pendingGrowth=useRef<Record<string,Growth>>({});
   /** "+ class"/"+ method" in a box's add block, or a card menu "Add …" (its first block): the draft sits where the card will live. */
   function startInlineAdd(parent:AtlasNode,kind?:string,block?:Box){
     const childKind=kind||slotKind(parent.kind);
@@ -978,12 +1004,12 @@ export default function App() {
     setInlineDraft({...d,error:null,busy:true});
     try{
       if(d.pinned)pendingPins.current[designNodeId(key)]=d.pinned;
-      if(d.parent&&d.inBox&&geometry.boxes[d.parent.id])pendingGrowth.current={containerId:d.parent.id,before:geometry.boxes[d.parent.id],boxes:{...geometry.boxes},child:{id:designNodeId(key),position:{x:(d.box.x1+d.box.x2)/2,y:(d.box.y1+d.box.y2)/2},size:{width:d.box.x2-d.box.x1,height:d.box.y2-d.box.y1}}};
+      if(d.parent&&d.inBox&&geometry.boxes[d.parent.id])pendingGrowth.current[designNodeId(key)]={containerId:d.parent.id,before:geometry.boxes[d.parent.id],boxes:{...geometry.boxes},child:{id:designNodeId(key),position:{x:(d.box.x1+d.box.x2)/2,y:(d.box.y1+d.box.y2)/2},size:{width:d.box.x2-d.box.x1,height:d.box.y2-d.box.y1}},tabId:active.id};
       await applyDesign(createResourceOps(parentKey,parsed));
       setInlineDraft(null);
       setQuickPopup({target:{resource:{key,kind:parsed.kind,name:parsed.name}},anchor});
       setStatus(`Added ${parsed.kind.toLowerCase()} ${key}${d.parent&&!d.parent.expanded?` inside ${d.parent.simpleName}`:''}`);
-    }catch(e:any){delete pendingPins.current[designNodeId(key)];pendingGrowth.current=null;setInlineDraft(cur=>cur&&{...cur,busy:false,error:e.message});}
+    }catch(e:any){delete pendingPins.current[designNodeId(key)];delete pendingGrowth.current[designNodeId(key)];setInlineDraft(cur=>cur&&{...cur,busy:false,error:e.message});}
   }
   /** The second click of a two-click relation: create it as CALLS, then ask for its intent and kind at its middle. */
   async function linkCards(source:AtlasNode,target:AtlasNode,anchor:Point){

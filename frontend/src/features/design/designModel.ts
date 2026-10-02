@@ -218,8 +218,22 @@ export interface MapLayout {
   version: 1;
   scope: { mode: 'ALL' | 'CUSTOM'; packageKeys: string[]; classKeys: string[] };
   positions: Record<string, { x: number; y: number }>;
-  expansions: Record<string, { ownerKey: string | null; hidden?: boolean; childPositions: Record<string, { x: number; y: number }> }>;
+  /** `minSize`: a box the user resized larger (its inner minimum); absent when it was never resized. */
+  expansions: Record<string, { ownerKey: string | null; hidden?: boolean; minSize?: { width: number; height: number }; childPositions: Record<string, { x: number; y: number }> }>;
   sizes: Record<string, { width: number; height: number }>;
   camera: { zoom: number; pan: { x: number; y: number } } | null;
   kind: string;
+}
+
+/**
+ * Splits what App holds for cards typed in place but not on the map yet (ADR 0015 pins, ADR 0017 growth),
+ * keyed by the new card's node id, into the entries the graph about to be reconciled now holds, and the
+ * rest. An entry is used only by the reconciliation that actually admits its card: an unrelated one (the
+ * agent overlay poll landing while the create request is still in flight) keeps it for later. A create
+ * that fails removes its entry (commitInlineDraft), so nothing is ever applied to a card that was not created.
+ */
+export function takeAdmitted<T>(pending: Record<string, T>, admitted: (id: string) => boolean): { taken: Record<string, T>; kept: Record<string, T> } {
+  const taken: Record<string, T> = {}, kept: Record<string, T> = {};
+  for (const [id, value] of Object.entries(pending)) (admitted(id) ? taken : kept)[id] = value;
+  return { taken, kept };
 }

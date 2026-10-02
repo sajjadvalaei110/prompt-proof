@@ -93,8 +93,6 @@ export function addSlotSizes(containerKind: string): BlockSizes | null {
   const kind = containerKind === 'PACKAGE' ? 'CLASS' : ADD_TYPE_KINDS.includes(containerKind) ? 'METHOD' : null;
   return kind ? { card: defaultCardSize({ kind } as AtlasNode), least: DESIGN_LEAST_BLOCK } : null;
 }
-/** Packages and types: the cards that expand in design mode even with nothing inside (ADR 0017). */
-export const expandsWhenEmpty = (kind: string) => kind === 'PACKAGE' || ADD_TYPE_KINDS.includes(kind);
 
 const unionBox = (a?: Box, b?: Box): Box | undefined => {
   if (!a) return b;

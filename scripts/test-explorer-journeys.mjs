@@ -850,4 +850,13 @@ check('step 13: a sequential expand queue shares one explicit group, so its rend
   hook.seed.state = null;
   count++; console.log('PASS step 13 review: the hook joins explicit-group updates across renders');
 }
+check('ADR 0017 review F3/F10: RECONCILE_ALL tells each open and closed tab its own id, outside undo history', () => {
+  let s = reduce(reduce(reduce(initJourneys(), { type: 'NEW' }), { type: 'NEW' }), { type: 'CLOSE', id: initJourneys().activeId });
+  const seen = [];
+  const pastBefore = s.tabs.map(t => t.past.length);
+  s = reduce(s, { type: 'RECONCILE_ALL', reconcile: (j, tabId) => { seen.push(tabId); return { ...j, search: 'tab ' + tabId }; } });
+  assert.deepEqual(seen.sort(), [...s.tabs, ...s.closed].map(t => t.id).sort(), 'every open and closed tab, each with its own id');
+  for (const t of [...s.tabs, ...s.closed]) assert.equal(t.present.search, 'tab ' + t.id);
+  assert.deepEqual(s.tabs.map(t => t.past.length), pastBefore, 'no history entry');
+});
 console.log(`${count} journey checks passed`);

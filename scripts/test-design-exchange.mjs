@@ -20,7 +20,7 @@ const source={nodes:[
   {id:'a9',kind:'PACKAGE',simpleName:'com.other',qualifiedName:'com.other'},
 ],edges:[]};
 const sourceView=view(level({displayedIds:['a1','a9'],positions:{a1:{x:10,y:20},a9:{x:500,y:20}},camera:{zoom:.8,pan:{x:5,y:6}},
-  expansions:{a1:{ownerId:null,childPositions:{a2:{x:30,y:40},'design:com.acme.Planned':{x:300,y:40}},minSize:null},a2:{ownerId:'a1',childPositions:{a3:{x:35,y:45}},minSize:null,hidden:true}},
+  expansions:{a1:{ownerId:null,childPositions:{a2:{x:30,y:40},'design:com.acme.Planned':{x:300,y:40}},minSize:{width:900,height:600}},a2:{ownerId:'a1',childPositions:{a3:{x:35,y:45}},minSize:null,hidden:true}},
   sizes:{a2:{width:300,height:220}}}));
 const layout=captureLayout(sourceView,{mode:'CUSTOM',selectedPackageIds:new Set(['a1']),selectedClassIds:new Set()},'CALLS',source);
 assert.ok(isMapLayout(layout));
@@ -28,6 +28,7 @@ assert.deepEqual(layout.scope,{mode:'CUSTOM',packageKeys:['com.acme'],classKeys:
 assert.deepEqual(layout.positions,{'com.acme':{x:10,y:20},'com.other':{x:500,y:20}});
 assert.deepEqual(layout.expansions['com.acme.Svc'],{ownerKey:'com.acme',hidden:true,childPositions:{'com.acme.Svc.run()':{x:35,y:45}}});
 assert.deepEqual(layout.expansions['com.acme'].childPositions['com.acme.Planned'],{x:300,y:40});
+assert.deepEqual(layout.expansions['com.acme'].minSize,{width:900,height:600},'a resized box exports its size (ADR 0017 review)');
 assert.deepEqual(layout.sizes,{'com.acme.Svc':{width:300,height:220}});
 assert.equal(layout.kind,'CALLS');
 assert.ok(JSON.stringify(layout)===JSON.stringify(JSON.parse(JSON.stringify(layout))),'a layout is plain JSON');
@@ -48,7 +49,7 @@ const baseView=view(level({displayedIds:['b1'],positions:{b1:{x:0,y:0}},geometry
 const applied=applyLayout(baseView,layout,target);
 const lv=applied.levelViews.PACKAGE;
 assert.deepEqual(lv.positions,{b1:{x:10,y:20}},'saved positions apply by key; absent cards are skipped');
-assert.deepEqual(lv.expansions.b1,{ownerId:null,childPositions:{b2:{x:30,y:40},'design:com.acme.Planned':{x:300,y:40}},minSize:null});
+assert.deepEqual(lv.expansions.b1,{ownerId:null,childPositions:{b2:{x:30,y:40},'design:com.acme.Planned':{x:300,y:40}},minSize:{width:900,height:600}},'a resized box keeps its size (ADR 0017 review)');
 assert.deepEqual(lv.expansions.b2,{ownerId:'b1',childPositions:{b3:{x:35,y:45}},minSize:null,hidden:true},'a nested expansion keeps its owner and ungrouped state');
 assert.deepEqual(lv.sizes,{b2:{width:300,height:220}});
 assert.deepEqual(lv.camera,{zoom:.8,pan:{x:5,y:6}});

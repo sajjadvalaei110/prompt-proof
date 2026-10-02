@@ -2,8 +2,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEve
 import cytoscape from 'cytoscape';
 import { AtlasNode, AtlasEdge, kindSummary, reviewRouteSummary } from './graphModel';
 import { nodeCard, DESIGN_TONE, cornerButtons, hasCodeButton, hasDetailsButton, CODE_BUTTON, MIN_CARD_SIZE, CornerAction, CardSize } from './nodeCard';
-import { AddArea, Box, CONTAINER_BUTTON, CONTAINER_PADDING, addBlockAt } from './expansionLayout';
-import { addSlotSizes, expandsWhenEmpty } from './placementGeometry';
+import { ADD_BLOCK_SNAP, AddArea, Box, CONTAINER_BUTTON, CONTAINER_PADDING, addBlockAt, blockStillOpen, emptyBoxAnchor, emptyBoxCenter } from './expansionLayout';
+import { addSlotSizes } from './placementGeometry';
 import CodeButton from '../../components/CodeButton';
 import { REVIEW_CHANGE_PALETTE } from '../review/reviewPalette';
 
@@ -22,9 +22,9 @@ const STACK_BADGE_SIZE = 30, STACK_BADGE_MIN_PX = 20;
 const UNGROUP_BUTTON = { right: CONTAINER_BUTTON.inset + 2 * (CONTAINER_BUTTON.size + 6), top: CONTAINER_BUTTON.inset, size: CONTAINER_BUTTON.size };
 // `right` is the square's right edge from the box's right edge, as in stackButton: collapse at inset,
 // the stack toggle one slot left, Ungroup two slots left.
-function stackButton(data: any): { right: number; top: number; size: number } {
+function stackButton(data: any, designMode = false): { right: number; top: number; size: number } {
   if (data.expanded) return { right: CONTAINER_BUTTON.inset + CONTAINER_BUTTON.size + 6, top: CONTAINER_BUTTON.inset, size: CONTAINER_BUTTON.size };
-  const corners = cornerButtons(data);
+  const corners = cornerButtons(data, designMode);
   return { right: corners.length ? Math.max(...corners.map(c => c.right + c.size)) + 8 : CODE_BUTTON.right, top: CODE_BUTTON.top, size: CODE_BUTTON.size };
 }
 interface MinimapState { nodes: { id: string; x: number; y: number; w: number; h: number; parent: boolean }[]; box: { x1: number; y1: number; w: number; h: number }; viewport: { x1: number; y1: number; w: number; h: number }; zoom: number }
@@ -158,6 +158,8 @@ export interface DesignCanvas {
   /** Double-click (or the menu's Explain) on a card or a designed route. */
   onEdit: (target: { node: AtlasNode } | { edge: AtlasEdge }, anchor: Point) => void;
 }
+/** The smallest scale an inline draft's content is drawn at (ADR 0017): below it the input would be unreadable. */
+const DRAFT_MIN_SCALE = 0.6;
 /** An add block's identity on the hover key (ADR 0017): its model corner. */
 export const blockKey = (b: Box | undefined) => b ? `${Math.round(b.x1)},${Math.round(b.y1)}` : '';
 /** The inline title a slot asks for, by the box's kind. */
@@ -253,21 +255,19 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
   // The full breakdown is one hover away and listed in full in the inspector.
   const edgeLabel=(e:AtlasEdge)=>(e.design&&(e.design.origin!=='CODE'||e.design.explanation)?'✎ ':e.explanationStatus==='READY'?'✦ ':'')+kindSummary(e,1);
   const designOn=!!design;
-  // In design mode an empty package or type still expands, onto its one add block (ADR 0017).
-  const designExpandable=(n:AtlasNode):AtlasNode=>designOn&&!n.expanded&&!(n.detailCount||0)&&expandsWhenEmpty(n.kind)?{...n,designExpandable:true} as AtlasNode:n;
   const childCounts=useMemo(()=>{const m=new Map<string,number>();for(const n of nodes)if(n.containerId)m.set(n.containerId,(m.get(n.containerId)||0)+1);return m;},[nodes]);
   // `parent` is left out on purpose: Cytoscape sets a node's parent only on add or move(), never through data().
   // Boolean flags are always written: data() merges, so a flag left out would keep its stale value.
   const nodeStyleData=(n:AtlasNode)=>{
-    n=designExpandable(n);
     const {containerId:_containerId,design,...rest}=n;
-    const card=nodeCard(n,sizes[n.id]),min=containerSizes[n.id];
+    // In design mode an empty package or type still expands, onto its one add block (ADR 0017): its card shows the details square.
+    const card=nodeCard(n,sizes[n.id],designOn),min=containerSizes[n.id];
     // An expanded package/type with nothing inside (design mode, ADR 0017) is no compound: its size is its reserve block.
     const emptyBox=!!n.expanded&&!childCounts.get(n.id)&&!!designOn&&!!min;
     const childWord=n.kind==='PACKAGE'?'types':'methods';
     const reviewChange=n.reviewChange&&n.reviewChange!=='UNCHANGED'?n.reviewChange:null;
     const reviewLabel=reviewChange==='UNKNOWN'?' · NOT ANALYZED':reviewChange?` · ${reviewChange} +${n.reviewAddedLines||0} −${n.reviewRemovedLines||0}`:'';
-    return {...rest,...(n.reviewChange?{reviewChange:n.reviewChange}:{}),expanded:!!n.expanded,hiddenBox:!!n.hiddenBox,emptyBox,designExpandable:!!(n as {designExpandable?:boolean}).designExpandable,designOnly:!!design&&!design.codeId&&design.origin!=='CODE',noSource:!!design&&!design.codeId,card:card.image,cardWidth:card.width,cardHeight:card.height,minW:min?.width||0,minH:min?.height||0,
+    return {...rest,...(n.reviewChange?{reviewChange:n.reviewChange}:{}),expanded:!!n.expanded,hiddenBox:!!n.hiddenBox,emptyBox,drawnAsCard:!!n.drawnAsCard,designOnly:!!design&&!design.codeId&&design.origin!=='CODE',noSource:!!design&&!design.codeId,card:card.image,cardWidth:card.width,cardHeight:card.height,minW:min?.width||0,minH:min?.height||0,
       containerLabel:`${n.kind==='PACKAGE'?n.qualifiedName||n.simpleName:n.simpleName}  ·  ${childCounts.get(n.id)||0} ${childWord}${reviewLabel}`,
       label:n.simpleName+'\n'+(n.roles?.[0]?.toLowerCase().replaceAll('_',' ')||n.kind.toLowerCase()),color:n.kind==='PACKAGE'?'#6c79b6':n.roles?.includes('SERVICE')?'#16888a':n.roles?.includes('REPOSITORY')?'#6287c8':'#8293a8'};
   };
@@ -445,13 +445,14 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
           const size = CONTAINER_BUTTON.size * zoomNow;
           if (size >= MIN_CODE_BUTTON_PX) {
             corners.push({ id: n.id(), action: 'collapse', left: bb.x2 - (CONTAINER_BUTTON.inset * zoomNow + size), top: bb.y1 + CONTAINER_BUTTON.inset * zoomNow, size });
-            corners.push({ id: n.id(), action: 'ungroup', left: bb.x2 - (UNGROUP_BUTTON.right + UNGROUP_BUTTON.size) * zoomNow, top: bb.y1 + UNGROUP_BUTTON.top * zoomNow, size });
+            // A box with nothing drawn inside has nothing to keep as free cards: no Ungroup (ADR 0017).
+            if (n.isParent()) corners.push({ id: n.id(), action: 'ungroup', left: bb.x2 - (UNGROUP_BUTTON.right + UNGROUP_BUTTON.size) * zoomNow, top: bb.y1 + UNGROUP_BUTTON.top * zoomNow, size });
           }
         } else if (CODE_BUTTON.size * zoomNow >= MIN_CODE_BUTTON_PX) {
           const p = n.renderedPosition(), rw = n.renderedWidth(), rh = n.renderedHeight();
-          for (const c of cornerButtons(n.data())) corners.push({ id: n.id(), action: c.action, left: p.x + rw / 2 - (c.right + c.size) * zoomNow, top: p.y - rh / 2 + c.top * zoomNow, size: c.size * zoomNow });
+          for (const c of cornerButtons(n.data(), !!designRef.current)) corners.push({ id: n.id(), action: c.action, left: p.x + rw / 2 - (c.right + c.size) * zoomNow, top: p.y - rh / 2 + c.top * zoomNow, size: c.size * zoomNow });
         }
-        const stack = stackButton(n.data()), stackSize = stack.size * zoomNow;
+        const stack = stackButton(n.data(), !!designRef.current), stackSize = stack.size * zoomNow;
         if (stackSize >= MIN_CODE_BUTTON_PX) corners.push({ id: n.id(), action: 'stack', left: bb.x2 - (stack.right + stack.size) * zoomNow, top: bb.y1 + stack.top * zoomNow, size: stackSize });
         if (bb.w >= MIN_RESIZE_CARD_PX) grips.push({ id: n.id(), left: bb.x2 - gripSize - 2, top: bb.y2 - gripSize - 2, size: gripSize });
       });
@@ -484,13 +485,10 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         }
       }
       // The add block under the pointer, if the pointer is on empty space in an expanded box.
-      // A hover block a card now covers (the one just created there) is dropped until the pointer moves again.
-      const covered = (h: { id: string; box: Box }) => {
-        const area = d?.areas[h.id];
-        const cards = area ? area.children : [];
-        return !d || (!area && !(d.slots[h.id] || []).some(b => blockKey(b) === blockKey(h.box))) || cards.some(c => c.x1 < h.box.x2 - 0.5 && h.box.x1 < c.x2 - 0.5 && c.y1 < h.box.y2 - 0.5 && h.box.y1 < c.y2 - 0.5);
-      };
-      if (addHoverRef.current && covered(addHoverRef.current)) addHoverRef.current = null;
+      // A hover block a card now covers (the one just created there), or that its box moved or shrank away
+      // from, is dropped until the pointer moves again (expansionLayout.blockStillOpen).
+      const h = addHoverRef.current;
+      if (h && (!d || !blockStillOpen(d.areas[h.id], d.slots[h.id], h.box))) addHoverRef.current = null;
       const hot = addHoverRef.current;
       if (d && hot && !linkRef.current && cy.getElementById(hot.id).length) slot = { id: hot.id, key: blockKey(hot.box), ...toStage(hot.box) };
       // The blocks in model coordinates, for checks that hover one (the overlay draws only the hot one).
@@ -528,42 +526,49 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     // the card. A plain click is hit-tested here instead: inside the square it opens the code.
     // A programmatic tap (`node.emit('tap')`) carries no position and is never on the square.
     // A block is named by its corner, not its index: a stale hover key never lights a block that moved into its place.
-    // Anywhere empty in the box's inner area offers a block centred on the pointer, as large as the free
-    // space allows; a reserve (or an empty box's one block) is offered where it is.
+    // Anywhere empty in the box's inner area offers a block around the pointer, as large as the free space
+    // allows, its corner on the ADD_BLOCK_SNAP grid; a reserve is offered where it is.
     const blockAt = (n: cytoscape.NodeSingular, p: Point): Box | null => {
       const d = designRef.current;
       if (!d || n.data('hiddenBox')) return null;
       const area = d.areas[n.id()], sizes = addSlotSizes(n.data('kind'));
-      const free = area && sizes ? addBlockAt(area, p, sizes.card, sizes.least) : null;
+      const free = area && sizes ? addBlockAt(area, p, sizes.card, sizes.least, ADD_BLOCK_SNAP) : null;
       return free || (d.slots[n.id()] || []).find(b => p.x >= b.x1 && p.x <= b.x2 && p.y >= b.y1 && p.y <= b.y2) || null;
     };
-    const cornerHit = (n: cytoscape.NodeSingular, p: Point | undefined): CornerHit | null => {
+    // What a pointer at model point `p` on card `n` hits: a corner square, or (design mode) an add block,
+    // which comes back with it so a mousemove computes it once. The squares come first: they sit in the
+    // box's header band, outside every block, and win if that ever changes.
+    const hitAt = (n: cytoscape.NodeSingular, p: Point | undefined): { action: CornerHit; block?: Box } | null => {
       // An ungrouped box draws no buttons (ADR 0011), so none can be hit.
       if (!p || n.data('hiddenBox')) return null;
       const inSquare = (right: number, top: number, size: number) => p.x >= right - size && p.x <= right && p.y >= top && p.y <= top + size;
+      const designMode = !!designRef.current;
       // The stack toggle is live only where it is drawn: the selected card, the hovered card, the root.
-      const stack = stackButton(n.data());
+      const stack = stackButton(n.data(), designMode);
       if (stackButtonIdsRef.current.has(n.id()) && stack.size * cy.zoom() >= MIN_CODE_BUTTON_PX) {
         const bb = n.boundingBox({ includeLabels: false, includeOverlays: false });
-        if (inSquare(bb.x2 - stack.right, bb.y1 + stack.top, stack.size)) return 'stack';
+        if (inSquare(bb.x2 - stack.right, bb.y1 + stack.top, stack.size)) return { action: 'stack' };
       }
       if (n.data('expanded')) {
+        if (CONTAINER_BUTTON.size * cy.zoom() >= MIN_CODE_BUTTON_PX) {
+          const bb = n.boundingBox({ includeLabels: false, includeOverlays: false });
+          if (n.isParent() && inSquare(bb.x2 - UNGROUP_BUTTON.right, bb.y1 + UNGROUP_BUTTON.top, UNGROUP_BUTTON.size)) return { action: 'ungroup' };
+          if (inSquare(bb.x2 - CONTAINER_BUTTON.inset, bb.y1 + CONTAINER_BUTTON.inset, CONTAINER_BUTTON.size)) return { action: 'collapse' };
+        }
         // The design add blocks (ADR 0015, 0017): the empty spaces where "+ class"/"+ method" creates a card.
-        if (blockAt(n, p)) return 'add';
-        if (CONTAINER_BUTTON.size * cy.zoom() < MIN_CODE_BUTTON_PX) return null;
-        const bb = n.boundingBox({ includeLabels: false, includeOverlays: false });
-        if (inSquare(bb.x2 - UNGROUP_BUTTON.right, bb.y1 + UNGROUP_BUTTON.top, UNGROUP_BUTTON.size)) return 'ungroup';
-        return inSquare(bb.x2 - CONTAINER_BUTTON.inset, bb.y1 + CONTAINER_BUTTON.inset, CONTAINER_BUTTON.size) ? 'collapse' : null;
+        const block = blockAt(n, p);
+        return block ? { action: 'add', block } : null;
       }
       if (CODE_BUTTON.size * cy.zoom() < MIN_CODE_BUTTON_PX) return null;
       const c = n.position();
-      return cornerButtons(n.data()).find(b => inSquare(c.x + n.width() / 2 - b.right, c.y - n.height() / 2 + b.top, b.size))?.action ?? null;
+      const action = cornerButtons(n.data(), designMode).find(b => inSquare(c.x + n.width() / 2 - b.right, c.y - n.height() / 2 + b.top, b.size))?.action;
+      return action ? { action } : null;
     };
-    // An add block's key carries its index: only the block under the pointer shows "+ class"/"+ method".
+    // The hover key names an add block by its snapped corner: it changes only when the block does, so a
+    // pointer moving over empty space re-renders only every few pixels, not on every mousemove.
     cy.on('mousemove', 'node', e => {
-      const action = cornerHit(e.target, e.position);
-      const block = action === 'add' ? blockAt(e.target, e.position) : null;
-      const key = block ? `${e.target.id()}:add:${blockKey(block)}` : action ? `${e.target.id()}:${action}` : null;
+      const hit = hitAt(e.target, e.position), block = hit?.block ?? null;
+      const key = block ? `${e.target.id()}:add:${blockKey(block)}` : hit ? `${e.target.id()}:${hit.action}` : null;
       const prevHover = addHoverRef.current;
       addHoverRef.current = block ? { id: e.target.id(), box: block } : null;
       if (blockKey(prevHover?.box) !== blockKey(block ?? undefined) || prevHover?.id !== addHoverRef.current?.id) updateDesignView();
@@ -589,8 +594,10 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         if (source && source.id !== node.id && designRef.current) designRef.current.onLink(source, node, clientOf(mid));
         return;
       }
-      const corner = cornerHit(e.target, e.position);
-      if (corner === 'add') { setContextMenu(null); designRef.current?.onAdd(node, undefined, blockAt(e.target, e.position!) ?? undefined); return; }
+      const hit = hitAt(e.target, e.position), corner = hit?.action ?? null;
+      // The block a click creates in is the one drawn under the pointer, so the draft is exactly that shape.
+      const hovered = addHoverRef.current;
+      if (corner === 'add') { setContextMenu(null); designRef.current?.onAdd(node, undefined, hovered && hovered.id === node.id ? { ...hovered.box } : hit!.block); return; }
       if (corner === 'code') { setContextMenu(null); callbacks.current.onViewCode(node); return; }
       if (corner === 'stack') { setContextMenu(null); callbacks.current.onCycleStack(node.id); return; }
       if (corner === 'ungroup') { setContextMenu(null); callbacks.current.onUngroup(node); return; }
@@ -610,7 +617,10 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       const d = designRef.current;
       if (!d) { callbacks.current.onArrangeAroundResource(e.target.id()); return; }
       const node = currentModel.current.nodes.find(n => n.id === e.target.id());
-      if (!node || e.target.data('hiddenBox') || cornerHit(e.target, e.position)) return;
+      // A double-click on a box's empty space edits the box: the draft its first click opened is dropped
+      // (the popover replaces it). Only the corner squares keep their own meaning.
+      const hit = hitAt(e.target, e.position);
+      if (!node || e.target.data('hiddenBox') || (hit && hit.action !== 'add')) return;
       const bb = e.target.renderedBoundingBox({ includeLabels: false, includeOverlays: false });
       d.onEdit({ node }, clientOf({ x: bb.x2, y: bb.y1 }));
     });
@@ -644,8 +654,8 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       const containerId = d.parent().length ? d.parent().first().id() : null;
       // An empty box (ADR 0017): the exact inverse of where reconciliation draws it, so a drag never creeps by its border.
       if (d.data('emptyBox')) {
-        const q = d.position(), w = d.data('cardWidth') as number, h = d.data('cardHeight') as number;
-        return { id: d.id(), position: { x: q.x - (d.data('minW') as number) / 2 - CONTAINER_PADDING + w / 2, y: q.y - (d.data('minH') as number) / 2 - CONTAINER_PADDING + h / 2 }, containerId };
+        const q = d.position();
+        return { id: d.id(), position: emptyBoxAnchor({ x: q.x, y: q.y }, { width: d.data('cardWidth'), height: d.data('cardHeight') }, { width: d.data('minW'), height: d.data('minH') }), containerId };
       }
       if (d.data('expanded')) {
         const bb = d.boundingBox({ includeLabels: false, includeOverlays: false });
@@ -765,7 +775,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     // card corners already win over routes through the node tap above, so a route crossing them still inspects.
     cy.on('tap', 'edge', e => {
       const p = e.position;
-      const boxHit = (n: cytoscape.NodeSingular) => { const hit = p ? cornerHit(n, p) : null; return hit === 'collapse' || hit === 'ungroup' || hit === 'stack' ? hit : null; };
+      const boxHit = (n: cytoscape.NodeSingular) => { const hit = p ? hitAt(n, p)?.action ?? null : null; return hit === 'collapse' || hit === 'ungroup' || hit === 'stack' ? hit : null; };
       const box = p && cy.nodes('[?expanded][!hiddenBox]').filter(n => boxHit(n) !== null).first();
       const node = box && box.length ? currentModel.current.nodes.find(m => m.id === box.id()) : undefined;
       if (node) {
@@ -909,7 +919,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         const data = nodeStyleData(n);
         let pos = positions[n.id] || { x: 0, y: 0 };
         // An empty box keeps the card's top-left corner, as a compound one does (cardMove reads it back).
-        if (data.emptyBox) pos = { x: pos.x - data.cardWidth / 2 + CONTAINER_PADDING + data.minW / 2, y: pos.y - data.cardHeight / 2 + CONTAINER_PADDING + data.minH / 2 };
+        if (data.emptyBox) pos = emptyBoxCenter(pos, { width: data.cardWidth, height: data.cardHeight }, { width: data.minW, height: data.minH });
         const existing = cy.getElementById(n.id);
         if (existing.length) {
           // Cytoscape's data({ ... }) call merges keys. A shared display ID therefore keeps stale
@@ -918,7 +928,9 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
           for (const key of REVIEW_DATA_KEYS) if (!(key in data)) existing.removeData(key);
           existing.data(data);
           // A container's position is its children's bounds; writing it would drag every child along.
-          if (!n.expanded || !existing.isParent()) {
+          // An empty box getting its first child in this batch is no compound yet, but becomes one: its
+          // position is left alone too, so no spurious write (and no 'arranged' event) happens.
+          if (!n.expanded || (!existing.isParent() && !childCounts.get(n.id))) {
             const cur = existing.position();
             if (cur.x !== pos.x || cur.y !== pos.y) { existing.position(pos); arranged = true; }
           }
@@ -1114,8 +1126,12 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     const onMove = (ev: PointerEvent) => {
       const zoomNow = cy.zoom();
       size = { width: Math.round(Math.max(MIN_CARD_SIZE.width, start.width + (ev.clientX - startX) / zoomNow)), height: Math.round(Math.max(MIN_CARD_SIZE.height, start.height + (ev.clientY - startY) / zoomNow)) };
-      if (expanded) el.data({ minW: inner(size.width), minH: inner(size.height) });
-      else { const card = nodeCard(node, size); el.data({ card: card.image, cardWidth: size.width, cardHeight: size.height }); el.position({ x: topLeft.x + size.width / 2, y: topLeft.y + size.height / 2 }); }
+      if (expanded) {
+        el.data({ minW: inner(size.width), minH: inner(size.height) });
+        // An empty box is a plain node drawn around its centre: keep its top-left corner while it grows.
+        if (el.data('emptyBox')) el.position({ x: startPosition.x + (inner(size.width) - startData.minW!) / 2, y: startPosition.y + (inner(size.height) - startData.minH!) / 2 });
+      }
+      else { const card = nodeCard(node, size, !!designRef.current); el.data({ card: card.image, cardWidth: size.width, cardHeight: size.height }); el.position({ x: topLeft.x + size.width / 2, y: topLeft.y + size.height / 2 }); }
       updateMapRef.current();
     };
     const detach = () => {
@@ -1123,7 +1139,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       window.removeEventListener('keydown', onEscape, true);
       if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId);
     };
-    const onCancel = () => { detach(); el.data(startData); if (!expanded) el.position(startPosition); updateMapRef.current(); };
+    const onCancel = () => { detach(); el.data(startData); if (!expanded || el.data('emptyBox')) el.position(startPosition); updateMapRef.current(); };
     const onEscape = (ev: KeyboardEvent) => { if (ev.key === 'Escape') { ev.stopPropagation(); onCancel(); } };
     const onUp = () => {
       detach();
@@ -1176,10 +1192,12 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
   // Expand/Collapse follows the right-clicked card's state and, when it is part of a multi-selection,
   // applies to every selected card that can make the same change.
   const menuGroup=menuNode&&menuSelected&&selectedNodes.length>1;
-  const menuExpand:'expand'|'collapse'=menuNode?.expanded?'collapse':'expand';
+  // An expansion drawn as its card (ADR 0017 §4: Design off or Changes, or an ungrouped box with nothing
+  // left) is still an expansion: its menu collapses it.
+  const menuExpand:'expand'|'collapse'=menuNode?.expanded||menuNode?.drawnAsCard?'collapse':'expand';
   // A hidden (ungrouped) box is never a target: it has no card to collapse (its way back is "Collapse
   // into", step 14), and it is never drawn, so it is not in the selection either.
-  const canToggle=(n:AtlasNode)=>!n.hiddenBox&&(menuExpand==='collapse'?!!n.expanded:!n.expanded&&hasDetailsButton(designExpandable(n)));
+  const canToggle=(n:AtlasNode)=>!n.hiddenBox&&(menuExpand==='collapse'?!!n.expanded||!!n.drawnAsCard:!n.expanded&&!n.drawnAsCard&&hasDetailsButton(n,designOn));
   const expandTargets=menuNode&&canToggle(menuNode)?(menuGroup?selectedNodes.filter(canToggle):[menuNode]):[];
   // A single-card action is not a multi-select action: undo the selection this right-click added.
   function menuSingle(action:()=>void){const added=contextMenu?.addedId;if(added)setMultiIds(ids=>ids.filter(id=>id!==added));action();setContextMenu(null);}
@@ -1228,7 +1246,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         // Rooting a stack is not a multi-select action: menuSingle undoes the selection this right-click added.
         return <button key={direction} role="menuitem" aria-pressed={on} onClick={()=>menuSingle(()=>onToggleStack(menuNode.id,direction))}><span aria-hidden="true">{direction==='in'?'⇇':'⇶'}</span> {on?`Hide ${name} stack`:`Show ${name} stack`}</button>;})}
       {expandTargets.length>0&&<button role="menuitem" onClick={()=>{if(menuGroup){onToggleExpandMany(expandTargets,menuExpand);setContextMenu(null);}else menuSingle(()=>onToggleExpandMany(expandTargets,menuExpand));}}><span aria-hidden="true">{menuExpand==='expand'?'⊞':'⊟'}</span> {menuExpand==='expand'?'Expand':'Collapse'}{expandTargets.length>1?` ${expandTargets.length} selected`:''}</button>}
-      {menuNode&&menuNode.expanded&&!menuNode.hiddenBox&&<button role="menuitem" onClick={()=>{setContextMenu(null);onUngroup(menuNode);}}><span aria-hidden="true">⬚</span> Ungroup {menuNode.simpleName}</button>}
+      {menuNode&&menuNode.expanded&&!menuNode.hiddenBox&&(childCounts.get(menuNode.id)||0)>0&&<button role="menuitem" onClick={()=>{setContextMenu(null);onUngroup(menuNode);}}><span aria-hidden="true">⬚</span> Ungroup {menuNode.simpleName}</button>}
       {/* Distinct from Collapse above: it brings back the nearest ungrouped box this card sits in. */}
       {menuHiddenAncestor&&<button role="menuitem" onClick={()=>menuSingle(()=>onCollapseInto(menuHiddenAncestor))}><span aria-hidden="true">⊟</span> Collapse into {menuHiddenAncestor.simpleName}</button>}
       {menuNode&&hasCodeButton(menuNode)&&!(menuNode.design&&!menuNode.design.codeId)&&<button role="menuitem" onClick={()=>menuSingle(()=>onViewCode(menuNode))}><span aria-hidden="true">{'</>'}</span> View source</button>}
@@ -1311,20 +1329,26 @@ function DesignDraftInput({ rect, draft, onCommit, onCancel }: { rect: { left: n
   const corner = (): Point => { const r = card.current?.getBoundingClientRect(); return { x: r?.right ?? 0, y: r?.top ?? 0 }; };
   useEffect(() => { input.current?.focus({ preventScroll: true }); }, []);
   const kindWord = draft.kind.toLowerCase();
-  // Drawn at the new card's exact model size, scaled by the zoom like the card itself (ADR 0017): the
-  // draft is the shape the card will take, never larger.
+  // The outline is the new card's exact shape at this zoom (ADR 0017): never larger, never smaller. Its
+  // content is drawn at the card's model size scaled by the zoom like the card itself, but never below
+  // DRAFT_MIN_SCALE: zoomed far out it stays readable and usable, anchored at the outline's corner and
+  // spilling over it. A rejected name is a label attached under the outline, unscaled.
   const modelWidth = draft.box.x2 - draft.box.x1, modelHeight = draft.box.y2 - draft.box.y1, zoom = modelWidth ? rect.width / modelWidth : 1;
-  return <div ref={card} className={`design-draft-card${draft.error ? ' invalid' : ''}`} data-draft-kind={draft.kind} style={{ left: rect.left, top: rect.top, width: modelWidth, height: modelHeight, transform: `scale(${zoom})`, transformOrigin: '0 0' }}
+  const scale = Math.max(zoom, DRAFT_MIN_SCALE);
+  return <div ref={card} className={`design-draft-card${draft.error ? ' invalid' : ''}${scale > zoom ? ' overflowing' : ''}`} data-draft-kind={draft.kind} style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height }}
     onPointerDown={e => e.stopPropagation()}>
-    <span className="design-draft-kind">New {kindWord}</span>
-    <input ref={input} value={text} disabled={draft.busy} placeholder={draft.placeholder} aria-label={`Name of the new ${kindWord}`} aria-invalid={!!draft.error}
-      onChange={e => setText(e.target.value)}
-      onKeyDown={e => {
-        e.stopPropagation();
-        if (e.key === 'Enter') { e.preventDefault(); if (text.trim()) onCommit(text, corner()); }
-        else if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
-      }}
-      onBlur={() => { if (!text.trim() && !draft.busy) onCancel(); }}/>
-    {draft.error ? <p className="design-draft-error" role="alert">{draft.error}</p> : <p className="design-draft-hint">Enter to add · Esc to cancel</p>}
+    <div className="design-draft-body" style={{ width: modelWidth, height: modelHeight, transform: `scale(${scale})`, transformOrigin: '0 0' }}>
+      <span className="design-draft-kind">New {kindWord}</span>
+      <input ref={input} value={text} disabled={draft.busy} placeholder={draft.placeholder} aria-label={`Name of the new ${kindWord}`} aria-invalid={!!draft.error} aria-describedby={draft.error ? 'design-draft-error' : undefined}
+        onChange={e => setText(e.target.value)}
+        onKeyDown={e => {
+          e.stopPropagation();
+          if (e.key === 'Enter') { e.preventDefault(); if (text.trim()) onCommit(text, corner()); }
+          else if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
+        }}
+        onBlur={() => { if (!text.trim() && !draft.busy) onCancel(); }}/>
+      <p className="design-draft-hint">Enter to add · Esc to cancel</p>
+    </div>
+    {draft.error && <p id="design-draft-error" className="design-draft-error" role="alert">{draft.error}</p>}
   </div>;
 }

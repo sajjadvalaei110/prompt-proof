@@ -31,7 +31,7 @@ export function captureLayout(view: ExplorerViewState, scope: ScopeSelection, ki
     if (!key) continue;
     const childPositions: Record<string, { x: number; y: number }> = {};
     for (const [child, p] of Object.entries(e.childPositions)) { const ck = k(child); if (ck) childPositions[ck] = { x: p.x, y: p.y }; }
-    expansions[key] = { ownerKey: e.ownerId ? k(e.ownerId) ?? null : null, ...(e.hidden ? { hidden: true } : {}), childPositions };
+    expansions[key] = { ownerKey: e.ownerId ? k(e.ownerId) ?? null : null, ...(e.hidden ? { hidden: true } : {}), ...(e.minSize ? { minSize: { width: e.minSize.width, height: e.minSize.height } } : {}), childPositions };
   }
   const sizes: MapLayout['sizes'] = {};
   for (const [id, s] of Object.entries(level.sizes)) { const key = k(id); if (key) sizes[key] = { width: s.width, height: s.height }; }
@@ -81,7 +81,9 @@ export function applyLayout(base: ExplorerViewState, layout: MapLayout, graph: A
         const child = idOfKey.get(ck);
         if (child && isInside(child, id, parentOf)) childPositions[child] = { x: p.x, y: p.y };
       }
-      expansions[id] = { ownerId, childPositions, minSize: null, ...(e.hidden ? { hidden: true } : {}) };
+      // A resized box comes back at its size (ADR 0017 review: it holds the blocks its cards were made in).
+      const min = e.minSize && Number.isFinite(e.minSize.width) && Number.isFinite(e.minSize.height) ? { width: e.minSize.width, height: e.minSize.height } : null;
+      expansions[id] = { ownerId, childPositions, minSize: min, ...(e.hidden ? { hidden: true } : {}) };
       pending.delete(id);
       progress = true;
     }

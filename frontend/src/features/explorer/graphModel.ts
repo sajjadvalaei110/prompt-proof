@@ -11,6 +11,9 @@ export interface AtlasNode { id: string; simpleName: string; qualifiedName?: str
   expanded?: boolean;
   /** An ungrouped expanded card: its box is not drawn and it takes no pointer events (ADR 0011). */
   hiddenBox?: boolean;
+  /** An expansion with nothing drawn inside it, drawn as its card (App's projection, ADR 0017 §4): outside
+   * design mode, or an ungrouped box with nothing left. Still an expansion, so its card menu offers Collapse. */
+  drawnAsCard?: boolean;
   /** A method/constructor card's owning class name, shown on the card (ADR 0011). */
   ownerName?: string;
   /** The design layer's record for this card (ADR 0014): an engineer explanation on parsed code, or a card that exists only in the design. */
@@ -298,6 +301,19 @@ function aggregateEdges(graph: AtlasGraph, level: Level, all: Map<string, AtlasN
   const edges = [...grouped.values()];
   for (const edge of edges) { edge.kind = sortedKindCounts(edge)[0][0]; edge.strengthWidth = strengthWidth(edge.occurrenceCount || 1); }
   return edges;
+}
+
+/**
+ * An expansion with nothing drawn inside it is drawn, measured and dragged as its card (ADR 0017 §4), marked
+ * `drawnAsCard` so its card menu still offers Collapse. Outside design mode (Design off, or Changes) that is
+ * any such expansion: opened empty in design mode, or emptied by a scope edit; geometry gives it no box. In
+ * design mode it is only an ungrouped one (ADR 0011): it draws no box and takes no pointer events, so
+ * without this it would be lost on the map. Returns `p` itself when nothing changes.
+ */
+export function childlessExpansionsAsCards<P extends { nodes: AtlasNode[] }>(p: P, designMode: boolean): P {
+  const parents = new Set(p.nodes.map(n => n.containerId));
+  const asCard = (n: AtlasNode) => !!n.expanded && !parents.has(n.id) && (!!n.hiddenBox || !designMode);
+  return p.nodes.some(asCard) ? { ...p, nodes: p.nodes.map(n => asCard(n) ? { ...n, expanded: false, hiddenBox: false, drawnAsCard: true } : n) } : p;
 }
 
 /**

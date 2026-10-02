@@ -49,8 +49,10 @@ export const hasCodeButton = (node: AtlasNode) => node.kind !== 'PACKAGE' && !(n
  * members are nested types shows no button). Mirrors graphModel.isExpandable, kept inline so this module stays
  * free of runtime imports (scripts/test-node-card.mjs loads it on its own).
  */
-// `designExpandable`: an empty package or type in design mode, which opens onto one add block (ADR 0017).
-export const hasDetailsButton = (node: AtlasNode) => !['METHOD', 'FIELD', 'CONSTRUCTOR'].includes(node.kind) && ((node.detailCount || 0) > 0 || !!(node as { designExpandable?: boolean }).designExpandable);
+/** Packages and types: the cards that expand in design mode even with nothing inside (ADR 0017). */
+export const expandsWhenEmpty = (kind: string) => kind === 'PACKAGE' || ['CLASS', 'INTERFACE', 'ENUM', 'RECORD', 'ANNOTATION'].includes(kind);
+// `designMode`: an empty package or type also expands then, onto one add block (ADR 0017).
+export const hasDetailsButton = (node: AtlasNode, designMode = false) => !['METHOD', 'FIELD', 'CONSTRUCTOR'].includes(node.kind) && ((node.detailCount || 0) > 0 || (designMode && !node.expanded && expandsWhenEmpty(node.kind)));
 /**
  * The quick-code button's square in card-local pixels, measured from the card's top-right corner.
  * The SVG keeps this corner free and GraphCanvas positions a real DOM button over it, scaled by the
@@ -62,11 +64,11 @@ export type CornerAction = 'code' | 'details';
  * Every on-card corner button, right to left, in the same card-local terms as CODE_BUTTON: the
  * quick-code square keeps its corner, and the details (expand) square sits just to its left.
  */
-export function cornerButtons(node: AtlasNode): { action: CornerAction; right: number; top: number; size: number }[] {
+export function cornerButtons(node: AtlasNode, designMode = false): { action: CornerAction; right: number; top: number; size: number }[] {
   const out: { action: CornerAction; right: number; top: number; size: number }[] = [];
   let right = CODE_BUTTON.right;
   if (hasCodeButton(node)) { out.push({ action: 'code', right, top: CODE_BUTTON.top, size: CODE_BUTTON.size }); right += CODE_BUTTON.size + 8; }
-  if (hasDetailsButton(node)) out.push({ action: 'details', right, top: CODE_BUTTON.top, size: CODE_BUTTON.size });
+  if (hasDetailsButton(node, designMode)) out.push({ action: 'details', right, top: CODE_BUTTON.top, size: CODE_BUTTON.size });
   return out;
 }
 /** The kind glyph in a card's (and a tree row's) top-left badge: a folder for packages, otherwise
@@ -104,7 +106,7 @@ const NAME_SIZE = 30;
  * line, a taller one shows more member rows, and a shorter one drops lower lines that no longer
  * fit. At the default size the output is unchanged.
  */
-export function nodeCard(node: AtlasNode, size?: CardSize) {
+export function nodeCard(node: AtlasNode, size?: CardSize, designMode = false) {
   const pkg=node.kind==='PACKAGE', method=node.kind==='METHOD'||node.kind==='CONSTRUCTOR';
   const {width,height}=size||defaultCardSize(node);
   const ready=['CLASS','METHOD'].includes(node.kind) && node.explanationStatus==='READY';
@@ -134,7 +136,7 @@ export function nodeCard(node: AtlasNode, size?: CardSize) {
     ? `<g transform="translate(12 55)"><rect width="${reviewWidth}" height="24" rx="12" fill="${badgeTone.badgeFill}" stroke="${badgeTone.border}"${unknown?' stroke-dasharray="4 3"':''}/><text x="10" y="16" font-size="${reviewFont}" font-weight="600" fill="${badgeTone.text}">${xml(fitText(reviewLabel,reviewFont,reviewWidth-18))}</text></g>`
     : designOnly ? `<g transform="translate(12 55)"><rect width="${designWidth}" height="24" rx="12" fill="${DESIGN_TONE.badgeFill}" stroke="${DESIGN_TONE.border}" stroke-dasharray="4 3"/><text x="10" y="16" font-size="11" font-weight="600" fill="${DESIGN_TONE.text}">${xml(fitText(designLabel,11,designWidth-18))}</text></g>` : '';
   // Top row: kind icon, subtitle, then (right-aligned) the sparkle and the corner button area.
-  const corners=cornerButtons(node);
+  const corners=cornerButtons(node,designMode);
   const codeLeft=corners.length?width-Math.max(...corners.map(c=>c.right+c.size)):width-12;
   const sparkleX=codeLeft-36;
   const sparkle=ready?`<defs><linearGradient id="sparkle" x1="0" y1="1" x2="1" y2="0"><stop stop-color="#9461ef"/><stop offset=".6" stop-color="#4b8af2"/><stop offset="1" stop-color="#80ddff"/></linearGradient></defs><g transform="translate(${sparkleX} 16) scale(1.2)"><circle cx="12" cy="12" r="14" fill="#9461ef" opacity=".07"/><circle cx="12" cy="12" r="11" fill="#4b8af2" opacity=".08"/><path fill="url(#sparkle)" d="M12 1C13.4 8.1 15.9 10.6 23 12C15.9 13.4 13.4 15.9 12 23C10.6 15.9 8.1 13.4 1 12C8.1 10.6 10.6 8.1 12 1Z"/></g>`:'';

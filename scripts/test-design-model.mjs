@@ -149,4 +149,15 @@ assert.equal(qp[0].resolution,'RESOLVED','a carried relation never worsens the r
 const toOther=routes.filter(r=>r.sourceId==='p'&&r.targetId===designNodeId('com.other'));
 assert.equal(toOther.length,2,'the carried dependency and the designed relation stay separate routes');
 assert.equal(toOther.filter(r=>isDesignedRelation(r)).length,1);
+// Review F3: a pending pin or growth is used only by the reconciliation that admits its card. An unrelated
+// reconciliation (the overlay poll landing while the create is in flight) keeps it for the next one.
+{
+  const pending={'design:a.B':{size:1},'design:a.C':{size:2}};
+  const early=design.takeAdmitted(pending,id=>id==='design:a.Other');
+  assert.deepEqual(early,{taken:{},kept:pending},'the card is not in the graph yet: nothing is used, nothing is lost');
+  const admitted=design.takeAdmitted(early.kept,id=>id==='design:a.B');
+  assert.deepEqual(admitted.taken,{'design:a.B':{size:1}},'used by the reconciliation that admits it');
+  assert.deepEqual(admitted.kept,{'design:a.C':{size:2}},'the other one waits for its own card');
+  assert.deepEqual(design.takeAdmitted({},()=>true),{taken:{},kept:{}});
+}
 console.log('design model tests passed');
