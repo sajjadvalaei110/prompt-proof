@@ -1,6 +1,8 @@
 # ADR 0017: Add blocks fill a box's empty space; empty packages and types expand in design mode
 
-- Status: Accepted; §2 and §3 superseded by "Round 2" below (a block anywhere empty, in the card's exact shape)
+- Status: Accepted. "Round 2" below supersedes §2 and §3 and amends §1 (the least block is 220×150, and the
+  natural spots are scanned with more edges). "Round 3" (review fixes) amends §1, §4, §6 and §7; where a
+  section and a later round disagree, the later round holds.
 - Date: 2026-10-02
 - Amends: ADR 0015 §1 (the add slot) and its consequence "a new card may land a row lower than its slot"
 - Scope: `expansionLayout` (`designBlocks`, `boxWithBlocks`, `RoomCard.blocks`), `placementGeometry`
@@ -38,7 +40,8 @@ geometry and the expand rules are unchanged.
   its children. The card must not touch any child, keeping the grid's 32 px gap.
 - Candidate spots are the inner top-left corner, the spot right of each child, and the spot below each
   child. They are scanned top to bottom, then left to right.
-- The box's own right and bottom edges may clip a gap, down to `least` (`MIN_CARD_SIZE`, 180×130).
+- The box's own right and bottom edges may clip a gap, down to `least` (`MIN_CARD_SIZE`, 180×130; 220×150
+  since Round 2, `DESIGN_LEAST_BLOCK`).
   A child may never clip it. A card created in a clipped gap grows the box right or down. It never
   overlaps a sibling: nothing reflows the children inside a box.
 - Gaps are searched on the box **without** the reserve. This way the reserve's own row can never count
@@ -56,7 +59,9 @@ geometry and the expand rules are unchanged.
   that moved into that place.
 - Only the hovered block is drawn, as the "＋ class" / "＋ method" button. Hovering elsewhere in the box
   shows nothing.
-- `cy.scratch('atlas:designBlocks')` exposes the blocks in model coordinates for the browser checks.
+- `cy.scratch('atlas:designBlocks')` exposes the blocks in model coordinates for the browser checks. (Since
+  Round 2 it holds a box's fixed blocks only, its gaps or its reserve. The block under the pointer is
+  `atlas:designHover`, and the empty space a hover may use is `atlas:designAreas`.)
 - A card menu "Add …" on an expanded box uses its first block.
 
 ### 3. A card created in a block keeps the block's top-left corner
@@ -136,10 +141,134 @@ created, be **no bigger than the shape the block promised**. This round supersed
   shape that will be created.
 - On commit, `Growth.child` carries the block's centre and size. The reconciliation that admits the card
   applies `RESIZE_RESOURCE` (position and size together, inside `RECONCILE_ALL`, outside undo history).
-- Every block lies inside the box's inner area, so creating a card in one never grows the box. Only a
-  reserve grows it, when no block is left.
+- Every block lies inside the box's inner area, so the card created in a block never grows the box itself.
+  Requirement 4 still applies after that card exists. If the card took the box's last free space (the first
+  card of an empty box, or the last gap), the box now has no gap left, so it keeps one 220×150 reserve, and
+  that reserve grows it right and down. This is by design, not a broken shape promise: the growth is for the
+  next card's reserve, never for the card just made.
 - The smallest block (`DESIGN_LEAST_BLOCK`) is 220×150, up from 180×130. A card made in a small space
   takes that size, and 180×130 cut a two-line name ("AuditQuery" showed as "Audit").
+
+## Round 3 (review fixes, same day)
+
+An external review (`docs/review/design-add-blocks-review.md`, 35 findings) found real defects, false doc
+claims and some wrong findings. The full per-finding answer is
+`docs/reviews/design-add-blocks-review-response.md`. This round records the decisions that change the
+contract above.
+
+### 8. The free rectangle is exact, and blocks never leave it
+
+- `freeRect(inner, children, p, fit?)` no longer cuts greedily, nearest child first. It scores every maximal
+  empty rectangle that contains `p`:
+  - left edges: the inner edge, or a child's right edge plus GAP;
+  - right edges: the inner edge, or a child's left edge minus GAP;
+  - top and bottom: set for each such column by the children in it.
+
+  The best one wins, in this order: a `fit.least` block fits; then the largest area capped at `fit.card`;
+  then the largest raw area; then the first found (nearest edges first). The same geometry therefore always
+  gives the same answer: no flips across a tie (review F6, F24).
+- `addBlockAt` looks only at children within a card's reach of the pointer.
+  - The block's corner snaps to `ADD_BLOCK_SNAP` (8 model px).
+  - Where the block is clamped to the free space, it sits exactly on that edge. Nothing is rounded after the
+    clamp, so fractional bounds never push it past the inner edge or into a child's GAP (F4).
+  - A block is never smaller than `least`, within float precision; it no longer gets the 0.5 px tolerance.
+- `designBlocks` builds a gap at a natural spot even when that spot lies inside a child's GAP or above the free
+  space: the gap starts where the free space starts. Spots at the top of each child's column are natural
+  spots too. Open space is found, and no spurious reserve grows the box (F5).
+- Cost, measured in `test-expansion-layout.mjs` with 100 children:
+  - `designBlocks`: about 1 ms, down from 5–10 ms;
+  - 1000 hovers: about 3 ms, down from about 23 ms (F8).
+
+### 9. Hover, click and draft in the canvas
+
+- `hitAt` returns the hit and its block, so a mousemove computes the block once.
+- The hover key names the snapped corner, so React re-renders only when the block moves, not on every
+  pointer pixel (F7, F19).
+- A click creates in the block that is drawn (`addHoverRef`).
+- The corner squares are hit-tested before the blocks.
+  - F1 claimed that a block covers an empty box's collapse square. That is not reproducible: the squares sit
+    in the 44 px header band, and every block lies inside the inner area.
+  - The real defect nearby: a double-click on an empty box's inner area was swallowed. It now opens the
+    design popover, which replaces the draft the first click opened.
+- `blockStillOpen` drops a hover block once its box moved or shrank away from it (F9).
+- The draft's outline is the block's exact shape at the zoom.
+  - Its content is drawn at the card's model size, scaled by the zoom but never below 0.6 (`DRAFT_MIN_SCALE`).
+    Zoomed far out it spills over the outline and stays usable.
+  - A rejected name is a label attached under the outline, unscaled (F16, F18).
+- An empty box getting its first child is no compound yet in that batch. Its position is left alone, so there
+  is no spurious write and no `arranged` event (F20).
+- `emptyBoxCenter` / `emptyBoxAnchor` (pure) draw an empty box and read a drag back (F32).
+- Design mode is an explicit parameter of `hasDetailsButton` / `cornerButtons` / `nodeCard`, not a field set
+  on the node (F35).
+
+### 10. An empty box's first card goes at its corner (amends §4 and §6)
+
+- An empty box resized larger keeps one **card-sized** block at its top-left corner, not one block as large
+  as the box. A hover anywhere in its inner area offers that block (`AddArea.only`), and the box keeps its
+  resized size (F17).
+- The first card is not placed under the pointer.
+  - Cytoscape derives a box from its children, and min-size grows it right and down only.
+  - A first card anywhere else would therefore move the box's corner to that card and grow the box by the
+    same offset, breaking §3 and the box's anchor.
+  - Once the first card is in, the rest of the resized box offers blocks anywhere, as §6 says. This is a
+    deliberate exception to "under the pointer" for the first card only.
+
+### 11. Pending pins and growth wait for their card; every tab gets the shape (amends §7)
+
+- `pendingPins` and `pendingGrowth` are keyed by the new card's node id. `takeAdmitted` hands an entry only to
+  the reconciliation in which that card is in the graph. An unrelated reconciliation, such as the 4 s agent
+  overlay poll landing while the create is in flight, keeps the entry for the next one. A failed create
+  removes its entry (F3).
+- `RECONCILE_ALL` passes each tab its id. `Growth.tabId` names the tab the card was typed in:
+  - that tab only pins the card where it was typed and makes room around the box (ADR 0015);
+  - every other tab whose box shows the card gives it the block's shape too, placed below the box's other
+    children like any new card, with the place stored alongside the size (F10).
+
+  Other tabs do not make room, as in ADR 0015, so their box may then overlap a neighbour until it is
+  arranged.
+
+### 12. Childless expansions outside design mode (amends §4)
+
+- `graphModel.childlessExpansionsAsCards` (pure) draws an expansion with nothing drawn inside as its card,
+  marked `drawnAsCard`. This applies:
+  - outside design mode: one opened empty in design mode, or one emptied by a scope edit;
+  - in any mode: an ungrouped box with nothing left inside, which would otherwise draw nothing, take no
+    events and be lost (F11).
+- Toggling Design still moves nothing.
+- A box with nothing drawn inside offers no Ungroup, neither the square nor the menu item (F11).
+- A `drawnAsCard` card is still an expansion, so its card menu offers **Collapse** (F12, F22, F28). The collapse
+  is measured in design-mode geometry (`collapseRoomAsInDesign`):
+  - its box is its empty box;
+  - every box around it keeps its add blocks as the cascade goes up, exactly as when it expanded.
+
+  A round trip (expand with Design on, Design off, Collapse) therefore puts every other card back; the browser
+  check asserts it to 1 px. Measured against the Design-off boxes instead, the cascade stopped at the package
+  around it, and the cards below kept the 66 px the expansion had pushed them.
+- For an expansion emptied by a scope edit with Design off, the same rule gives back the room of its empty box
+  in design mode. The room its children took was already left in place by the scope edit.
+
+### 13. Layout export keeps a resized box's size
+
+- The design brief's layout block (ADR 0016) did not carry an expansion's `minSize`. A resized box came back at
+  its children's size, and the design-only import check found it.
+- It now carries `minSize` (`designExchange.captureLayout` / `applyLayout`), so a resized box comes back at its
+  size, with the blocks its cards were made in.
+
+### Limits kept
+
+- The keyboard "Add …" (card menu) creates in the box's first gap; there is no keyboard way to pick another
+  gap (F23).
+- A drawn compound sits up to 2 px further out than its model box where a card meets a user-resized inner edge.
+  Cytoscape pads its children's bounding boxes, which include their borders. The model box, which room-making
+  uses, does not change.
+- Undo past a design create restores a history entry that never had the new card's size or place. Design edits
+  stay outside undo history (ADR 0015), and `RECONCILE_ALL` updates only each tab's present, so the card is
+  then placed like any new card. Redo brings the present back.
+- The journey layout (positions, sizes) is not persisted across a page reload at all. That is not specific to
+  add blocks.
+- A grip dragged off the canvas is unmounted, ending the resize there.
+- Changes mode with a childless expansion is covered by the pure projection test only, not by a browser run
+  (the design pipeline's fixtures have no Git history).
 
 ## Consequences
 
@@ -151,4 +280,6 @@ created, be **no bigger than the shape the block promised**. This round supersed
 - An empty box's header label shares its width with the corner buttons, as in any narrow box. A long
   name can run under them.
 - An empty box opened in design mode keeps its expansion when Design is turned off, but it is drawn as
-  its card until Design is on again. It then reopens on its block, at the same corner.
+  its card until Design is on again. It then reopens on its block, at the same corner. Meanwhile its card
+  menu offers Collapse, which gives back the room its box took (Round 3, §12).
+- When a card fills a box's last free space, the box keeps a 220×150 reserve and grows for it (§7, Round 3).

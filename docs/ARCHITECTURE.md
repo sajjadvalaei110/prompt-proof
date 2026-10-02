@@ -374,13 +374,20 @@ an inactive workspace.
   - pure: `designModel.ts` (`parseInlineName`, `defaultRelationKind`, change-set builders, `unionGraphs`) and
     `expansionLayout.designBlocks` / `boxWithBlocks` / `addBlockAt` (ADR 0017: a block anywhere empty under
     the pointer, in the exact shape the card takes; one small reserve only when no space is left; an empty
-    box is one card-sized block), through `placementGeometry` (`{designSlots}` → `slots` as a list
-    per box, `slotMinSizes`);
+    box is one card-sized block at its corner), through `placementGeometry` (`{designSlots}` → `slots` as a
+    list per box, `areas`, `slotMinSizes`). Round 3: `freeRect` is exact (every maximal empty rectangle
+    around the pointer, scored); `addBlockAt` snaps to `ADD_BLOCK_SNAP`; `blockStillOpen` and
+    `emptyBoxCenter`/`emptyBoxAnchor` are the canvas's only geometry. `graphModel.childlessExpansionsAsCards`
+    draws an expansion with nothing inside as its card (`drawnAsCard`) outside design mode, or when ungrouped.
+    `designModel.takeAdmitted` releases a pending pin or growth only to the reconciliation that admits its card;
   - reducer: `explorerViewState` pins a card typed in place (`PlacementDims.pinned`) and carries parked children
     with a moved box (`carryUnreportedChildren`);
-  - App: the inline draft, the popover, the two-click relation, and, inside `RECONCILE_ALL`, storing a new
-    card at its block's corner and making room when it grows its box (measured against the boxes before the
-    change, so nested growth cascades). While Design is off, App parks the design-merged graph, so design geometry survives
+  - App: the inline draft, the popover, the two-click relation, and, inside `RECONCILE_ALL` (whose reconcile
+    receives each tab's id), storing a new card in its block's shape: the typed tab (`Growth.tabId`) pins it at
+    the block and makes room when it grows its box (measured against the boxes before the change, so nested
+    growth cascades), other tabs give it the same size. The collapse of a `drawnAsCard` expansion is measured
+    in design-mode geometry (`collapseRoomAsInDesign`), so a Design-off collapse gives back exactly the room the
+    expansion took. While Design is off, App parks the design-merged graph, so design geometry survives
     the toggle;
   - adapter: `GraphCanvas` only draws the hovered add block, an empty expanded box (a plain node sized by its
     block), the handle, the rubber band (direction-overlay canvas, never a

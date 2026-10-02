@@ -1,5 +1,5 @@
 # Project status
-Last updated: 2026-10-02 (add blocks in a box's empty space and empty boxes that expand in design mode, ADR 0017; on top of the quick intent popup, plain prompt, faithful import and design-only projects, ADR 0016; on top of design-mode direct manipulation, ADR 0015, and the design layer, ADR 0014)
+Last updated: 2026-10-02 (review fixes for add blocks, ADR 0017 round 3; add blocks in a box's empty space and empty boxes that expand in design mode, ADR 0017; on top of the quick intent popup, plain prompt, faithful import and design-only projects, ADR 0016; on top of design-mode direct manipulation, ADR 0015, and the design layer, ADR 0014)
 Active milestone: R6 — Developer comprehension redesign (in progress)
 Current revision: Step11 language-neutral Java analysis integrated with step 14 Ungroup (an expanded box's box hidden, its children kept as free cards,
 ADR 0011) merged with main's step 13 (card menu Expand/Collapse + View source, cascading tree
@@ -28,6 +28,92 @@ toggle with a git-style diff code viewer, exploration tabs with per-tab undo/red
 and selection controls, the R6 change-edges slice (one line per direction,
 directional selection emphasis, file-grouped evidence), in-place card details
 (expand packages/classes) and resizable cards; Step 6A remains unstarted
+
+## Design layer round 4c: review fixes for add blocks (2026-10-02, ADR 0017 "Round 3")
+
+An external review of rounds 4 and 4b (`docs/review/design-add-blocks-review.md`, 35 findings and 7
+"false claims") was triaged by the owner. Every item is answered in
+`docs/reviews/design-add-blocks-review-response.md`, as fixed, disputed with evidence, a documented limit, or
+deferred. Commits: `bea15be` (pure geometry), `14de86f` (canvas and App), `8d42f2a` (browser checks), and the
+docs commit after them.
+
+Changes (frontend only; no backend, API or migration change):
+- `expansionLayout`:
+  - `freeRect` is exact: every maximal empty rectangle around the pointer, scored by "a least block fits",
+    then capped area, then raw area (F6, F24);
+  - `addBlockAt` looks only at children near the pointer and snaps to 8 px, with no rounding after the clamp
+    (F4, F7);
+  - `designBlocks` snaps natural spots into the free space and adds column-top spots (F5);
+  - an empty box offers its card-sized corner block for any hover, also when resized (F17);
+  - new `blockStillOpen` (F9) and `emptyBoxCenter` / `emptyBoxAnchor` (F32).
+- `GraphCanvas`:
+  - the corner squares are hit-tested first, and a double-click on empty space opens the popover (F1);
+  - the hit-test runs once per mousemove (F19), a click creates in the drawn block, and the stale hover is
+    dropped (F9);
+  - no Ungroup on a box with nothing drawn inside (F11);
+  - the draft keeps the block's outline, with content at a 0.6 minimum scale and an attached error label
+    (F16, F18);
+  - no spurious first-child position write (F20);
+  - design mode is passed as an explicit parameter to `nodeCard` (F35).
+- `App`:
+  - pending pins and growth are keyed by card and used only by the reconciliation that admits that card
+    (`designModel.takeAdmitted`, F3);
+  - `RECONCILE_ALL` gives each tab its id: the typed tab pins the card and makes room, other tabs give it the
+    block's shape (F10);
+  - `graphModel.childlessExpansionsAsCards` draws a childless expansion as its card outside design mode, or
+    when ungrouped. Its menu offers Collapse, measured in design-mode geometry so a Design-off collapse gives the
+    room back exactly (F12, F22, F28).
+- Found by the new resize step: a design export/import dropped a resized box's `minSize` (ADR 0016 fidelity).
+  The layout now carries it.
+
+Checks run (final jar, built after the last code change):
+- `cd frontend && npx tsc -b --force && npm run build`: PASS.
+- `node scripts/test-*.mjs`: all 18 PASS. New or changed coverage is listed in `docs/TESTING.md`, "Add-block
+  review fixes". `test-expansion-layout.mjs` 100-child benchmark on this machine:
+  - `designBlocks`: 0.6–2.6 ms over all runs (HEAD before, same benchmark: 5.1–9.5 ms);
+  - 1000 `addBlockAt`: 2.2–3.1 ms (before: 22.7–24.9 ms).
+- `./gradlew bootJar`: PASS. The served bundle (`index-D9mxvoKS.js`) was checked to be the final build.
+- `CHROMIUM=/snap/bin/chromium python3 scripts/verify_design_layer_pipeline.py`: PASS
+  (`build/design-layer/run-54c449fn`).
+  - All 32 screenshots were inspected, in an identical earlier run (`run-fiqganzu`). The final run's images
+    were pixel-diffed against it, and every one that differed was opened again. They were copied with
+    `report.json` and `design-prompt.md` to `docs/evidence/design-layer-ux/`; 05e–05i and 16d are new.
+  - Measured in `report.json`:
+    - reserve 220×150;
+    - empty class block 250×184; empty package block 250×206;
+    - the gap class 250×206, with the package size unchanged (919.6×787.1 → 919.2×787.0);
+    - the narrow class 234×206 (the 8 px snap moved the first class 16 px, not 20);
+    - the raced class 250×172 in both the typed and the cloned tab, with the poll asserted to land while the class
+      was absent;
+    - the zoomed-out draft outline 75×61.8, equal to its block, with content scale 0.6;
+    - Design-off collapse round trip: 3 cards made room, and 0 were off afterwards;
+    - no page errors.
+  - Negative control (one run, then reverted): with every pending entry consumed on every reconciliation, the
+    race step fails with 250×206.
+- `verify_change_edges_pipeline.py`: PASS. `verify_git_review_pipeline.py`: PASS.
+- `verify_ungroup_pipeline.py`: 33/33 PASS, both on HEAD `1b52fae` before any change and on the final jar
+  (`build/ungroup/run-ru8dkox1`).
+- `verify_stable_graph_pipeline.py acceptance`: FAIL at `revealClasses` (line 335, "Cannot read properties of
+  undefined (reading 'click')"). This is the same pre-existing failure as rounds 4 and 4b.
+- While writing the browser steps, three harness artifacts were found and handled in the test, not the
+  product:
+  - a CDP mouse move needs `button: 'left'` for a grip's pointer capture to hold;
+  - a grip dragged off the canvas is unmounted, so the resize is done at zoom 0.5;
+  - switching journey tabs mounts a new canvas, so the `arranged` listener is bound again.
+- For verification only, a throwaway git worktree in the scratchpad checked that the first commit builds and
+  passes on its own. It was removed; all work was done in the main checkout.
+
+Not run: `./gradlew test` (no backend change), live-model verification, `constrainedMemoryTest`.
+
+Remaining limits (ADR 0017 Round 3, "Limits kept"):
+- An empty box's first card goes at its corner, not under the pointer.
+- The keyboard "Add …" uses the first gap.
+- A drawn compound can sit up to 2 px outside its model box where a card meets a resized edge.
+- Undo past a create loses that card's shape in the restored entry.
+- The journey layout is not persisted across reloads.
+- Changes mode with a childless expansion is covered only by the pure projection test.
+- Other tabs do not make room for the new card.
+- Undo/redo after a create was not exercised in the browser.
 
 ## Design layer round 4b: a block anywhere empty, in the card's exact shape (2026-10-02, ADR 0017 "Round 2")
 
@@ -69,9 +155,12 @@ Checks run (final build):
   - 3b: hovered 20 px right of the first empty cell's centre, the block follows the pointer (x1 = cell
     x1 + 20). The class takes its exact corner and size (250×206). The package size is unchanged (< 8 px).
     No stale button. No overlap;
-  - the remaining space (230 px, narrower than a card) is still a block. A class made there is 230 wide;
-  - every create (reserve class, first method of an empty class, gap class, narrow class, method in a parsed
-    class) asserts the card's corner and size equal the block's.
+  - the remaining space (231 px in that run's `report.json`; this entry first said 230) is still a block,
+    narrower than a card. A class made there is 231 wide;
+  - every create in a block (reserve class, first method of an empty class, gap class, narrow class, method in a
+    parsed class) asserts the card's corner and size equal the block's. The package of step 1 and the class
+    added under the collapsed package in step 2 are not made in blocks and are not shape-checked. (Correction
+    in round 4c: this line first said "every create".)
 - `verify_change_edges_pipeline.py`: PASS. `verify_git_review_pipeline.py`: PASS.
   `verify_stable_graph_pipeline.py acceptance`: the same failure as before this work (`revealClasses`).
 - `verify_ungroup_pipeline.py`: **not verified this round**.
@@ -84,6 +173,14 @@ Checks run (final build):
     works.
   - Neither ungroup nor a further design pipeline run could be completed. Rerun ungroup on a healthy
     browser before merging.
+  - Correction (round 4c), rerun on the same HEAD `1b52fae` after /tmp space was freed: **33/33 PASS**
+    (`build/ungroup/run-udjoru55`).
+    - The most likely cause was the tmpfs /tmp per-user quota running out ("Disk quota exceeded" that day).
+      That fits the crashpad and screenshot failures. It is not proven.
+    - The review's explanation (an unhandled destroyed execution context after `Page.navigate`) does not hold:
+      the harness's `until` catches a failed `evaluate` and retries it, so a destroyed context gives a retry,
+      not a hang.
+    - The harness was not changed.
 - While investigating I briefly tried drawing childless expansions as card-sized compounds in the canvas,
   instead of the `projected` memo. I reverted it: the bisect cleared the memo, and the reverted state is the
   one the passing design run above verified.

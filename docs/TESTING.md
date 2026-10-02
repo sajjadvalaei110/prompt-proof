@@ -764,7 +764,7 @@ under a colour-vision deficiency (WCAG 2.1 SC 1.4.1). The suite asserts all thre
   - `test-design-model.mjs`: inline names, default relation kinds, intent/details join, change-set builders.
   - `test-expansion-layout.mjs`: the slot is the next `placeMissingChildren` cell, and it only grows the box
     right and down. ADR 0017 (`designBlocks`): a short last row gives a card-sized gap inside the box and no
-    reserve; a full grid gives one 180×130 reserve; a resized box gives gaps on the right; no full card in a
+    reserve; a full grid gives one 220×150 reserve (`DESIGN_LEAST_BLOCK`, ADR 0017 round 2); a resized box gives gaps on the right; no full card in a
     gap touches a child; a sliver below the least size is no gap; an empty box is one card-sized block; and
     `roomMoves` keeps a box's reserve as a child grows.
   - `test-explorer-view-state.mjs`:
@@ -797,6 +797,59 @@ under a colour-vision deficiency (WCAG 2.1 SC 1.4.1). The suite asserts all thre
   - Prompt dialog contents.
 - Screenshots: `docs/evidence/design-layer-ux/`. The git-review, ungroup, change-edges and stable-graph browser
   scripts start with Design off, because they pin the Design-off contract.
+
+### Add-block review fixes (ADR 0017 round 3)
+
+- Pure:
+  - `test-expansion-layout.mjs` loads the real `DESIGN_LEAST_BLOCK` and `addSlotSizes` through
+    `placementGeometry` (220×150; class card 250×206, method card 250×184). It covers:
+    - the reviewer's counter-examples: F5, a band whose natural spot lies inside a child's GAP, now a
+      250×206 gap with no reserve; F6, a diagonal child that the greedy cut used to lose, now a full card;
+    - fractional bounds (F4): the block stays inside the inner area and keeps GAP, with and without the 8 px snap;
+    - exact 220 px gaps, and no gap at 219 px;
+    - hovers at the inner corner, below and beside a child, and on the header band or padding;
+    - a stable answer across a tie;
+    - fuzz: 400 random layouts, where every block keeps GAP, contains the pointer, stays inside the inner area,
+      and is between the least block and a card in size, and none is missed when a brute-force 222×152 box
+      exists; 200 more for `freeRect`;
+    - `blockStillOpen` (F9);
+    - a resized empty box (F17): it offers its card-sized corner block for any hover; with that block as its
+      first child the box keeps its corner and size; a block elsewhere would move it; through
+      `geometryForJourney` it keeps its resized size;
+    - `emptyBoxCenter` / `emptyBoxAnchor` are inverses (F32);
+    - a 100-child benchmark (F8): it prints its timings, and fails above 200 ms.
+  - `test-graph-model.mjs`: `childlessExpansionsAsCards`. An empty expansion is a `drawnAsCard` card
+    outside design mode; an ungrouped empty box is a card in every mode; boxes with children are untouched;
+    with nothing to change it returns the same object (F11, F12).
+  - `test-design-model.mjs`: `takeAdmitted` keeps a pending pin or growth until the graph holds its card (F3).
+  - `test-explorer-journeys.mjs`: `RECONCILE_ALL` passes every open and closed tab its own id, with no history
+    entry (F3, F10).
+  - `test-node-card.mjs`: design mode is an explicit `hasDetailsButton` / `cornerButtons` parameter; a stray
+    `designExpandable` field no longer counts (F35).
+  - `test-design-exchange.mjs`: a resized box's `minSize` is exported and imported.
+- Browser (`verify-design-layer-ui.mjs`, real CDP mouse input):
+  - exact sizes: the reserve is 220×150, an empty class opens on a 250×184 block, an empty package on a
+    250×206 block, the draft outline equals the block, and the narrow card is at least 220 wide;
+  - F1, on the empty class: a double-click inside it opens the popover and drops the draft; a real click on its
+    collapse square collapses it, and a real click on its details square expands it again; there is no Ungroup
+    square and no Ungroup menu item (F11);
+  - 2e, an empty package:
+    - expand, then undo and redo onto the same block;
+    - a draft at zoom 0.3: its outline equals the block, its content is at 0.6 scale, and its input is at least
+      20 px tall;
+    - a pointer resize, then a hover far away offers the corner block, and the first class keeps the box's model
+      area exactly and its drawn box within 2.5 px;
+    - hovers clamp exactly at the inner corner, keep GAP beside a child, and give nothing within GAP or on the
+      header band;
+    - F3: the create request is held back 9 s while an agent change lands through the 4 s overlay poll. The poll
+      is asserted to land while the class is still absent, and the class still takes its block's 250×172 shape.
+      Negative control, one run: with every pending entry consumed on every reconciliation (the old rule), this
+      step fails with 250×206;
+    - F10: a cloned tab shows the class at the same 250×172;
+  - 6a, on `RegionTag` (F12): collapse, expand with Design on (3 cards make room), Design off, then menu
+    Collapse. Every other leaf card is back within 1 px, the round trip adds no overlap, and Design on then shows a
+    plain card;
+  - overlap checks run among siblings inside every container as well as on the map, with 1 px tolerance (F14).
 
 ### Quick intent popup, plain prompt, design-only projects (ADR 0016)
 

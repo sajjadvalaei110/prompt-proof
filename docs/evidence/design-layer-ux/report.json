@@ -6,8 +6,8 @@
   },
   "packageLanding": {
     "draft": {
-      "x": 737.9983520507812,
-      "y": 483.9935302734375
+      "x": 737.9921875,
+      "y": 483.9921875
     },
     "card": {
       "x": 738,
@@ -26,10 +26,10 @@
     "draft": {
       "left": 661.390625,
       "top": 415.59375,
-      "width": 153.2154541015625,
-      "height": 136.799560546875,
-      "x": 737.9983520507812,
-      "y": 483.9935302734375
+      "width": 153.203125,
+      "height": 136.796875,
+      "x": 737.9921875,
+      "y": 483.9921875
     }
   },
   "popover": {
@@ -84,6 +84,27 @@
       "y": -11.19815292096223
     }
   },
+  "emptyBoxCollapseClick": {
+    "square": {
+      "left": 835.34375,
+      "top": 622,
+      "width": 17.5,
+      "height": 17.5,
+      "x": 844.09375,
+      "y": 630.75
+    }
+  },
+  "emptyBoxMenu": [
+    "− Remove from scope",
+    "⇶ Show outgoing stack",
+    "⇇ Show incoming stack",
+    "⊟ Collapse",
+    "＋ Add method",
+    "＋ Add nested type…",
+    "⤳ Draw relation from here",
+    "✎ Edit design…",
+    "✕ Deselect"
+  ],
   "firstMethod": {
     "block": {
       "x1": 743.0862542955326,
@@ -98,6 +119,118 @@
       "h": 184
     }
   },
+  "emptyPackage": {
+    "blocks": [
+      {
+        "x1": 2055.2,
+        "y1": -178.63565292096223,
+        "x2": 2305.2,
+        "y2": 27.36434707903777
+      }
+    ],
+    "box": {
+      "x1": 2009.1999999999998,
+      "y1": -224.63565292096223,
+      "w": 342,
+      "h": 298
+    },
+    "collapsedTL": {
+      "x": 2011.1999999999998,
+      "y": -222.63565292096223
+    }
+  },
+  "zoomedOutDraft": {
+    "slot": {
+      "left": 701,
+      "top": 613.53125,
+      "width": 75,
+      "height": 61.796875,
+      "x": 738.5,
+      "y": 644.4296875
+    },
+    "outline": {
+      "left": 701,
+      "top": 613.53125,
+      "width": 75,
+      "height": 61.796875,
+      "x": 738.5,
+      "y": 644.4296875
+    },
+    "input": {
+      "left": 709.4000244140625,
+      "top": 636.9312744140625,
+      "width": 133.199951171875,
+      "height": 28.199951171875,
+      "x": 776,
+      "y": 651.03125
+    },
+    "scale": 0.6
+  },
+  "resizedFirst": {
+    "block": {
+      "x1": 2055.2,
+      "y1": -178.63565292096223,
+      "x2": 2305.2,
+      "y2": 27.36434707903777
+    },
+    "card": {
+      "x": 2055.2,
+      "y": -178.63565292096223,
+      "w": 250,
+      "h": 206
+    }
+  },
+  "hovers": {
+    "area": {
+      "inner": {
+        "x1": 2055.2,
+        "y1": -178.63565292096223,
+        "x2": 2669.2,
+        "y2": 231.36434707903777
+      },
+      "children": [
+        {
+          "x1": 2055.2,
+          "y1": -178.63565292096223,
+          "x2": 2305.2,
+          "y2": 27.36434707903777
+        }
+      ]
+    },
+    "cornerBlock": {
+      "x1": 2419.2,
+      "y1": 25.36434707903777,
+      "x2": 2669.2,
+      "y2": 231.36434707903777
+    },
+    "beside": {
+      "x1": 2337.2,
+      "y1": -176,
+      "x2": 2587.2,
+      "y2": 30
+    }
+  },
+  "race": {
+    "classPresentWhenPollLanded": false
+  },
+  "raceLanding": {
+    "block": {
+      "x1": 2055.2,
+      "y1": 59.36434707903777,
+      "x2": 2305.2,
+      "y2": 231.36434707903777
+    },
+    "card": {
+      "x": 2055.2,
+      "y": 59.36434707903777,
+      "w": 250,
+      "h": 172
+    }
+  },
+  "cloneShape": {
+    "w": 250,
+    "h": 172
+  },
   "inspector": {
     "intent": "Owns the order lifecycle from creation to completion.",
     "detail": "Planned change: publish an OrderCompleted event instead of calling billing directly.",
@@ -107,63 +240,63 @@
     "gaps": [
       {
         "x1": 1696,
-        "y1": 928,
+        "y1": 1176,
         "x2": 1946,
-        "y2": 1134
+        "y2": 1382
       },
       {
         "x1": 1978,
-        "y1": 928,
+        "y1": 1176,
         "x2": 2228,
-        "y2": 1134
+        "y2": 1382
       }
     ],
     "sizeBefore": {
-      "w": 921.4685462979069,
-      "h": 788.9185462979069
+      "w": 919.6344036394667,
+      "h": 787.0844036394666
     }
   },
   "gapLanding": {
     "block": {
-      "x1": 1715,
-      "y1": 928,
-      "x2": 1965,
-      "y2": 1134
+      "x1": 1712,
+      "y1": 1176,
+      "x2": 1962,
+      "y2": 1382
     },
     "card": {
-      "x": 1715,
-      "y": 928,
+      "x": 1712,
+      "y": 1176,
       "w": 250,
       "h": 206
     },
     "sizeBefore": {
-      "w": 921.4685462979069,
-      "h": 788.9185462979069
+      "w": 919.6344036394667,
+      "h": 787.0844036394666
     },
     "sizeAfter": {
-      "w": 917.5448815037471,
-      "h": 785.2948815037471
+      "w": 919.2214931188528,
+      "h": 786.9714931188529
     },
     "gapsAfter": [
       {
-        "x1": 1997,
-        "y1": 928,
+        "x1": 1994,
+        "y1": 1176,
         "x2": 2228,
-        "y2": 1134
+        "y2": 1382
       }
     ]
   },
   "narrowLanding": {
     "block": {
-      "x1": 1997,
-      "y1": 928,
+      "x1": 1994,
+      "y1": 1176,
       "x2": 2228,
-      "y2": 1134
+      "y2": 1382
     },
     "card": {
-      "x": 1997,
-      "y": 928,
-      "w": 231,
+      "x": 1994,
+      "y": 1176,
+      "w": 234,
       "h": 206
     }
   },
@@ -187,25 +320,25 @@
     ]
   },
   "designedEdge": {
-    "id": "aggregate:[\"0def9197-8d13-47be-bb56-4479b3526237\",\"design:com.example.audit.AuditLog\",\"DESIGN\"]",
+    "id": "aggregate:[\"12f76c6a-8ea9-4086-b6e1-974b28af5a33\",\"design:com.example.audit.AuditLog\",\"DESIGN\"]",
     "style": "dashed",
     "color": "rgb(139,106,214)",
     "label": "✎ calls",
     "source": "OrderService",
     "target": "AuditLog"
   },
-  "edgeProvenance": "Written by claude-code · 2026-10-02 13:23:42",
+  "edgeProvenance": "Written by claude-code · 2026-10-02 16:50:06",
   "badNameError": "Write a method as name or name(Type, Type)",
   "methodLanding": {
     "block": {
       "x1": 2022,
-      "y1": 928,
+      "y1": 1176,
       "x2": 2242,
-      "y2": 1078
+      "y2": 1326
     },
     "card": {
       "x": 2022,
-      "y": 928,
+      "y": 1176,
       "w": 220,
       "h": 150
     }
@@ -238,12 +371,26 @@
   },
   "toggle": {
     "before": {
-      "design:com.example.audit.AuditQuery": {
-        "x": 809.0862542955326,
-        "y": 63.80184707903777,
-        "parent": "design:com.example.audit",
-        "w": 220,
-        "h": 150
+      "design:com.example.audit": {
+        "x": 824.0862542955326,
+        "y": 33.80184707903777,
+        "parent": null,
+        "w": 254,
+        "h": 570
+      },
+      "design:com.example.notes": {
+        "x": 3352.2,
+        "y": 26.36434707903777,
+        "parent": null,
+        "w": 614,
+        "h": 414
+      },
+      "design:com.example.racecheck": {
+        "x": 140,
+        "y": 2079,
+        "parent": null,
+        "w": 280,
+        "h": 250
       },
       "design:com.example.audit.AuditLog": {
         "x": 824.0862542955326,
@@ -252,38 +399,52 @@
         "w": 250,
         "h": 206
       },
-      "design:com.example.audit": {
-        "x": 824.0862542955326,
-        "y": 33.80184707903777,
-        "parent": null,
-        "w": 254,
-        "h": 570
+      "design:com.example.audit.AuditQuery": {
+        "x": 809.0862542955326,
+        "y": 63.80184707903777,
+        "parent": "design:com.example.audit",
+        "w": 220,
+        "h": 150
+      },
+      "design:com.example.notes.NoteIndex": {
+        "x": 3172.2,
+        "y": 145.36434707903777,
+        "parent": "design:com.example.notes",
+        "w": 250,
+        "h": 172
+      },
+      "design:com.example.notes.NoteStore": {
+        "x": 3172.2,
+        "y": -75.63565292096223,
+        "parent": "design:com.example.notes",
+        "w": 250,
+        "h": 206
       },
       "design:com.example.spring.service.OrderAudit": {
-        "x": 1840,
-        "y": 1495,
-        "parent": "9e551a3e-fd79-45b4-afc9-92bc6e03442a",
+        "x": 1837,
+        "y": 1743,
+        "parent": "3c1e1ece-c8e2-45c9-b5dc-f4f289e7d461",
         "w": 250,
         "h": 206
       },
       "design:com.example.spring.service.OrderArchive": {
-        "x": 2112.5,
-        "y": 1495,
-        "parent": "9e551a3e-fd79-45b4-afc9-92bc6e03442a",
-        "w": 231,
+        "x": 2111,
+        "y": 1743,
+        "parent": "3c1e1ece-c8e2-45c9-b5dc-f4f289e7d461",
+        "w": 234,
         "h": 206
       },
       "design:com.example.spring.service.OrderService.complete(Long)": {
         "x": 2429,
-        "y": 588,
-        "parent": "0def9197-8d13-47be-bb56-4479b3526237",
+        "y": 836,
+        "parent": "12f76c6a-8ea9-4086-b6e1-974b28af5a33",
         "w": 250,
         "h": 184
       },
       "design:com.example.spring.service.OrderService.findByCustomer(Long)": {
         "x": 2132,
-        "y": 1003,
-        "parent": "0def9197-8d13-47be-bb56-4479b3526237",
+        "y": 1251,
+        "parent": "12f76c6a-8ea9-4086-b6e1-974b28af5a33",
         "w": 220,
         "h": 150
       }
@@ -296,17 +457,31 @@
         "w": 254,
         "h": 570
       },
+      "design:com.example.notes": {
+        "x": 3352.2,
+        "y": 26.36434707903777,
+        "parent": null,
+        "w": 614,
+        "h": 414
+      },
+      "design:com.example.racecheck": {
+        "x": 140,
+        "y": 2079,
+        "parent": null,
+        "w": 280,
+        "h": 250
+      },
       "design:com.example.spring.service.OrderArchive": {
-        "x": 2112.5,
-        "y": 1495,
-        "parent": "9e551a3e-fd79-45b4-afc9-92bc6e03442a",
-        "w": 231,
+        "x": 2111,
+        "y": 1743,
+        "parent": "3c1e1ece-c8e2-45c9-b5dc-f4f289e7d461",
+        "w": 234,
         "h": 206
       },
       "design:com.example.spring.service.OrderAudit": {
-        "x": 1840,
-        "y": 1495,
-        "parent": "9e551a3e-fd79-45b4-afc9-92bc6e03442a",
+        "x": 1837,
+        "y": 1743,
+        "parent": "3c1e1ece-c8e2-45c9-b5dc-f4f289e7d461",
         "w": 250,
         "h": 206
       },
@@ -324,30 +499,44 @@
         "w": 220,
         "h": 150
       },
+      "design:com.example.notes.NoteIndex": {
+        "x": 3172.2,
+        "y": 145.36434707903777,
+        "parent": "design:com.example.notes",
+        "w": 250,
+        "h": 172
+      },
+      "design:com.example.notes.NoteStore": {
+        "x": 3172.2,
+        "y": -75.63565292096223,
+        "parent": "design:com.example.notes",
+        "w": 250,
+        "h": 206
+      },
       "design:com.example.spring.service.OrderService.complete(Long)": {
         "x": 2429,
-        "y": 588,
-        "parent": "0def9197-8d13-47be-bb56-4479b3526237",
+        "y": 836,
+        "parent": "12f76c6a-8ea9-4086-b6e1-974b28af5a33",
         "w": 250,
         "h": 184
       },
       "design:com.example.spring.service.OrderService.findByCustomer(Long)": {
         "x": 2132,
-        "y": 1003,
-        "parent": "0def9197-8d13-47be-bb56-4479b3526237",
+        "y": 1251,
+        "parent": "12f76c6a-8ea9-4086-b6e1-974b28af5a33",
         "w": 220,
         "h": 150
       }
     },
     "arrangedBoxes": {
       "design:com.example.audit": null,
-      "0def9197-8d13-47be-bb56-4479b3526237": {
+      "12f76c6a-8ea9-4086-b6e1-974b28af5a33": {
         "x": 1622,
-        "y": 353
+        "y": 601
       }
     }
   },
-  "promptBytes": 1560,
+  "promptBytes": 1812,
   "fileActions": {
     "actions": {
       "left": 1052.515625,
@@ -374,7 +563,7 @@
       "y": 281.9375
     }
   },
-  "briefBytes": 85847,
+  "briefBytes": 88118,
   "imported": {
     "position": {
       "x": 824.0862542955326,
@@ -401,16 +590,16 @@
       "design:com.example.spring.service.OrderService.findByCustomer(Long)",
       "design:com.example.spring.service.OrderService.findById(Long)"
     ],
-    "status": "Imported 82 new and 0 updated resources, 117 relations (74 not found in this code)23 unresolved external targets0 explained · 0 queued · 0 failed✧ Explain all"
+    "status": "Imported 86 new and 0 updated resources, 117 relations (74 not found in this code)23 unresolved external targets0 explained · 0 queued · 0 failed✧ Explain all"
   },
   "emptyParsedDrag": {
     "zoom": 0.8,
     "box0": {
-      "x1": 1026,
+      "x1": 1682,
       "y1": 340
     },
     "box1": {
-      "x1": 1176,
+      "x1": 1832,
       "y1": 390
     }
   },
@@ -419,20 +608,144 @@
       "expanded": false,
       "w": 250,
       "cw": 250,
-      "x": 1303,
+      "x": 1959,
       "y": 495
     },
     "offAfter": {
-      "x": 1190.5,
+      "x": 1846.5,
       "y": 557.5
     }
   },
+  "designOffCollapse": {
+    "moved": 3,
+    "menu": [
+      "− Remove from scope",
+      "⇶ Show outgoing stack",
+      "⇇ Show incoming stack",
+      "⊟ Collapse",
+      "</> View source",
+      "✕ Deselect"
+    ],
+    "off": [],
+    "boxes": {
+      "s0": {
+        "pkg": [
+          1673.8,
+          406.79999999999995,
+          2019.2,
+          886.8
+        ],
+        "tag": [
+          1719.8,
+          452.8,
+          1973.2,
+          662.2
+        ],
+        "blocks": [
+          {
+            "x1": 1721.5,
+            "y1": 692.5,
+            "x2": 1941.5,
+            "y2": 842.5
+          }
+        ],
+        "kids": [
+          [
+            "RegionTag",
+            1719.8,
+            452.8,
+            1973.2,
+            662.2
+          ]
+        ]
+      },
+      "s1": {
+        "pkg": [
+          1673.5,
+          406.5,
+          2107.5,
+          952.5
+        ],
+        "tag": [
+          1719.5,
+          452.5,
+          2061.5,
+          728.5
+        ],
+        "blocks": [
+          {
+            "x1": 1721.5,
+            "y1": 758.5,
+            "x2": 1941.5,
+            "y2": 908.5
+          }
+        ],
+        "kids": [
+          [
+            "RegionTag",
+            1719.5,
+            452.5,
+            2061.5,
+            728.5
+          ]
+        ]
+      },
+      "s1off": {
+        "pkg": [
+          1673.8,
+          406.79999999999995,
+          2019.2,
+          708.2
+        ],
+        "tag": [
+          1719.8,
+          452.8,
+          1973.2,
+          662.2
+        ],
+        "blocks": null,
+        "kids": [
+          [
+            "RegionTag",
+            1719.8,
+            452.8,
+            1973.2,
+            662.2
+          ]
+        ]
+      },
+      "s2": {
+        "pkg": [
+          1673.8,
+          406.79999999999995,
+          2019.2,
+          708.2
+        ],
+        "tag": [
+          1719.8,
+          452.8,
+          1973.2,
+          662.2
+        ],
+        "blocks": null,
+        "kids": [
+          [
+            "RegionTag",
+            1719.8,
+            452.8,
+            1973.2,
+            662.2
+          ]
+        ]
+      }
+    }
+  },
   "designOnlyImport": {
-    "cards": 22,
+    "cards": 26,
     "extra": [],
     "diffs": [],
     "project": {
-      "summary": "spring-project21 types across 6 packagesDesign only · no source folder",
+      "summary": "spring-project23 types across 8 packagesDesign only · no source folder",
       "changes": true,
       "design": "true"
     },
