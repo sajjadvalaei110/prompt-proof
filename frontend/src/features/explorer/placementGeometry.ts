@@ -71,8 +71,8 @@ export function geometryForJourney(
       const { gaps, reserve, area } = designBlocks({ x: center.x - size.width / 2, y: center.y - size.height / 2 }, childBoxes, minSize, slotSizes.card, slotSizes.least);
       slots[n.id] = reserve ? [reserve] : gaps;
       if (area) areas[n.id] = area;
-      // Only a reserve grows the box; an empty box is exactly its reserve.
-      if (reserve) minSize = slotMinSizes[n.id] = childBoxes.length ? minSizeWithSlot(childBoxes, minSize, reserve) : { width: reserve.x2 - reserve.x1, height: reserve.y2 - reserve.y1 };
+      // Only a reserve grows the box. An empty box is its card-sized block, or the larger size the user gave it.
+      if (reserve) minSize = slotMinSizes[n.id] = childBoxes.length ? minSizeWithSlot(childBoxes, minSize, reserve) : { width: Math.max(reserve.x2 - reserve.x1, minSize?.width ?? 0), height: Math.max(reserve.y2 - reserve.y1, minSize?.height ?? 0) };
       if (!childBoxes.length && reserve) { boxes[n.id] = containerBox([reserve], minSize)!; continue; }
     }
     const box = containerBox(childBoxes, minSize, !!expansion?.hidden);
