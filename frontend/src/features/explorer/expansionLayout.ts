@@ -63,39 +63,86 @@ export function designSlot(topLeft: Point, placed: PlacedCard[], slot: Size): Bo
   return boxOfCard({ id, ...slot, ...p });
 }
 
+/** Where design mode may place a new card inside an expanded box: its inner area and its children's boxes. */
+export interface AddArea { inner: Box; children: Box[] }
+
+const area = (b: Box) => (b.x2 - b.x1) * (b.y2 - b.y1);
+const inflate = (b: Box, d: number): Box => ({ x1: b.x1 - d, y1: b.y1 - d, x2: b.x2 + d, y2: b.y2 + d });
+const meets = (a: Box, b: Box) => a.x1 < b.x2 - 0.5 && b.x1 < a.x2 - 0.5 && a.y1 < b.y2 - 0.5 && b.y1 < a.y2 - 0.5;
+
 /**
- * The design layer's add blocks for one expanded card (ADR 0017). `gaps` are the empty spaces its
- * drawn box already has (a short last row, a box the user resized larger): each is where a full
- * `card` fits beside its children without touching any of them, clipped by the box's own right and
- * bottom edge but never below `least`. Only when there is no gap is there a `reserve`: a `least`-sized
- * block where the next child would be placed (designSlot), which the box grows to hold. A box with no
- * children reserves one card-sized block at its top-left corner. Gaps are searched on the box without the
- * reserve, so the reserve's own row never counts as a gap. Blocks are top-left anchored: a card
- * created in one keeps the block's top-left corner, and the box grows right and down if it is larger.
+ * The largest empty rectangle around `p` inside `inner` that keeps GAP from every child (ADR 0017,
+ * round 2): starting from the whole inner area, each child in the way, nearest first, cuts it on the
+ * side away from `p`, keeping whichever cut leaves the most room. Null when `p` is on a child or
+ * within GAP of one, or outside the inner area.
  */
-export function designBlocks(topLeft: Point, children: Box[], minSize: Size | null, card: Size, least: Size): { gaps: Box[]; reserve: Box | null } {
+export function freeRect(inner: Box, children: Box[], p: Point): Box | null {
+  if (p.x < inner.x1 || p.x > inner.x2 || p.y < inner.y1 || p.y > inner.y2) return null;
+  const dist = (b: Box) => Math.hypot(Math.max(b.x1 - p.x, 0, p.x - b.x2), Math.max(b.y1 - p.y, 0, p.y - b.y2));
+  let rect = { ...inner };
+  for (const c of [...children].sort((a, b) => dist(a) - dist(b))) {
+    const g = inflate(c, GAP);
+    if (!meets(rect, g)) continue;
+    if (p.x > g.x1 && p.x < g.x2 && p.y > g.y1 && p.y < g.y2) return null;
+    const cuts: Box[] = [];
+    if (p.x >= g.x2) cuts.push({ ...rect, x1: g.x2 });
+    if (p.x <= g.x1) cuts.push({ ...rect, x2: g.x1 });
+    if (p.y >= g.y2) cuts.push({ ...rect, y1: g.y2 });
+    if (p.y <= g.y1) cuts.push({ ...rect, y2: g.y1 });
+    rect = cuts.reduce((best, b) => (area(b) > area(best) ? b : best));
+  }
+  return rect;
+}
+
+/**
+ * The add block under the pointer (ADR 0017): a card-sized block centred on `p`, shifted and shrunk to
+ * stay inside the empty space around it, never smaller than `least`. Null where no such block fits.
+ * The block is the exact shape the new card takes, so creating it never grows the box.
+ */
+export function addBlockAt(a: AddArea, p: Point, card: Size, least: Size): Box | null {
+  const free = freeRect(a.inner, a.children, p);
+  if (!free) return null;
+  const width = Math.min(card.width, free.x2 - free.x1), height = Math.min(card.height, free.y2 - free.y1);
+  if (width < least.width - 0.5 || height < least.height - 0.5) return null;
+  const x1 = Math.round(Math.min(Math.max(p.x - width / 2, free.x1), free.x2 - width));
+  const y1 = Math.round(Math.min(Math.max(p.y - height / 2, free.y1), free.y2 - height));
+  return { x1, y1, x2: x1 + Math.floor(width), y2: y1 + Math.floor(height) };
+}
+
+/**
+ * The design layer's add blocks for one expanded card (ADR 0017). `area` is where a hover may place a
+ * new card anywhere empty (addBlockAt). `gaps` are top-left anchored blocks at the natural spots (the
+ * inner corner, beside and below each child), each as large as the free space allows up to `card`
+ * and at least `least`: they say there is room, and the first is where a card menu "Add …" puts its
+ * card. Only when there is no gap is there a `reserve`: a `least`-sized block where the next child
+ * would be placed (designSlot), which the box grows to hold. A box with no children reserves one
+ * card-sized block at its top-left corner. Gaps are searched on the box without the reserve, so the
+ * reserve's own row never counts as a gap. Every block lies inside the box's inner area, and the new
+ * card takes the block's exact shape, so only a reserve ever grows the box.
+ */
+export function designBlocks(topLeft: Point, children: Box[], minSize: Size | null, card: Size, least: Size): { gaps: Box[]; reserve: Box | null; area: AddArea | null } {
   if (!children.length) {
     const x1 = topLeft.x + CONTAINER_PADDING, y1 = topLeft.y + CONTAINER_PADDING;
     // A full card's room: the first card fills it exactly, and the header keeps space for its label.
-    return { gaps: [], reserve: { x1, y1, x2: x1 + Math.max(card.width, minSize?.width ?? 0), y2: y1 + Math.max(card.height, minSize?.height ?? 0) } };
+    return { gaps: [], reserve: { x1, y1, x2: x1 + Math.max(card.width, minSize?.width ?? 0), y2: y1 + Math.max(card.height, minSize?.height ?? 0) }, area: null };
   }
   const outer = containerBox(children, minSize)!;
   const inner = { x1: outer.x1 + CONTAINER_PADDING, y1: outer.y1 + CONTAINER_PADDING, x2: outer.x2 - CONTAINER_PADDING, y2: outer.y2 - CONTAINER_PADDING };
-  // Strict overlap with a GAP margin: a block may sit exactly GAP away from a card, never closer.
-  const clear = (a: Box, b: Box) => a.x2 <= b.x1 - GAP + 0.5 || b.x2 <= a.x1 - GAP + 0.5 || a.y2 <= b.y1 - GAP + 0.5 || b.y2 <= a.y1 - GAP + 0.5;
   const seen = new Set<string>(), candidates: Point[] = [];
   const add = (x: number, y: number) => { const k = `${Math.round(x)},${Math.round(y)}`; if (!seen.has(k)) { seen.add(k); candidates.push({ x, y }); } };
   add(inner.x1, inner.y1);
-  for (const c of children) { add(c.x2 + GAP, c.y1); add(c.x1, c.y2 + GAP); add(inner.x1, c.y2 + GAP); }
+  for (const c of children) { add(c.x2 + GAP, c.y1); add(c.x1, c.y2 + GAP); add(inner.x1, c.y2 + GAP); add(c.x2 + GAP, inner.y1); }
   candidates.sort((a, b) => a.y - b.y || a.x - b.x);
   const gaps: Box[] = [];
   for (const { x, y } of candidates) {
-    const width = Math.min(card.width, inner.x2 - x), height = Math.min(card.height, inner.y2 - y);
+    const free = freeRect(inner, [...children, ...gaps], { x: x + least.width / 2, y: y + least.height / 2 });
+    if (!free || x < free.x1 - 0.5 || y < free.y1 - 0.5) continue;
+    const width = Math.min(card.width, free.x2 - x), height = Math.min(card.height, free.y2 - y);
     if (width < least.width - 0.5 || height < least.height - 0.5) continue;
-    const full = { x1: x, y1: y, x2: x + card.width, y2: y + card.height }, block = { x1: x, y1: y, x2: x + width, y2: y + height };
-    if (children.every(c => clear(full, c)) && gaps.every(g => clear(block, g))) gaps.push(block);
+    gaps.push({ x1: x, y1: y, x2: x + width, y2: y + height });
   }
-  return gaps.length ? { gaps, reserve: null } : { gaps, reserve: designSlot(topLeft, children.map((b, i) => ({ id: String(i), width: b.x2 - b.x1, height: b.y2 - b.y1, x: (b.x1 + b.x2) / 2, y: (b.y1 + b.y2) / 2 })), least) };
+  const area: AddArea = { inner, children };
+  return gaps.length ? { gaps, reserve: null, area } : { gaps, reserve: designSlot(topLeft, children.map((b, i) => ({ id: String(i), width: b.x2 - b.x1, height: b.y2 - b.y1, x: (b.x1 + b.x2) / 2, y: (b.y1 + b.y2) / 2 })), least), area };
 }
 
 /** What an expanded card's add blocks hold in design mode (ADR 0017): the card one becomes, and the smallest block. */

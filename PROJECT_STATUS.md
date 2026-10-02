@@ -29,6 +29,74 @@ and selection controls, the R6 change-edges slice (one line per direction,
 directional selection emphasis, file-grouped evidence), in-place card details
 (expand packages/classes) and resizable cards; Step 6A remains unstarted
 
+## Design layer round 4b: a block anywhere empty, in the card's exact shape (2026-10-02, ADR 0017 "Round 2")
+
+Owner feedback on round 4: with plenty of space, only two fixed places offered "+ class" / "+ method".
+They asked that the resource can be created anywhere empty, and that once created it is no bigger than the
+shape the block promised.
+
+Changes (frontend only):
+- `expansionLayout.freeRect` and `addBlockAt`:
+  - a hover anywhere in an expanded box's empty inner area offers a block centred on the pointer;
+  - the block is shifted and shrunk to keep GAP from every child, up to a card, at least
+    `DESIGN_LEAST_BLOCK` (220×150).
+- `JourneyGeometry.areas` → `DesignCanvas.areas`. `GraphCanvas` calls the pure helper on mousemove and
+  click.
+- `designBlocks.gaps` are now as large as the free space allows. They decide whether a reserve is needed and
+  where a card menu "Add …" goes.
+- The draft is drawn at the block's model size, scaled by the zoom. The commit stores the card's position
+  **and size** with `RESIZE_RESOURCE` inside `RECONCILE_ALL`, so the card is exactly the block and the box
+  never grows for it.
+- A hover block that a card now covers is dropped, so there is no stale "+".
+- The least block went from 180×130 to 220×150: at 180×130 a two-line name was cut ("AuditQuery" showed as
+  "Audit").
+- `docs/reviews/design-add-blocks-codex-review.md`: a self-contained prompt for an external (Codex) review of
+  all commits after `d8c6111`.
+
+Checks run (final build):
+- `cd frontend && npx tsc -b --force && npm run build`: PASS.
+- `node scripts/test-*.mjs`: all 18 PASS. `test-expansion-layout.mjs` has a new block covering:
+  - a full card under the pointer far from children;
+  - one shifted inside at the edge;
+  - one keeping GAP beside a child;
+  - none on or within GAP of a child;
+  - a 236 px space giving a 236-wide block;
+  - none below the least size;
+  - every gap inside the inner area.
+- `./gradlew bootJar`: PASS.
+- `CHROMIUM=/snap/bin/chromium python3 scripts/verify_design_layer_pipeline.py`: PASS. All 26 screenshots
+  inspected and copied to `docs/evidence/design-layer-ux/`. 06d is new. Asserted:
+  - 3b: hovered 20 px right of the first empty cell's centre, the block follows the pointer (x1 = cell
+    x1 + 20). The class takes its exact corner and size (250×206). The package size is unchanged (< 8 px).
+    No stale button. No overlap;
+  - the remaining space (230 px, narrower than a card) is still a block. A class made there is 230 wide;
+  - every create (reserve class, first method of an empty class, gap class, narrow class, method in a parsed
+    class) asserts the card's corner and size equal the block's.
+- `verify_change_edges_pipeline.py`: PASS. `verify_git_review_pipeline.py`: PASS.
+  `verify_stable_graph_pipeline.py acceptance`: the same failure as before this work (`revealClasses`).
+- `verify_ungroup_pipeline.py`: **not verified this round**.
+  - It hung three times at its step 9, the first `evaluate` after a `?selectedSymbol=` navigation, until the
+    timeout.
+  - To bisect, I built the previous commit `d5f367f` in a separate worktree. It hangs at the same step, yet
+    it passed this pipeline 33/33 earlier the same day. So the hang is not caused by this round.
+  - After that, the snap Chromium became unstable on this machine: crashpad `ptrace` errors, then "Unable to
+    capture screenshot", then a DevTools endpoint that never starts. A plain `--headless --screenshot` still
+    works.
+  - Neither ungroup nor a further design pipeline run could be completed. Rerun ungroup on a healthy
+    browser before merging.
+- While investigating I briefly tried drawing childless expansions as card-sized compounds in the canvas,
+  instead of the `projected` memo. I reverted it: the bisect cleared the memo, and the reverted state is the
+  one the passing design run above verified.
+
+Not run: `./gradlew test` (no backend change; the round-4 run stands), live-model verification,
+`constrainedMemoryTest`.
+
+Remaining limits:
+- The free rectangle is greedy (nearest child first). In odd layouts it can miss a larger free area that a
+  different cut order would find; the block is then smaller than possible, never overlapping.
+- A card made in a small space stays small (at least 220×150) until resized.
+- The draft scales with the zoom like a card, so at very low zoom its input is small.
+
 ## Design layer round 4: add blocks in a box's empty space, empty boxes expand (2026-10-02, ADR 0017)
 
 Bounded acceptance criterion, from the owner's feedback on round 3:

@@ -781,6 +781,8 @@ under a colour-vision deficiency (WCAG 2.1 SC 1.4.1). The suite asserts all thre
     does not stretch, one gap fewer remains, and no stale button shows. An empty planned class expands onto
     one block at its own corner, and its first method lands there. No top-level card overlaps another after
     any of these;
+  - ADR 0017 round 2: hovering 20 px off a fixed spot puts the block under the pointer; every created card
+    has exactly its block's corner and size; a space narrower than a card still makes a (narrower) card;
   - ADR 0017 in fixture B: the method-less parsed type `RegionTag` expands onto one block, and a drag moves
     it exactly (no creep). With Design off it is an unexpanded card that lands where it was dropped;
   - Esc and empty-blur cancel with nothing on the server;

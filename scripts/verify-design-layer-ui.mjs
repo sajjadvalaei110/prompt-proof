@@ -62,29 +62,42 @@ const pressEnterOnKind=async kind=>{await fill('.design-quick-popup select',kind
 /** A box's add blocks (ADR 0017), in model coordinates: its gaps, or else its one reserve. */
 const blocksOf=boxId=>evaluate(`(${CY}.scratch('atlas:designBlocks')||{})[${q(boxId)}]||[]`);
 const boxSize=boxId=>evaluate(`(()=>{const b=${CY}.getElementById(${q(boxId)}).boundingBox({includeLabels:false,includeOverlays:false});return {w:b.w,h:b.h};})()`);
-/** Hover one of an expanded box's add blocks, then click its "+" button; returns the block (model) and its drawn rect. */
-async function openSlot(boxId,label,index=0){
+/** Hover an expanded box's empty space (at block `index`'s centre, or at the model point `at`), then click
+ * the "+" button there; returns the hovered block (model) and its drawn rect. */
+async function openSlot(boxId,label,index=0,at=null){
   // Bring the box to the middle of the canvas so its blocks are not under the minimap or legend.
   await evaluate(`${CY}.center(${CY}.getElementById(${q(boxId)})),true`);
   await mouse('mouseMoved',5,5);
   await pause(300);
-  // Hovering the box padding shows no button: only the block under the pointer does.
+  // Hovering the box header shows no button: only empty space inside it does.
   const corner=await cardPoint(boxId,0,0);
   await mouse('mouseMoved',corner.x+14,corner.y+14);
   await until(`(${CY}.scratch('atlas:designBlocks')||{})[${q(boxId)}]?.length>0`,'add blocks of '+boxId);
   await pause(200);
-  assert.equal(await evaluate(`document.querySelectorAll('.design-slot').length`),0,'no add button off the blocks');
-  const block=(await blocksOf(boxId))[index];
-  assert.ok(block,`block ${index} of ${boxId}`);
-  const at=await evaluate(`(()=>{const cy=${CY},r=document.querySelector('.graph-canvas').getBoundingClientRect(),z=cy.zoom(),p=cy.pan();return {x:r.left+${(block.x1+block.x2)/2}*z+p.x,y:r.top+${(block.y1+block.y2)/2}*z+p.y};})()`);
-  await mouse('mouseMoved',at.x,at.y);
-  await until(`document.querySelector('.design-slot.hot')?.dataset.slotFor===${q(boxId)}&&document.querySelector('.design-slot.hot').dataset.block===${q(`${Math.round(block.x1)},${Math.round(block.y1)}`)}`,'the hovered block shows its add button');
+  assert.equal(await evaluate(`document.querySelectorAll('.design-slot').length`),0,'no add button on the header');
+  let point=at;
+  if(!point){const block=(await blocksOf(boxId))[index];assert.ok(block,`block ${index} of ${boxId}`);point={x:(block.x1+block.x2)/2,y:(block.y1+block.y2)/2};}
+  const client=await evaluate(`(()=>{const cy=${CY},r=document.querySelector('.graph-canvas').getBoundingClientRect(),z=cy.zoom(),p=cy.pan();return {x:r.left+${point.x}*z+p.x,y:r.top+${point.y}*z+p.y};})()`);
+  await mouse('mouseMoved',client.x,client.y);
+  await until(`document.querySelector('.design-slot.hot')?.dataset.slotFor===${q(boxId)}`,'the hovered empty space shows its add button');
   assert.equal(await evaluate(`document.querySelectorAll('.design-slot').length`),1,'only the hovered block shows a button');
   assert.ok((await evaluate(`document.querySelector('.design-slot').textContent`)).includes(label),'block says '+label);
+  const block=await evaluate(`${CY}.scratch('atlas:designHover')?.box`);
+  assert.ok(block&&point.x>=block.x1-1&&point.x<=block.x2+1&&point.y>=block.y1-1&&point.y<=block.y2+1,'the block is under the pointer: '+JSON.stringify({block,point}));
   const slot=await rectOf('.design-slot');
-  await clickAt(at.x,at.y);
+  await clickAt(client.x,client.y);
   await until(`!!document.querySelector('.design-draft-card input')`,'draft card after clicking the block');
   return {slot,block};
+}
+/** A card's drawn size in model coordinates (its stored card size). */
+const cardSizeOf=id=>evaluate(`(()=>{const n=${CY}.getElementById(${q(id)});return {w:n.data('cardWidth'),h:n.data('cardHeight')};})()`);
+/** The new card takes the block's exact shape (ADR 0017): its corner and its size. */
+async function assertShape(id,block,label){
+  const tl=await cardTopLeft(id),sz=await cardSizeOf(id);
+  const shape={block,card:{...tl,...sz}};
+  assert.ok(Math.abs(tl.x-block.x1)<2&&Math.abs(tl.y-block.y1)<2,label+': the card keeps the block\'s corner: '+JSON.stringify(shape));
+  assert.ok(Math.abs(sz.w-(block.x2-block.x1))<2&&Math.abs(sz.h-(block.y2-block.y1))<2,label+': the card is the block\'s size: '+JSON.stringify(shape));
+  return shape;
 }
 const topLevelOverlaps=()=>evaluate(`(()=>{const ns=${CY}.nodes().filter(n=>!n.parent().length&&!n.data('hiddenBox')).map(n=>({id:n.id(),b:n.boundingBox({includeLabels:false,includeOverlays:false})}));const out=[];for(let i=0;i<ns.length;i++)for(let j=i+1;j<ns.length;j++){const a=ns[i].b,b=ns[j].b;if(a.x1<b.x2-4&&b.x1<a.x2-4&&a.y1<b.y2-4&&b.y1<a.y2-4)out.push([ns[i].id,ns[j].id]);}return out;})()`);
 /** A card's top-left corner in model coordinates (its collapsed card, as stored). */
@@ -178,8 +191,7 @@ await quickPopup('a slot class');
 await typeText('not saved');await escape();
 await until(`!document.querySelector('.design-quick-popup')`,'Esc closes the quick popup');
 assert.equal((await designOverlay()).resources.find(r=>r.key==='com.example.audit.AuditQuery').explanation,'','Esc on the quick popup saves nothing');
-results.slotLanding={block:auditSlot.block,card:await cardTopLeft('design:com.example.audit.AuditQuery')};
-assert.ok(Math.abs(results.slotLanding.block.x1-results.slotLanding.card.x)<2&&Math.abs(results.slotLanding.block.y1-results.slotLanding.card.y)<2,'the new class keeps the block\'s top-left corner: '+JSON.stringify(results.slotLanding));
+results.slotLanding=await assertShape('design:com.example.audit.AuditQuery',auditSlot.block,'a class in the reserve');
 assert.equal(await evaluate(`${CY}.getElementById('design:com.example.audit.AuditQuery').parent().id()`),'design:com.example.audit');
 assert.deepEqual(await topLevelOverlaps(),[],'the package grows for a class in its reserve: no map card is overlapped');
 
@@ -217,8 +229,7 @@ await shot('05-planned-package-and-classes');
   const searchId='design:com.example.audit.AuditQuery.search(String)';
   await until(`${CY}.getElementById(${q(searchId)}).length>0`,'first method of the empty class');
   assert.equal(await evaluate(`${CY}.getElementById(${q(searchId)}).parent().id()`),queryId,'drawn inside the class box');
-  const tl=await cardTopLeft(searchId);
-  assert.ok(Math.abs(tl.x-methodBlock.block.x1)<2&&Math.abs(tl.y-methodBlock.block.y1)<2,'the method keeps the block\'s top-left corner');
+  results.firstMethod=await assertShape(searchId,methodBlock.block,'the first method');
   await quickPopup('the first method');await escape();
   await until(`!document.querySelector('.design-quick-popup')`,'quick popup closed');
   assert.deepEqual(await topLevelOverlaps(),[],'a nested box\'s growth makes room through the package around it');
@@ -245,31 +256,48 @@ assert.ok(results.inspector.detail.includes('OrderCompleted'));
 assert.ok(results.inspector.generatedHeading.includes('Generated explanation'),'the model explanation is labelled as generated');
 await shot('06-parsed-class-explained');
 
-// 3b. ADR 0017: the expanded service package (seven types, three columns) has empty cells in its last row.
-// Hovering one shows "+ class"; a class made there fills it, and the package does not stretch.
+// 3b. ADR 0017: the expanded service package (seven types, three columns) has two empty cells in its last
+// row. A hover anywhere in that space offers a block under the pointer, not only at fixed spots: hovered
+// 20 px right of the first cell's centre, the block sits there, and the class takes exactly its shape.
+// The package does not stretch. The space left is narrower than a card but still a block, and a class
+// made there takes that narrower shape.
 {
   const serviceId=await evaluate(`${CY}.nodes().filter(n=>n.data('kind')==='PACKAGE'&&(n.data('qualifiedName')||'').endsWith('.service'))[0].id()`);
   const gaps=await blocksOf(serviceId);
   const sizeBefore=await boxSize(serviceId);
   results.serviceGaps={gaps,sizeBefore};
   assert.ok(gaps.length>=2,'the short last row offers gaps: '+JSON.stringify(gaps));
-  const opened=await openSlot(serviceId,'class',0);
+  const at={x:(gaps[0].x1+gaps[0].x2)/2+20,y:(gaps[0].y1+gaps[0].y2)/2};
+  const opened=await openSlot(serviceId,'class',0,at);
+  assert.ok(Math.abs(opened.block.x1-gaps[0].x1-20)<2,'the block follows the pointer, between the fixed spots: '+JSON.stringify({gap:gaps[0],block:opened.block}));
+  assert.equal(opened.block.x2-opened.block.x1,250,'a full card where there is room');
   await shot('06b-gap-class-draft');
   await typeText('OrderAudit');await enter();
   const auditId='design:com.example.spring.service.OrderAudit';
-  await until(`${CY}.getElementById(${q(auditId)}).length>0`,'class added in a gap');
-  await quickPopup('a gap class');await escape();
+  await until(`${CY}.getElementById(${q(auditId)}).length>0`,'class added where hovered');
+  await quickPopup('a class where hovered');await escape();
   await until(`!document.querySelector('.design-quick-popup')`,'quick popup closed');
-  const tl=await cardTopLeft(auditId);
+  const shape=await assertShape(auditId,opened.block,'a class where hovered');
   const sizeAfter=await boxSize(serviceId);
-  results.gapLanding={block:opened.block,card:tl,sizeBefore,sizeAfter,gapsAfter:await blocksOf(serviceId)};
-  assert.ok(Math.abs(tl.x-opened.block.x1)<2&&Math.abs(tl.y-opened.block.y1)<2,'the class fills the gap: '+JSON.stringify(results.gapLanding));
+  const gapsAfter=await blocksOf(serviceId);
+  results.gapLanding={...shape,sizeBefore,sizeAfter,gapsAfter};
   // A few pixels of border/hover outline differ; a stretch would be a whole block (130+ px).
-  assert.ok(Math.abs(sizeAfter.w-sizeBefore.w)<8&&Math.abs(sizeAfter.h-sizeBefore.h)<8,'the package does not stretch for a class in a gap: '+JSON.stringify(results.gapLanding));
-  assert.equal(results.gapLanding.gapsAfter.length,gaps.length-1,'one gap fewer');
-  assert.equal(await evaluate(`document.querySelectorAll('.design-slot').length`),0,'the filled gap shows no button: a stale hover never lights the next gap');
+  assert.ok(Math.abs(sizeAfter.w-sizeBefore.w)<8&&Math.abs(sizeAfter.h-sizeBefore.h)<8,'the package does not stretch: '+JSON.stringify(results.gapLanding));
+  assert.equal(await evaluate(`document.querySelectorAll('.design-slot').length`),0,'no stale button after the create');
   assert.deepEqual(await topLevelOverlaps(),[],'no map card is overlapped');
+  assert.equal(gapsAfter.length,1,'one narrower space is left: '+JSON.stringify(gapsAfter));
+  assert.ok(gapsAfter[0].x2-gapsAfter[0].x1<250&&gapsAfter[0].x2-gapsAfter[0].x1>=220,'narrower than a card, at least the least size');
   await shot('06c-gap-class-filled');
+  const narrow=await openSlot(serviceId,'class',0);
+  await typeText('OrderArchive');await enter();
+  const archiveId='design:com.example.spring.service.OrderArchive';
+  await until(`${CY}.getElementById(${q(archiveId)}).length>0`,'class added in the narrower space');
+  await quickPopup('a narrower class');await escape();
+  await until(`!document.querySelector('.design-quick-popup')`,'quick popup closed');
+  results.narrowLanding=await assertShape(archiveId,narrow.block,'a class in the narrower space');
+  assert.ok(results.narrowLanding.card.w<250,'the class is as narrow as the space it was made in');
+  assert.deepEqual(await topLevelOverlaps(),[],'no map card is overlapped');
+  await shot('06d-narrow-class');
 }
 
 // 4. An AI agent applies a change set over REST while the map is open; the map picks it up.
@@ -314,8 +342,7 @@ const methodRow=(await designOverlay()).resources.find(r=>r.key===methodKey);
 assert.deepEqual(methodRow.parameterTypes,['Long'],'parameter types parsed from name(Long customerId)');
 assert.equal(methodRow.kind,'METHOD');
 assert.equal(await evaluate(`${CY}.getElementById(${q('design:'+methodKey)}).parent().id()`),orderServiceId,'drawn inside its class');
-{const tl=await cardTopLeft('design:'+methodKey);results.methodLanding={block:methodSlot.block,card:tl};
- assert.ok(Math.abs(tl.x-methodSlot.block.x1)<2&&Math.abs(tl.y-methodSlot.block.y1)<2,'the method keeps its block\'s corner: '+JSON.stringify(results.methodLanding));}
+results.methodLanding=await assertShape('design:'+methodKey,methodSlot.block,'a method in a parsed class');
 assert.deepEqual(await topLevelOverlaps(),[],'the class grows for its method without overlapping the map');
 await quickPopup('a new method');
 assert.deepEqual(await quickKinds(),[],'a method offers no kind choice');

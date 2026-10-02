@@ -1,6 +1,6 @@
 # ADR 0017: Add blocks fill a box's empty space; empty packages and types expand in design mode
 
-- Status: Accepted
+- Status: Accepted; §2 and §3 superseded by "Round 2" below (a block anywhere empty, in the card's exact shape)
 - Date: 2026-10-02
 - Amends: ADR 0015 §1 (the add slot) and its consequence "a new card may land a row lower than its slot"
 - Scope: `expansionLayout` (`designBlocks`, `boxWithBlocks`, `RoomCard.blocks`), `placementGeometry`
@@ -105,13 +105,49 @@ geometry and the expand rules are unchanged.
   geometry: with Design off and in Changes, `blocks` is null, and the growth path runs only for design
   creates.
 
+## Round 2 (owner feedback, same day): a block anywhere empty, in the card's exact shape
+
+The owner found that a box with plenty of empty space offered only two fixed places to add a class or
+method. They asked for a resource to be created **anywhere empty**. They also asked that the card, once
+created, be **no bigger than the shape the block promised**. This round supersedes §2 and §3.
+
+### 6. Hover anywhere empty
+
+- `expansionLayout.freeRect(inner, children, p)` is the largest empty rectangle around the pointer
+  inside the box's inner area that keeps GAP from every child. It starts from the whole inner area. Each
+  child in the way, nearest first, cuts the rectangle on the side away from the pointer, and the cut that
+  leaves the most room is kept.
+- `addBlockAt(area, p, card, least)` is a card-sized block centred on the pointer. It is shifted and
+  shrunk to stay inside that free rectangle, and never made smaller than `least`. It returns null on a
+  child, within GAP of one, or where less than `least` fits.
+- `JourneyGeometry.areas` (`{ inner, children }` per expanded box, design mode only) goes to
+  `DesignCanvas.areas`. `GraphCanvas` calls the pure `addBlockAt` on mousemove and click; it computes no
+  geometry of its own.
+- A reserve, or an empty box's single block, is still offered where it is.
+- `designBlocks.gaps` keeps two jobs: it tells whether the box has room at all (otherwise a reserve
+  appears), and its first gap is where a card menu "Add …" puts its card. Gaps are now as large as the
+  free space allows, up to a card, instead of requiring room for a full card.
+- A block a card now covers, such as the one just used, is dropped until the pointer moves again. A stale
+  "+" therefore never shows on the new card.
+
+### 7. The card takes the block's exact shape
+
+- The draft is drawn at the block's model size, scaled by the zoom like a card, so it is exactly the
+  shape that will be created.
+- On commit, `Growth.child` carries the block's centre and size. The reconciliation that admits the card
+  applies `RESIZE_RESOURCE` (position and size together, inside `RECONCILE_ALL`, outside undo history).
+- Every block lies inside the box's inner area, so creating a card in one never grows the box. Only a
+  reserve grows it, when no block is left.
+- The smallest block (`DESIGN_LEAST_BLOCK`) is 220×150, up from 180×130. A card made in a small space
+  takes that size, and 180×130 cut a two-line name ("AuditQuery" showed as "Audit").
+
 ## Consequences
 
 - An expanded box with a gap does not change size when Design turns on. A full box grows by one small
   block, not by a card row.
-- Gaps follow the stored layout. Cards created in reserves stack in a column at the box's left, so
-  gaps mostly come from parsed packages with a short last row, from boxes the user resized larger, and
-  from dragged children.
+- Cards created in reserves stack in a column at the box's left. Space beside them appears when the box
+  is resized larger or a child is dragged, and a block can then be made anywhere in it.
+- A card made in a small space is smaller than a default card. It can be resized like any card.
 - An empty box's header label shares its width with the corner buttons, as in any narrow box. A long
   name can run under them.
 - An empty box opened in design mode keeps its expansion when Design is turned off, but it is drawn as

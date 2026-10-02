@@ -2,7 +2,7 @@ import { AtlasGraph, AtlasNode, AtlasEdge, projectDisplayed } from './graphModel
 import { ScopeSelection, isNodeInScope } from './scopeModel';
 import { ExplorerViewState, PlacementDims } from './explorerViewState';
 import { MIN_CARD_SIZE, defaultCardSize } from './nodeCard';
-import { BlockSizes, Box, Size, boxOfCard, containerBox, designBlocks, minSizeWithSlot, placeMissingChildren } from './expansionLayout';
+import { AddArea, BlockSizes, Box, Size, boxOfCard, containerBox, designBlocks, minSizeWithSlot, placeMissingChildren } from './expansionLayout';
 import type { Point } from './graphPlacement';
 
 export interface JourneyGeometry {
@@ -11,6 +11,8 @@ export interface JourneyGeometry {
   /** Design mode only (ADR 0015, 0017): each visible expanded package/type's add blocks (its gaps, or
    * else the one reserve block), and the inner minimum that makes its drawn box hold the reserve. */
   slots: Record<string, Box[]>;
+  /** Design mode only: each visible expanded package/type's empty space, for a block anywhere in it (ADR 0017). */
+  areas: Record<string, AddArea>;
   slotMinSizes: Record<string, Size>;
   projected: { nodes: AtlasNode[]; edges: AtlasEdge[] };
 }
@@ -36,7 +38,7 @@ export function geometryForJourney(
   };
   const displayed = projectedInput || projectDisplayed(graph, level, displayedIdsInput ?? levelView.displayedIds, kind, expansionInput);
   const positions: Record<string, Point> = { ...levelView.positions }, boxes: Record<string, Box> = {};
-  const slots: Record<string, Box[]> = {}, slotMinSizes: Record<string, Size> = {};
+  const slots: Record<string, Box[]> = {}, areas: Record<string, AddArea> = {}, slotMinSizes: Record<string, Size> = {};
   const kids = new Map<string, AtlasNode[]>();
   for (const n of displayed.nodes) if (n.containerId) {
     const list = kids.get(n.containerId);
@@ -66,8 +68,9 @@ export function geometryForJourney(
     const slotSizes = options.designSlots && !expansion?.hidden ? addSlotSizes(n.kind) : null;
     if (slotSizes) {
       const size = cardSize(n), center = positions[n.id] || { x: 0, y: 0 };
-      const { gaps, reserve } = designBlocks({ x: center.x - size.width / 2, y: center.y - size.height / 2 }, childBoxes, minSize, slotSizes.card, slotSizes.least);
+      const { gaps, reserve, area } = designBlocks({ x: center.x - size.width / 2, y: center.y - size.height / 2 }, childBoxes, minSize, slotSizes.card, slotSizes.least);
       slots[n.id] = reserve ? [reserve] : gaps;
+      if (area) areas[n.id] = area;
       // Only a reserve grows the box; an empty box is exactly its reserve.
       if (reserve) minSize = slotMinSizes[n.id] = childBoxes.length ? minSizeWithSlot(childBoxes, minSize, reserve) : { width: reserve.x2 - reserve.x1, height: reserve.y2 - reserve.y1 };
       if (!childBoxes.length && reserve) { boxes[n.id] = containerBox([reserve], minSize)!; continue; }
@@ -75,7 +78,7 @@ export function geometryForJourney(
     const box = containerBox(childBoxes, minSize, !!expansion?.hidden);
     if (box) boxes[n.id] = box;
   }
-  return { positions, boxes, slots, slotMinSizes, projected: displayed };
+  return { positions, boxes, slots, areas, slotMinSizes, projected: displayed };
 }
 
 /**
@@ -84,9 +87,11 @@ export function geometryForJourney(
  * block, and the size of the reserve that grows a box with no gap left.
  */
 const ADD_TYPE_KINDS = ['CLASS', 'INTERFACE', 'ENUM', 'RECORD', 'ANNOTATION'];
+/** The smallest add block: the card made in it takes its shape, so it keeps room for a two-line name. */
+export const DESIGN_LEAST_BLOCK: Size = { width: Math.max(MIN_CARD_SIZE.width, 220), height: Math.max(MIN_CARD_SIZE.height, 150) };
 export function addSlotSizes(containerKind: string): BlockSizes | null {
   const kind = containerKind === 'PACKAGE' ? 'CLASS' : ADD_TYPE_KINDS.includes(containerKind) ? 'METHOD' : null;
-  return kind ? { card: defaultCardSize({ kind } as AtlasNode), least: MIN_CARD_SIZE } : null;
+  return kind ? { card: defaultCardSize({ kind } as AtlasNode), least: DESIGN_LEAST_BLOCK } : null;
 }
 /** Packages and types: the cards that expand in design mode even with nothing inside (ADR 0017). */
 export const expandsWhenEmpty = (kind: string) => kind === 'PACKAGE' || ADD_TYPE_KINDS.includes(kind);

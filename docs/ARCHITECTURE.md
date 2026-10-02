@@ -372,8 +372,9 @@ an inactive workspace.
   design edits are server operations outside undo history. The Changes overlay never shows the design layer.
 - Design mode (ADR 0015), by layer:
   - pure: `designModel.ts` (`parseInlineName`, `defaultRelationKind`, change-set builders, `unionGraphs`) and
-    `expansionLayout.designBlocks` / `boxWithBlocks` (ADR 0017: a box's empty gaps, else one small reserve;
-    an empty box is one card-sized block), through `placementGeometry` (`{designSlots}` → `slots` as a list
+    `expansionLayout.designBlocks` / `boxWithBlocks` / `addBlockAt` (ADR 0017: a block anywhere empty under
+    the pointer, in the exact shape the card takes; one small reserve only when no space is left; an empty
+    box is one card-sized block), through `placementGeometry` (`{designSlots}` → `slots` as a list
     per box, `slotMinSizes`);
   - reducer: `explorerViewState` pins a card typed in place (`PlacementDims.pinned`) and carries parked children
     with a moved box (`carryUnreportedChildren`);

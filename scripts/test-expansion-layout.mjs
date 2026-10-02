@@ -6,7 +6,7 @@ const require = createRequire(new URL('../frontend/package.json', import.meta.ur
 const ts = require('typescript');
 // Only type imports from graphPlacement.ts, which transpileModule elides.
 const compiled = ts.transpileModule(fs.readFileSync(new URL('../frontend/src/features/explorer/expansionLayout.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } }).outputText;
-const { layoutChildren, placeMissingChildren, containerBox, roomShifts, roomMoves, boxOfCard, designSlot, designBlocks, boxWithBlocks, minSizeWithSlot, CONTAINER_PADDING: PAD } = await import('data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'));
+const { layoutChildren, placeMissingChildren, containerBox, roomShifts, roomMoves, boxOfCard, designSlot, designBlocks, boxWithBlocks, freeRect, addBlockAt, minSizeWithSlot, CONTAINER_PADDING: PAD } = await import('data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'));
 // A single sibling with no one else to clamp against behaves exactly like the old single-card rule.
 const roomShift = (card, before, after) => roomShifts([card], before, after)[0];
 
@@ -195,14 +195,15 @@ console.log('PASS: a hidden box inside a visible one passes its growth to the vi
   // least block but too close to a card below is not a gap.
   const blocked = [boxOfCard({ id: 'a', ...CARD, x: 169, y: 147 }), boxOfCard({ id: 'b', ...CARD, x: 169 + 282, y: 147 }), boxOfCard({ id: 'c', ...CARD, x: 169 + 282 + 100, y: 147 + 380 })];
   const rb = designBlocks({ x: 0, y: 0 }, blocked, null, CARD, LEAST);
-  for (const g of rb.gaps) for (const c of blocked) assert.ok(g.x1 + 250 <= c.x1 - 31 || c.x2 <= g.x1 - 31 || g.y1 + 206 <= c.y1 - 31 || c.y2 <= g.y1 - 31, 'no full card in a gap touches a child: ' + JSON.stringify(g));
+  // Round 2: a gap is the exact shape its card takes, so the gap itself keeps GAP from every child.
+  for (const g of rb.gaps) for (const c of blocked) assert.ok(g.x2 <= c.x1 - 31 || c.x2 <= g.x1 - 31 || g.y2 <= c.y1 - 31 || c.y2 <= g.y1 - 31, 'no gap touches a child: ' + JSON.stringify(g));
   // A sliver narrower than the least block is no gap.
   const sliver = designBlocks({ x: 0, y: 0 }, four, { width: 532 + 32 + 100, height: 0 }, CARD, LEAST);
   assert.equal(sliver.gaps.length, 0);
   assert.ok(sliver.reserve, 'too small to use: reserve instead');
   // An empty box: one card-sized block at its top-left, at least the user minimum.
   const empty = designBlocks({ x: 10, y: 20 }, [], null, CARD, LEAST);
-  assert.deepEqual(empty, { gaps: [], reserve: { x1: 10 + PAD, y1: 20 + PAD, x2: 10 + PAD + 250, y2: 20 + PAD + 206 } });
+  assert.deepEqual(empty, { gaps: [], reserve: { x1: 10 + PAD, y1: 20 + PAD, x2: 10 + PAD + 250, y2: 20 + PAD + 206 }, area: null });
   assert.equal(designBlocks({ x: 0, y: 0 }, [], { width: 400, height: 50 }, CARD, LEAST).reserve.x2, PAD + 400);
   console.log('PASS: design add blocks');
 }
@@ -223,4 +224,40 @@ console.log('PASS: a hidden box inside a visible one passes its growth to the vi
   const moves = roomMoves(cards, 'c', child, grown);
   assert.equal(moves.positions.n.y - below.position.y, 12, 'the card below moves by the growth, not up by the reserve');
   console.log('PASS: make-room keeps the reserve block');
+}
+
+// ADR 0017 round 2: a block anywhere empty, under the pointer, in the exact shape the card takes.
+{
+  const CARD = { width: 250, height: 206 }, LEAST = { width: 180, height: 130 };
+  const kids = [boxOfCard({ id: 'a', ...CARD, x: 169, y: 147 })]; // x 44..294, y 44..250
+  const inner = { x1: 44, y1: 44, x2: 1244, y2: 744 };
+  const a = { inner, children: kids };
+  // Far from the child: a full card centred on the pointer.
+  assert.deepEqual(addBlockAt(a, { x: 800, y: 400 }, CARD, LEAST), { x1: 675, y1: 297, x2: 925, y2: 503 });
+  // Near the right edge: shifted left to stay inside, never past the inner area.
+  const edge = addBlockAt(a, { x: 1240, y: 400 }, CARD, LEAST);
+  assert.equal(edge.x2, 1244); assert.equal(edge.x2 - edge.x1, 250);
+  // Beside the child: shifted right to keep GAP from it.
+  const beside = addBlockAt(a, { x: 340, y: 150 }, CARD, LEAST);
+  assert.ok(beside.x1 >= 294 + 32, 'keeps GAP from the child: ' + JSON.stringify(beside));
+  // On the child, or within GAP of it: nothing.
+  assert.equal(addBlockAt(a, { x: 150, y: 150 }, CARD, LEAST), null);
+  assert.equal(addBlockAt(a, { x: 310, y: 150 }, CARD, LEAST), null);
+  // A space smaller than a card but at least the least size: a smaller block, exactly that space.
+  const narrow = { inner: { x1: 0, y1: 0, x2: 500, y2: 300 }, children: [boxOfCard({ id: 'l', width: 100, height: 300, x: 50, y: 150 }), boxOfCard({ id: 'r', width: 100, height: 300, x: 450, y: 150 })] };
+  const mid = addBlockAt(narrow, { x: 250, y: 150 }, CARD, LEAST);
+  assert.deepEqual([mid.x1, mid.x2 - mid.x1, mid.y2 - mid.y1], [132, 236, 206], 'fills the 236 px between the children');
+  // Smaller than the least size: no block.
+  const tight = { inner: narrow.inner, children: [boxOfCard({ id: 'l', width: 150, height: 300, x: 75, y: 150 }), boxOfCard({ id: 'r', width: 150, height: 300, x: 425, y: 150 })] };
+  assert.equal(addBlockAt(tight, { x: 250, y: 150 }, CARD, LEAST), null);
+  // The free rectangle never contains a child.
+  const fr = freeRect(inner, kids, { x: 800, y: 100 });
+  assert.ok(fr.x1 >= 294 + 32 || fr.y1 >= 250 + 32, JSON.stringify(fr));
+  // Every gap from designBlocks lies inside the inner area, so creating in one never grows the box.
+  const three = (() => { const cs = ['a', 'b', 'c'].map(id => card(id)); const g = layoutChildren({ x: 0, y: 0 }, cs); return cs.map(c => boxOfCard({ ...c, ...g[c.id] })); })();
+  const r = designBlocks({ x: 0, y: 0 }, three, { width: 900, height: 700 }, CARD, LEAST);
+  const box = containerBox(three, { width: 900, height: 700 });
+  assert.ok(r.gaps.length >= 3 && r.gaps.every(g => g.x2 <= box.x2 - PAD + 0.5 && g.y2 <= box.y2 - PAD + 0.5), 'gaps stay inside: ' + JSON.stringify(r.gaps));
+  assert.ok(r.area && r.area.children.length === 3);
+  console.log('PASS: add block anywhere empty, in the shape the card takes');
 }

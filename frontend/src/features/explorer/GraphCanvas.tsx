@@ -2,8 +2,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEve
 import cytoscape from 'cytoscape';
 import { AtlasNode, AtlasEdge, kindSummary, reviewRouteSummary } from './graphModel';
 import { nodeCard, DESIGN_TONE, cornerButtons, hasCodeButton, hasDetailsButton, CODE_BUTTON, MIN_CARD_SIZE, CornerAction, CardSize } from './nodeCard';
-import { Box, CONTAINER_BUTTON, CONTAINER_PADDING } from './expansionLayout';
-import { expandsWhenEmpty } from './placementGeometry';
+import { AddArea, Box, CONTAINER_BUTTON, CONTAINER_PADDING, addBlockAt } from './expansionLayout';
+import { addSlotSizes, expandsWhenEmpty } from './placementGeometry';
 import CodeButton from '../../components/CodeButton';
 import { REVIEW_CHANGE_PALETTE } from '../review/reviewPalette';
 
@@ -141,6 +141,8 @@ export interface DesignDraftCard { box: Box; kind: string; placeholder: string; 
 export interface DesignCanvas {
   /** Each expanded package/type's add blocks (ADR 0017): its empty gaps, or else one reserve block. */
   slots: Record<string, Box[]>;
+  /** Each expanded package/type's empty space: a hover anywhere in it offers a block there (addBlockAt). */
+  areas: Record<string, AddArea>;
   draft: DesignDraftCard | null;
   /** "+ class"/"+ method" in an expanded box's add `block`, or a card menu "Add …" item (`kind` set). */
   onAdd: (container: AtlasNode, kind?: string, block?: Box) => void;
@@ -184,9 +186,11 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
   // A right-click on empty canvas: design commands that need no card (ADR 0014).
   const [canvasMenu,setCanvasMenu]=useState<{x:number;y:number;model:Point}|null>(null);
   const designRef=useRef(design); designRef.current=design;
+  // The add block the pointer is on (model coordinates), set on mousemove; drawn by updateDesignView.
+  const addHoverRef=useRef<{id:string;box:Box}|null>(null);
   // Design mode overlays in stage pixels (ADR 0015): the hovered box's add slot, the draft card and the
   // hovered card's relation handle. Recomputed with the corner overlays on every camera change.
-  const [designView,setDesignView]=useState<{slot:{id:string;blocks:{left:number;top:number;width:number;height:number}[]}|null;draft:{left:number;top:number;width:number;height:number}|null;handle:{id:string;x:number;y:number}|null}>({slot:null,draft:null,handle:null});
+  const [designView,setDesignView]=useState<{slot:{id:string;key:string;left:number;top:number;width:number;height:number}|null;draft:{left:number;top:number;width:number;height:number}|null;handle:{id:string;x:number;y:number}|null}>({slot:null,draft:null,handle:null});
   // The pending two-click relation: its source card, and the pointer in stage pixels for the rubber band.
   const linkRef=useRef<{sourceId:string;pointer:Point|null}|null>(null);
   const [linkingId,setLinkingId]=useState<string|null>(null);
@@ -470,21 +474,29 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     const toStage = (b: Box) => { const z = cy.zoom(), pan = cy.pan(); return { left: b.x1 * z + pan.x, top: b.y1 * z + pan.y, width: (b.x2 - b.x1) * z, height: (b.y2 - b.y1) * z }; };
     const updateDesignView = () => {
       const d = designRef.current;
-      let slot: { id: string; blocks: { left: number; top: number; width: number; height: number }[] } | null = null, handle: { id: string; x: number; y: number } | null = null;
+      let slot: { id: string; key: string; left: number; top: number; width: number; height: number } | null = null, handle: { id: string; x: number; y: number } | null = null;
       const hovered = linkRef.current ? linkRef.current.sourceId : hoverCardRef.current;
       if (d && hovered) {
         const el = cy.getElementById(hovered);
         if (el.length && el.isNode() && !el.data('hiddenBox')) {
           const bb = el.renderedBoundingBox({ includeLabels: false, includeOverlays: false });
           handle = { id: hovered, x: bb.x2, y: (bb.y1 + bb.y2) / 2 };
-          for (let c: cytoscape.NodeSingular | null = el as unknown as cytoscape.NodeSingular; c && c.length && !linkRef.current; c = c.parent().length ? c.parent().first() as unknown as cytoscape.NodeSingular : null) {
-            const blocks = d.slots[c.id()];
-            if (blocks?.length && !c.data('hiddenBox')) { slot = { id: c.id(), blocks: blocks.map(toStage) }; break; }
-          }
         }
       }
+      // The add block under the pointer, if the pointer is on empty space in an expanded box.
+      // A hover block a card now covers (the one just created there) is dropped until the pointer moves again.
+      const covered = (h: { id: string; box: Box }) => {
+        const area = d?.areas[h.id];
+        const cards = area ? area.children : [];
+        return !d || (!area && !(d.slots[h.id] || []).some(b => blockKey(b) === blockKey(h.box))) || cards.some(c => c.x1 < h.box.x2 - 0.5 && h.box.x1 < c.x2 - 0.5 && c.y1 < h.box.y2 - 0.5 && h.box.y1 < c.y2 - 0.5);
+      };
+      if (addHoverRef.current && covered(addHoverRef.current)) addHoverRef.current = null;
+      const hot = addHoverRef.current;
+      if (d && hot && !linkRef.current && cy.getElementById(hot.id).length) slot = { id: hot.id, key: blockKey(hot.box), ...toStage(hot.box) };
       // The blocks in model coordinates, for checks that hover one (the overlay draws only the hot one).
       cy.scratch('atlas:designBlocks', d?.slots || {});
+      cy.scratch('atlas:designAreas', d?.areas || {});
+      cy.scratch('atlas:designHover', addHoverRef.current);
       const draft = d?.draft ? toStage(d.draft.box) : null;
       const next = { slot, draft, handle };
       setDesignView(prev => JSON.stringify(prev) === JSON.stringify(next) ? prev : next);
@@ -516,7 +528,15 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     // the card. A plain click is hit-tested here instead: inside the square it opens the code.
     // A programmatic tap (`node.emit('tap')`) carries no position and is never on the square.
     // A block is named by its corner, not its index: a stale hover key never lights a block that moved into its place.
-    const blockAt = (n: cytoscape.NodeSingular, p: Point) => (designRef.current?.slots[n.id()] || []).findIndex(b => p.x >= b.x1 && p.x <= b.x2 && p.y >= b.y1 && p.y <= b.y2);
+    // Anywhere empty in the box's inner area offers a block centred on the pointer, as large as the free
+    // space allows; a reserve (or an empty box's one block) is offered where it is.
+    const blockAt = (n: cytoscape.NodeSingular, p: Point): Box | null => {
+      const d = designRef.current;
+      if (!d || n.data('hiddenBox')) return null;
+      const area = d.areas[n.id()], sizes = addSlotSizes(n.data('kind'));
+      const free = area && sizes ? addBlockAt(area, p, sizes.card, sizes.least) : null;
+      return free || (d.slots[n.id()] || []).find(b => p.x >= b.x1 && p.x <= b.x2 && p.y >= b.y1 && p.y <= b.y2) || null;
+    };
     const cornerHit = (n: cytoscape.NodeSingular, p: Point | undefined): CornerHit | null => {
       // An ungrouped box draws no buttons (ADR 0011), so none can be hit.
       if (!p || n.data('hiddenBox')) return null;
@@ -529,7 +549,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       }
       if (n.data('expanded')) {
         // The design add blocks (ADR 0015, 0017): the empty spaces where "+ class"/"+ method" creates a card.
-        if (blockAt(n, p) >= 0) return 'add';
+        if (blockAt(n, p)) return 'add';
         if (CONTAINER_BUTTON.size * cy.zoom() < MIN_CODE_BUTTON_PX) return null;
         const bb = n.boundingBox({ includeLabels: false, includeOverlays: false });
         if (inSquare(bb.x2 - UNGROUP_BUTTON.right, bb.y1 + UNGROUP_BUTTON.top, UNGROUP_BUTTON.size)) return 'ungroup';
@@ -540,8 +560,16 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       return cornerButtons(n.data()).find(b => inSquare(c.x + n.width() / 2 - b.right, c.y - n.height() / 2 + b.top, b.size))?.action ?? null;
     };
     // An add block's key carries its index: only the block under the pointer shows "+ class"/"+ method".
-    cy.on('mousemove', 'node', e => { const action = cornerHit(e.target, e.position); const key = action === 'add' ? `${e.target.id()}:add:${blockKey(designRef.current!.slots[e.target.id()][blockAt(e.target, e.position)])}` : action ? `${e.target.id()}:${action}` : null; setHotCorner(prev => prev === key ? prev : key); });
-    cy.on('mouseout', 'node', () => { setHotCorner(null); setHoverCard(null); });
+    cy.on('mousemove', 'node', e => {
+      const action = cornerHit(e.target, e.position);
+      const block = action === 'add' ? blockAt(e.target, e.position) : null;
+      const key = block ? `${e.target.id()}:add:${blockKey(block)}` : action ? `${e.target.id()}:${action}` : null;
+      const prevHover = addHoverRef.current;
+      addHoverRef.current = block ? { id: e.target.id(), box: block } : null;
+      if (blockKey(prevHover?.box) !== blockKey(block ?? undefined) || prevHover?.id !== addHoverRef.current?.id) updateDesignView();
+      setHotCorner(prev => prev === key ? prev : key);
+    });
+    cy.on('mouseout', 'node', () => { setHotCorner(null); setHoverCard(null); if (addHoverRef.current) { addHoverRef.current = null; updateDesignView(); } });
     cy.on('mouseover', 'node', e => setHoverCard(e.target.id()));
     // Ctrl/Cmd/Shift+click toggles a card in the multi-selection without inspecting it; a plain click inspects.
     const multiKey = (e: cytoscape.EventObject) => { const o = e.originalEvent as MouseEvent | undefined; return !!o && (o.ctrlKey || o.metaKey || o.shiftKey); };
@@ -562,7 +590,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         return;
       }
       const corner = cornerHit(e.target, e.position);
-      if (corner === 'add') { setContextMenu(null); designRef.current?.onAdd(node, undefined, designRef.current.slots[node.id][blockAt(e.target, e.position!)]); return; }
+      if (corner === 'add') { setContextMenu(null); designRef.current?.onAdd(node, undefined, blockAt(e.target, e.position!) ?? undefined); return; }
       if (corner === 'code') { setContextMenu(null); callbacks.current.onViewCode(node); return; }
       if (corner === 'stack') { setContextMenu(null); callbacks.current.onCycleStack(node.id); return; }
       if (corner === 'ungroup') { setContextMenu(null); callbacks.current.onUngroup(node); return; }
@@ -1022,7 +1050,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
   }, [selectedId, nodes, edges, outgoingStack]);
 
   // Design overlays follow hover, slots and the draft card (ADR 0015); leaving design mode ends a pending relation.
-  useEffect(()=>{updateMapRef.current();},[hoverCard,handleHold,design?.slots,design?.draft]);
+  useEffect(()=>{updateMapRef.current();},[hoverCard,handleHold,design?.slots,design?.areas,design?.draft]);
   useEffect(()=>{if(!design)endLink();// eslint-disable-next-line react-hooks/exhaustive-deps
   },[!!design]);
   useEffect(()=>{
@@ -1164,7 +1192,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       const r=container.current.getBoundingClientRect();link.pointer={x:e.clientX-r.left,y:e.clientY-r.top};drawDirectionRef.current();
     }}>
     <div ref={container} className="graph-canvas" aria-label="Dependency graph" />
-    {slotNode&&designView.slot&&designView.slot.blocks.map((b,i)=>hotCorner===`${slotNode.id}:add:${blockKey(design!.slots[slotNode.id]?.[i])}`&&<div key={i} className="design-slot hot" data-slot-for={slotNode.id} data-block={blockKey(design!.slots[slotNode.id]?.[i])} aria-hidden="true" style={{left:b.left,top:b.top,width:b.width,height:b.height}}><span>＋ {slotKind(slotNode.kind)==='CLASS'?'class':'method'}</span></div>)}
+    {slotNode&&designView.slot&&hotCorner===`${slotNode.id}:add:${designView.slot.key}`&&<div className="design-slot hot" data-slot-for={slotNode.id} data-block={designView.slot.key} aria-hidden="true" style={{left:designView.slot.left,top:designView.slot.top,width:designView.slot.width,height:designView.slot.height}}><span>＋ {slotKind(slotNode.kind)==='CLASS'?'class':'method'}</span></div>}
     {handleNode&&designView.handle&&<button type="button" className={`design-link-handle${linkingId?' active':''}`} data-card-id={handleNode.id} style={{left:designView.handle.x-10,top:designView.handle.y-10}} aria-label={`Draw a designed relation from ${handleNode.simpleName}: then click its target`} title="Draw a relation: click here, then click the target card" onPointerEnter={()=>setHandleHold(handleNode.id)} onPointerLeave={()=>setHandleHold(h=>h===handleNode.id?null:h)} onClick={event=>{event.stopPropagation();if(linkingId)endLink();else startLink(handleNode.id);setHandleHold(null);}}/>}
     {linkSourceNode&&<div className="design-link-hint" role="status">Relation from <strong>{linkSourceNode.simpleName}</strong>: click the target card · Esc cancels</div>}
     {design?.draft&&designView.draft&&<DesignDraftInput key={`${design.draft.kind}:${Math.round(design.draft.box.x1)}:${Math.round(design.draft.box.y1)}`} rect={designView.draft} draft={design.draft} onCommit={design.onDraftCommit} onCancel={design.onDraftCancel}/>}
@@ -1283,7 +1311,10 @@ function DesignDraftInput({ rect, draft, onCommit, onCancel }: { rect: { left: n
   const corner = (): Point => { const r = card.current?.getBoundingClientRect(); return { x: r?.right ?? 0, y: r?.top ?? 0 }; };
   useEffect(() => { input.current?.focus({ preventScroll: true }); }, []);
   const kindWord = draft.kind.toLowerCase();
-  return <div ref={card} className={`design-draft-card${draft.error ? ' invalid' : ''}`} data-draft-kind={draft.kind} style={{ left: rect.left, top: rect.top, width: Math.max(200, rect.width), minHeight: Math.max(76, rect.height) }}
+  // Drawn at the new card's exact model size, scaled by the zoom like the card itself (ADR 0017): the
+  // draft is the shape the card will take, never larger.
+  const modelWidth = draft.box.x2 - draft.box.x1, modelHeight = draft.box.y2 - draft.box.y1, zoom = modelWidth ? rect.width / modelWidth : 1;
+  return <div ref={card} className={`design-draft-card${draft.error ? ' invalid' : ''}`} data-draft-kind={draft.kind} style={{ left: rect.left, top: rect.top, width: modelWidth, height: modelHeight, transform: `scale(${zoom})`, transformOrigin: '0 0' }}
     onPointerDown={e => e.stopPropagation()}>
     <span className="design-draft-kind">New {kindWord}</span>
     <input ref={input} value={text} disabled={draft.busy} placeholder={draft.placeholder} aria-label={`Name of the new ${kindWord}`} aria-invalid={!!draft.error}
