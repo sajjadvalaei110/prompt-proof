@@ -19,7 +19,7 @@ socket.onmessage=ev=>{const m=JSON.parse(ev.data);if(m.id){const w=pending.get(m
 const cdp=(method,params={})=>{const id=++seq;return new Promise((resolve,reject)=>{pending.set(id,{resolve,reject});socket.send(JSON.stringify({id,method,params}));});};
 const evaluate=async expr=>{const r=await cdp('Runtime.evaluate',{expression:expr,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result.value;};
 const shot=async name=>{await pause(500);const r=await cdp('Page.captureScreenshot',{format:'png'});await fs.writeFile(`${outDir}/${name}.png`,Buffer.from(r.data,'base64'));console.log('screenshot',name);};
-const until=async(expr,label,tries=140)=>{for(let i=0;i<tries;i++){if(await evaluate(expr))return;await pause(150);}throw Error('Timed out: '+label);};
+const until=async(expr,label,tries=140)=>{for(let i=0;i<tries;i++){if(await evaluate(expr))return;await pause(150);}throw Error('Timed out: '+label+(errors.length?' (page errors: '+JSON.stringify(errors).slice(0,1500)+')':''));};
 const CY=`document.querySelector('.graph-canvas')._cyreg.cy`;
 const q=JSON.stringify;
 // React-controlled fields need the native setter plus an input event.
@@ -99,7 +99,20 @@ async function assertShape(id,block,label){
   assert.ok(Math.abs(sz.w-(block.x2-block.x1))<2&&Math.abs(sz.h-(block.y2-block.y1))<2,label+': the card is the block\'s size: '+JSON.stringify(shape));
   return shape;
 }
-const topLevelOverlaps=()=>evaluate(`(()=>{const ns=${CY}.nodes().filter(n=>!n.parent().length&&!n.data('hiddenBox')).map(n=>({id:n.id(),b:n.boundingBox({includeLabels:false,includeOverlays:false})}));const out=[];for(let i=0;i<ns.length;i++)for(let j=i+1;j<ns.length;j++){const a=ns[i].b,b=ns[j].b;if(a.x1<b.x2-4&&b.x1<a.x2-4&&a.y1<b.y2-4&&b.y1<a.y2-4)out.push([ns[i].id,ns[j].id]);}return out;})()`);
+// Review F14: cards that overlap their siblings, on the map and inside every expanded box, beyond 1 px of
+// border rounding. (Named for its first use; it checks every container.)
+const topLevelOverlaps=()=>evaluate(`(()=>{const groups=new Map();${CY}.nodes().filter(n=>!n.data('hiddenBox')).forEach(n=>{const k=n.parent().length?n.parent().id():'';if(!groups.has(k))groups.set(k,[]);groups.get(k).push({id:n.id(),b:n.boundingBox({includeLabels:false,includeOverlays:false})});});const out=[];for(const ns of groups.values())for(let i=0;i<ns.length;i++)for(let j=i+1;j<ns.length;j++){const a=ns[i].b,b=ns[j].b;if(a.x1<b.x2-1&&b.x1<a.x2-1&&a.y1<b.y2-1&&b.y1<a.y2-1)out.push([ns[i].id,ns[j].id]);}return out;})()`);
+/** The add block a hover at model point `at` inside box `boxId` offers (null when none), without clicking. */
+async function hoverBlock(boxId,at){
+  const client=await evaluate(`(()=>{const cy=${CY},r=document.querySelector('.graph-canvas').getBoundingClientRect(),z=cy.zoom(),p=cy.pan();return {x:r.left+${at.x}*z+p.x,y:r.top+${at.y}*z+p.y};})()`);
+  await mouse('mouseMoved',client.x,client.y);
+  await pause(250);
+  return evaluate(`(()=>{const h=${CY}.scratch('atlas:designHover');return h&&h.id===${q(boxId)}?h.box:null;})()`);
+}
+const areaOf=boxId=>evaluate(`(${CY}.scratch('atlas:designAreas')||{})[${q(boxId)}]||null`);
+const near=(a,b,tol=1)=>Math.abs(a-b)<=tol;
+/** The exact block size: an empty box's block is a card (250x206 for a class, 250x184 for a method), a reserve 220x150. */
+const assertBlockSize=(block,w,h,label)=>assert.ok(near(block.x2-block.x1,w,.01)&&near(block.y2-block.y1,h,.01),label+': '+JSON.stringify({block,want:[w,h]}));
 /** A card's top-left corner in model coordinates (its collapsed card, as stored). */
 const cardTopLeft=id=>evaluate(`(()=>{const n=${CY}.getElementById(${q(id)}),p=n.position();return {x:p.x-n.data('cardWidth')/2,y:p.y-n.data('cardHeight')/2};})()`);
 
@@ -177,11 +190,12 @@ await until(`${CY}.getElementById('design:com.example.audit.AuditLog').length>0`
 
 // 2b. Hover the expanded package: one class inside, no empty block, so one small reserve block (ADR 0017).
 {const blocks=await blocksOf('design:com.example.audit');results.auditReserve=blocks;assert.equal(blocks.length,1,'a box without a gap has one reserve block');
- assert.ok(blocks[0].x2-blocks[0].x1<250&&blocks[0].y2-blocks[0].y1<206,'the reserve is smaller than a class card: '+JSON.stringify(blocks[0]));}
+ assertBlockSize(blocks[0],220,150,'the reserve is exactly the least block');}
 const auditSlot=await openSlot('design:com.example.audit','class');
 assert.equal(await draftFocused(),true,'slot draft focused');
 const draftRect=await rectOf('.design-draft-card');
 assert.ok(Math.abs(draftRect.left-auditSlot.slot.left)<2&&Math.abs(draftRect.top-auditSlot.slot.top)<2,'the draft sits on the slot');
+assert.ok(Math.abs(draftRect.width-auditSlot.slot.width)<1.5&&Math.abs(draftRect.height-auditSlot.slot.height)<1.5,'the draft outline is exactly the block: '+JSON.stringify({draftRect,slot:auditSlot.slot}));
 await typeText('AuditQuery');
 await shot('04-slot-class-draft');
 await enter();
@@ -220,6 +234,38 @@ await shot('05-planned-package-and-classes');
   const bb=await evaluate(`(()=>{const b=${CY}.getElementById(${q(queryId)}).boundingBox({includeLabels:false,includeOverlays:false});return {x1:b.x1,y1:b.y1,w:b.w,h:b.h};})()`);
   results.emptyClass={blocks,box:bb,collapsedTopLeft};
   assert.equal(blocks.length,1,'an empty box holds exactly one block');
+  assertBlockSize(blocks[0],250,184,'an empty class opens on one method-card-sized block');
+  // Review F11: a box with nothing inside has nothing to ungroup: no Ungroup square, no Ungroup menu item.
+  assert.equal(await evaluate(`!!document.querySelector('[data-action="ungroup"][data-card-id=${JSON.stringify(queryId)}]')`),false,'no Ungroup square on an empty box');
+  // Review F1: a double-click on the empty box's block opens its design popover (not a draft), and a real
+  // mouse click on its collapse square (canvas hit-testing, not a DOM click) collapses it.
+  {
+    const p=await cardPoint(queryId,.5,.6);
+    await dblAt(p.x,p.y);
+    await until(`!!document.querySelector('.design-popover')`,'popover on double-click inside an empty box');
+    assert.equal(await evaluate(`!!document.querySelector('.design-draft-card')`),false,'the first click\'s draft gives way to the popover');
+    await escape();
+    await until(`!document.querySelector('.design-popover')`,'popover closed');
+    const sq=await rectOf(`button[aria-label="Collapse AuditQuery"]`);
+    assert.ok(sq,'the collapse square is drawn');
+    await mouse('mouseMoved',5,5);await pause(200);
+    await clickAt(sq.x,sq.y);
+    await until(`${CY}.getElementById(${q(queryId)}).data('expanded')===false`,'a real click on the collapse square collapses the empty box');
+    assert.equal(await evaluate(`!!document.querySelector('.design-draft-card')`),false,'and opens no draft');
+    results.emptyBoxCollapseClick={square:sq};
+    await until(`!!document.querySelector('button[aria-label="Show methods inside AuditQuery"]')`,'expandable again');
+    const ex=await rectOf('button[aria-label="Show methods inside AuditQuery"]');
+    await clickAt(ex.x,ex.y);
+    await until(`${CY}.getElementById(${q(queryId)}).data('emptyBox')===true`,'a real click on the details square expands it again');
+    await mouse('mouseMoved',5,5);await pause(200);
+  }
+  // The right-click menu offers Collapse and no Ungroup either.
+  await evaluate(`${CY}.getElementById(${q(queryId)}).emit('cxttap'),true`);
+  await until(`!!document.querySelector('.graph-context-menu')`,'empty box menu');
+  results.emptyBoxMenu=await evaluate(`[...document.querySelectorAll('.graph-context-menu button')].map(b=>b.textContent.trim())`);
+  assert.ok(results.emptyBoxMenu.some(t=>t.includes('Collapse'))&&!results.emptyBoxMenu.some(t=>t.includes('Ungroup')),'Collapse, no Ungroup: '+JSON.stringify(results.emptyBoxMenu));
+  await clickText('.graph-context-menu button','Deselect');
+  await until(`!document.querySelector('.graph-context-menu')`,'menu closed');
   assert.ok(Math.abs(bb.x1-collapsedTopLeft.x)<3&&Math.abs(bb.y1-collapsedTopLeft.y)<3,'the empty box keeps the card\'s top-left corner: '+JSON.stringify(results.emptyClass));
   assert.ok(blocks[0].x1>=bb.x1&&blocks[0].x2<=bb.x1+bb.w+1&&blocks[0].y2<=bb.y1+bb.h+1,'the block lies inside the empty box');
   assert.deepEqual(await topLevelOverlaps(),[],'the package grows around its reserve: no map card is overlapped');
@@ -234,13 +280,197 @@ await shot('05-planned-package-and-classes');
   await until(`!document.querySelector('.design-quick-popup')`,'quick popup closed');
   assert.deepEqual(await topLevelOverlaps(),[],'a nested box\'s growth makes room through the package around it');
   await shot('05c-empty-class-first-method');
-  // Collapse it again, so the relation steps below hover the class card itself.
-  await evaluate(`document.querySelector('button[aria-label="Collapse AuditQuery"]').click(),true`);
+  // Collapse it again, so the relation steps below hover the class card itself. A real click on its square.
+  {const sq=await rectOf(`button[aria-label="Collapse AuditQuery"]`);await clickAt(sq.x,sq.y);}
   await until(`${CY}.getElementById(${q(queryId)}).data('expanded')===false`,'class collapsed');
+}
+
+// 2e. ADR 0017 review (round 3): an empty PACKAGE expands onto one class-card block; undo/redo of that
+// expansion; a draft zoomed far out stays usable; a resized empty box offers its card-sized corner block; the
+// next classes go anywhere, clamped exactly at the inner edges; a create the overlay poll races keeps its block
+// shape; and a cloned tab gives the new card the same shape.
+{
+  const notesId='design:com.example.notes';
+  const boxOfNode=id=>evaluate(`(()=>{const b=${CY}.getElementById(${q(id)}).boundingBox({includeLabels:false,includeOverlays:false});return {x1:b.x1,y1:b.y1,w:b.w,h:b.h};})()`);
+  // Drawn boxes: Cytoscape pads a compound around its children's bounding boxes, which include their borders,
+  // so where a card meets the box's (user-resized) inner edge the drawn box sits up to 2 px further out on that
+  // side than the model box. The model box (sameInner), which room-making uses, must not change at all.
+  const sameBox=(a,b,label,tol=1)=>assert.ok(near(a.x1,b.x1,tol)&&near(a.y1,b.y1,tol)&&near(a.w,b.w,2*tol)&&near(a.h,b.h,2*tol),label+': '+JSON.stringify({a,b}));
+  const sameInner=(a,b,label)=>assert.ok(['x1','y1','x2','y2'].every(k=>near(a.inner[k],b.inner[k],.01)),label+' (model): '+JSON.stringify({a:a.inner,b:b.inner}));
+  const clientOfModel=at=>evaluate(`(()=>{const cy=${CY},r=document.querySelector('.graph-canvas').getBoundingClientRect(),z=cy.zoom(),p=cy.pan();return {x:r.left+${at.x}*z+p.x,y:r.top+${at.y}*z+p.y};})()`);
+  const historyButton=label=>evaluate(`[...document.querySelectorAll('.journey-history button')].find(b=>b.textContent.includes(${q(label)})).click(),true`);
+  // The camera before this step, restored at its end so the steps below find their cards on screen.
+  const camera0=await evaluate(`(()=>{const cy=${CY};return {zoom:cy.zoom(),pan:{...cy.pan()}};})()`);
+  // Empty canvas right of everything: centre the camera there, then right-click the centre.
+  const spot=await evaluate(`(()=>{const cy=${CY},b=cy.elements().boundingBox(),x=b.x2+500,y=b.y1+200;cy.zoom(1);cy.pan({x:cy.width()/2-x,y:cy.height()/2-y});const r=document.querySelector('.graph-canvas').getBoundingClientRect();return {x:r.left+cy.width()/2,y:r.top+cy.height()/2};})()`);
+  await pause(400);
+  await mouse('mouseMoved',spot.x,spot.y);
+  await mouse('mousePressed',spot.x,spot.y,{button:'right',buttons:2});
+  await mouse('mouseReleased',spot.x,spot.y,{button:'right',buttons:0});
+  await until(`[...document.querySelectorAll('.graph-context-menu .design-menuitem')].some(b=>b.textContent.includes('Add package'))`,'canvas menu for a second package');
+  await clickText('.graph-context-menu .design-menuitem','Add package');
+  await until(`!!document.querySelector('.design-draft-card input')`,'second package draft');
+  await typeText('com.example.notes');await enter();
+  await until(`${CY}.getElementById(${q(notesId)}).length>0`,'second planned package');
+  await quickPopup('the second package');await escape();
+  await until(`!document.querySelector('.design-quick-popup')`,'quick popup closed');
+  await mouse('mouseMoved',5,5);await pause(200);
+  const collapsedTL=await cardTopLeft(notesId);
+  await until(`!!document.querySelector('button[aria-label="Show types inside com.example.notes"]')`,'an empty planned package can expand in design mode');
+  const expand=await rectOf('button[aria-label="Show types inside com.example.notes"]');
+  await clickAt(expand.x,expand.y);
+  await until(`${CY}.getElementById(${q(notesId)}).data('emptyBox')===true`,'a real click expands the empty package');
+  const blocks=await blocksOf(notesId);
+  assert.equal(blocks.length,1,'one block');
+  assertBlockSize(blocks[0],250,206,'an empty package opens on one class-card-sized block');
+  const box0=await boxOfNode(notesId);
+  assert.ok(near(box0.x1,collapsedTL.x,3)&&near(box0.y1,collapsedTL.y,3),'the empty package keeps the card\'s corner: '+JSON.stringify({box0,collapsedTL}));
+  results.emptyPackage={blocks,box:box0,collapsedTL};
+  await shot('05e-empty-package-expanded');
+  // Undo closes it again, redo reopens it on the same block (an exploration step, ADR 0009).
+  await mouse('mouseMoved',5,5);
+  await historyButton('Undo');
+  await until(`${CY}.getElementById(${q(notesId)}).data('expanded')===false`,'undo collapses the empty package');
+  assert.deepEqual(await cardTopLeft(notesId),collapsedTL,'the card is back at its corner');
+  await historyButton('Redo');
+  await until(`${CY}.getElementById(${q(notesId)}).data('emptyBox')===true`,'redo expands it again');
+  assert.deepEqual(await blocksOf(notesId),blocks,'on the same block');
+  sameBox(await boxOfNode(notesId),box0,'redo restores the same box');
+  // Review F16: zoomed far out, the draft outline is still exactly the block, and its content keeps a
+  // readable minimum scale (spilling over the outline).
+  {
+    await evaluate(`(()=>{const cy=${CY};cy.zoom(.3);cy.center(cy.getElementById(${q(notesId)}));return true;})()`);
+    await mouse('mouseMoved',5,5);await pause(300);
+    const centre={x:(blocks[0].x1+blocks[0].x2)/2,y:(blocks[0].y1+blocks[0].y2)/2};
+    assert.ok(await hoverBlock(notesId,centre),'a block at zoom 0.3');
+    await until(`document.querySelector('.design-slot.hot')?.dataset.slotFor===${q(notesId)}`,'the block is drawn at zoom 0.3');
+    const slot=await rectOf('.design-slot');
+    const c=await clientOfModel(centre);
+    await clickAt(c.x,c.y);
+    await until(`!!document.querySelector('.design-draft-card input')`,'draft at zoom 0.3');
+    const outline=await rectOf('.design-draft-card'),inputRect=await rectOf('.design-draft-card input');
+    const scale=await evaluate(`new DOMMatrix(getComputedStyle(document.querySelector('.design-draft-body')).transform).a`);
+    results.zoomedOutDraft={slot,outline,input:inputRect,scale};
+    assert.ok(near(outline.left,slot.left,1.5)&&near(outline.top,slot.top,1.5)&&near(outline.width,slot.width,1.5)&&near(outline.height,slot.height,1.5),'the outline is exactly the block at zoom 0.3: '+JSON.stringify(results.zoomedOutDraft));
+    assert.ok(scale>=.6-1e-6&&inputRect.height>=20,'the input keeps a readable size: '+JSON.stringify(results.zoomedOutDraft));
+    assert.equal(await draftFocused(),true);
+    await typeText('Readable');
+    await shot('05f-draft-zoomed-out');
+    await escape();
+    await until(`!document.querySelector('.design-draft-card')`,'Esc closes the zoomed-out draft');
+    await evaluate(`(()=>{const cy=${CY};cy.zoom(1);cy.center(cy.getElementById(${q(notesId)}));return true;})()`);
+    await mouse('mouseMoved',5,5);await pause(300);
+  }
+  // Review F17: resized larger, the empty package still offers one card-sized block at its corner, and a
+  // hover anywhere in it offers that block: the first class keeps the box's corner and size.
+  // At zoom 0.5 the drag (360x200 model px) keeps the grip on the canvas: a grip dragged off screen is unmounted.
+  await evaluate(`(()=>{const cy=${CY};cy.zoom(.5);cy.center(cy.getElementById(${q(notesId)}));return true;})()`);
+  await mouse('mouseMoved',5,5);await pause(400);
+  const grip=await rectOf('.map-resize-grip[title="Resize com.example.notes"]');
+  assert.ok(grip,'the empty package has a resize grip');
+  await mouse('mouseMoved',grip.x,grip.y);await mouse('mousePressed',grip.x,grip.y);
+  // A held button on every move (button 'left', not 'none'): otherwise Chromium drops the grip's pointer capture.
+  for(let i=1;i<=10;i++)await mouse('mouseMoved',grip.x+180*i/10,grip.y+100*i/10,{buttons:1,button:'left'});
+  await mouse('mouseReleased',grip.x+180,grip.y+100,{button:'left'});
+  await until(`(()=>{const a=(${CY}.scratch('atlas:designAreas')||{})[${q(notesId)}];return !!a&&a.inner.x2-a.inner.x1>500;})()`,'the empty package is resized larger');
+  await evaluate(`(()=>{const cy=${CY};cy.zoom(1);cy.center(cy.getElementById(${q(notesId)}));return true;})()`);
+  await mouse('mouseMoved',5,5);await pause(400);
+  const box1=await boxOfNode(notesId);
+  assert.ok(near(box1.x1,box0.x1)&&near(box1.y1,box0.y1),'a resize keeps the empty box\'s corner: '+JSON.stringify({box0,box1}));
+  const area1=await areaOf(notesId),blocks1=await blocksOf(notesId);
+  assertBlockSize(blocks1[0],250,206,'a resized empty box still offers one card-sized block');
+  assert.ok(near(blocks1[0].x1,area1.inner.x1,.01)&&near(blocks1[0].y1,area1.inner.y1,.01),'at its corner');
+  const far={x:area1.inner.x2-40,y:area1.inner.y2-40};
+  const farBlock=await hoverBlock(notesId,far);
+  assert.deepEqual(farBlock,blocks1[0],'a hover far from the corner offers the corner block');
+  await until(`document.querySelector('.design-slot.hot')?.dataset.slotFor===${q(notesId)}`,'drawn');
+  await shot('05g-resized-empty-package-hover');
+  {const c=await clientOfModel(far);await clickAt(c.x,c.y);}
+  await until(`!!document.querySelector('.design-draft-card input')`,'draft in the resized empty package');
+  await typeText('NoteStore');await enter();
+  const storeId='design:com.example.notes.NoteStore';
+  await until(`${CY}.getElementById(${q(storeId)}).length>0`,'first class in the resized package');
+  await quickPopup('the first class of a resized package');await escape();
+  await until(`!document.querySelector('.design-quick-popup')`,'quick popup closed');
+  results.resizedFirst=await assertShape(storeId,farBlock,'the first class in a resized empty package');
+  const box2=await boxOfNode(notesId);
+  sameBox(box2,box1,'the first class keeps the box\'s corner and size',2.5);
+  sameInner(await areaOf(notesId),area1,'the first class keeps the box\'s inner area');
+  // Review F26: hovers near the inner corner, beside a child, and within its GAP. At zoom 0.7 the whole box
+  // is clear of the map controls drawn over the canvas.
+  const focusNotes=()=>evaluate(`(()=>{const cy=${CY};cy.zoom(.7);cy.center(cy.getElementById(${q(notesId)}));return true;})()`);
+  await focusNotes();
+  await mouse('mouseMoved',5,5);await pause(300);
+  const area2=await areaOf(notesId),kid=area2.children[0];
+  const cornerBlock=await hoverBlock(notesId,{x:area2.inner.x2-3,y:area2.inner.y2-3});
+  assert.ok(cornerBlock&&near(cornerBlock.x2,area2.inner.x2,.01)&&near(cornerBlock.y2,area2.inner.y2,.01),'near the inner corner the block is clamped exactly to it: '+JSON.stringify({cornerBlock,inner:area2.inner}));
+  assertBlockSize(cornerBlock,250,206,'a full card there');
+  const beside=await hoverBlock(notesId,{x:kid.x2+40,y:(kid.y1+kid.y2)/2});
+  assert.ok(beside&&beside.x1>=kid.x2+32-.01,'beside a child the block keeps GAP: '+JSON.stringify({beside,kid}));
+  assert.equal(await hoverBlock(notesId,{x:kid.x2+10,y:(kid.y1+kid.y2)/2}),null,'within GAP of a child: no block');
+  assert.equal(await hoverBlock(notesId,{x:(area2.inner.x1+area2.inner.x2)/2,y:area2.inner.y1-20}),null,'on the header band: no block');
+  results.hovers={area:area2,cornerBlock,beside};
+  // Review F10: a cloned tab. Back in the original tab, create below the first class, where the space is
+  // shorter than a card, so the block's shape differs from a default card.
+  const originalTab=await evaluate(`document.querySelector('.journey-tab button[role=tab][aria-selected=true]').id`);
+  const tabCount=await evaluate(`document.querySelectorAll('.journey-tab').length`);
+  await clickText('.journey-actions button','Clone tab');
+  await until(`document.querySelectorAll('.journey-tab').length===${tabCount+1}`,'cloned tab');
+  const cloneTab=await evaluate(`document.querySelector('.journey-tab button[role=tab][aria-selected=true]').id`);
+  assert.notEqual(cloneTab,originalTab);
+  await evaluate(`document.getElementById(${q(originalTab)}).click(),true`);
+  await until(`document.getElementById(${q(originalTab)}).getAttribute('aria-selected')==='true'`,'back in the original tab');
+  await pause(500);
+  await focusNotes();
+  await mouse('mouseMoved',5,5);await pause(300);
+  const below={x:kid.x1+60,y:area2.inner.y2-10};
+  const belowBlock=await hoverBlock(notesId,below);
+  assert.ok(belowBlock&&belowBlock.y1>=kid.y2+32-.01&&near(belowBlock.y2,area2.inner.y2,.01),'below the first class: '+JSON.stringify({belowBlock,kid,inner:area2.inner}));
+  assert.ok(belowBlock.y2-belowBlock.y1<206&&belowBlock.y2-belowBlock.y1>=150,'shorter than a card, at least the least block: '+JSON.stringify(belowBlock));
+  // Review F3: the create request is held back 9 s while an agent change lands through the 4 s overlay poll.
+  // That poll reconciles every tab before the class exists; the class must still take its block's shape.
+  await evaluate(`(()=>{const orig=window.fetch;window.__designPostDelay=9000;window.fetch=async(u,o)=>{if(o&&o.method==='POST'&&String(u).includes('/design/changes')&&window.__designPostDelay){const d=window.__designPostDelay;window.__designPostDelay=0;await new Promise(r=>setTimeout(r,d));}return orig(u,o);};return true;})()`);
+  {const c=await clientOfModel(below);await clickAt(c.x,c.y);}
+  await until(`!!document.querySelector('.design-draft-card input')`,'draft below the first class');
+  await typeText('NoteIndex');await enter();
+  const indexId='design:com.example.notes.NoteIndex';
+  const raced=await (await fetch(`${base}/api/workspaces/${wsA}/design/changes`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({author:'claude-code',operations:[{op:'putResource',kind:'PACKAGE',parentKey:null,name:'com.example.racecheck',explanation:'Lands while a create is still in flight.'}]})})).json();
+  assert.equal(raced.applied,1);
+  await until(`${CY}.getElementById('design:com.example.racecheck').length>0`,'the agent package arrives through the overlay poll',200);
+  results.race={classPresentWhenPollLanded:await hasNode(indexId)};
+  assert.equal(results.race.classPresentWhenPollLanded,false,'the poll reconciled the map while the class was not created yet');
+  await until(`${CY}.getElementById(${q(indexId)}).length>0`,'the held-back create lands',200);
+  await quickPopup('the raced class');await escape();
+  await until(`!document.querySelector('.design-quick-popup')`,'quick popup closed');
+  results.raceLanding=await assertShape(indexId,belowBlock,'a class created while the overlay poll reconciled');
+  sameBox(await boxOfNode(notesId),box2,'the box still keeps its corner and size (drawn, within the cards\' borders)',2.5);
+  sameInner(await areaOf(notesId),area1,'the box still keeps its inner area');
+  assert.deepEqual(await topLevelOverlaps(),[],'no overlap inside the package or on the map');
+  await mouse('mouseMoved',5,5);
+  await shot('05h-resized-package-two-classes');
+  // The cloned tab gives the class the same shape, placed by that tab's own layout.
+  await evaluate(`document.getElementById(${q(cloneTab)}).click(),true`);
+  await until(`document.getElementById(${q(cloneTab)}).getAttribute('aria-selected')==='true'`,'in the cloned tab');
+  await until(`${CY}.getElementById(${q(indexId)}).length>0`,'the class is in the cloned tab');
+  await pause(400);
+  results.cloneShape=await cardSizeOf(indexId);
+  assert.ok(near(results.cloneShape.w,belowBlock.x2-belowBlock.x1)&&near(results.cloneShape.h,belowBlock.y2-belowBlock.y1),'the cloned tab gives the class its block shape: '+JSON.stringify({clone:results.cloneShape,block:belowBlock}));
+  await evaluate(`(()=>{const cy=${CY};cy.center(cy.getElementById(${q(notesId)}));return true;})()`);
+  await shot('05i-cloned-tab-same-shape');
+  // Close the clone; the original tab is shown again.
+  await evaluate(`document.getElementById(${q(cloneTab)}).closest('.journey-tab').querySelector('.journey-close').click(),true`);
+  await until(`document.querySelectorAll('.journey-tab').length===${tabCount}`,'clone closed');
+  await until(`document.getElementById(${q(originalTab)})?.getAttribute('aria-selected')==='true'`,'original tab shown');
+  await pause(400);
+  await evaluate(`(()=>{const cy=${CY};cy.zoom(${camera0.zoom});cy.pan(${q(camera0.pan)});return true;})()`);
+  await mouse('mouseMoved',5,5);await pause(500);
 }
 
 // 3. Explain a parsed class: the intent leads the inspector.
 const servicePkg=await evaluate(`${CY}.nodes().filter(n=>n.data('kind')==='PACKAGE'&&(n.data('qualifiedName')||'').endsWith('.service'))[0].data('simpleName')`);
+// Its expand square is drawn only while the card is on screen.
+await evaluate(`(()=>{const cy=${CY},n=cy.nodes().filter(n=>n.data('kind')==='PACKAGE'&&(n.data('qualifiedName')||'').endsWith('.service'))[0];cy.center(n);return true;})()`);
+await until(`!!document.querySelector(${q(`button[aria-label="Show types inside ${servicePkg}"]`)})`,'the service package expand square');
 await evaluate(`document.querySelector(${q(`button[aria-label="Show types inside ${servicePkg}"]`)}).click()`);
 await until(`${CY}.nodes().some(n=>n.data('simpleName')==='OrderService')`,'OrderService card');
 await evaluate(`${CY}.nodes().filter(n=>n.data('simpleName')==='OrderService')[0].emit('tap'),true`);
@@ -269,7 +499,8 @@ await shot('06-parsed-class-explained');
   assert.ok(gaps.length>=2,'the short last row offers gaps: '+JSON.stringify(gaps));
   const at={x:(gaps[0].x1+gaps[0].x2)/2+20,y:(gaps[0].y1+gaps[0].y2)/2};
   const opened=await openSlot(serviceId,'class',0,at);
-  assert.ok(Math.abs(opened.block.x1-gaps[0].x1-20)<2,'the block follows the pointer, between the fixed spots: '+JSON.stringify({gap:gaps[0],block:opened.block}));
+  // The block's corner snaps to an 8 px grid (ADR 0017 round 3), so it follows the pointer to within 4 px.
+  assert.ok(Math.abs(opened.block.x1-gaps[0].x1-20)<=4.5,'the block follows the pointer, between the fixed spots: '+JSON.stringify({gap:gaps[0],block:opened.block}));
   assert.equal(opened.block.x2-opened.block.x1,250,'a full card where there is room');
   await shot('06b-gap-class-draft');
   await typeText('OrderAudit');await enter();
@@ -295,7 +526,7 @@ await shot('06-parsed-class-explained');
   await quickPopup('a narrower class');await escape();
   await until(`!document.querySelector('.design-quick-popup')`,'quick popup closed');
   results.narrowLanding=await assertShape(archiveId,narrow.block,'a class in the narrower space');
-  assert.ok(results.narrowLanding.card.w<250,'the class is as narrow as the space it was made in');
+  assert.ok(results.narrowLanding.card.w<250&&results.narrowLanding.card.w>=220,'the class is as narrow as the space it was made in, never below 220: '+JSON.stringify(results.narrowLanding));
   assert.deepEqual(await topLevelOverlaps(),[],'no map card is overlapped');
   await shot('06d-narrow-class');
 }
@@ -414,8 +645,9 @@ assert.ok(Object.values(beforeToggle).some(p=>p.parent===orderServiceId),'includ
 await evaluate(`document.querySelector('.design-toggle').click(),true`);
 await until(`${CY}.nodes().filter(n=>n.id().startsWith('design:')).length===0`,'design hidden');
 await shot('12-design-off');
-// With Design off, double-click still arranges around the card.
-await evaluate(`window.__arranged=0,true`);
+// With Design off, double-click still arranges around the card. (The listener is bound again: switching
+// journey tabs in 2e mounted a new canvas.)
+await evaluate(`window.__arranged=0;${CY}.on('arranged',()=>{window.__arranged++;}),true`);
 const parsedTarget=await evaluate(`${CY}.nodes().filter(n=>n.data('kind')==='PACKAGE'&&(n.data('qualifiedName')||'').endsWith('.controller'))[0].id()`);
 await evaluate(`${CY}.getElementById(${q(parsedTarget)}).emit('dbltap'),true`);
 await until(`window.__arranged>0`,'double-click arranges with Design off');
@@ -537,6 +769,55 @@ await shot('16-imported-map-in-other-workspace');
   await shot('16c-empty-parsed-type-design-off');
   await evaluate(`document.querySelector('.design-toggle').click(),true`);
   await until(`${CY}.getElementById(${q(tagId)}).data('emptyBox')===true`,'the empty box returns with Design on');
+  // Review F12/F22/F28: with Design off an empty expansion is drawn as its card, yet it is still an expansion:
+  // its menu collapses it, and the collapse gives back the room its box took. A round trip (collapse, expand
+  // with Design on, Design off, menu Collapse) leaves every other card exactly where it was.
+  {
+    const leafPositions=()=>evaluate(`Object.fromEntries(${CY}.nodes().filter(n=>!n.data('hiddenBox')&&!n.data('expanded')&&!n.id().startsWith('design:')).map(n=>[n.id(),{x:n.position().x,y:n.position().y}]))`);
+    const sq=await rectOf(`button[aria-label="Collapse RegionTag"]`);
+    await mouse('mouseMoved',5,5);await pause(200);
+    await clickAt(sq.x,sq.y);
+    await until(`${CY}.getElementById(${q(tagId)}).data('expanded')===false`,'a real click collapses RegionTag');
+    await mouse('mouseMoved',5,5);await pause(300);
+    const boxes={};const pkgBox=async k=>{boxes[k]=await evaluate(`(()=>{const n=${CY}.getElementById(${q(markerPkg)});const b=n.boundingBox({includeLabels:false,includeOverlays:false});const t=${CY}.getElementById(${q(tagId)}).boundingBox({includeLabels:false,includeOverlays:false});return {pkg:[b.x1,b.y1,b.x2,b.y2],tag:[t.x1,t.y1,t.x2,t.y2],blocks:(${CY}.scratch('atlas:designBlocks')||{})[${q(markerPkg)}]||null,kids:${CY}.getElementById(${q(markerPkg)}).children().map(c=>{const cb=c.boundingBox({includeLabels:false,includeOverlays:false});return [c.data('simpleName'),cb.x1,cb.y1,cb.x2,cb.y2];})};})()`);};
+    await pkgBox('s0');
+    const s0=await leafPositions();
+    // The imported layout already lays B's own cards and the imported placeholders over each other (they came
+    // from another codebase); the round trip must add no overlap of its own.
+    const overlaps0=JSON.stringify(await topLevelOverlaps());
+    await until(`!!document.querySelector('button[aria-label="Show methods inside RegionTag"]')`,'RegionTag can expand');
+    const ex=await rectOf('button[aria-label="Show methods inside RegionTag"]');
+    await clickAt(ex.x,ex.y);
+    await until(`${CY}.getElementById(${q(tagId)}).data('emptyBox')===true`,'expanded empty again');
+    await mouse('mouseMoved',5,5);await pause(300);
+    const s1=await leafPositions();await pkgBox('s1');
+    const moved=Object.keys(s0).filter(id=>id!==tagId&&s1[id]&&(Math.abs(s1[id].x-s0[id].x)>.5||Math.abs(s1[id].y-s0[id].y)>.5));
+    await evaluate(`document.querySelector('.design-toggle').click(),true`);
+    await until(`${CY}.nodes().filter(n=>n.id().startsWith('design:')).length===0`,'design hidden for the round trip');
+    await pause(300);
+    const s1off=await leafPositions();await pkgBox('s1off');
+    for(const [id,p] of Object.entries(s1off))if(id!==tagId&&s1[id])assert.ok(near(p.x,s1[id].x,.01)&&near(p.y,s1[id].y,.01),'turning Design off moves nothing: '+id);
+    assert.equal(await evaluate(`${CY}.getElementById(${q(tagId)}).data('expanded')`),false,'drawn as its card with Design off');
+    await evaluate(`${CY}.getElementById(${q(tagId)}).emit('cxttap'),true`);
+    await until(`!!document.querySelector('.graph-context-menu')`,'RegionTag menu with Design off');
+    const menu=await evaluate(`[...document.querySelectorAll('.graph-context-menu button')].map(b=>b.textContent.trim())`);
+    assert.ok(menu.some(t=>t.includes('Collapse'))&&!menu.some(t=>t.includes('Ungroup'))&&!menu.some(t=>/Expand/.test(t)),'the card menu offers Collapse: '+JSON.stringify(menu));
+    await clickText('.graph-context-menu button','Collapse');
+    await until(`!document.querySelector('.graph-context-menu')`,'menu closed after Collapse');
+    await pause(600);
+    const s2=await leafPositions();await pkgBox('s2');
+    const off=Object.keys(s0).filter(id=>s2[id]&&(Math.abs(s2[id].x-s0[id].x)>1||Math.abs(s2[id].y-s0[id].y)>1)).map(id=>({id,before:s0[id],expanded:s1[id],after:s2[id]}));
+    results.designOffCollapse={moved:moved.length,menu,off,boxes};
+    assert.ok(moved.length>0,'the expansion made room, so the round trip is not vacuous');
+    assert.equal(off.length,0,'the collapse gives the room back: every card is where it was before the expansion: '+JSON.stringify(results.designOffCollapse));
+    assert.deepEqual(await topLevelOverlaps(),[],'nothing overlaps after the Design-off collapse');
+    await shot('16d-empty-expansion-collapsed-design-off');
+    await evaluate(`document.querySelector('.design-toggle').click(),true`);
+    await until(`${CY}.nodes().some(n=>n.id().startsWith('design:'))`,'design shown again');
+    await pause(400);
+    assert.equal(await evaluate(`${CY}.getElementById(${q(tagId)}).data('expanded')`),false,'collapsed for good: Design on shows a plain card');
+    assert.equal(JSON.stringify(await topLevelOverlaps()),overlaps0,'with Design on, the round trip adds no overlap');
+  }
 }
 const overlayB=await (await fetch(`${base}/api/workspaces/${wsB}/design`)).json();
 const byKey=Object.fromEntries(overlayB.resources.map(r=>[r.key,r]));
