@@ -774,14 +774,27 @@ await shot('16-imported-map-in-other-workspace');
   // with Design on, Design off, menu Collapse) leaves every other card exactly where it was.
   {
     const leafPositions=()=>evaluate(`Object.fromEntries(${CY}.nodes().filter(n=>!n.data('hiddenBox')&&!n.data('expanded')&&!n.id().startsWith('design:')).map(n=>[n.id(),{x:n.position().x,y:n.position().y}]))`);
+    const notePos=()=>evaluate(`(()=>{const p=${CY}.getElementById(${q(noteId)}).position();return {x:p.x,y:p.y};})()`);
     const sq=await rectOf(`button[aria-label="Collapse RegionTag"]`);
     await mouse('mouseMoved',5,5);await pause(200);
     await clickAt(sq.x,sq.y);
     await until(`${CY}.getElementById(${q(tagId)}).data('expanded')===false`,'a real click collapses RegionTag');
     await mouse('mouseMoved',5,5);await pause(300);
+    // A design class beside RegionTag in its package: parked while Design is off, it must still count when the
+    // Design-off collapse gives the room back, and come back where it was.
+    const markerKey=await evaluate(`${CY}.getElementById(${q(markerPkg)}).data('qualifiedName')`);
+    const noteId=`design:${markerKey}.MarkerNote`;
+    // Typed into the package's add block, so the package makes room for it like any typed card.
+    await openSlot(markerPkg,'class');
+    await typeText('MarkerNote');await enter();
+    await until(`${CY}.getElementById(${q(noteId)}).parent().id()===${q(markerPkg)}`,'a design class inside the marker package',200);
+    await quickPopup('the marker design class');await escape();
+    await until(`!document.querySelector('.design-quick-popup')`,'quick popup closed');
+    await evaluate(`(()=>{const cy=${CY};cy.zoom(.8);cy.center(cy.getElementById(${q(markerPkg)}));return true;})()`);
+    await mouse('mouseMoved',5,5);await pause(400);
     const boxes={};const pkgBox=async k=>{boxes[k]=await evaluate(`(()=>{const n=${CY}.getElementById(${q(markerPkg)});const b=n.boundingBox({includeLabels:false,includeOverlays:false});const t=${CY}.getElementById(${q(tagId)}).boundingBox({includeLabels:false,includeOverlays:false});return {pkg:[b.x1,b.y1,b.x2,b.y2],tag:[t.x1,t.y1,t.x2,t.y2],blocks:(${CY}.scratch('atlas:designBlocks')||{})[${q(markerPkg)}]||null,kids:${CY}.getElementById(${q(markerPkg)}).children().map(c=>{const cb=c.boundingBox({includeLabels:false,includeOverlays:false});return [c.data('simpleName'),cb.x1,cb.y1,cb.x2,cb.y2];})};})()`);};
     await pkgBox('s0');
-    const s0=await leafPositions();
+    const s0=await leafPositions(),note0=await notePos();
     // The imported layout already lays B's own cards and the imported placeholders over each other (they came
     // from another codebase); the round trip must add no overlap of its own.
     const overlaps0=JSON.stringify(await topLevelOverlaps());
@@ -790,7 +803,7 @@ await shot('16-imported-map-in-other-workspace');
     await clickAt(ex.x,ex.y);
     await until(`${CY}.getElementById(${q(tagId)}).data('emptyBox')===true`,'expanded empty again');
     await mouse('mouseMoved',5,5);await pause(300);
-    const s1=await leafPositions();await pkgBox('s1');
+    const s1=await leafPositions();await pkgBox('s1');const note1=await notePos();
     const moved=Object.keys(s0).filter(id=>id!==tagId&&s1[id]&&(Math.abs(s1[id].x-s0[id].x)>.5||Math.abs(s1[id].y-s0[id].y)>.5));
     await evaluate(`document.querySelector('.design-toggle').click(),true`);
     await until(`${CY}.nodes().filter(n=>n.id().startsWith('design:')).length===0`,'design hidden for the round trip');
@@ -808,7 +821,7 @@ await shot('16-imported-map-in-other-workspace');
     const s2=await leafPositions();await pkgBox('s2');
     const off=Object.keys(s0).filter(id=>s2[id]&&(Math.abs(s2[id].x-s0[id].x)>1||Math.abs(s2[id].y-s0[id].y)>1)).map(id=>({id,before:s0[id],expanded:s1[id],after:s2[id]}));
     results.designOffCollapse={moved:moved.length,menu,off,boxes};
-    assert.ok(moved.length>0,'the expansion made room, so the round trip is not vacuous');
+    assert.ok(moved.length>0,'the expansion made room, so the round trip is not vacuous: '+JSON.stringify({boxes,note0,note1}));
     assert.equal(off.length,0,'the collapse gives the room back: every card is where it was before the expansion: '+JSON.stringify(results.designOffCollapse));
     assert.deepEqual(await topLevelOverlaps(),[],'nothing overlaps after the Design-off collapse');
     await shot('16d-empty-expansion-collapsed-design-off');
@@ -816,6 +829,10 @@ await shot('16-imported-map-in-other-workspace');
     await until(`${CY}.nodes().some(n=>n.id().startsWith('design:'))`,'design shown again');
     await pause(400);
     assert.equal(await evaluate(`${CY}.getElementById(${q(tagId)}).data('expanded')`),false,'collapsed for good: Design on shows a plain card');
+    const note2=await notePos();
+    results.designOffCollapse.note={before:note0,expanded:note1,after:note2};
+    assert.ok(Math.abs(note1.x-note0.x)>.5||Math.abs(note1.y-note0.y)>.5,'the design class made room on the expansion: '+JSON.stringify(results.designOffCollapse.note));
+    assert.ok(near(note2.x,note0.x)&&near(note2.y,note0.y),'the parked design class is back where it was: '+JSON.stringify(results.designOffCollapse.note));
     assert.equal(JSON.stringify(await topLevelOverlaps()),overlaps0,'with Design on, the round trip adds no overlap');
   }
 }

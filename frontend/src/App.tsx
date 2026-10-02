@@ -589,10 +589,13 @@ export default function App() {
   // empty box (its card-sized block, or the user's larger size), and every box around it keeps its add blocks
   // as the cascade goes up, exactly as when it expanded in design mode. So a round trip (expand with Design
   // on, collapse with Design off) puts every other card back. Null for an ungrouped one: it takes no room.
+  // Measured on the design-merged graph (outside Changes), so design cards parked while Design is off count as
+  // they did in design mode, and move with the room given back.
   function collapseRoomAsInDesign(n:AtlasNode,size:CardSize):{before:Box;moves:CardMoves}|null{
-    if(!graph)return null;
-    const designProjection=childlessExpansionsAsCards(rawProjected,true);
-    const g=geometryForJourney(graph,viewState,scope,kind,designProjection,undefined,{designSlots:true});
+    const designGraph=!active.present.review&&designMergedGraph?designMergedGraph:graph;
+    if(!designGraph)return null;
+    const designProjection=childlessExpansionsAsCards(projectDisplayed(designGraph,level,displayedIds,kind,expansionInput),true);
+    const g=geometryForJourney(designGraph,viewState,scope,kind,designProjection,undefined,{designSlots:true});
     const before=g.boxes[n.id];
     if(!before)return null;
     const after={x1:before.x1,y1:before.y1,x2:before.x1+size.width,y2:before.y1+size.height};
