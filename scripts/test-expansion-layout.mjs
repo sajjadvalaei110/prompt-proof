@@ -6,7 +6,7 @@ const require = createRequire(new URL('../frontend/package.json', import.meta.ur
 const ts = require('typescript');
 // Only type imports from graphPlacement.ts, which transpileModule elides.
 const compiled = ts.transpileModule(fs.readFileSync(new URL('../frontend/src/features/explorer/expansionLayout.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } }).outputText;
-const { layoutChildren, placeMissingChildren, containerBox, roomShifts, roomMoves, boxOfCard, CONTAINER_PADDING: PAD } = await import('data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'));
+const { layoutChildren, placeMissingChildren, containerBox, roomShifts, roomMoves, boxOfCard, designSlot, minSizeWithSlot, CONTAINER_PADDING: PAD } = await import('data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'));
 // A single sibling with no one else to clamp against behaves exactly like the old single-card rule.
 const roomShift = (card, before, after) => roomShifts([card], before, after)[0];
 
@@ -151,3 +151,21 @@ console.log('PASS: make-room looks through a hidden box to its children and stop
   assert.deepEqual(moves.positions, { W: { x: 950, y: 50 } }, 'V grew by 300, so W makes room');
 }
 console.log('PASS: a hidden box inside a visible one passes its growth to the visible container');
+
+// ADR 0015: the design add slot is exactly where the next child will be placed.
+{
+  const kids = ['a', 'b', 'c'].map(id => card(id));
+  const placedPos = layoutChildren({ x: 0, y: 0 }, kids);
+  const placed = kids.map(c => ({ ...c, ...placedPos[c.id] }));
+  const slot = designSlot({ x: 0, y: 0 }, placed, { width: 250, height: 184 });
+  const next = placeMissingChildren({ x: 0, y: 0 }, placed, [card('new', 250, 184)]).new;
+  assert.deepEqual(slot, boxOfCard({ id: 'new', width: 250, height: 184, ...next }), 'slot box = next placeMissingChildren cell');
+  const childBoxes = placed.map(boxOfCard);
+  const min = minSizeWithSlot(childBoxes, null, slot);
+  const withSlot = containerBox(childBoxes, min);
+  const without = containerBox(childBoxes, null);
+  assert.deepEqual([withSlot.x1, withSlot.y1], [without.x1, without.y1], 'the slot only grows the box right and down');
+  assert.equal(withSlot.y2, slot.y2 + PAD, 'the box holds the slot plus padding');
+  assert.deepEqual(minSizeWithSlot(childBoxes, { width: 5000, height: 10 }, slot).width, 5000, 'a larger user minimum wins');
+  console.log('PASS: design add slot');
+}

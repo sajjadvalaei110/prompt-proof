@@ -20,7 +20,11 @@ export interface Camera { zoom: number; pan: Point }
  * after use -- never stored in state, per Appendix F2 ("nodeCard.ts owns dimensions"). `center`
  * is given for an expanded card, whose drawn box is its children's bounds rather than the card at
  * its stored position, so an addition is placed below what is really on screen. */
-export interface PlacementDims { width: number; height: number; name: string; center?: Point }
+export interface PlacementDims {
+  width: number; height: number; name: string; center?: Point;
+  /** A newly admitted card that must land exactly here (a design card created inline where it was typed, ADR 0015). Ignored for survivors. */
+  pinned?: Point;
+}
 export interface Size { width: number; height: number }
 /**
  * One card expanded in place into a container of its children. The container's own box is derived
@@ -332,14 +336,55 @@ function reconcilePositions(
   const survivorBounds: CardBounds[] = survivors
     .filter(id => survivorPositions[id] && placement[id])
     .map(id => ({ id, x: placement[id].center?.x ?? survivorPositions[id].x, y: placement[id].center?.y ?? survivorPositions[id].y, width: placement[id].width, height: placement[id].height }));
-  const additionCards: AdditionCard[] = added.map(id => ({
+  const pinned: Record<string, Point> = {};
+  for (const id of added) { const p = placement[id]?.pinned; if (p) pinned[id] = { x: p.x, y: p.y }; }
+  const free = added.filter(id => !pinned[id]);
+  if (!free.length) return { positions: { ...survivorPositions, ...pinned }, appendWidth: view.appendWidth };
+  const additionCards: AdditionCard[] = free.map(id => ({
     id,
     width: placement[id]?.width ?? 250,
     height: placement[id]?.height ?? 128,
     name: placement[id]?.name ?? id,
   }));
   const { positions: newPositions, appendWidth } = placeAdditions(survivorBounds, additionCards, view.appendWidth);
-  return { positions: { ...survivorPositions, ...newPositions }, appendWidth };
+  return { positions: { ...survivorPositions, ...newPositions, ...pinned }, appendWidth };
+}
+
+/**
+ * A dragged expanded card reports every card drawn inside it, but cards parked while hidden (design
+ * cards with Design off, ADR 0015; review-only cards in map mode) are not drawn, so not reported.
+ * Carry their stored positions by the same delta as the box that holds them, through nested
+ * expansions, so they re-enter inside their container's new place instead of where it used to be.
+ */
+function carryUnreportedChildren(before: LevelViewState, view: LevelViewState, moves: { id: string; position: Point; containerId: string | null }[]): LevelViewState {
+  const reported = new Set(moves.map(m => m.id));
+  const deltas = new Map<string, Point>();
+  for (const m of moves) {
+    if (!before.expansions[m.id]) continue;
+    const old = m.containerId === null ? before.positions[m.id] : before.expansions[m.containerId]?.childPositions[m.id];
+    if (old && (old.x !== m.position.x || old.y !== m.position.y)) deltas.set(m.id, { x: m.position.x - old.x, y: m.position.y - old.y });
+  }
+  if (!deltas.size) return view;
+  // A parked expanded card inside a carried box moves with it, and so does everything inside it.
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const [id, e] of Object.entries(view.expansions)) {
+      if (deltas.has(id) || reported.has(id) || !e.ownerId || !deltas.has(e.ownerId)) continue;
+      deltas.set(id, deltas.get(e.ownerId)!);
+      grew = true;
+    }
+  }
+  let expansions = view.expansions;
+  for (const [id, d] of deltas) {
+    const e = expansions[id];
+    if (!e) continue;
+    const unreported = Object.keys(e.childPositions).filter(child => !reported.has(child));
+    if (!unreported.length) continue;
+    const childPositions = { ...e.childPositions };
+    for (const child of unreported) childPositions[child] = { x: childPositions[child].x + d.x, y: childPositions[child].y + d.y };
+    expansions = { ...expansions, [id]: { ...e, childPositions } };
+  }
+  return expansions === view.expansions ? view : { ...view, expansions };
 }
 
 const isReviewDisplayId = (id: string) => id.startsWith('review-node:');
@@ -712,6 +757,7 @@ export function explorerViewReducer(state: ExplorerViewState, action: ExplorerAc
         changed = true;
       }
       if (!changed) return state;
+      view = carryUnreportedChildren(state.levelViews[action.level], view, action.moves);
       return { ...state, levelViews: { ...state.levelViews, [action.level]: { ...view, geometryRevision: state.levelViews[action.level].geometryRevision + 1 } } };
     }
     case 'EXPAND_RESOURCE': {

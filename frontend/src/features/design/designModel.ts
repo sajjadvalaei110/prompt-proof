@@ -1,4 +1,5 @@
 import type { AtlasEdge, AtlasGraph, AtlasNode } from '../explorer/graphModel';
+import type { DesignOperation } from '../../api/client';
 
 /**
  * The engineer-owned design layer (ADR 0014) on the ordinary code map. Pure: no runtime imports, so
@@ -139,6 +140,62 @@ export function parseParameterTypes(text: string): string[] {
     const m = p.match(/^(.*[>\]\w])\s+[A-Za-z_$][\w$]*$/);
     return m ? m[1].trim() : p;
   });
+}
+
+/** Joins an intent and its details back into one explanation (the inverse of intentOf/detailOf). */
+export function joinExplanation(intent: string, details: string): string {
+  const i = intent.replace(/\s+/g, ' ').trim(), d = details.trim();
+  return i && d ? `${i}\n\n${d}` : i || d;
+}
+
+/** What an inline title on a new card means: a name and, for a member, `name(Type, Type)` parameter types. */
+export interface InlineName { name: string; kind: string; parameterTypes: string[] }
+/**
+ * Reads the title typed on a new inline card. `kind` is the card's kind; a METHOD named after its
+ * owning type becomes a CONSTRUCTOR. Returns an error message instead when the text cannot be a name.
+ */
+export function parseInlineName(text: string, kind: string, ownerSimpleName: string | null = null): InlineName | string {
+  const t = text.trim();
+  if (!t) return 'Type a name';
+  if (MEMBER_KINDS.includes(kind)) {
+    const m = t.match(/^([A-Za-z_$][\w$]*)\s*(?:\((.*)\))?$/s);
+    if (!m) return 'Write a method as name or name(Type, Type)';
+    const name = m[1], parameterTypes = parseParameterTypes(m[2] || '');
+    return { name, kind: ownerSimpleName && name === ownerSimpleName ? 'CONSTRUCTOR' : 'METHOD', parameterTypes };
+  }
+  if (kind === 'PACKAGE') return /^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*$/.test(t) ? { name: t, kind, parameterTypes: [] } : 'Write a package as a dotted name, e.g. com.acme.billing';
+  return /^[A-Za-z_$][\w$]*$/.test(t) ? { name: t, kind, parameterTypes: [] } : 'A type name is one identifier, e.g. InvoiceService';
+}
+
+/**
+ * The relation kind a two-click relation starts with, from its endpoints' kinds (changeable in the
+ * popover right after): members call members, a type implements an interface (an interface extends
+ * one), other type targets are used types, packages depend on each other, anything else calls.
+ */
+export function defaultRelationKind(sourceKind: string, targetKind: string): string {
+  if (sourceKind === 'PACKAGE' || targetKind === 'PACKAGE') return 'DEPENDS_ON';
+  if (MEMBER_KINDS.includes(sourceKind) && MEMBER_KINDS.includes(targetKind)) return 'CALLS';
+  if (targetKind === 'INTERFACE' && TYPE_KINDS.includes(sourceKind)) return sourceKind === 'INTERFACE' ? 'EXTENDS' : 'IMPLEMENTS';
+  if (TYPE_KINDS.includes(targetKind)) return 'USES_TYPE';
+  return 'CALLS';
+}
+
+/** The change set that creates one resource under `parentKey` (null: a package on the map). */
+export function createResourceOps(parentKey: string | null, parsed: InlineName, explanation = ''): DesignOperation[] {
+  const member = MEMBER_KINDS.includes(parsed.kind);
+  return [{ op: 'putResource', kind: parsed.kind, parentKey, name: parsed.name, ...(member ? { parameterTypes: parsed.parameterTypes } : {}), explanation }];
+}
+/** The change set that sets a card's explanation: parsed code takes it as a CODE explanation, an authored card is updated. */
+export function explainOps(node: AtlasNode, explanation: string): DesignOperation[] {
+  const key = keyOf(node);
+  return node.design?.origin === 'AUTHORED' ? [{ op: 'updateResource', key, explanation }] : [{ op: 'putResource', key, explanation }];
+}
+/** The change set that creates or edits one relation; a changed kind replaces the old record (kind is part of its identity). */
+export function relationOps(sourceKey: string, targetKey: string, kind: string, explanation: string, previousKind?: string | null): DesignOperation[] {
+  const ops: DesignOperation[] = [];
+  if (previousKind && previousKind !== kind) ops.push({ op: 'deleteRelation', sourceKey, targetKey, kind: previousKind });
+  ops.push({ op: 'putRelation', sourceKey, targetKey, kind, explanation });
+  return ops;
 }
 
 /** Layout of a tab keyed by stable keys, so it can be re-applied to a different snapshot's IDs. */

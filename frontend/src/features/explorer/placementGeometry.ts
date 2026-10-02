@@ -2,12 +2,16 @@ import { AtlasGraph, AtlasNode, AtlasEdge, projectDisplayed } from './graphModel
 import { ScopeSelection, isNodeInScope } from './scopeModel';
 import { ExplorerViewState, PlacementDims } from './explorerViewState';
 import { defaultCardSize } from './nodeCard';
-import { Box, boxOfCard, containerBox, placeMissingChildren } from './expansionLayout';
+import { Box, Size, boxOfCard, containerBox, designSlot, minSizeWithSlot, placeMissingChildren } from './expansionLayout';
 import type { Point } from './graphPlacement';
 
 export interface JourneyGeometry {
   positions: Record<string, Point>;
   boxes: Record<string, Box>;
+  /** Design mode only (ADR 0015): each visible expanded package/type's add slot, and the inner
+   * minimum that makes its drawn box hold that slot. */
+  slots: Record<string, Box>;
+  slotMinSizes: Record<string, Size>;
   projected: { nodes: AtlasNode[]; edges: AtlasEdge[] };
 }
 
@@ -23,6 +27,7 @@ export function geometryForJourney(
   kind: string,
   projectedInput?: { nodes: AtlasNode[]; edges: AtlasEdge[] },
   displayedIdsInput?: string[],
+  options: { designSlots?: boolean } = {},
 ): JourneyGeometry {
   const level = view.activeLevel, levelView = view.levelViews[level];
   const expansionInput = {
@@ -31,6 +36,7 @@ export function geometryForJourney(
   };
   const displayed = projectedInput || projectDisplayed(graph, level, displayedIdsInput ?? levelView.displayedIds, kind, expansionInput);
   const positions: Record<string, Point> = { ...levelView.positions }, boxes: Record<string, Box> = {};
+  const slots: Record<string, Box> = {}, slotMinSizes: Record<string, Size> = {};
   const kids = new Map<string, AtlasNode[]>();
   for (const n of displayed.nodes) if (n.containerId) {
     const list = kids.get(n.containerId);
@@ -55,10 +61,27 @@ export function geometryForJourney(
       ...cardSize(c),
       ...(positions[c.id] || { x: 0, y: 0 }),
     }));
-    const box = containerBox(childBoxes, levelView.expansions[n.id]?.minSize || null, !!levelView.expansions[n.id]?.hidden);
+    const expansion = levelView.expansions[n.id];
+    let minSize = expansion?.minSize || null;
+    const slotSize = options.designSlots && !expansion?.hidden && childBoxes.length ? addSlotSize(n.kind) : null;
+    if (slotSize) {
+      const size = cardSize(n), center = positions[n.id] || { x: 0, y: 0 };
+      const slot = designSlot({ x: center.x - size.width / 2, y: center.y - size.height / 2 }, childBoxes.map((b, i) => ({ id: String(i), width: b.x2 - b.x1, height: b.y2 - b.y1, x: (b.x1 + b.x2) / 2, y: (b.y1 + b.y2) / 2 })), slotSize);
+      slots[n.id] = slot;
+      minSize = slotMinSizes[n.id] = minSizeWithSlot(childBoxes, minSize, slot);
+    }
+    const box = containerBox(childBoxes, minSize, !!expansion?.hidden);
     if (box) boxes[n.id] = box;
   }
-  return { positions, boxes, projected: displayed };
+  return { positions, boxes, slots, slotMinSizes, projected: displayed };
+}
+
+/** The card an add slot holds: a type in a package, a method in a type (ADR 0015); null for anything else. */
+const ADD_TYPE_KINDS = ['CLASS', 'INTERFACE', 'ENUM', 'RECORD', 'ANNOTATION'];
+export function addSlotSize(containerKind: string): Size | null {
+  if (containerKind === 'PACKAGE') return defaultCardSize({ kind: 'CLASS' } as AtlasNode);
+  if (ADD_TYPE_KINDS.includes(containerKind)) return defaultCardSize({ kind: 'METHOD' } as AtlasNode);
+  return null;
 }
 
 const unionBox = (a?: Box, b?: Box): Box | undefined => {

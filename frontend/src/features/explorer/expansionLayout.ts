@@ -53,6 +53,29 @@ export function placeMissingChildren(topLeft: Point, placed: PlacedCard[], missi
 }
 
 /**
+ * The design layer's add slot (ADR 0015): the box the next child added to an expanded card will
+ * occupy. It is exactly where placeMissingChildren puts one more child, so a card created there
+ * lands on the slot it was typed into. `placed` are the children as drawn now.
+ */
+export function designSlot(topLeft: Point, placed: PlacedCard[], slot: Size): Box {
+  const id = '\u0000slot';
+  const p = placeMissingChildren(topLeft, placed, [{ id, ...slot }])[id];
+  return boxOfCard({ id, ...slot, ...p });
+}
+
+/**
+ * The inner (padding-free) minimum that makes an expanded card's box also hold `slot`, never
+ * smaller than the user's own `minSize`. Fed to the same min-width/min-height biases (right and
+ * bottom) as a resize, so the box only grows right and down and no other card moves.
+ */
+export function minSizeWithSlot(children: Box[], minSize: Size | null, slot: Box): Size {
+  const all = [...children, slot];
+  const x1 = Math.min(...all.map(b => b.x1)), y1 = Math.min(...all.map(b => b.y1));
+  const x2 = Math.max(...all.map(b => b.x2)), y2 = Math.max(...all.map(b => b.y2));
+  return { width: Math.max(minSize?.width ?? 0, x2 - x1), height: Math.max(minSize?.height ?? 0, y2 - y1) };
+}
+
+/**
  * An expanded card's box around its children's boxes; null when it has no children to wrap.
  * `minSize` is the inner (padding-free) minimum, as Cytoscape's min-width/min-height take it.
  * A `hidden` (ungrouped, ADR 0011) box draws nothing, so it is exactly its children's bounds.

@@ -10,7 +10,7 @@ const load=src=>import('data:text/javascript;base64,'+Buffer.from(src).toString(
 const design=await load(compile('../frontend/src/features/design/designModel.ts'));
 const stripLocalImport=(src,name)=>src.replace(new RegExp(`import \\{[^}]*\\} from ['"]\\./${name}['"];?\n?`),'');
 const graphModel=await load(stripLocalImport(compile('../frontend/src/features/explorer/scopeModel.ts'),'graphModel')+'\n'+stripLocalImport(compile('../frontend/src/features/explorer/graphModel.ts'),'scopeModel'));
-const {mergeDesignGraph,relationsOfRoute,childKey,childKindsFor,parseParameterTypes,intentOf,detailOf,isDesignOnly,keyOf,designNodeId}=design;
+const {mergeDesignGraph,relationsOfRoute,childKey,childKindsFor,parseParameterTypes,intentOf,detailOf,isDesignOnly,keyOf,designNodeId,parseInlineName,defaultRelationKind,joinExplanation,createResourceOps,explainOps,relationOps}=design;
 const {projectDisplayed,childrenOf,wholeSystemScope,getEligibleIds}=graphModel;
 
 const graph={nodes:[
@@ -90,4 +90,39 @@ assert.equal(intentOf('Issues invoices\nfor orders.\n\nIdempotent.'),'Issues inv
 assert.equal(detailOf('Issues invoices.\n\nIdempotent.\n\nRetries.'),'Idempotent.\n\nRetries.');
 assert.equal(intentOf(''),'');
 assert.equal(detailOf('Only intent.'),'');
+
+// ADR 0015: inline names.
+assert.deepEqual(parseInlineName(' findById(Long) ','METHOD','OrderService'),{name:'findById',kind:'METHOD',parameterTypes:['Long']});
+assert.deepEqual(parseInlineName('run','METHOD','X'),{name:'run',kind:'METHOD',parameterTypes:[]});
+assert.deepEqual(parseInlineName('put(Map<String, List<Long>> m, int)','METHOD','X'),{name:'put',kind:'METHOD',parameterTypes:['Map<String, List<Long>>','int']});
+assert.deepEqual(parseInlineName('OrderService(OrderRepository)','METHOD','OrderService'),{name:'OrderService',kind:'CONSTRUCTOR',parameterTypes:['OrderRepository']});
+assert.equal(typeof parseInlineName('find by id','METHOD','X'),'string');
+assert.equal(typeof parseInlineName('','CLASS'),'string');
+assert.deepEqual(parseInlineName('Refunds','CLASS'),{name:'Refunds',kind:'CLASS',parameterTypes:[]});
+assert.equal(typeof parseInlineName('com.acme.Refunds','CLASS'),'string','a type name is one identifier');
+assert.deepEqual(parseInlineName('com.acme.billing','PACKAGE'),{name:'com.acme.billing',kind:'PACKAGE',parameterTypes:[]});
+assert.equal(typeof parseInlineName('com..billing','PACKAGE'),'string');
+// Default relation kinds from the endpoints.
+assert.equal(defaultRelationKind('METHOD','METHOD'),'CALLS');
+assert.equal(defaultRelationKind('METHOD','CONSTRUCTOR'),'CALLS');
+assert.equal(defaultRelationKind('CLASS','INTERFACE'),'IMPLEMENTS');
+assert.equal(defaultRelationKind('INTERFACE','INTERFACE'),'EXTENDS');
+assert.equal(defaultRelationKind('CLASS','CLASS'),'USES_TYPE');
+assert.equal(defaultRelationKind('METHOD','CLASS'),'USES_TYPE');
+assert.equal(defaultRelationKind('PACKAGE','CLASS'),'DEPENDS_ON');
+assert.equal(defaultRelationKind('CLASS','METHOD'),'CALLS');
+// Explanation join is the inverse of intentOf/detailOf.
+const joined=joinExplanation(' Issues  invoices. ','Idempotent.\n\nRetries.');
+assert.equal(intentOf(joined),'Issues invoices.');assert.equal(detailOf(joined),'Idempotent.\n\nRetries.');
+assert.equal(joinExplanation('',' Only details. '),'Only details.');
+assert.equal(joinExplanation('Only intent.',''),'Only intent.');
+// Change sets.
+assert.deepEqual(createResourceOps('com.acme.Foo',{name:'run',kind:'METHOD',parameterTypes:['Long']}),[{op:'putResource',kind:'METHOD',parentKey:'com.acme.Foo',name:'run',parameterTypes:['Long'],explanation:''}]);
+assert.deepEqual(createResourceOps(null,{name:'com.acme',kind:'PACKAGE',parameterTypes:[]}),[{op:'putResource',kind:'PACKAGE',parentKey:null,name:'com.acme',explanation:''}]);
+const parsedCard=merged.nodes.find(n=>n.id==='w'),authoredCard=merged.nodes.find(n=>n.id===designNodeId('com.acme.billing'));
+assert.deepEqual(explainOps(parsedCard,'Why.'),[{op:'putResource',key:'com.acme.web.OrderController',explanation:'Why.'}]);
+assert.deepEqual(explainOps(authoredCard,'Why.'),[{op:'updateResource',key:'com.acme.billing',explanation:'Why.'}]);
+assert.deepEqual(relationOps('A','B','CALLS','x'),[{op:'putRelation',sourceKey:'A',targetKey:'B',kind:'CALLS',explanation:'x'}]);
+assert.deepEqual(relationOps('A','B','INJECTS','x','CALLS').map(o=>o.op),['deleteRelation','putRelation']);
+assert.equal(relationOps('A','B','CALLS','x','CALLS').length,1);
 console.log('design model tests passed');

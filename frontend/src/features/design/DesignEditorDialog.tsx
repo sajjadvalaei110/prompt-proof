@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { DesignOperation } from '../../api/client';
 import type { AtlasGraph, AtlasNode } from '../explorer/graphModel';
-import { DesignRelation, MEMBER_KINDS, RELATION_KINDS, TYPE_KINDS, childKey, childKindsFor, keyOf, parseParameterTypes } from './designModel';
+import { DesignRelation, MEMBER_KINDS, RELATION_KINDS, TYPE_KINDS, childKey, childKindsFor, explainOps, keyOf, parseParameterTypes, relationOps } from './designModel';
 
 /** What the dialog edits. Resources are addressed by key, relations by their stored record. */
 export type DesignDraft =
@@ -61,12 +61,11 @@ export default function DesignEditorDialog({ draft, graph, onApply, onClose }: P
       } else if (draft.mode === 'resource-edit') {
         const key = keyOf(draft.node);
         if (authored) ops.push({ op: 'updateResource', key, kind, name: kind === 'CONSTRUCTOR' ? undefined : name.trim(), ...(member ? { parameterTypes: parseParameterTypes(params), signature: signature.trim() || undefined } : {}), explanation });
-        else ops.push({ op: 'putResource', key, explanation });
+        else ops.push(...explainOps(draft.node, explanation));
       } else if (draft.mode === 'relation-new') {
         ops.push({ op: 'putRelation', sourceKey: sourceKey.trim(), targetKey: targetKey.trim(), kind: relationKind, explanation });
       } else if (relation) {
-        if (relationKind !== relation.kind) ops.push({ op: 'deleteRelation', sourceKey: relation.sourceKey, targetKey: relation.targetKey, kind: relation.kind });
-        ops.push({ op: 'putRelation', sourceKey: relation.sourceKey, targetKey: relation.targetKey, kind: relationKind, explanation });
+        ops.push(...relationOps(relation.sourceKey, relation.targetKey, relationKind, explanation, relation.kind));
       }
       await onApply(ops);
       onClose();
