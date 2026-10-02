@@ -157,7 +157,8 @@ export function revealContainers(node: AtlasNode, all: Map<string, AtlasNode>): 
 }
 
 /** Uncertainty rank: the aggregate's representative resolution is the least certain one present, so a single candidate/unresolved occurrence is never reported as resolved (hover text, inspector). The line itself is not styled by resolution (ADR 0008 amendment, 2026-09-25). */
-const RESOLUTION_RANK: Record<string, number> = { RESOLVED: 0, CANDIDATE: 1, UNRESOLVED: 2 };
+// CODE: a parsed dependency carried along by the design layer (ADR 0016), as settled as the map it came from.
+const RESOLUTION_RANK: Record<string, number> = { RESOLVED: 0, CODE: 0, CANDIDATE: 1, UNRESOLVED: 2 };
 const worseResolution = (a: string, b: string) => ((RESOLUTION_RANK[b] ?? 2) > (RESOLUTION_RANK[a] ?? 2) ? b : a);
 
 /**
@@ -282,7 +283,8 @@ function aggregateEdges(graph: AtlasGraph, level: Level, all: Map<string, AtlasN
     // A card and the container it sits in are drawn nested, so a route between them has nowhere to go.
     if (source !== target && (inside(source, target) || inside(target, source))) continue;
     // A designed relation is intent, not a parser fact: it gets its own route so it never thickens or recolors one.
-    const key = e.design ? JSON.stringify([source, target, 'DESIGN']) : e.reviewChange ? JSON.stringify([source, target, e.reviewChange]) : JSON.stringify([source, target]);
+    // A parsed dependency the design layer carries along (origin CODE, ADR 0016) joins the ordinary route.
+    const key = e.design && e.design.origin !== 'CODE' ? JSON.stringify([source, target, 'DESIGN']) : e.reviewChange ? JSON.stringify([source, target, e.reviewChange]) : JSON.stringify([source, target]);
     const group = grouped.get(key);
     if (group) {
       group.occurrenceIds!.push(e.id); group.occurrenceKinds!.push(e.kind); group.occurrenceCount!++;

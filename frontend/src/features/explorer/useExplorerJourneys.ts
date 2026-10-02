@@ -70,5 +70,5 @@ export function useExplorerJourneys(initialView?: ExplorerViewState, graphFor?: 
     group.current = null;
     dispatch(action);
   }
-  return { state, active, set, setTransient, setTransientCamera, update, updateTab, dispatchView, beginGroup, command, reset: (view: Journey['view']) => dispatch({ type: 'RESET', view }) };
+  return { state, active, set, setTransient, setTransientCamera, update, updateTab, dispatchView, beginGroup, command, reset: (view: Journey['view'], scope?: Journey['scope'], kind?: string) => dispatch({ type: 'RESET', view, scope, kind }) };
 }

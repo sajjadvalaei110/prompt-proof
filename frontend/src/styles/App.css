@@ -252,11 +252,20 @@ h1 { font-size: 25px; letter-spacing: -.7px; line-height: 1.3; font-weight: 650;
 
 /* Design layer (ADR 0014): violet and dashed, never confused with parsed facts or review colors. */
 .design-controls { display: flex; align-items: center; gap: 4px; }
+/* Export / Import (ADR 0016): the right end of the legend row, right under the map's Fit map / Full screen controls. */
+.map-file-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+.map-file-actions > button, .map-file-actions .design-import { font-size: 12px; padding: 6px 11px; }
+.graph-legend .map-file-actions ~ .legend-thickness { margin-left: 0; }
+.import-map-option { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+.import-map-option small { color: #7c8ea3; font-size: 12px; }
+.import-map-button { display: inline-flex; align-items: center; position: relative; cursor: pointer; font-size: 13px; padding: 9px 14px; }
+.import-map-button input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; padding: 0; }
+.import-map-button.disabled { opacity: .55; pointer-events: none; }
 .design-controls > button, .design-controls .design-import { font-size: 12px; padding: 8px 12px; }
 .design-toggle.active { background: #f1ebff; border-color: #7c5cc4; color: #4f3592; }
-.design-controls .design-import { display: inline-flex; align-items: center; cursor: pointer; position: relative; border-radius: 6px; }
-.design-controls .design-import input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; padding: 0; }
-.design-controls .design-import.disabled { opacity: .5; cursor: not-allowed; }
+.design-controls .design-import, .map-file-actions .design-import { display: inline-flex; align-items: center; cursor: pointer; position: relative; border-radius: 6px; }
+.design-controls .design-import input, .map-file-actions .design-import input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; padding: 0; }
+.design-controls .design-import.disabled, .map-file-actions .design-import.disabled { opacity: .5; cursor: not-allowed; }
 .inspector .design-section, .design-section { border-left: 3px solid #7c5cc4; padding-left: 14px; }
 .design-section .design-intent { font-weight: 600; color: #2b1d55; font-size: 14px; line-height: 1.6; }
 .design-section .design-detail { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.7; color: #3e4f66; margin-top: 8px; }
@@ -306,6 +315,11 @@ h1 { font-size: 25px; letter-spacing: -.7px; line-height: 1.3; font-weight: 650;
 .design-popover-key code { font-family: var(--font-mono); }
 .design-popover-picker { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .design-popover-picker button { width: 100%; text-align: left; font-size: 12px; }
+.design-quick-popup { position: fixed; z-index: 60; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; width: 340px; max-width: calc(100vw - 16px); background: #fff; border: 1px solid #d9ccf5; border-left: 3px solid #7c5cc4; border-radius: 9px; box-shadow: 0 10px 26px #2b1d5533; padding: 6px; font-size: 13px; }
+.design-quick-popup input { flex: 1 1 150px; min-width: 0; font-size: 13px; padding: 6px 8px; }
+.design-quick-popup select { flex: 0 1 120px; font-size: 12px; padding: 5px 4px; }
+.design-quick-popup button { padding: 5px 9px; font-size: 13px; line-height: 1; }
+.design-quick-popup .notice { flex-basis: 100%; margin: 2px 0 0; font-size: 12px; }
 .design-prompt-dialog { width: min(860px, calc(100vw - 32px)); }
 .design-prompt-text { width: 100%; box-sizing: border-box; font-family: var(--font-mono); font-size: 12px; line-height: 1.55; min-height: 320px; resize: vertical; }
 .design-prompt-note { font-size: 12px; color: #4f3592; margin: 6px 0; }

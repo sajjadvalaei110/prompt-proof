@@ -20,9 +20,13 @@ export interface DesignResource {
   signature?: string | null; origin: 'AUTHORED' | 'CODE'; status: DesignStatus; explanation: string; intent: string;
   createdBy: string; updatedBy: string; createdAt: string; updatedAt: string; revision: number;
   codeId?: string | null; parentCodeId?: string | null;
+  /** Spring roles of an imported reference to code (ADR 0016), so it is drawn like the original card. */
+  roles?: string[] | null;
 }
+/** `origin` AUTHORED: a relation drawn as design. CODE: a parsed dependency carried along (ADR 0016), an
+ * explanation on a relation the code has or an imported one the code lacks; it is drawn as an ordinary route. */
 export interface DesignRelation {
-  id: string; sourceKey: string; targetKey: string; kind: string; resolution: 'DESIGNED'; status: DesignStatus;
+  id: string; sourceKey: string; targetKey: string; kind: string; resolution: 'DESIGNED' | 'CODE'; status: DesignStatus; origin?: 'AUTHORED' | 'CODE';
   explanation: string; intent: string; createdBy: string; updatedBy: string; createdAt: string; updatedAt: string; revision: number;
   sourceCodeId?: string | null; targetCodeId?: string | null;
 }
@@ -41,6 +45,10 @@ export const keyOf = (n: AtlasNode) => n.design?.key || n.qualifiedName || n.sim
 
 /** A card that exists only in the design layer (planned, or an imported reference absent from the code). */
 export const isDesignOnly = (n: AtlasNode) => !!n.design && !n.design.codeId;
+/** An imported reference to code this project lacks (ADR 0016): drawn like the original card, tagged "imported". */
+export const isImported = (n: AtlasNode) => isDesignOnly(n) && n.design!.origin === 'CODE';
+/** A relation the engineer drew as design (not a parsed dependency carried along): its own violet route. */
+export const isDesignedRelation = (e: AtlasEdge) => !!e.design && e.design.origin !== 'CODE';
 
 /** First paragraph of an explanation: by convention the intent. */
 export function intentOf(explanation: string | null | undefined): string {
@@ -55,8 +63,10 @@ export function detailOf(explanation: string | null | undefined): string {
   return blank < 0 ? '' : text.slice(blank).trim();
 }
 
-/** A method card's display name, `name(Types)`, so overloads stay distinguishable. */
+/** A method card's display name, `name(Types)`, so overloads stay distinguishable. An imported reference to
+ * code is named as the parser names it (ADR 0016), so it reads like the original card. */
 function displayName(r: DesignResource): string {
+  if (r.origin === 'CODE') return r.name;
   if (MEMBER_KINDS.includes(r.kind)) return `${r.name}(${(r.parameterTypes || []).join(', ')})`;
   return r.name;
 }
@@ -84,7 +94,7 @@ export function mergeDesignGraph(graph: AtlasGraph, overlay: DesignOverlay | nul
     added.push({
       id: designNodeId(r.key), kind: r.kind, simpleName: displayName(r), qualifiedName: r.key,
       parentId: idOfKey(r.parentKey, r.parentCodeId), explanationStatus: 'NOT_REQUESTED',
-      responsibilitySummary: r.intent || undefined, design,
+      responsibilitySummary: r.intent || undefined, design, ...(r.origin === 'CODE' && r.roles?.length ? { roles: [...r.roles] } : {}),
     });
   }
   const nodes = annotate.size ? graph.nodes.map(n => annotate.has(n.id) ? { ...n, design: annotate.get(n.id) } : n) : [...graph.nodes];
@@ -94,8 +104,11 @@ export function mergeDesignGraph(graph: AtlasGraph, overlay: DesignOverlay | nul
   for (const rel of overlay.relations) {
     const sourceId = idOfKey(rel.sourceKey, rel.sourceCodeId), targetId = idOfKey(rel.targetKey, rel.targetCodeId);
     if (!sourceId || !targetId || !nodeIds.has(sourceId) || !nodeIds.has(targetId)) continue;
+    // A carried parsed dependency (origin CODE) is an ordinary route: aggregateEdges merges it with the
+    // parser's route between the same cards, and it is drawn grey like the map it came from.
+    const carried = rel.origin === 'CODE';
     edges.push({
-      id: DESIGN_EDGE_PREFIX + rel.id, sourceId, targetId, kind: rel.kind, resolution: 'DESIGNED',
+      id: DESIGN_EDGE_PREFIX + rel.id, sourceId, targetId, kind: rel.kind, resolution: carried ? 'CODE' : 'DESIGNED',
       descriptiveLabel: rel.kind.toLowerCase().replaceAll('_', ' '), hoverSummary: rel.intent, explanationStatus: 'NOT_REQUESTED', design: rel,
     });
   }
@@ -177,16 +190,8 @@ export function parseInlineName(text: string, kind: string, ownerSimpleName: str
   return /^[A-Za-z_$][\w$]*$/.test(t) ? { name: t, kind, parameterTypes: [] } : 'A type name is one identifier, e.g. InvoiceService';
 }
 
-/**
- * The relation kind a two-click relation starts with, from its endpoints' kinds (changeable in the
- * popover right after): members call members, a type implements an interface (an interface extends
- * one), other type targets are used types, packages depend on each other, anything else calls.
- */
-export function defaultRelationKind(sourceKind: string, targetKind: string): string {
-  if (sourceKind === 'PACKAGE' || targetKind === 'PACKAGE') return 'DEPENDS_ON';
-  if (MEMBER_KINDS.includes(sourceKind) && MEMBER_KINDS.includes(targetKind)) return 'CALLS';
-  if (targetKind === 'INTERFACE' && TYPE_KINDS.includes(sourceKind)) return sourceKind === 'INTERFACE' ? 'EXTENDS' : 'IMPLEMENTS';
-  if (TYPE_KINDS.includes(targetKind)) return 'USES_TYPE';
+/** The kind of a relation drawn with two clicks (ADR 0016): always CALLS; the quick popup changes it. */
+export function defaultRelationKind(_sourceKind?: string, _targetKind?: string): string {
   return 'CALLS';
 }
 

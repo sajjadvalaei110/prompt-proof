@@ -110,6 +110,10 @@ export const apiClient = {
       body: JSON.stringify({ path, language, ...(engine.indexer ? { indexer: engine.indexer, allowBuildExecution: !!engine.allowBuildExecution } : {}) })
     }),
 
+  /** A project with no source folder for an exported map (ADR 0016): an empty snapshot, Design always on. */
+  createDesignOnlyWorkspace: (name: string): Promise<any> =>
+    requestJson(`${API_BASE}/workspaces/design-only`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) }),
+
   /** Shipped indexing engines per language, with whether each can run on this machine. */
   listIndexers: (): Promise<IndexerOption[]> => requestJson(`${API_BASE}/indexers`),
 

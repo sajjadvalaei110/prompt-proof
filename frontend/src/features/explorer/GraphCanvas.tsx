@@ -146,9 +146,10 @@ export interface DesignCanvas {
   onAddPackageAt: (point: Point) => void;
   /** Kinds or fields the inline card does not cover: the full design dialog. */
   onOpenDialog: (command: 'add-child' | 'add-relation', node: AtlasNode | null) => void;
-  onDraftCommit: (text: string) => void;
+  /** Enter on the draft: its name, and the client point at the draft card's top-right corner (for the quick popup). */
+  onDraftCommit: (text: string, anchor: Point) => void;
   onDraftCancel: () => void;
-  /** The second click of a two-click relation. */
+  /** The second click of a two-click relation; `anchor` is the client point halfway between the two cards. */
   onLink: (source: AtlasNode, target: AtlasNode, anchor: Point) => void;
   /** Double-click (or the menu's Explain) on a card or a designed route. */
   onEdit: (target: { node: AtlasNode } | { edge: AtlasEdge }, anchor: Point) => void;
@@ -242,7 +243,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
   // wider than the gap between adjacent cards (~96px), and cards are opaque and drawn above
   // edges, so the label was overdrawn at both ends -- the text read "alls ×4 · depends o".
   // The full breakdown is one hover away and listed in full in the inspector.
-  const edgeLabel=(e:AtlasEdge)=>(e.design?'✎ ':e.explanationStatus==='READY'?'✦ ':'')+kindSummary(e,1);
+  const edgeLabel=(e:AtlasEdge)=>(e.design&&(e.design.origin!=='CODE'||e.design.explanation)?'✎ ':e.explanationStatus==='READY'?'✦ ':'')+kindSummary(e,1);
   const childCounts=useMemo(()=>{const m=new Map<string,number>();for(const n of nodes)if(n.containerId)m.set(n.containerId,(m.get(n.containerId)||0)+1);return m;},[nodes]);
   // `parent` is left out on purpose: Cytoscape sets a node's parent only on add or move(), never through data().
   // Boolean flags are always written: data() merges, so a flag left out would keep its stale value.
@@ -252,7 +253,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     const childWord=n.kind==='PACKAGE'?'types':'methods';
     const reviewChange=n.reviewChange&&n.reviewChange!=='UNCHANGED'?n.reviewChange:null;
     const reviewLabel=reviewChange==='UNKNOWN'?' · NOT ANALYZED':reviewChange?` · ${reviewChange} +${n.reviewAddedLines||0} −${n.reviewRemovedLines||0}`:'';
-    return {...rest,...(n.reviewChange?{reviewChange:n.reviewChange}:{}),expanded:!!n.expanded,hiddenBox:!!n.hiddenBox,designOnly:!!design&&!design.codeId,card:card.image,cardWidth:card.width,cardHeight:card.height,minW:min?.width||0,minH:min?.height||0,
+    return {...rest,...(n.reviewChange?{reviewChange:n.reviewChange}:{}),expanded:!!n.expanded,hiddenBox:!!n.hiddenBox,designOnly:!!design&&!design.codeId&&design.origin!=='CODE',noSource:!!design&&!design.codeId,card:card.image,cardWidth:card.width,cardHeight:card.height,minW:min?.width||0,minH:min?.height||0,
       containerLabel:`${n.kind==='PACKAGE'?n.qualifiedName||n.simpleName:n.simpleName}  ·  ${childCounts.get(n.id)||0} ${childWord}${reviewLabel}`,
       label:n.simpleName+'\n'+(n.roles?.[0]?.toLowerCase().replaceAll('_',' ')||n.kind.toLowerCase()),color:n.kind==='PACKAGE'?'#6c79b6':n.roles?.includes('SERVICE')?'#16888a':n.roles?.includes('REPOSITORY')?'#6287c8':'#8293a8'};
   };
@@ -536,8 +537,11 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       const link = linkRef.current;
       if (link) {
         endLink();
-        const source = currentModel.current.nodes.find(n => n.id === link.sourceId), o = e.originalEvent as MouseEvent | undefined;
-        if (source && source.id !== node.id && designRef.current) designRef.current.onLink(source, node, o ? { x: o.clientX, y: o.clientY } : clientOf(e.target.renderedPosition()));
+        const source = currentModel.current.nodes.find(n => n.id === link.sourceId);
+        // The quick popup (ADR 0016) opens at the middle of the new relation: halfway between the two cards.
+        const from = cy.getElementById(link.sourceId), to = e.target.renderedPosition();
+        const mid = from.length ? { x: (from.renderedPosition().x + to.x) / 2, y: (from.renderedPosition().y + to.y) / 2 } : to;
+        if (source && source.id !== node.id && designRef.current) designRef.current.onLink(source, node, clientOf(mid));
         return;
       }
       const corner = cornerHit(e.target, e.position);
@@ -698,7 +702,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       const a=currentModel.current.nodes.find(n=>n.id===edge.sourceId),b=currentModel.current.nodes.find(n=>n.id===edge.targetId);
       const position=e.renderedPosition || e.target.renderedMidpoint();
       const resolutions=(edge.resolutions||[edge.resolution]).map(r=>r.toLowerCase()).join(' + ');
-      if(edge.design){
+      if(edge.design&&edge.design.origin!=='CODE'){
         setHover({ready:false,title:`${a?.simpleName} → ${b?.simpleName}`,description:`Designed ${kindSummary(edge)} (${edge.design.status.toLowerCase()}). ${edge.design.intent||'No explanation yet.'} Click to inspect.`,x:Math.max(12,Math.min(position.x,cy.width()-280)),y:Math.max(12,position.y-100)});
         return;
       }
@@ -874,7 +878,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       }
       for (const e of edges) {
         const { design: _design, ...edgeRest } = e;
-        const data = { ...edgeRest, designed: !!e.design, source: e.sourceId, target: e.targetId!, label: edgeLabel(e) };
+        const data = { ...edgeRest, designed: !!e.design&&e.design.origin!=='CODE', source: e.sourceId, target: e.targetId!, label: edgeLabel(e) };
         const existing = cy.getElementById(e.id);
         if (existing.length) {
           for (const key of REVIEW_DATA_KEYS) if (!(key in data)) existing.removeData(key);
@@ -1249,19 +1253,20 @@ function DetailsIcon({ expanded }: { expanded: boolean }) {
  * A new card typed in place (ADR 0015): the title field is focused at once. Enter commits, Esc or
  * leaving it empty cancels; a rejected name stays with the server's message under it.
  */
-function DesignDraftInput({ rect, draft, onCommit, onCancel }: { rect: { left: number; top: number; width: number; height: number }; draft: DesignDraftCard; onCommit: (text: string) => void; onCancel: () => void }) {
+function DesignDraftInput({ rect, draft, onCommit, onCancel }: { rect: { left: number; top: number; width: number; height: number }; draft: DesignDraftCard; onCommit: (text: string, anchor: Point) => void; onCancel: () => void }) {
   const [text, setText] = useState('');
-  const input = useRef<HTMLInputElement>(null);
+  const input = useRef<HTMLInputElement>(null), card = useRef<HTMLDivElement>(null);
+  const corner = (): Point => { const r = card.current?.getBoundingClientRect(); return { x: r?.right ?? 0, y: r?.top ?? 0 }; };
   useEffect(() => { input.current?.focus({ preventScroll: true }); }, []);
   const kindWord = draft.kind.toLowerCase();
-  return <div className={`design-draft-card${draft.error ? ' invalid' : ''}`} data-draft-kind={draft.kind} style={{ left: rect.left, top: rect.top, width: Math.max(200, rect.width), minHeight: Math.max(76, rect.height) }}
+  return <div ref={card} className={`design-draft-card${draft.error ? ' invalid' : ''}`} data-draft-kind={draft.kind} style={{ left: rect.left, top: rect.top, width: Math.max(200, rect.width), minHeight: Math.max(76, rect.height) }}
     onPointerDown={e => e.stopPropagation()}>
     <span className="design-draft-kind">New {kindWord}</span>
     <input ref={input} value={text} disabled={draft.busy} placeholder={draft.placeholder} aria-label={`Name of the new ${kindWord}`} aria-invalid={!!draft.error}
       onChange={e => setText(e.target.value)}
       onKeyDown={e => {
         e.stopPropagation();
-        if (e.key === 'Enter') { e.preventDefault(); if (text.trim()) onCommit(text); }
+        if (e.key === 'Enter') { e.preventDefault(); if (text.trim()) onCommit(text, corner()); }
         else if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
       }}
       onBlur={() => { if (!text.trim() && !draft.busy) onCancel(); }}/>

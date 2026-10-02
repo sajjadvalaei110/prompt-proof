@@ -90,7 +90,8 @@ export function toggleJourneyReview(j: Journey, on: boolean, reviewKey: string |
 }
 export type GraphFor = (j: Journey) => AtlasGraph | null | undefined;
 export type JourneyAction =
-  | { type: 'RESET'; view: ExplorerViewState }
+  /** A fresh snapshot. `scope`/`kind` start the first tab elsewhere than the whole system (an imported map, ADR 0016). */
+  | { type: 'RESET'; view: ExplorerViewState; scope?: ScopeSelection; kind?: string }
   // `present`: the journey a new tab starts from. Omitted, NEW falls back to the very first journey
   // (pre-review behavior); ExplorerApp passes one built in the active tab's current mode (map or
   // review) so "+ New tab" opens beside it in the same mode rather than always resetting to the map.
@@ -188,7 +189,7 @@ function resetReviewTab(t: JourneyTab, reviewKey: string, reviewIds?: string[], 
 }
 export function journeysReducer(state: ExplorerJourneys, action: JourneyAction): ExplorerJourneys {
   if (action.type === 'RESET') {
-    const initial = newJourney(action.view);
+    const initial = { ...newJourney(action.view), ...(action.scope ? { scope: action.scope } : {}), ...(action.kind ? { kind: action.kind } : {}) };
     // Never reuse IDs: callbacks from a destroyed snapshot cannot edit the replacement tab.
     return { tabs: [newTab(state.nextId, initial)], closed: [], activeId: state.nextId, nextId: state.nextId + 1, initial };
   }

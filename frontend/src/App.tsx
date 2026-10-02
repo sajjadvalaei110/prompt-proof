@@ -29,6 +29,7 @@ import DesignEditorDialog, { type DesignDraft } from './features/design/DesignEd
 import { slotKind, type DesignCanvas } from './features/explorer/GraphCanvas';
 import DesignPopover, { type PopoverRelation, type PopoverTarget } from './features/design/DesignPopover';
 import DesignPromptDialog from './features/design/DesignPromptDialog';
+import DesignQuickPopup, { type QuickTarget } from './features/design/DesignQuickPopup';
 import type { DesignOperation } from './api/client';
 
 const REVIEW_BATCH_SIZE = 12;
@@ -166,7 +167,9 @@ export default function App() {
       resetNavWidth();
     }
   }
-  const name=workspace?.path?.split('/').filter(Boolean).pop()||'Your workspace';
+  // A design-only project (ADR 0016) has no source folder: it is named by its display name.
+  const designOnlyProject=!!workspace?.designOnly;
+  const name=designOnlyProject?(workspace?.name||'Imported design'):workspace?.path?.split('/').filter(Boolean).pop()||'Your workspace';
   const levelOf=(n:AtlasNode):Level=>n.kind==='PACKAGE'?'PACKAGE':isType(n)?'CLASS':'METHOD';
   const eligibleFor=(targetLevel:Level,targetScope:ScopeSelection=scope):string[]=>graph?rankEligibleIds(graph,targetLevel,getEligibleIds(graph,targetLevel,targetScope)):[];
   // Actual card dimensions (nodeCard.ts owns them) for a set of eligible IDs, so the reducer can
@@ -307,14 +310,18 @@ export default function App() {
   // Files the parser could not read: every type they declare is missing from the map, so say so.
   const unanalyzedFiles:string[]=(graph?.metadata as any)?.unanalyzedFiles||[];
   const mapStatus=node&&graph?(!isNodeInScope(node,scope,graph)?'OUT_OF_SCOPE':expansions[node.id]?.hidden?'UNGROUPED':(level===levelOf(node)&&displayedIds.includes(node.id))||projected.nodes.some(n=>n.id===node.id)?'DISPLAYED':'IN_SCOPE_NOT_DISPLAYED'):null;
-  async function loadSnapshot(id:string, ws?:any) {
+  /** `layout`: an imported map's layout, which becomes the first tab exactly as it was exported (ADR 0016). */
+  async function loadSnapshot(id:string, ws?:any, layout?:unknown) {
     let [data,entryPoints]=await Promise.all([apiClient.getGraph(id),apiClient.getSpringRoutes(id)]);
     const rawData=data;
     if(!ws&&!data?.metadata?.workspaceId)throw new Error('Snapshot response is missing workspace metadata; try re-opening the project.');
     const owner=ws||await apiClient.getWorkspace(data.metadata.workspaceId);
     const design=await apiClient.getDesign(owner.id,id).catch(()=>null);
+    // A design-only project, or an imported map, is only visible with Design on.
+    const designOn=showDesign||!!owner.designOnly||isMapLayout(layout);
+    if(designOn&&!showDesign)setShowDesign(true);
     setDesignOverlay(design);designReconcile.current=false;
-    if(showDesign)data=mergeDesignGraph(data,design);
+    if(designOn)data=mergeDesignGraph(data,design);
     setWorkspace(owner);setPath(owner.path);setLanguage(owner.language);setIndexer(owner.indexer||'');setAllowBuild(false);setSnapshot(id);setMapGraph(rawData);setRoutes(entryPoints);setQueue(null);setStatus('Source analysis ready');setShowOpen(false);reviewComparison.reset();
     const placementIn=(g:AtlasGraph,ids:string[]):Record<string,PlacementDims>=>{const all=new Map(g.nodes.map(n=>[n.id,n]));const out:Record<string,PlacementDims>={};for(const id of ids){const n=all.get(id);if(n){const c=nodeCard(n);out[id]={width:c.width,height:c.height,name:n.qualifiedName||n.simpleName};}}return out;};
     const initialPackageIds=rankEligibleIds(data,'PACKAGE',getEligibleIds(data,'PACKAGE',wholeSystemScope()));
@@ -343,7 +350,12 @@ export default function App() {
         initialView=explorerViewReducer(initialView,{type:'INSPECT_NODE',id:n.id});
       }
     }
-    journeys.reset(initialView);
+    if(isMapLayout(layout)){
+      const layoutScope=scopeFromLayout(layout,data);
+      const ids=rankEligibleIds(data,'PACKAGE',getEligibleIds(data,'PACKAGE',layoutScope));
+      const base=explorerViewReducer(initExplorerViewState(),{type:'RESET',level:'PACKAGE',eligibleIds:ids,batchSize:Infinity,placement:placementIn(data,ids)});
+      journeys.reset(applyLayout(base,layout,data),layoutScope,layout.kind||'ALL');
+    } else journeys.reset(initialView);
     historyReplace(id);
   }
   function historyReplace(id:string){const url=new URL(location.href);url.search='';url.searchParams.set('snapshotId',id);window.history.replaceState(null,'',url);}
@@ -905,6 +917,8 @@ export default function App() {
   const [inlineDraft,setInlineDraft]=useState<{parent:AtlasNode|null;kind:string;box:Box;pinned:Point|null;error:string|null;busy:boolean}|null>(null);
   const [designPopover,setDesignPopover]=useState<{target:PopoverTarget;anchor:Point}|null>(null);
   const [promptView,setPromptView]=useState<{text:string;copied:boolean}|null>(null);
+  // Right after a relation or resource is created (ADR 0016): intent first, then kind; double-click edits in full.
+  const [quickPopup,setQuickPopup]=useState<{target:QuickTarget;anchor:Point}|null>(null);
   // Where a new top-level card was typed: consumed by the next reconciliation so it lands there.
   const pendingPins=useRef<Record<string,Point>>({});
   // The box a slot card was typed into, and its box before: the reconciliation that admits the card makes room.
@@ -917,15 +931,15 @@ export default function App() {
     // An expanded box's slot is exactly where the new card will be placed (designSlot). A collapsed card
     // holds its new child out of sight, so the draft sits just below it.
     const below=()=>{const b=boxOf(parent);return {x1:b.x1,y1:b.y2+24,x2:b.x1+size.width,y2:b.y2+24+size.height};};
-    setDesignPopover(null);
+    setDesignPopover(null);setQuickPopup(null);
     setInlineDraft({parent,kind:childKind,box:slot&&parent.expanded?slot:below(),pinned:null,error:null,busy:false});
   }
   function startPackageAt(point:Point){
     const size=defaultCardSize({kind:'PACKAGE'} as AtlasNode);
-    setDesignPopover(null);
+    setDesignPopover(null);setQuickPopup(null);
     setInlineDraft({parent:null,kind:'PACKAGE',box:{x1:point.x-size.width/2,y1:point.y-size.height/2,x2:point.x+size.width/2,y2:point.y+size.height/2},pinned:point,error:null,busy:false});
   }
-  async function commitInlineDraft(text:string){
+  async function commitInlineDraft(text:string,anchor:Point){
     const d=inlineDraft;
     if(!d)return;
     const parentKey=d.parent?keyOf(d.parent):null;
@@ -941,20 +955,22 @@ export default function App() {
       if(d.parent&&geometry.slots[d.parent.id]&&geometry.boxes[d.parent.id])pendingGrowth.current={containerId:d.parent.id,before:geometry.boxes[d.parent.id]};
       await applyDesign(createResourceOps(parentKey,parsed));
       setInlineDraft(null);
+      setQuickPopup({target:{resource:{key,kind:parsed.kind,name:parsed.name}},anchor});
       setStatus(`Added ${parsed.kind.toLowerCase()} ${key}${d.parent&&!d.parent.expanded?` inside ${d.parent.simpleName}`:''}`);
     }catch(e:any){delete pendingPins.current[designNodeId(key)];pendingGrowth.current=null;setInlineDraft(cur=>cur&&{...cur,busy:false,error:e.message});}
   }
-  /** The second click of a two-click relation: create it with the kind its ends suggest, then edit it in place. */
+  /** The second click of a two-click relation: create it as CALLS, then ask for its intent and kind at its middle. */
   async function linkCards(source:AtlasNode,target:AtlasNode,anchor:Point){
     const relation={sourceKey:keyOf(source),targetKey:keyOf(target),kind:defaultRelationKind(source.kind,target.kind),explanation:''};
     const existing=designOverlay?.relations.find(r=>r.sourceKey===relation.sourceKey&&r.targetKey===relation.targetKey&&r.kind===relation.kind);
     try{
       if(!existing)await applyDesign(relationOps(relation.sourceKey,relation.targetKey,relation.kind,''));
-      setDesignPopover({target:{relation:existing?{...relation,explanation:existing.explanation}:relation},anchor});
+      setDesignPopover(null);
+      setQuickPopup({target:{relation:{sourceKey:relation.sourceKey,targetKey:relation.targetKey,kind:relation.kind}},anchor});
     }catch(e:any){setError(e.message);}
   }
   function editDesign(target:{node:AtlasNode}|{edge:AtlasEdge},anchor:Point){
-    setInlineDraft(null);
+    setInlineDraft(null);setQuickPopup(null);
     if('node' in target){setDesignPopover({target,anchor});return;}
     const relations=relationsOfRoute(target.edge,designOverlay).map(r=>({sourceKey:r.sourceKey,targetKey:r.targetKey,kind:r.kind,explanation:r.explanation}));
     if(relations.length)setDesignPopover({target:relations.length===1?{relation:relations[0]}:{relations},anchor});
@@ -977,7 +993,7 @@ export default function App() {
     }catch(e:any){setError(e.message);}
   }
   // Leaving design mode drops what was being typed or edited in place.
-  useEffect(()=>{if(!designEnabled){setInlineDraft(null);setDesignPopover(null);}},[designEnabled]);
+  useEffect(()=>{if(!designEnabled){setInlineDraft(null);setDesignPopover(null);setQuickPopup(null);}},[designEnabled]);
   const designCanvas:DesignCanvas|undefined=designEnabled?{
     slots:geometry.slots,
     draft:inlineDraft&&{box:inlineDraft.box,kind:inlineDraft.kind,error:inlineDraft.error,busy:inlineDraft.busy,
@@ -985,7 +1001,7 @@ export default function App() {
     onAdd:startInlineAdd,
     onAddPackageAt:startPackageAt,
     onOpenDialog:(command,n)=>setDesignDraft(command==='add-relation'?{mode:'relation-new',sourceKey:n?keyOf(n):null}:n?{mode:'resource-new',parentKey:keyOf(n),parentKind:n.kind,parentLabel:n.simpleName}:{mode:'resource-new',parentKey:null,parentKind:null,parentLabel:null}),
-    onDraftCommit:text=>void commitInlineDraft(text),
+    onDraftCommit:(text,anchor)=>void commitInlineDraft(text,anchor),
     onDraftCancel:()=>setInlineDraft(null),
     onLink:(source,target,anchor)=>void linkCards(source,target,anchor),
     onEdit:editDesign,
@@ -1009,13 +1025,37 @@ export default function App() {
     if(file.size>8_000_000){setError('A design brief may be at most 8 MB.');return;}
     try{
       const result=await apiClient.importDesign(workspace.id,await file.text(),'user');
-      // The imported layout opens as a new tab once the merged graph carries the imported cards.
-      pendingLayout.current=showDesign?result.layout:null;
+      // The imported layout opens as a new tab once the merged graph carries the imported cards; an import
+      // turns Design on, since that is the only way to see it.
+      if(!showDesign)setShowDesign(true);
+      pendingLayout.current=result.layout;
       await refreshDesign();
       setRevision(r=>r+1);
       setStatus(`Imported ${result.resourcesCreated} new and ${result.resourcesUpdated} updated resources, ${result.relationsCreated+result.relationsUpdated} relations${result.placeholders?` (${result.placeholders} not found in this code)`:''}`);
       if(result.warnings.length)setError(`Import skipped ${result.warnings.length} item(s): ${result.warnings.slice(0,3).join(' · ')}${result.warnings.length>3?' …':''}`);
     }catch(e:any){setError(e.message);}
+  }
+  /**
+   * The first page's Import (ADR 0016): an exported map becomes a new design-only project (no source folder),
+   * opened exactly as it was exported. Parsed code from the export is carried as imported references.
+   */
+  async function importMapAsProject(file:File){
+    if(file.size>8_000_000){setError('An exported map may be at most 8 MB.');return;}
+    setBusy(true);setError('');
+    try{
+      const text=await file.text();
+      if(!/^`{3,}json[ \t]+codeatlas-design[ \t]*$/m.test(text))throw new Error('This file is not a map exported from Code Atlas (no codeatlas-design block).');
+      const named=/"workspace"\s*:\s*\{[^}]*?"name"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(text)?.[1];
+      let projectName=file.name.replace(/(-design-brief)?\.(md|markdown|txt)$/i,'');
+      try{if(named)projectName=JSON.parse(`"${named}"`);}catch{/* keep the file name */}
+      setStatus('Opening the exported map…');
+      const ws=await apiClient.createDesignOnlyWorkspace(projectName||'Imported design');
+      const result=await apiClient.importDesign(ws.id,text,'user');
+      await loadSnapshot(ws.activeSnapshotId,ws,result.layout);
+      setRecent(await apiClient.listWorkspaces());
+      setStatus(`Opened ${projectName}: ${result.resourcesCreated} resources, ${result.relationsCreated} relations`);
+      if(result.warnings.length)setError(`Import skipped ${result.warnings.length} item(s): ${result.warnings.slice(0,3).join(' · ')}${result.warnings.length>3?' …':''}`);
+    }catch(e:any){setError(e.message);}finally{setBusy(false);}
   }
   /** A new tab showing an imported layout, its keys resolved to this graph's cards. */
   function openLayoutTab(layout:Parameters<typeof applyLayout>[1],g:AtlasGraph){
@@ -1095,6 +1135,7 @@ export default function App() {
     {(showOpen||!graph)&&<ImportScreen path={path} language={language} busy={busy} graphOpen={!!graph}
       onPathChange={setPath} onLanguageChange={l=>{setLanguage(l);setIndexer('');setAllowBuild(false);}} onSubmit={engine=>{void analyze(path,language,engine);}} recent={recent}
       indexers={indexers} indexer={indexer} onIndexerChange={id=>{setIndexer(id);setAllowBuild(false);}} allowBuild={allowBuild} onAllowBuildChange={setAllowBuild}
+      onImportMap={file=>void importMapAsProject(file)}
       onOpenRecent={ws=>{if(ws.activeSnapshotId){setBusy(true);loadSnapshot(ws.activeSnapshotId,ws).catch(e=>setError(e.message)).finally(()=>setBusy(false));}else{setPath(ws.path);setLanguage(ws.language);void analyze(ws.path,ws.language,null);}}}/>}
     {graph&&<><div className="journey-bar">
       <div className="journey-tabs" role="tablist" aria-label="Exploration tabs">{journeys.state.tabs.map(t=><div className={`journey-tab ${t.id===active.id?'active':''}`} key={t.id}>
@@ -1117,7 +1158,7 @@ export default function App() {
       <aside className="navigation" ref={navRef} style={navWidth!=null?{['--nav-width' as any]:`${navWidth}px`}:undefined}><nav className="workspace-nav"><button className={tab==='map'?'active':''} onClick={openCodeMap}>▦ <span>Code map</span></button><button className={tab==='routes'?'active':''} onClick={()=>{setTab('routes');setMobilePane('map');}}>▷ <span>Entry points</span><small>{routes.length}</small></button><button className={tab==='context'?'active':''} onClick={()=>{setTab('context');setMobilePane('map');}}>▤ <span>Project context</span></button></nav>
         <NavigationPane treeOpen={active.present.treeOpen} onTreeChange={update=>journeys.set('treeOpen',update)} graph={graph} scope={scope} selectedNode={node} search={search} onScopeChange={handleScopeChange} onSelect={select} onViewClasses={viewClasses} onViewMethods={viewMethods}/>
         {recentHistory.length>0&&<div className="recent-symbols"><h3>Recently viewed</h3>{recentHistory.map(h=>{const n=graph.nodes.find(x=>x.id===h.subjectId);return n?<button key={h.subjectId} onClick={()=>select(n)}>◷ {n.simpleName}</button>:null;})}</div>}
-        <div className="workspace-summary"><strong>{name}</strong><span>{active.present.review?'Base + changes overlay':`${typeCount} types across ${packages.length} packages`}</span><button className="text-button" disabled={busy} onClick={()=>analyze(path,language,null)}>↻ Re-analyze source</button></div>
+        <div className="workspace-summary"><strong>{name}</strong><span>{active.present.review?'Base + changes overlay':`${typeCount} types across ${packages.length} packages`}</span>{designOnlyProject?<span className="muted">Design only · no source folder</span>:<button className="text-button" disabled={busy} onClick={()=>analyze(path,language,null)}>↻ Re-analyze source</button>}</div>
       </aside>
       <div className="nav-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize navigation panel. Use arrow keys, hold Shift for larger steps, Home to reset." tabIndex={0} aria-valuenow={Math.round(navWidth??currentNavWidth())} aria-valuemin={NAV_MIN} aria-valuemax={Math.round(navMax())} onPointerDown={startNavResize} onKeyDown={navResizeKeyDown} onDoubleClick={()=>{if(justDraggedNavRef.current){justDraggedNavRef.current=false;return;}resetNavWidth();}} />
       <section className="workspace-content">
@@ -1129,8 +1170,8 @@ export default function App() {
           <div className={`map-heading${headingCollapsed?' collapsed':''}`} onWheel={onHeadingWheel}>
           <div className="map-heading-collapsible" inert={headingCollapsed} aria-hidden={headingCollapsed}><div className="breadcrumbs"><button onClick={openCodeMap}>{scopeCrumb}</button><span>/</span><span className="breadcrumb-level">{levelWord}</span>{node&&<><span>/</span><button onClick={()=>inspectNode(node,'details')}>{node.simpleName}</button></>}</div><div className="page-heading"><div><h1>{node?node.simpleName:'Understand the whole system'}</h1><p>{node?'Follow the relationships around this part of the codebase.':`${typeCount} types across ${packages.length} packages. Choose a starting point.`}</p></div><button onClick={()=>{const entry=viewState.history[viewState.history.length-1];if(entry)dispatchView({type:'NAVIGATE_BACK',eligibleIds:eligibleFor(entry.level),preserveReviewOnly:!active.present.review,reviewOnlyIds:active.present.review?undefined:reviewOnly(parkedIdsFor(entry.level)||[]),parkedIds:parkedIdsFor(entry.level)});}} disabled={!viewState.history.length}>← Back</button></div></div>
           <div className="graph-toolbar"><select aria-label="Relationship kind" value={kind} onChange={e=>setKind(e.target.value)}><option value="ALL">All dependencies</option>{[...new Set(graph.edges.map(e=>e.kind))].sort().map(k=><option key={k} value={k}>{k.toLowerCase().replaceAll('_',' ')}</option>)}</select>
-            {workspace&&<div className="design-controls" role="group" aria-label="Design layer"><button className={`design-toggle${showDesign?' active':''}`} aria-pressed={showDesign} disabled={active.present.review} onClick={()=>setShowDesign(!showDesign)} title={active.present.review?'The design layer is hidden while Changes is shown':'Show the design layer: planned resources, designed relations and your explanations'}>{showDesign?'✓ Design':'Design'}</button><button onClick={()=>void exportBrief()} title="Download this map as a Markdown design brief an AI agent can read, and Code Atlas can import">Export</button><button className="design-prompt-button" onClick={()=>void openPrompt()} title="Copy a prompt for an AI coding agent: only what you designed (planned resources, designed relations, every intention), with how to report back">Prompt</button><label className={`file-button design-import${designEnabled?'':' disabled'}`} title="Import a design brief: adds its resources, relations and explanations, and opens its layout in a new tab"><span>Import</span><input type="file" accept=".md,.markdown,.txt" disabled={!designEnabled} onChange={e=>{const f=e.target.files?.[0];e.target.value='';if(f)void importBrief(f);}}/></label></div>}
-            {workspace&&<div className="review-controls"><button className={`review-toggle${active.present.review?' active':''}`} aria-pressed={active.present.review} disabled={reviewComparison.loading} onClick={toggleChanges} title="Show Base + changes: amber changed cards, green added routes, red removed routes">{reviewComparison.loading?'Comparing…':active.present.review?'✓ Changes':'Changes'}</button><details className="review-options"><summary aria-label="Review comparison options">▾</summary><div><label>Base revision<input value={reviewComparison.baseRef} onChange={e=>reviewComparison.setBaseRef(e.target.value)} placeholder="Default merge base, or origin/main"/></label><button className="primary full-width" type="button" disabled={reviewComparison.loading} onClick={recompare}>{reviewComparison.loading?'Comparing…':'Recompare'}</button>{reviewComparison.review&&<p className="muted">Comparing against <code>{reviewComparison.review.base.resolvedRef||reviewComparison.review.base.requestedRef||'merge base'}</code></p>}{reviewComparison.review?.base.warning&&<p className="notice">{reviewComparison.review.base.warning}</p>}{reviewComparison.error&&<p className="notice" role="alert">{reviewComparison.error}</p>}</div></details></div>}
+            {workspace&&<div className="design-controls" role="group" aria-label="Design layer"><button className={`design-toggle${showDesign?' active':''}`} aria-pressed={showDesign} disabled={active.present.review||designOnlyProject} onClick={()=>setShowDesign(!showDesign)} title={designOnlyProject?'This project holds only a design, so Design is always on':active.present.review?'The design layer is hidden while Changes is shown':'Show the design layer: planned resources, designed relations and your explanations'}>{showDesign?'✓ Design':'Design'}</button><button className="design-prompt-button" onClick={()=>void openPrompt()} title="Copy a plain request for an AI coding agent: only what you designed and still needs doing, with each intention">Prompt</button></div>}
+            {workspace&&<div className="review-controls"><button className={`review-toggle${active.present.review?' active':''}`} aria-pressed={active.present.review} disabled={reviewComparison.loading||designOnlyProject} onClick={toggleChanges} title="Show Base + changes: amber changed cards, green added routes, red removed routes">{reviewComparison.loading?'Comparing…':active.present.review?'✓ Changes':'Changes'}</button><details className="review-options"><summary aria-label="Review comparison options">▾</summary><div><label>Base revision<input value={reviewComparison.baseRef} onChange={e=>reviewComparison.setBaseRef(e.target.value)} placeholder="Default merge base, or origin/main"/></label><button className="primary full-width" type="button" disabled={reviewComparison.loading} onClick={recompare}>{reviewComparison.loading?'Comparing…':'Recompare'}</button>{reviewComparison.review&&<p className="muted">Comparing against <code>{reviewComparison.review.base.resolvedRef||reviewComparison.review.base.requestedRef||'merge base'}</code></p>}{reviewComparison.review?.base.warning&&<p className="notice">{reviewComparison.review.base.warning}</p>}{reviewComparison.error&&<p className="notice" role="alert">{reviewComparison.error}</p>}</div></details></div>}
           </div>
           <div className="map-heading-collapsible" inert={headingCollapsed} aria-hidden={headingCollapsed}><div className="scope-banner"><span className="scope-banner-icon" aria-hidden="true">{scope.mode==='ALL'?'◈':'⌖'}</span><div className="scope-banner-text"><strong>{graph?scopeToLabel(graph,scope):''}</strong><span>Showing {levelWord.toLowerCase()} · {scopedCount} {levelWord.toLowerCase()}{scope.mode!=='ALL'?` in ${scopeUnitLabel()}`:''}</span></div><div className="scope-banner-actions">{node&&<span className="tag inspecting-chip">Inspecting {node.simpleName}</span>}{edge&&!node&&<span className="tag inspecting-chip">Inspecting a relationship</span>}{viewState.newlyAddedIds.length>0&&displayedIds.length>viewState.newlyAddedIds.length&&<span className="tag added-below-chip">{viewState.newlyAddedIds.length} added below</span>}{omittedCount>0&&<button className="show-more" onClick={()=>{const ids=eligibleFor(level);dispatchView({type:'SHOW_MORE',eligibleIds:ids,batchSize:BATCH_SIZE,placement:placementFor(ids),preserveReviewOnly:!active.present.review,reviewOnlyIds:active.present.review?undefined:reviewOnly(parkedIdsFor(level)||[]),parkedIds:parkedIdsFor(level)});}}>Showing {visibleCount} of {scopedCount} in scope · show {Math.min(BATCH_SIZE,omittedCount)} more</button>}{scope.mode==='CUSTOM'&&<button className="text-button" onClick={resetScope}>Reset to whole system</button>}</div></div></div>
           <button className="map-heading-grip" type="button" aria-expanded={!headingCollapsed} aria-label={headingCollapsed?'Expand map heading':'Collapse map heading'} onPointerDown={startHeadingDrag} onClick={toggleHeadingCollapsed}/>
@@ -1142,13 +1183,15 @@ export default function App() {
               arrangeAround(id);
               setMobilePane('details');
             }} onViewCode={n=>openSource(n,'symbol')} restoreVersion={active.restoreVersion} design={designCanvas}/>}
-          {!active.present.review&&<div className="graph-legend"><span><i className="line-sample"/>Static dependency</span>{designEnabled&&<span><i className="line-sample design"/>Designed relation</span>}{designEnabled&&<span><i className="card-sample design"/>Planned or not in code</span>}<span>Hover a line for its kinds and resolution</span>{designEnabled&&<span>Right-click empty map to add a package</span>}</div>}
+          <div className="graph-legend">{!active.present.review&&<><span><i className="line-sample"/>Static dependency</span>{designEnabled&&<span><i className="line-sample design"/>Designed relation</span>}{designEnabled&&<span><i className="card-sample design"/>Planned or not in code</span>}<span>Hover a line for its kinds and resolution</span>{designEnabled&&<span>Right-click empty map to add a package</span>}</>}
+            {workspace&&<div className="map-file-actions" role="group" aria-label="Export or import this map"><button onClick={()=>void exportBrief()} title="Download this map exactly as it is (layout, design and explanations) as a file you can import again, here or on another machine">⇩ Export</button><label className={`file-button design-import${active.present.review?' disabled':''}`} title="Import an exported map: adds its resources, relations and explanations, and opens it in a new tab exactly as it was"><span>⇪ Import</span><input type="file" accept=".md,.markdown,.txt" aria-label="Import an exported map" disabled={active.present.review} onChange={e=>{const f=e.target.files?.[0];e.target.value='';if(f)void importBrief(f);}}/></label></div>}</div>
         </>}
       </section>
       {tab!=='context'&&<InspectorPanel selectedNode={node} selectedEdge={edge} mapStatus={mapStatus} edgeFilteredOut={edgeFilteredOut} edgeHiddenByExpansion={edgeHiddenByExpansion} selectedOccurrenceId={viewState.inspectedOccurrenceId} onSelectOccurrence={id=>dispatchView({type:'SELECT_OCCURRENCE',occurrenceId:id})} workspaceId={workspace?.id||null} snapshotId={snapshot} graph={graph} routes={routes} revision={revision} onExplanationReady={()=>setRevision(r=>r+1)} onInspectEdge={inspectEdge} onSelect={select} onViewClasses={viewClasses} onViewMethods={viewMethods} onArrangeAroundResource={n=>arrangeAround(n.id)} onSource={(n,type='symbol')=>openSource(n,type)} onClose={clearSelection} outgoingStackSummary={stack&&node&&node.id===stackRootId?stackSummary(stack,stackDirection):null} stackDirection={stackDirection} designRelations={designRelations} onDesign={designEnabled?setDesignDraft:undefined}/>}
     </main></>}
     <footer className="app-footer">{graph?.metadata?.diagnostics?.warnings?.length>0&&<details className="analysis-warnings"><summary>{graph?.metadata?.diagnostics?.warnings.length} analysis warning(s)</summary><div>{graph?.metadata?.diagnostics?.warnings.map((w:string,i:number)=><p key={i}>{w}</p>)}</div></details>}<span><i className={`status-dot ${graph?'configured':''}`}/>{status}</span>{graph&&<span>{graph.metadata?.unresolvedCount||0} unresolved external targets</span>}{unanalyzedFiles.length>0&&<span className="unanalyzed-files" title={`These files could not be parsed, so the types they declare are missing from the map:\n${unanalyzedFiles.join('\n')}`}>{unanalyzedFiles.length} file(s) not analyzed</span>}<div className="queue-summary">{queue?.activeJobId&&queue.synthesisStatus!=='READY'&&<span className="synthesis-progress"><i aria-hidden="true"/>{queue.synthesisStage || 'Preparing architecture'} · {synthesisElapsed}s · {queue.synthesisCompleted || 0} validated</span>}{!queue?.activeJobId&&queue?.jobStatus==='CANCELLED'&&<span>Explain all cancelled</span>}{queue&&<span>{queue.completed} explained · {queue.pending+queue.inProgress} queued · {queue.failed} failed</span>}{snapshot&&<button className={queue?.activeJobId?'':'primary'} onClick={explainAll}>{queue?.activeJobId?'Stop explain all':'✧ Explain all'}</button>}</div></footer>
     <SettingsScreen isOpen={settings} onClose={()=>setSettings(false)}/>
+    {quickPopup&&<DesignQuickPopup key={JSON.stringify(quickPopup.target)} target={quickPopup.target} anchor={quickPopup.anchor} onApply={applyDesign} onClose={()=>setQuickPopup(null)}/>}
     {designPopover&&<DesignPopover key={JSON.stringify(designPopover.anchor)} target={designPopover.target} anchor={designPopover.anchor} onApply={applyDesign} onMore={popoverMore} onClose={()=>setDesignPopover(null)}/>}
     {promptView&&<DesignPromptDialog text={promptView.text} copied={promptView.copied} fileName={`${name.replace(/[^\w.-]+/g,'-')}-design-prompt.md`} onClose={()=>setPromptView(null)}/>}
     {designDraft&&graph&&<DesignEditorDialog draft={designDraft} graph={graph} onApply={applyDesign} onClose={()=>setDesignDraft(null)}/>}

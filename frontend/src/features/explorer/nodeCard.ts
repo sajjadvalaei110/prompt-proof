@@ -41,7 +41,8 @@ export function wrapText(s: string, fontSize: number, maxWidth: number, maxLines
 }
 /** True for card kinds that own a source range and therefore get a quick-code button on the map. */
 /** A design-only card (ADR 0014) has no declaration to open. */
-export const hasCodeButton = (node: AtlasNode) => node.kind !== 'PACKAGE' && !(node.design && !node.design.codeId);
+// `noSource` is the same fact on Cytoscape element data, which carries no `design` record (GraphCanvas).
+export const hasCodeButton = (node: AtlasNode) => node.kind !== 'PACKAGE' && !(node.design && !node.design.codeId) && !(node as { noSource?: boolean }).noSource;
 /**
  * True for cards that can expand in place into a container of their children: a package into its
  * types, a type into its methods, when it has any (graphModel's `detailCount`, so a class whose only
@@ -122,7 +123,10 @@ export function nodeCard(node: AtlasNode, size?: CardSize) {
   const badgeTone=unknown?REVIEW_CHANGE_PALETTE.UNKNOWN:reviewChange==='ADDED'?REVIEW_CHANGE_PALETTE.ADDED:reviewChange==='REMOVED'?REVIEW_CHANGE_PALETTE.REMOVED:REVIEW_CHANGE_PALETTE.MODIFIED;
   // A card that exists only in the design layer (ADR 0014) says so in the same slot: it is a plan
   // or a reference, not parsed code. Review and design never show together (Changes hides design).
-  const designOnly=!reviewChange&&!!node.design&&!node.design.codeId;
+  // An imported reference to code this project lacks (ADR 0016) is drawn like the original card: no badge,
+  // only an "imported" note in the subtitle.
+  const imported=!!node.design&&!node.design.codeId&&node.design.origin==='CODE';
+  const designOnly=!reviewChange&&!!node.design&&!node.design.codeId&&!imported;
   const designLabel=designOnly?DESIGN_BADGE[node.design!.status]||'DESIGNED':'';
   const designWidth=Math.min(Math.max(96,designLabel.length*7+26),Math.max(96,width-24));
   const review=reviewChange
@@ -141,7 +145,7 @@ export function nodeCard(node: AtlasNode, size?: CardSize) {
     ?`<path transform="translate(5 5) scale(1.25)" d="${FOLDER_PATH}" stroke="${color}" stroke-width="1.2" stroke-linejoin="round" fill="none"/>`
     :`<text x="15" y="20.5" text-anchor="middle" font-size="16" font-weight="700" fill="${color}">${xml(icon.letter)}</text>`;
   // ✎ marks a card that carries the engineer's explanation.
-  const subtitle=(node.design?.explanation?'✎ ':'')+(pkg?`${node.memberCount||0} types`:role);
+  const subtitle=(node.design?.explanation?'✎ ':'')+(pkg?`${node.memberCount||0} types`:role)+(imported?' · imported':'');
   const inner=width-32;
   const nameLines=wrapText(name,NAME_SIZE,inner,2);
   // The review badge occupies the upper-left band. Keep the title below it and move the lower
