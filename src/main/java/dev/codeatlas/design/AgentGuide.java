@@ -56,6 +56,7 @@ public final class AgentGuide {
             | GET | `/api/workspaces/%2$s/design` | The design layer with computed status |
             | GET | `/api/snapshots/{snapshotId}/graph` | Parsed graph (nodes, edges) of the active snapshot |
             | GET | `/api/workspaces/%2$s/design/export` | The full design brief (text/markdown) |
+            | GET | `/api/workspaces/%2$s/design/prompt` | Only the designed work, as a prompt for a coding agent (text/markdown) |
             | POST | `/api/workspaces/%2$s/design/changes?dryRun=true` | Validate a change set without saving |
             | POST | `/api/workspaces/%2$s/design/changes` | Apply a change set atomically |
             | POST | `/api/workspaces/%2$s/design/import` | Import a design brief: `{"content": "<markdown>", "author": "..."}` |

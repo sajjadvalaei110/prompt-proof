@@ -1,5 +1,5 @@
 # Project status
-Last updated: 2026-10-01 (design layer: authored resources/relations, agent change sets, design brief export/import, ADR 0014)
+Last updated: 2026-10-02 (design-mode direct manipulation, agent prompt, Design toggle keeps geometry, ADR 0015; on top of the design layer, ADR 0014)
 Active milestone: R6 — Developer comprehension redesign (in progress)
 Current revision: Step11 language-neutral Java analysis integrated with step 14 Ungroup (an expanded box's box hidden, its children kept as free cards,
 ADR 0011) merged with main's step 13 (card menu Expand/Collapse + View source, cascading tree
@@ -28,6 +28,80 @@ toggle with a git-style diff code viewer, exploration tabs with per-tab undo/red
 and selection controls, the R6 change-edges slice (one line per direction,
 directional selection emphasis, file-grouped evidence), in-place card details
 (expand packages/classes) and resizable cards; Step 6A remains unstarted
+
+## Design-layer UX round 2: direct manipulation, agent prompt, toggle keeps geometry (2026-10-02, ADR 0015)
+
+Bounded acceptance criterion: in design mode (Design on, Changes off):
+- an expanded package or class keeps an add slot; hovering it shows "+ class" or "+ method";
+- clicking it, or a menu "Add …", creates the card in place with its title focused (Enter commits, Esc or an
+  empty blur cancels, a rejected name shows inline, `name(Type)` sets parameter types);
+- a hover handle plus two clicks draws a relation, with a dashed rubber band in between, then opens the
+  intent-first popover, which can change the kind;
+- double-click opens that popover instead of arranging;
+- the Prompt button copies only the designed work as a work order for a coding agent;
+- toggling Design off and on leaves every design card where it was.
+
+With Design off and in Changes, behaviour is unchanged. All grilling recommendations (Q1–Q9) were accepted. One
+refinement to Q3: the draft is a DOM card over the slot, not a Cytoscape node.
+
+Commits:
+1. Pure layer:
+   - `designModel` adds `parseInlineName`, `defaultRelationKind`, `joinExplanation` and change-set builders;
+   - `expansionLayout` adds `designSlot` and `minSizeWithSlot`, and `placementGeometry` adds `{designSlots}`;
+   - `explorerViewState` adds `PlacementDims.pinned` and carries parked children when a box is dragged;
+   - tests for all of the above.
+2. Parking and Prompt backend:
+   - App parks the design-merged graph while Design is off (`unionGraphs`), and slot minimums reach Cytoscape;
+   - `DesignPromptService` and `GET /design/prompt`, with `AgentGuide.reportBack`;
+   - new test `DesignLayerIntegrationTest.promptListsOnlyDesignedWork`.
+3. UI, pipeline and docs:
+   - `GraphCanvas`: the slot overlay and `'add'` hit, the relation handle, the rubber band on the
+     direction-overlay canvas, the draft card, design-mode double-click on cards and designed routes, and the
+     new menu items;
+   - new components `DesignPopover` and `DesignPromptDialog`;
+   - App: the toolbar "+ Add" is replaced by "Prompt"; room-making when a slot card grows its box, inside
+     `RECONCILE_ALL`; arrange and room moves carry parked children too;
+   - `verify-design-layer-ui.mjs` rewritten around real CDP pointer and keyboard input;
+   - the other browser scripts start with Design off;
+   - docs: ADR 0015, an ADR 0014 pointer, STABLE_GRAPH_INTERACTIONS, ARCHITECTURE §8, TESTING, CLAUDE.md.
+
+Checks run:
+- `./gradlew test`: 220 tests, 0 failures, 1 skipped. Run twice, the second after the last backend edit.
+  `LargeProjectBenchmarkTest` did not flake this time.
+- `cd frontend && npx tsc -b --force && npm run build`: PASS, with the existing >500 kB chunk warning only.
+- `node scripts/test-*.mjs`: all 18 PASS. `test-explorer-view-state.mjs` now has 79 checks.
+- `./gradlew bootJar`, then with `CHROMIUM=/opt/pw-browsers/chromium-1194/chrome-linux/chrome`:
+  - `python3 scripts/verify_design_layer_pipeline.py`: PASS on the final jar.
+    - 15 screenshots were inspected and copied to `docs/evidence/design-layer-ux/`, together with `report.json`
+      and the generated `design-prompt.md`.
+    - Measured: the slot card landed within 0.02 model px of the slot centre.
+    - Design off then on returned every design card to identical positions, including one inside a parsed
+      class box.
+    - The rubber band ended at the pointer, with no Cytoscape elements added.
+  - `verify_change_edges_pipeline.py`: PASS.
+  - `verify_ungroup_pipeline.py`: 33/33 PASS.
+  - `verify_git_review_pipeline.py`: 41/41 PASS.
+  - Ungroup and git-review first failed with Design on (the default): ungroup double-clicks to arrange, and
+    git-review compares box minimums across Changes, which differ by the design slot. Both are intended
+    design-mode behaviour (ADR 0015), so these scripts, plus change-edges and stable-graph, now start pages
+    with Design off. They pin the Design-off contract.
+- `python3 scripts/verify_stable_graph_pipeline.py acceptance`: still FAILS at its first level click
+  (`.segmented button`, line 325). This is pre-existing (ADR 0007 removed that switcher) and unrelated.
+
+Not run:
+- Live-model verification: no provider is configured, and nothing here calls the model.
+- `constrainedMemoryTest`: no change to bounded explanation work.
+- A real clipboard write: headless Chromium may deny it. The dialog then says so, and Copy and Download stay
+  available.
+
+Remaining limits:
+- The slot is placed from drawn child boxes, and a new child from stored card sizes. With a nested expanded
+  child in the box, a new card may land a row below its slot.
+- A card added under a collapsed container is not visible until that container is expanded. The status line
+  says where it went.
+- The draft card is at least 200 px wide, so at low zoom it is wider than the card it becomes.
+- The Prompt is always the whole workspace, never the tab's scope.
+- The design toggle remains a per-viewer preference.
 
 ## Design layer: authored resources and relations, agent API, design brief (2026-10-01, ADR 0014)
 

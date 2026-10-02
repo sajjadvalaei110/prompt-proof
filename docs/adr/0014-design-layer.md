@@ -1,6 +1,6 @@
 # ADR 0014: The engineer-owned design layer, agent change sets and the design brief
 
-- Status: Accepted
+- Status: Accepted (amended by ADR 0015: direct manipulation in design mode, the agent prompt, geometry kept across the Design toggle)
 - Date: 2026-10-01
 - Scope: new `design` module (`DesignService`, `DesignExchangeService`, `DesignKeys`, `AgentGuide`),
   `api/DesignController`, V014, `explanations` (context block, prompt, citation rule),

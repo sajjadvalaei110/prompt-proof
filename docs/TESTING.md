@@ -750,6 +750,42 @@ under a colour-vision deficiency (WCAG 2.1 SC 1.4.1). The suite asserts all thre
   brief from the toolbar, imports it into the second workspace and checks the same card position in the new
   tab. Screenshots: `docs/evidence/design-layer/`.
 
+### Design-mode direct manipulation (ADR 0015)
+
+- Backend: `DesignLayerIntegrationTest.promptListsOnlyDesignedWork` covers `GET /design/prompt`:
+  - an empty layer gives one line, and the response is `no-store` Markdown;
+  - sections come in order;
+  - planned resources show their parent chain;
+  - an intention on parsed code sits under "Change existing code";
+  - the relation semantics sentence is present, and implemented relations are listed only under "verify";
+  - ORPHANED items are under "Needs attention";
+  - no undesigned parsed class, and no JSON block.
+- Pure:
+  - `test-design-model.mjs`: inline names, default relation kinds, intent/details join, change-set builders.
+  - `test-expansion-layout.mjs`: the slot is the next `placeMissingChildren` cell, and it only grows the box
+    right and down.
+  - `test-explorer-view-state.mjs`:
+    - design IDs parked through Design off and on keep top-level and in-box geometry;
+    - a collapsed parent drops them;
+    - drag and arrange carry parked children, nested too;
+    - a pinned new card lands where it was typed.
+- Browser: `verify_design_layer_pipeline.py` now drives real pointer and keyboard input (CDP `Input`):
+  - an inline package from a real right-click lands where it was typed;
+  - double-click opens the popover in design mode (no arrangement);
+  - "+ class" on hover of an expanded package: the draft sits on the slot, and the card lands exactly there;
+  - Esc and empty-blur cancel with nothing on the server;
+  - "+ method" in a parsed class: a bad name shows the inline error, then `findByCustomer(Long customerId)`
+    gives key `…findByCustomer(Long)`;
+  - two-click relation: the handle sits on the right edge, the rubber band ends at the pointer (screenshot),
+    and no Cytoscape elements are added;
+  - the popover preselects USES_TYPE and a kind change replaces the relation; Esc cancels a pending relation;
+  - double-click on a designed route opens its popover;
+  - Design off then on returns every design card to identical positions, including inside a parsed class box;
+  - with Design off, double-click arranges;
+  - Prompt dialog contents.
+- Screenshots: `docs/evidence/design-layer-ux/`. The git-review, ungroup, change-edges and stable-graph browser
+  scripts start with Design off, because they pin the Design-off contract.
+
 ## 9. On linting
 
 There is deliberately no lint step. `frontend/package.json` previously declared

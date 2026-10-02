@@ -80,6 +80,9 @@ const fit = async () => { await clickSelector('[aria-label="Fit map"]'); await p
 const zoomOn = async (id, level = 0.8) => { await evaluate(`(()=>{const cy=${CY},n=cy.getElementById(${JSON.stringify(id)});cy.zoom({level:${level},renderedPosition:n.renderedPosition()});cy.center(n);return 0})()`); await pause(700); };
 
 await cdp('Runtime.enable'); await cdp('Page.enable'); await cdp('Page.bringToFront');
+// These checks pin the Design-off contract (ADR 0014/0015: with Design off, behaviour is unchanged). Design mode
+// changes double-click and adds an add slot to expanded boxes, so start every page with Design off.
+await cdp('Page.addScriptToEvaluateOnNewDocument',{source:"try{localStorage.setItem('showDesign','false')}catch{}"});
 await cdp('Emulation.setDeviceMetricsOverride', { width: 1600, height: 1000, deviceScaleFactor: 1, mobile: false });
 await openMap(micro.snapshot);
 const services = byName(micro.graph, 'PACKAGE', 'com.kipper.eventsmicroservice.services');

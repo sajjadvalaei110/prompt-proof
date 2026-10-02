@@ -354,6 +354,7 @@ an inactive workspace.
                ├─> POST /design/changes (atomic) ─┤
 [AI agent] ────┘    author recorded, no review    └─> POST /design/export     Markdown brief + json block
                                                       POST /design/import     upsert by key, never deletes
+                                                      GET  /design/prompt     designed work only (ADR 0015)
 ```
 
 - `design.DesignService` validates keys/kinds (`DesignKeys` mirrors `JavaParserAdapter` keys), applies
@@ -368,3 +369,16 @@ an inactive workspace.
   designed relation on its own route. `designExchange.ts` (pure) captures/applies a tab layout by key.
   App reconciles every tab's current journey in place when the merged graph changes (`RECONCILE_ALL`):
   design edits are server operations outside undo history. The Changes overlay never shows the design layer.
+- Design mode (ADR 0015), by layer:
+  - pure: `designModel.ts` (`parseInlineName`, `defaultRelationKind`, change-set builders, `unionGraphs`) and
+    `expansionLayout.designSlot` / `minSizeWithSlot`, through `placementGeometry` (`{designSlots}` → `slots`,
+    `slotMinSizes`);
+  - reducer: `explorerViewState` pins a card typed in place (`PlacementDims.pinned`) and carries parked children
+    with a moved box (`carryUnreportedChildren`);
+  - App: the inline draft, the popover, the two-click relation and room-making when a slot card grows its box,
+    inside `RECONCILE_ALL`. While Design is off, App parks the design-merged graph, so design geometry survives
+    the toggle;
+  - adapter: `GraphCanvas` only draws the slot, the handle, the rubber band (direction-overlay canvas, never a
+    Cytoscape element) and the draft card.
+- `design.DesignPromptService` (`GET /design/prompt`) renders only the designed work as a prompt for a coding
+  agent: build, change existing code, relations with their semantics, verify, needs attention, report back.

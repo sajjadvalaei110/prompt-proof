@@ -299,7 +299,14 @@ function applyMoves(view: LevelViewState, moves: CardMoves | undefined): LevelVi
   for (const [id, p] of Object.entries(moves.positions)) if (shown.has(id)) positions[id] = p;
   const expansions = { ...view.expansions };
   for (const [id, children] of Object.entries(moves.childPositions)) if (expansions[id]) expansions[id] = { ...expansions[id], childPositions: { ...expansions[id].childPositions, ...children } };
-  return { ...view, positions, expansions };
+  return carryUnreportedChildren(view, { ...view, positions, expansions }, movesList(moves));
+}
+
+/** CardMoves as the flat list carryUnreportedChildren reads. */
+function movesList(moves: CardMoves): { id: string; position: Point; containerId: string | null }[] {
+  const out = Object.entries(moves.positions).map(([id, position]) => ({ id, position, containerId: null as string | null }));
+  for (const [containerId, children] of Object.entries(moves.childPositions)) for (const [id, position] of Object.entries(children)) out.push({ id, position, containerId });
+  return out;
 }
 
 /** Writes one card's position wherever it lives: the level's page or its container's children. */
@@ -807,10 +814,13 @@ export function explorerViewReducer(state: ExplorerViewState, action: ExplorerAc
       const view = state.levelViews[action.level];
       // An arranged expanded card moves with its children: the caller translates them (and any
       // nested expansion's children) and passes those per container here, in the same dispatch.
+      const moves: CardMoves = { positions: action.positions, childPositions: action.childPositions || {} };
       const expansions = action.childPositions ? applyMoves(view, { positions: {}, childPositions: action.childPositions }).expansions : view.expansions;
+      // Cards parked inside an arranged box (design cards while Design is off) move with it too.
+      const arranged = carryUnreportedChildren(view, { ...view, positions: { ...view.positions, ...action.positions }, expansions }, movesList(moves));
       return {
         ...state,
-        levelViews: { ...state.levelViews, [action.level]: { ...view, positions: { ...view.positions, ...action.positions }, expansions, geometryRevision: view.geometryRevision + 1 } },
+        levelViews: { ...state.levelViews, [action.level]: { ...arranged, geometryRevision: view.geometryRevision + 1 } },
       };
     }
     default:

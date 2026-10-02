@@ -157,6 +157,22 @@ export const apiClient = {
     return res.text();
   },
 
+  /** The design prompt (ADR 0015): the designed work only, as Markdown for an AI coding agent. */
+  getDesignPrompt: async (workspaceId: string): Promise<string> => {
+    let res: Response;
+    try {
+      res = await fetch(`${API_BASE}/workspaces/${workspaceId}/design/prompt`);
+    } catch (err: any) {
+      throw new Error(`Failed to connect to Code Atlas server: ${err?.message || 'Connection refused'}`);
+    }
+    if (!res.ok) {
+      let detail = res.statusText;
+      try { const b = await res.json(); detail = b.message || detail; } catch { /* not JSON */ }
+      throw new Error(detail || `Prompt failed with status ${res.status}`);
+    }
+    return res.text();
+  },
+
   importDesign: (workspaceId: string, content: string, author = 'user'): Promise<DesignImportResult> =>
     requestJson(`${API_BASE}/workspaces/${workspaceId}/design/import`, {
       method: 'POST',

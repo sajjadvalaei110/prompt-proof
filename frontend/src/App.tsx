@@ -23,10 +23,12 @@ import { useExplorerJourneys, flushExplorerCamera } from './features/explorer/us
 import { Journey, collapseInJourney, cycleRelationStack, newJourney, toggleJourneyReview, toggleRelationStack } from './features/explorer/explorerJourney';
 import { revalidateJourneyState } from './features/explorer/revalidateJourney';
 import { outgoingStack, stackSummary, type StackDirection } from './features/explorer/outgoingStack';
-import { DesignOverlay, keyOf, mergeDesignGraph, relationsOfRoute, unionGraphs } from './features/design/designModel';
+import { DesignOverlay, MEMBER_KINDS, childKey, createResourceOps, defaultRelationKind, designNodeId, keyOf, mergeDesignGraph, parseInlineName, relationOps, relationsOfRoute, unionGraphs } from './features/design/designModel';
 import { applyLayout, captureLayout, isMapLayout, scopeFromLayout } from './features/design/designExchange';
 import DesignEditorDialog, { type DesignDraft } from './features/design/DesignEditorDialog';
-import type { DesignCommand } from './features/explorer/GraphCanvas';
+import { slotKind, type DesignCanvas } from './features/explorer/GraphCanvas';
+import DesignPopover, { type PopoverRelation, type PopoverTarget } from './features/design/DesignPopover';
+import DesignPromptDialog from './features/design/DesignPromptDialog';
 import type { DesignOperation } from './api/client';
 
 const REVIEW_BATCH_SIZE = 12;
@@ -764,7 +766,7 @@ export default function App() {
    * geometry. Existing eligible IDs retain their order/positions; only newly admitted IDs are
    * placed by the reducer. In map mode review-only IDs are parked only while they remain eligible
    * in the current comparison, so an ordinary scope edit cannot resurrect an excluded resource. */
-  function reconcileJourneyGraph(j:Journey,targetGraph:AtlasGraph,targetIsReview:boolean,reviewGraph?:AtlasGraph):Journey {
+  function reconcileJourneyGraph(j:Journey,targetGraph:AtlasGraph,targetIsReview:boolean,reviewGraph?:AtlasGraph,pins:Record<string,Point>={},growth?:{containerId:string;before:Box}):Journey {
     const levels=(['PACKAGE','CLASS','METHOD'] as Level[]);
     const eligible=Object.fromEntries(levels.map(l=>[l,eligibleByLevel(targetGraph,j.scope,l)])) as Record<Level,string[]>;
     const parkedGraph=targetIsReview?reviewParkedGraph():mapParkedGraph(reviewGraph);
@@ -773,8 +775,24 @@ export default function App() {
     const reviewOnlyByLevel:Partial<Record<Level,string[]>>={};
     if(!targetIsReview&&reviewGraph) for(const l of levels) reviewOnlyByLevel[l]=reviewOnly(parkedByLevel[l]||[]);
     const activeLevel=j.view.activeLevel;
-    const view=explorerViewReducer(j.view,{type:'SCOPE_UPDATED',eligibleIds:eligible[activeLevel],batchSize:activeLevel==='PACKAGE'?Infinity:REVIEW_BATCH_SIZE,placement:placementForJourney(targetGraph,j,eligible[activeLevel],parkedGraph),otherLevels:Object.fromEntries(levels.filter(l=>l!==activeLevel).map(l=>[l,eligible[l]])) as Partial<Record<Level,string[]>>,expansionChildren:expansionChildrenFor(targetGraph,j,parkedGraph),preserveReviewOnly:!targetIsReview,reviewOnlyIds:reviewOnlyByLevel[activeLevel],otherReviewOnlyIds:reviewOnlyByLevel,parkedIds:parkedByLevel[activeLevel],otherParkedIds:parkedByLevel});
+    const placement=placementForJourney(targetGraph,j,eligible[activeLevel],parkedGraph);
+    // A card typed in place on the map lands where it was typed (ADR 0015).
+    for(const [id,p] of Object.entries(pins)) if(placement[id]) placement[id]={...placement[id],pinned:p};
+    let view=explorerViewReducer(j.view,{type:'SCOPE_UPDATED',eligibleIds:eligible[activeLevel],batchSize:activeLevel==='PACKAGE'?Infinity:REVIEW_BATCH_SIZE,placement,otherLevels:Object.fromEntries(levels.filter(l=>l!==activeLevel).map(l=>[l,eligible[l]])) as Partial<Record<Level,string[]>>,expansionChildren:expansionChildrenFor(targetGraph,j,parkedGraph),preserveReviewOnly:!targetIsReview,reviewOnlyIds:reviewOnlyByLevel[activeLevel],otherReviewOnlyIds:reviewOnlyByLevel,parkedIds:parkedByLevel[activeLevel],otherParkedIds:parkedByLevel});
+    if(growth&&!targetIsReview)view=makeRoomForGrowth(view,j,targetGraph,growth);
     return revalidateJourney({ ...j, view },targetGraph,targetIsReview);
+  }
+  /** A card created in a box's add slot grows the box by a row (ADR 0015): its neighbours make room, as for any expand. */
+  function makeRoomForGrowth(view:ExplorerViewState,j:Journey,targetGraph:AtlasGraph,growth:{containerId:string;before:Box}):ExplorerViewState{
+    const lv=view.levelViews[view.activeLevel],e=lv.expansions[growth.containerId];
+    if(!e)return view;
+    const g=geometryForJourney(targetGraph,view,j.scope,j.kind,undefined,undefined,{designSlots:true});
+    const after=g.boxes[growth.containerId];
+    if(!after)return view;
+    const cards:RoomCard[]=g.projected.nodes.map(k=>({id:k.id,containerId:k.containerId??null,expanded:k.expanded,hidden:k.hiddenBox,box:g.boxes[k.id]||boxOfCard({id:k.id,...(lv.sizes[k.id]||defaultCardSize(k)),...(g.positions[k.id]||{x:0,y:0})}),position:g.positions[k.id],minSize:lv.expansions[k.id]?.minSize??null}));
+    const moves=roomMoves(cards,growth.containerId,growth.before,after);
+    if(!Object.keys(moves.positions).length&&!Object.keys(moves.childPositions).length)return view;
+    return explorerViewReducer(view,{type:'ARRANGE_AROUND_RESOURCE',level:view.activeLevel,positions:moves.positions,childPositions:moves.childPositions,generation:view.generation});
   }
 
   /** Comparison-aware identity cleanup; ordinary recapture keeps ordinary edge/source state. */
@@ -846,7 +864,11 @@ export default function App() {
     if(!designReconcile.current||!mapGraph)return;
     designReconcile.current=false;
     const target=mapGraph,comparison=reviewComparison.graph||undefined;
-    journeys.command({type:'RECONCILE_ALL',reconcile:j=>j.review?j:reconcileJourneyGraph(j,target,false,comparison)});
+    // The command may run its reconcile later (a state updater), so it takes the pins with it.
+    const pins=pendingPins.current,growth=pendingGrowth.current,shown=active.present;
+    pendingPins.current={};pendingGrowth.current=null;
+    // Only the tab the card was typed in grows around it; other tabs admit it like any new card.
+    journeys.command({type:'RECONCILE_ALL',reconcile:j=>j.review?j:reconcileJourneyGraph(j,target,false,comparison,pins,j===shown&&growth?growth:undefined)});
     const layout=pendingLayout.current;
     pendingLayout.current=null;
     if(isMapLayout(layout))openLayoutTab(layout,target);
@@ -878,12 +900,96 @@ export default function App() {
     setShowDesignState(next);
   }
   const designEnabled=showDesign&&!active.present.review;
-  function designCommand(command:DesignCommand,n:AtlasNode|null){
-    if(command==='add-package'||!n){setDesignDraft(command==='add-relation'?{mode:'relation-new',sourceKey:null}:{mode:'resource-new',parentKey:null,parentKind:null,parentLabel:null});return;}
-    if(command==='add-child')setDesignDraft({mode:'resource-new',parentKey:keyOf(n),parentKind:n.kind,parentLabel:n.simpleName});
-    else if(command==='add-relation')setDesignDraft({mode:'relation-new',sourceKey:keyOf(n)});
-    else setDesignDraft({mode:'resource-edit',node:n});
+  // ---- Direct manipulation in design mode (ADR 0015) ----
+  // A new card is a local draft until Enter: never in history, never on the server, never seen by agents.
+  const [inlineDraft,setInlineDraft]=useState<{parent:AtlasNode|null;kind:string;box:Box;pinned:Point|null;error:string|null;busy:boolean}|null>(null);
+  const [designPopover,setDesignPopover]=useState<{target:PopoverTarget;anchor:Point}|null>(null);
+  const [promptView,setPromptView]=useState<{text:string;copied:boolean}|null>(null);
+  // Where a new top-level card was typed: consumed by the next reconciliation so it lands there.
+  const pendingPins=useRef<Record<string,Point>>({});
+  // The box a slot card was typed into, and its box before: the reconciliation that admits the card makes room.
+  const pendingGrowth=useRef<{containerId:string;before:Box}|null>(null);
+  /** "+ class"/"+ method" in a box's slot, or a card menu "Add …": the draft sits where the card will live. */
+  function startInlineAdd(parent:AtlasNode,kind?:string){
+    const childKind=kind||slotKind(parent.kind);
+    const size=defaultCardSize({kind:childKind} as AtlasNode);
+    const slot=geometry.slots[parent.id];
+    // An expanded box's slot is exactly where the new card will be placed (designSlot). A collapsed card
+    // holds its new child out of sight, so the draft sits just below it.
+    const below=()=>{const b=boxOf(parent);return {x1:b.x1,y1:b.y2+24,x2:b.x1+size.width,y2:b.y2+24+size.height};};
+    setDesignPopover(null);
+    setInlineDraft({parent,kind:childKind,box:slot&&parent.expanded?slot:below(),pinned:null,error:null,busy:false});
   }
+  function startPackageAt(point:Point){
+    const size=defaultCardSize({kind:'PACKAGE'} as AtlasNode);
+    setDesignPopover(null);
+    setInlineDraft({parent:null,kind:'PACKAGE',box:{x1:point.x-size.width/2,y1:point.y-size.height/2,x2:point.x+size.width/2,y2:point.y+size.height/2},pinned:point,error:null,busy:false});
+  }
+  async function commitInlineDraft(text:string){
+    const d=inlineDraft;
+    if(!d)return;
+    const parentKey=d.parent?keyOf(d.parent):null;
+    const owner=d.parent?(d.parent.design?.name||d.parent.simpleName):null;
+    const parsed=parseInlineName(text,d.kind,owner);
+    if(typeof parsed==='string'){setInlineDraft({...d,error:parsed});return;}
+    const key=childKey(parsed.kind,parentKey,parsed.name,parsed.parameterTypes);
+    // Creating a key that already exists would silently edit it instead (putResource upserts).
+    if(designMergedGraph?.nodes.some(n=>keyOf(n)===key)){setInlineDraft({...d,error:`${key} already exists`});return;}
+    setInlineDraft({...d,error:null,busy:true});
+    try{
+      if(d.pinned)pendingPins.current[designNodeId(key)]=d.pinned;
+      if(d.parent&&geometry.slots[d.parent.id]&&geometry.boxes[d.parent.id])pendingGrowth.current={containerId:d.parent.id,before:geometry.boxes[d.parent.id]};
+      await applyDesign(createResourceOps(parentKey,parsed));
+      setInlineDraft(null);
+      setStatus(`Added ${parsed.kind.toLowerCase()} ${key}${d.parent&&!d.parent.expanded?` inside ${d.parent.simpleName}`:''}`);
+    }catch(e:any){delete pendingPins.current[designNodeId(key)];pendingGrowth.current=null;setInlineDraft(cur=>cur&&{...cur,busy:false,error:e.message});}
+  }
+  /** The second click of a two-click relation: create it with the kind its ends suggest, then edit it in place. */
+  async function linkCards(source:AtlasNode,target:AtlasNode,anchor:Point){
+    const relation={sourceKey:keyOf(source),targetKey:keyOf(target),kind:defaultRelationKind(source.kind,target.kind),explanation:''};
+    const existing=designOverlay?.relations.find(r=>r.sourceKey===relation.sourceKey&&r.targetKey===relation.targetKey&&r.kind===relation.kind);
+    try{
+      if(!existing)await applyDesign(relationOps(relation.sourceKey,relation.targetKey,relation.kind,''));
+      setDesignPopover({target:{relation:existing?{...relation,explanation:existing.explanation}:relation},anchor});
+    }catch(e:any){setError(e.message);}
+  }
+  function editDesign(target:{node:AtlasNode}|{edge:AtlasEdge},anchor:Point){
+    setInlineDraft(null);
+    if('node' in target){setDesignPopover({target,anchor});return;}
+    const relations=relationsOfRoute(target.edge,designOverlay).map(r=>({sourceKey:r.sourceKey,targetKey:r.targetKey,kind:r.kind,explanation:r.explanation}));
+    if(relations.length)setDesignPopover({target:relations.length===1?{relation:relations[0]}:{relations},anchor});
+  }
+  function popoverMore(target:{node:AtlasNode}|{relation:PopoverRelation}){
+    setDesignPopover(null);
+    if('node' in target){setDesignDraft({mode:'resource-edit',node:target.node});return;}
+    const r=target.relation,stored=designOverlay?.relations.find(x=>x.sourceKey===r.sourceKey&&x.targetKey===r.targetKey&&x.kind===r.kind);
+    setDesignDraft(stored?{mode:'relation-edit',relation:stored}:{mode:'relation-new',sourceKey:r.sourceKey,targetKey:r.targetKey});
+  }
+  /** The design prompt for an AI coding agent: copied at once, and shown with Copy and Download. */
+  async function openPrompt(){
+    if(!workspace)return;
+    try{
+      const text=await apiClient.getDesignPrompt(workspace.id);
+      let copied=false;
+      try{await navigator.clipboard.writeText(text);copied=true;}catch{/* shown in the dialog instead */}
+      setPromptView({text,copied});
+      setStatus(copied?'Design prompt copied to the clipboard':'Design prompt ready');
+    }catch(e:any){setError(e.message);}
+  }
+  // Leaving design mode drops what was being typed or edited in place.
+  useEffect(()=>{if(!designEnabled){setInlineDraft(null);setDesignPopover(null);}},[designEnabled]);
+  const designCanvas:DesignCanvas|undefined=designEnabled?{
+    slots:geometry.slots,
+    draft:inlineDraft&&{box:inlineDraft.box,kind:inlineDraft.kind,error:inlineDraft.error,busy:inlineDraft.busy,
+      placeholder:inlineDraft.kind==='PACKAGE'?'com.acme.billing':MEMBER_KINDS.includes(inlineDraft.kind)?'findById(Long)':inlineDraft.kind==='INTERFACE'?'Invoicing':'InvoiceService'},
+    onAdd:startInlineAdd,
+    onAddPackageAt:startPackageAt,
+    onOpenDialog:(command,n)=>setDesignDraft(command==='add-relation'?{mode:'relation-new',sourceKey:n?keyOf(n):null}:n?{mode:'resource-new',parentKey:keyOf(n),parentKind:n.kind,parentLabel:n.simpleName}:{mode:'resource-new',parentKey:null,parentKind:null,parentLabel:null}),
+    onDraftCommit:text=>void commitInlineDraft(text),
+    onDraftCancel:()=>setInlineDraft(null),
+    onLink:(source,target,anchor)=>void linkCards(source,target,anchor),
+    onEdit:editDesign,
+  }:undefined;
   /** The active tab's map as a Markdown design brief: scope, layout, design layer and explanations. */
   async function exportBrief(){
     if(!workspace||!graph)return;
@@ -1023,7 +1129,7 @@ export default function App() {
           <div className={`map-heading${headingCollapsed?' collapsed':''}`} onWheel={onHeadingWheel}>
           <div className="map-heading-collapsible" inert={headingCollapsed} aria-hidden={headingCollapsed}><div className="breadcrumbs"><button onClick={openCodeMap}>{scopeCrumb}</button><span>/</span><span className="breadcrumb-level">{levelWord}</span>{node&&<><span>/</span><button onClick={()=>inspectNode(node,'details')}>{node.simpleName}</button></>}</div><div className="page-heading"><div><h1>{node?node.simpleName:'Understand the whole system'}</h1><p>{node?'Follow the relationships around this part of the codebase.':`${typeCount} types across ${packages.length} packages. Choose a starting point.`}</p></div><button onClick={()=>{const entry=viewState.history[viewState.history.length-1];if(entry)dispatchView({type:'NAVIGATE_BACK',eligibleIds:eligibleFor(entry.level),preserveReviewOnly:!active.present.review,reviewOnlyIds:active.present.review?undefined:reviewOnly(parkedIdsFor(entry.level)||[]),parkedIds:parkedIdsFor(entry.level)});}} disabled={!viewState.history.length}>← Back</button></div></div>
           <div className="graph-toolbar"><select aria-label="Relationship kind" value={kind} onChange={e=>setKind(e.target.value)}><option value="ALL">All dependencies</option>{[...new Set(graph.edges.map(e=>e.kind))].sort().map(k=><option key={k} value={k}>{k.toLowerCase().replaceAll('_',' ')}</option>)}</select>
-            {workspace&&<div className="design-controls" role="group" aria-label="Design layer"><button className={`design-toggle${showDesign?' active':''}`} aria-pressed={showDesign} disabled={active.present.review} onClick={()=>setShowDesign(!showDesign)} title={active.present.review?'The design layer is hidden while Changes is shown':'Show the design layer: planned resources, designed relations and your explanations'}>{showDesign?'✓ Design':'Design'}</button><button disabled={!designEnabled} onClick={()=>designCommand('add-package',null)} title="Add a package to the design (right-click a card to add inside it)">＋ Add</button><button onClick={()=>void exportBrief()} title="Download this map as a Markdown design brief an AI agent can read, and Code Atlas can import">Export</button><label className={`file-button design-import${designEnabled?'':' disabled'}`} title="Import a design brief: adds its resources, relations and explanations, and opens its layout in a new tab"><span>Import</span><input type="file" accept=".md,.markdown,.txt" disabled={!designEnabled} onChange={e=>{const f=e.target.files?.[0];e.target.value='';if(f)void importBrief(f);}}/></label></div>}
+            {workspace&&<div className="design-controls" role="group" aria-label="Design layer"><button className={`design-toggle${showDesign?' active':''}`} aria-pressed={showDesign} disabled={active.present.review} onClick={()=>setShowDesign(!showDesign)} title={active.present.review?'The design layer is hidden while Changes is shown':'Show the design layer: planned resources, designed relations and your explanations'}>{showDesign?'✓ Design':'Design'}</button><button onClick={()=>void exportBrief()} title="Download this map as a Markdown design brief an AI agent can read, and Code Atlas can import">Export</button><button className="design-prompt-button" onClick={()=>void openPrompt()} title="Copy a prompt for an AI coding agent: only what you designed (planned resources, designed relations, every intention), with how to report back">Prompt</button><label className={`file-button design-import${designEnabled?'':' disabled'}`} title="Import a design brief: adds its resources, relations and explanations, and opens its layout in a new tab"><span>Import</span><input type="file" accept=".md,.markdown,.txt" disabled={!designEnabled} onChange={e=>{const f=e.target.files?.[0];e.target.value='';if(f)void importBrief(f);}}/></label></div>}
             {workspace&&<div className="review-controls"><button className={`review-toggle${active.present.review?' active':''}`} aria-pressed={active.present.review} disabled={reviewComparison.loading} onClick={toggleChanges} title="Show Base + changes: amber changed cards, green added routes, red removed routes">{reviewComparison.loading?'Comparing…':active.present.review?'✓ Changes':'Changes'}</button><details className="review-options"><summary aria-label="Review comparison options">▾</summary><div><label>Base revision<input value={reviewComparison.baseRef} onChange={e=>reviewComparison.setBaseRef(e.target.value)} placeholder="Default merge base, or origin/main"/></label><button className="primary full-width" type="button" disabled={reviewComparison.loading} onClick={recompare}>{reviewComparison.loading?'Comparing…':'Recompare'}</button>{reviewComparison.review&&<p className="muted">Comparing against <code>{reviewComparison.review.base.resolvedRef||reviewComparison.review.base.requestedRef||'merge base'}</code></p>}{reviewComparison.review?.base.warning&&<p className="notice">{reviewComparison.review.base.warning}</p>}{reviewComparison.error&&<p className="notice" role="alert">{reviewComparison.error}</p>}</div></details></div>}
           </div>
           <div className="map-heading-collapsible" inert={headingCollapsed} aria-hidden={headingCollapsed}><div className="scope-banner"><span className="scope-banner-icon" aria-hidden="true">{scope.mode==='ALL'?'◈':'⌖'}</span><div className="scope-banner-text"><strong>{graph?scopeToLabel(graph,scope):''}</strong><span>Showing {levelWord.toLowerCase()} · {scopedCount} {levelWord.toLowerCase()}{scope.mode!=='ALL'?` in ${scopeUnitLabel()}`:''}</span></div><div className="scope-banner-actions">{node&&<span className="tag inspecting-chip">Inspecting {node.simpleName}</span>}{edge&&!node&&<span className="tag inspecting-chip">Inspecting a relationship</span>}{viewState.newlyAddedIds.length>0&&displayedIds.length>viewState.newlyAddedIds.length&&<span className="tag added-below-chip">{viewState.newlyAddedIds.length} added below</span>}{omittedCount>0&&<button className="show-more" onClick={()=>{const ids=eligibleFor(level);dispatchView({type:'SHOW_MORE',eligibleIds:ids,batchSize:BATCH_SIZE,placement:placementFor(ids),preserveReviewOnly:!active.present.review,reviewOnlyIds:active.present.review?undefined:reviewOnly(parkedIdsFor(level)||[]),parkedIds:parkedIdsFor(level)});}}>Showing {visibleCount} of {scopedCount} in scope · show {Math.min(BATCH_SIZE,omittedCount)} more</button>}{scope.mode==='CUSTOM'&&<button className="text-button" onClick={resetScope}>Reset to whole system</button>}</div></div></div>
@@ -1035,7 +1141,7 @@ export default function App() {
               cancelReclick();
               arrangeAround(id);
               setMobilePane('details');
-            }} onViewCode={n=>openSource(n,'symbol')} restoreVersion={active.restoreVersion} onDesignCommand={designEnabled?designCommand:undefined}/>}
+            }} onViewCode={n=>openSource(n,'symbol')} restoreVersion={active.restoreVersion} design={designCanvas}/>}
           {!active.present.review&&<div className="graph-legend"><span><i className="line-sample"/>Static dependency</span>{designEnabled&&<span><i className="line-sample design"/>Designed relation</span>}{designEnabled&&<span><i className="card-sample design"/>Planned or not in code</span>}<span>Hover a line for its kinds and resolution</span>{designEnabled&&<span>Right-click empty map to add a package</span>}</div>}
         </>}
       </section>
@@ -1043,6 +1149,8 @@ export default function App() {
     </main></>}
     <footer className="app-footer">{graph?.metadata?.diagnostics?.warnings?.length>0&&<details className="analysis-warnings"><summary>{graph?.metadata?.diagnostics?.warnings.length} analysis warning(s)</summary><div>{graph?.metadata?.diagnostics?.warnings.map((w:string,i:number)=><p key={i}>{w}</p>)}</div></details>}<span><i className={`status-dot ${graph?'configured':''}`}/>{status}</span>{graph&&<span>{graph.metadata?.unresolvedCount||0} unresolved external targets</span>}{unanalyzedFiles.length>0&&<span className="unanalyzed-files" title={`These files could not be parsed, so the types they declare are missing from the map:\n${unanalyzedFiles.join('\n')}`}>{unanalyzedFiles.length} file(s) not analyzed</span>}<div className="queue-summary">{queue?.activeJobId&&queue.synthesisStatus!=='READY'&&<span className="synthesis-progress"><i aria-hidden="true"/>{queue.synthesisStage || 'Preparing architecture'} · {synthesisElapsed}s · {queue.synthesisCompleted || 0} validated</span>}{!queue?.activeJobId&&queue?.jobStatus==='CANCELLED'&&<span>Explain all cancelled</span>}{queue&&<span>{queue.completed} explained · {queue.pending+queue.inProgress} queued · {queue.failed} failed</span>}{snapshot&&<button className={queue?.activeJobId?'':'primary'} onClick={explainAll}>{queue?.activeJobId?'Stop explain all':'✧ Explain all'}</button>}</div></footer>
     <SettingsScreen isOpen={settings} onClose={()=>setSettings(false)}/>
+    {designPopover&&<DesignPopover key={JSON.stringify(designPopover.anchor)} target={designPopover.target} anchor={designPopover.anchor} onApply={applyDesign} onMore={popoverMore} onClose={()=>setDesignPopover(null)}/>}
+    {promptView&&<DesignPromptDialog text={promptView.text} copied={promptView.copied} fileName={`${name.replace(/[^\w.-]+/g,'-')}-design-prompt.md`} onClose={()=>setPromptView(null)}/>}
     {designDraft&&graph&&<DesignEditorDialog draft={designDraft} graph={graph} onApply={applyDesign} onClose={()=>setDesignDraft(null)}/>}
     {source&&(source.snapshotId||snapshot)&&<SourceDialog snapshot={source.snapshotId||snapshot!} subject={source.node} type={source.type} snapshotLabel={source.label||'analyzed snapshot'} historical={!!source.snapshotId} reviewDiff={reviewDiff} onClose={()=>setSource(null)}/>}
   </div>;

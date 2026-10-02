@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEve
 import cytoscape from 'cytoscape';
 import { AtlasNode, AtlasEdge, kindSummary, reviewRouteSummary } from './graphModel';
 import { nodeCard, DESIGN_TONE, cornerButtons, hasCodeButton, hasDetailsButton, CODE_BUTTON, MIN_CARD_SIZE, CornerAction, CardSize } from './nodeCard';
-import { CONTAINER_BUTTON, CONTAINER_PADDING } from './expansionLayout';
+import { Box, CONTAINER_BUTTON, CONTAINER_PADDING } from './expansionLayout';
 import CodeButton from '../../components/CodeButton';
 import { REVIEW_CHANGE_PALETTE } from '../review/reviewPalette';
 
@@ -11,7 +11,7 @@ const MIN_CODE_BUTTON_PX = 14;
 /** Below this rendered card width the resize grip is hidden. */
 const MIN_RESIZE_CARD_PX = 60;
 /** The expand/collapse control a card or container shows in its corner, or the outgoing-stack toggle. */
-type CornerHit = CornerAction | 'collapse' | 'ungroup' | 'stack';
+type CornerHit = CornerAction | 'collapse' | 'ungroup' | 'stack' | 'add';
 /** Layer badge height in model units; it never renders smaller than STACK_BADGE_MIN_PX. */
 const STACK_BADGE_SIZE = 30, STACK_BADGE_MIN_PX = 20;
 /** Card-local square of the outgoing-stack toggle: left of the leftmost corner button of a card, or
@@ -127,10 +127,34 @@ interface Props {
   onCycleStack: (id: string) => void;
   /** A context-menu item: root this direction on the card, or end it when it is the one shown. */
   onToggleStack: (id: string, direction: StackDirection) => void;
-  /** Design-layer commands (ADR 0014) from a card menu or the empty-canvas menu; absent while the design layer is hidden. */
-  onDesignCommand?: (command: DesignCommand, node: AtlasNode | null) => void;
+  /** Design mode (ADR 0014, 0015): direct-manipulation authoring. Absent while Design is off or Changes is shown. */
+  design?: DesignCanvas;
 }
-export type DesignCommand = 'add-child' | 'add-relation' | 'explain' | 'add-package';
+/** A new card typed in place (ADR 0015), drawn as a DOM card over `box` (model coordinates) until committed. */
+export interface DesignDraftCard { box: Box; kind: string; placeholder: string; error: string | null; busy: boolean }
+/**
+ * What design mode needs from the canvas. Geometry stays in the pure layer: App passes each expanded
+ * package/type's add slot and the draft card's box in model coordinates; the canvas only draws them.
+ * Client-coordinate anchors are where App opens its popover.
+ */
+export interface DesignCanvas {
+  slots: Record<string, Box>;
+  draft: DesignDraftCard | null;
+  /** "+ class"/"+ method" in an expanded box's slot, or a card menu "Add …" item (`kind` set). */
+  onAdd: (container: AtlasNode, kind?: string) => void;
+  /** Empty-canvas "Add package" at a model point. */
+  onAddPackageAt: (point: Point) => void;
+  /** Kinds or fields the inline card does not cover: the full design dialog. */
+  onOpenDialog: (command: 'add-child' | 'add-relation', node: AtlasNode | null) => void;
+  onDraftCommit: (text: string) => void;
+  onDraftCancel: () => void;
+  /** The second click of a two-click relation. */
+  onLink: (source: AtlasNode, target: AtlasNode, anchor: Point) => void;
+  /** Double-click (or the menu's Explain) on a card or a designed route. */
+  onEdit: (target: { node: AtlasNode } | { edge: AtlasEdge }, anchor: Point) => void;
+}
+/** The inline title a slot asks for, by the box's kind. */
+export const slotKind = (containerKind: string) => containerKind === 'PACKAGE' ? 'CLASS' : 'METHOD';
 
 /**
  * Step 3: the canvas is created exactly once per mount and never destroyed/recreated on a
@@ -143,7 +167,7 @@ export type DesignCommand = 'add-child' | 'add-relation' | 'explain' | 'add-pack
  * `cy.fit()` is called only once per level (when `camera` is null) and by the explicit Fit map
  * button -- both are real camera changes the product allows.
  */
-export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, mapOpen, onMapOpenChange: setMapOpen, fullscreen, onFullscreenChange: setFullscreen, onClearSelection, nodes, edges, positions, camera, selectedId, onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, scopeRemovalTargets, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, sizes, containerSizes, onToggleExpand, onToggleExpandMany, onUngroup, hiddenAncestorOf, onCollapseInto, onResizeNode, onResizeContainer, restoreVersion, outgoingStack, stackRoot, onCycleStack, onToggleStack, onDesignCommand }: Props) {
+export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, mapOpen, onMapOpenChange: setMapOpen, fullscreen, onFullscreenChange: setFullscreen, onClearSelection, nodes, edges, positions, camera, selectedId, onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, scopeRemovalTargets, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, sizes, containerSizes, onToggleExpand, onToggleExpandMany, onUngroup, hiddenAncestorOf, onCollapseInto, onResizeNode, onResizeContainer, restoreVersion, outgoingStack, stackRoot, onCycleStack, onToggleStack, design }: Props) {
   const container = useRef<HTMLDivElement>(null), cyRef = useRef<cytoscape.Core | null>(null), menuRef = useRef<HTMLDivElement>(null);
   const callbacks = useRef({ onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, onToggleExpand, onUngroup, onResizeNode, onResizeContainer, onClearSelection, onCycleStack });
   callbacks.current = { onNodeSelect, onEdgeSelect, canRemoveFromScope, onRemoveFromScope, onNodeMoved, onNodesMoved, onCameraChange, onArrangeAroundResource, onViewCode, onToggleExpand, onUngroup, onResizeNode, onResizeContainer, onClearSelection, onCycleStack };
@@ -153,8 +177,17 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
   // `addedId`: the card this right-click added to the multi-selection (it was not selected before).
   const [contextMenu,setContextMenu]=useState<{node:AtlasNode|null;x:number;y:number;addedId?:string|null}|null>(null);
   // A right-click on empty canvas: design commands that need no card (ADR 0014).
-  const [canvasMenu,setCanvasMenu]=useState<{x:number;y:number}|null>(null);
-  const designCommandRef=useRef(onDesignCommand); designCommandRef.current=onDesignCommand;
+  const [canvasMenu,setCanvasMenu]=useState<{x:number;y:number;model:Point}|null>(null);
+  const designRef=useRef(design); designRef.current=design;
+  // Design mode overlays in stage pixels (ADR 0015): the hovered box's add slot, the draft card and the
+  // hovered card's relation handle. Recomputed with the corner overlays on every camera change.
+  const [designView,setDesignView]=useState<{slot:{id:string;left:number;top:number;width:number;height:number}|null;draft:{left:number;top:number;width:number;height:number}|null;handle:{id:string;x:number;y:number}|null}>({slot:null,draft:null,handle:null});
+  // The pending two-click relation: its source card, and the pointer in stage pixels for the rubber band.
+  const linkRef=useRef<{sourceId:string;pointer:Point|null}|null>(null);
+  const [linkingId,setLinkingId]=useState<string|null>(null);
+  // The relation handle stays while the pointer is on it (it sits half outside its card).
+  const [handleHold,setHandleHold]=useState<string|null>(null);
+  const hoverCardRef=useRef<string|null>(null);
   // menuPosition only reserves a fixed height; once the menu is drawn, lift it so its real height
   // (which grows with the card's actions) stays inside the stage.
   const [menuTop,setMenuTop]=useState<number|null>(null);
@@ -175,6 +208,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
   const [hotCorner,setHotCorner]=useState<string|null>(null);
   // The card under the pointer: it shows the relation-stack toggle, like the selected card and the root.
   const [hoverCard,setHoverCard]=useState<string|null>(null);
+  hoverCardRef.current=handleHold??hoverCard;
   // The card whose stack toggle holds keyboard focus: it stays drawn after the toggle turns the stack
   // off, so focus is not dropped to the page (WCAG 2.1 SC 2.4.3).
   const [focusedStackId,setFocusedStackId]=useState<string|null>(null);
@@ -189,6 +223,18 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
   const updateMapRef = useRef<() => void>(() => {});
   const drawDirectionRef = useRef<(phase?: number, pulse?: number, invalidate?: boolean) => void>(() => {});
   const animationPhase = useRef(0);
+  // Stage pixels to client pixels, where App anchors its design popover.
+  const clientOf=(p:Point):Point=>{const r=container.current?.getBoundingClientRect();return {x:(r?.left||0)+p.x,y:(r?.top||0)+p.y};};
+  /** Starts a two-click relation from `id`: the next card clicked is its target (ADR 0015). */
+  function startLink(id:string){
+    linkRef.current={sourceId:id,pointer:null};setLinkingId(id);setContextMenu(null);setHover(null);
+    cyRef.current?.scratch('atlas:designLink',{sourceId:id,from:null,to:null});
+  }
+  function endLink(){
+    if(!linkRef.current)return;
+    linkRef.current=null;setLinkingId(null);
+    drawDirectionRef.current(undefined,undefined,true);updateMapRef.current();
+  }
   const nodesKey=useMemo(()=>JSON.stringify(nodes.map(n=>n.id)),[nodes]);
   // One merged route carries several kinds, so the label is the kind breakdown (top 2, "+n" tail)
   // rather than a single kind plus a site count; the ✦ still marks a ready explanation.
@@ -342,6 +388,19 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         directionContext.fillText(String(layer),x+width/2,y+height/2+height*.03);
         badges.push({nodeId:id,layer,x,y,width,height,color:badgeColor});
       }
+      // The pending two-click relation (ADR 0015): a dashed violet line from the source card's handle to
+      // the pointer. Drawn here, never as a Cytoscape element, so the graph itself is untouched.
+      const link=linkRef.current,linkSource=link?cy.getElementById(link.sourceId):null;
+      if(link&&link.pointer&&linkSource&&linkSource.length){
+        const bb=linkSource.renderedBoundingBox({includeLabels:false,includeOverlays:false}),from={x:bb.x2,y:(bb.y1+bb.y2)/2};
+        directionContext.save();
+        directionContext.strokeStyle=DESIGN_TONE.route;directionContext.lineWidth=2.5;directionContext.setLineDash([9,6]);
+        directionContext.beginPath();directionContext.moveTo(from.x,from.y);directionContext.lineTo(link.pointer.x,link.pointer.y);directionContext.stroke();
+        directionContext.setLineDash([]);directionContext.fillStyle=DESIGN_TONE.arrow;
+        directionContext.beginPath();directionContext.arc(link.pointer.x,link.pointer.y,4.5,0,Math.PI*2);directionContext.fill();
+        directionContext.restore();
+        cy.scratch('atlas:designLink',{sourceId:link.sourceId,from,to:{...link.pointer}});
+      }else cy.scratch('atlas:designLink',link?{sourceId:link.sourceId,from:null,to:null}:null);
       overlayDraws++;cy.scratch('atlas:directionOverlay',{rings,badges,draws:overlayDraws});
     };
     const queueDirectionDraw=(phase=animationPhase.current,pulse=.5,_invalidate=false)=>{
@@ -380,6 +439,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         if (bb.w >= MIN_RESIZE_CARD_PX) grips.push({ id: n.id(), left: bb.x2 - gripSize - 2, top: bb.y2 - gripSize - 2, size: gripSize });
       });
       const visibleCorners = corners.filter(onScreen), visibleGrips = grips.filter(onScreen);
+      updateDesignView();
       setCornerOverlays(prev => prev.length || visibleCorners.length ? visibleCorners : prev);
       setResizeGrips(prev => prev.length || visibleGrips.length ? visibleGrips : prev);
       if (!cy.nodes().length) return;
@@ -391,6 +451,28 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       setMini(prev => prev && sameMinimap(prev, next) ? prev : next);
     };
     updateMapRef.current = updateMap;
+    // Design mode overlays, in stage pixels. The slot shows for the hovered expanded box, or the box
+    // the hovered card sits in; the handle for the hovered card (or the pending relation's source).
+    const toStage = (b: Box) => { const z = cy.zoom(), pan = cy.pan(); return { left: b.x1 * z + pan.x, top: b.y1 * z + pan.y, width: (b.x2 - b.x1) * z, height: (b.y2 - b.y1) * z }; };
+    const updateDesignView = () => {
+      const d = designRef.current;
+      let slot: { id: string; left: number; top: number; width: number; height: number } | null = null, handle: { id: string; x: number; y: number } | null = null;
+      const hovered = linkRef.current ? linkRef.current.sourceId : hoverCardRef.current;
+      if (d && hovered) {
+        const el = cy.getElementById(hovered);
+        if (el.length && el.isNode() && !el.data('hiddenBox')) {
+          const bb = el.renderedBoundingBox({ includeLabels: false, includeOverlays: false });
+          handle = { id: hovered, x: bb.x2, y: (bb.y1 + bb.y2) / 2 };
+          for (let c: cytoscape.NodeSingular | null = el as unknown as cytoscape.NodeSingular; c && c.length && !linkRef.current; c = c.parent().length ? c.parent().first() as unknown as cytoscape.NodeSingular : null) {
+            const box = d.slots[c.id()];
+            if (box && !c.data('hiddenBox')) { slot = { id: c.id(), ...toStage(box) }; break; }
+          }
+        }
+      }
+      const draft = d?.draft ? toStage(d.draft.box) : null;
+      const next = { slot, draft, handle };
+      setDesignView(prev => JSON.stringify(prev) === JSON.stringify(next) ? prev : next);
+    };
     // Real user camera movement (pan, zoom, drag) is captured, debounced, and reported once it
     // settles. `programmatic` suppresses capture while this component itself writes pan/zoom
     // (restoring a saved camera, or the one-time initial fit) so a restore round trip can never
@@ -428,6 +510,9 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         if (inSquare(bb.x2 - stack.right, bb.y1 + stack.top, stack.size)) return 'stack';
       }
       if (n.data('expanded')) {
+        // The design add slot (ADR 0015): the empty card space the box keeps for "+ class"/"+ method".
+        const slot = designRef.current?.slots[n.id()];
+        if (slot && p.x >= slot.x1 && p.x <= slot.x2 && p.y >= slot.y1 && p.y <= slot.y2) return 'add';
         if (CONTAINER_BUTTON.size * cy.zoom() < MIN_CODE_BUTTON_PX) return null;
         const bb = n.boundingBox({ includeLabels: false, includeOverlays: false });
         if (inSquare(bb.x2 - UNGROUP_BUTTON.right, bb.y1 + UNGROUP_BUTTON.top, UNGROUP_BUTTON.size)) return 'ungroup';
@@ -447,7 +532,16 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       // The model can briefly lag Cytoscape during reconciliation; a card that is gone has nothing to open.
       const node = currentModel.current.nodes.find(n => n.id === e.target.id());
       if (!node) return;
+      // The second click of a two-click relation picks its target; nothing else happens on it.
+      const link = linkRef.current;
+      if (link) {
+        endLink();
+        const source = currentModel.current.nodes.find(n => n.id === link.sourceId), o = e.originalEvent as MouseEvent | undefined;
+        if (source && source.id !== node.id && designRef.current) designRef.current.onLink(source, node, o ? { x: o.clientX, y: o.clientY } : clientOf(e.target.renderedPosition()));
+        return;
+      }
       const corner = cornerHit(e.target, e.position);
+      if (corner === 'add') { setContextMenu(null); designRef.current?.onAdd(node); return; }
       if (corner === 'code') { setContextMenu(null); callbacks.current.onViewCode(node); return; }
       if (corner === 'stack') { setContextMenu(null); callbacks.current.onCycleStack(node.id); return; }
       if (corner === 'ungroup') { setContextMenu(null); callbacks.current.onUngroup(node); return; }
@@ -460,7 +554,23 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     // (H4): ordinary taps still reach `onNodeSelect` above without moving or unmounting the map;
     // `dbltap` fires in addition, once, on the second tap. App explicitly inspects the arranged resource,
     // because a repeated single tap now toggles inspection off.
-    cy.on('dbltap', 'node', e => { if (!multiKey(e)) callbacks.current.onArrangeAroundResource(e.target.id()); });
+    // In design mode (ADR 0015) double-click opens the explanation popover instead, anchored just above
+    // and to the right of the card; the inspector's Arrange button still arranges.
+    cy.on('dbltap', 'node', e => {
+      if (multiKey(e)) return;
+      const d = designRef.current;
+      if (!d) { callbacks.current.onArrangeAroundResource(e.target.id()); return; }
+      const node = currentModel.current.nodes.find(n => n.id === e.target.id());
+      if (!node || e.target.data('hiddenBox') || cornerHit(e.target, e.position)) return;
+      const bb = e.target.renderedBoundingBox({ includeLabels: false, includeOverlays: false });
+      d.onEdit({ node }, clientOf({ x: bb.x2, y: bb.y1 }));
+    });
+    cy.on('dbltap', 'edge', e => {
+      const d = designRef.current, edge = currentModel.current.edges.find(x => x.id === e.target.id());
+      if (!d || !edge || !(edge.design || edge.occurrenceIds?.some(id => id.startsWith('design-rel:')))) return;
+      const o = e.originalEvent as MouseEvent | undefined;
+      d.onEdit({ edge }, o ? { x: o.clientX, y: o.clientY } : clientOf(e.renderedPosition || { x: 0, y: 0 }));
+    });
     // Group drag: grabbing a card that belongs to a multi-selection of two or more carries the other
     // selected cards by the same delta. Their start positions are captured at grab time so the
     // group keeps its exact shape, and every moved card is reported once on release.
@@ -522,15 +632,21 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     });
     // A plain right-click on empty canvas (no drag: cxttap) offers the design commands that need no card.
     cy.on('cxttap', e => {
-      if (e.target !== cy || !designCommandRef.current) return;
+      if (e.target !== cy || !designRef.current) return;
       (e.originalEvent as Event | undefined)?.preventDefault();
       setContextMenu(null); setHover(null);
       const p = e.renderedPosition || { x: cy.width() / 2, y: cy.height() / 2 };
-      setCanvasMenu({ x: Math.max(8, Math.min(p.x, cy.width() - 238)), y: Math.max(8, Math.min(p.y, cy.height() - 120)) });
+      const m = e.position || { x: (p.x - cy.pan().x) / cy.zoom(), y: (p.y - cy.pan().y) / cy.zoom() };
+      setCanvasMenu({ x: Math.max(8, Math.min(p.x, cy.width() - 238)), y: Math.max(8, Math.min(p.y, cy.height() - 120)), model: { x: m.x, y: m.y } });
     });
     cy.on('pan zoom tap cxttapstart', e => { if (e.type !== 'cxttapstart' || e.target !== cy) setCanvasMenu(null); });
     // A plain click on empty canvas clears the multi-selection, like most canvas editors.
-    cy.on('tap', e => { if (e.target === cy && !multiKey(e)) callbacks.current.onClearSelection(); });
+    cy.on('tap', e => {
+      if (e.target !== cy) return;
+      // A click on empty canvas cancels a pending relation and does nothing else.
+      if (linkRef.current) { endLink(); return; }
+      if (!multiKey(e)) callbacks.current.onClearSelection();
+    });
 
     // Ctrl/Cmd/Shift + left-drag on empty canvas: Cytoscape's own box gesture. With native selection
     // disabled it still reports every node in the box ('box', emitted synchronously right after
@@ -877,6 +993,18 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     return () => { cancelAnimationFrame(frame); if (!cy.destroyed()) { cy.batch(() => { flowEdges.removeStyle(ANIMATED_STYLES); halos.removeStyle(ANIMATED_STYLES); }); cy.scratch('atlas:dashPhase', 0); } drawDirectionRef.current(undefined,undefined,true); };
   }, [selectedId, nodes, edges, outgoingStack]);
 
+  // Design overlays follow hover, slots and the draft card (ADR 0015); leaving design mode ends a pending relation.
+  useEffect(()=>{updateMapRef.current();},[hoverCard,handleHold,design?.slots,design?.draft]);
+  useEffect(()=>{if(!design)endLink();// eslint-disable-next-line react-hooks/exhaustive-deps
+  },[!!design]);
+  useEffect(()=>{
+    if(!linkingId)return;
+    const onKey=(e:KeyboardEvent)=>{if(e.key==='Escape'){e.stopPropagation();e.preventDefault();endLink();}};
+    window.addEventListener('keydown',onKey,true);
+    return()=>window.removeEventListener('keydown',onKey,true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[linkingId]);
+
   // Camera: restore a saved camera, or perform the one-time initial fit when a level has never had
   // one. Reference-identity change on `camera` is the only trigger -- an in-place membership/filter
   // change never replaces this object (explorerViewState preserves it verbatim), so this effect is
@@ -1000,8 +1128,18 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
   // A single-card action is not a multi-select action: undo the selection this right-click added.
   function menuSingle(action:()=>void){const added=contextMenu?.addedId;if(added)setMultiIds(ids=>ids.filter(id=>id!==added));action();setContextMenu(null);}
   const menuTitle=selectedNodes.length>1?`${selectedNodes.length} resources selected`:(menuNode||selectedNodes[0])?.simpleName||'Selection';
-  return <div className={`graph-stage${fullscreen?' fullscreen':''}`}>
+  const slotNode=design&&designView.slot?nodes.find(n=>n.id===designView.slot!.id):null;
+  const handleNode=design&&designView.handle?nodes.find(n=>n.id===designView.handle!.id):null;
+  const linkSourceNode=linkingId?nodes.find(n=>n.id===linkingId):null;
+  return <div className={`graph-stage${fullscreen?' fullscreen':''}${linkingId?' design-linking':''}`} onPointerMove={e=>{
+      const link=linkRef.current;if(!link||!container.current)return;
+      const r=container.current.getBoundingClientRect();link.pointer={x:e.clientX-r.left,y:e.clientY-r.top};drawDirectionRef.current();
+    }}>
     <div ref={container} className="graph-canvas" aria-label="Dependency graph" />
+    {slotNode&&designView.slot&&<div className={`design-slot${hotCorner===`${slotNode.id}:add`?' hot':''}`} data-slot-for={slotNode.id} aria-hidden="true" style={{left:designView.slot.left,top:designView.slot.top,width:designView.slot.width,height:designView.slot.height}}><span>＋ {slotKind(slotNode.kind)==='CLASS'?'class':'method'}</span></div>}
+    {handleNode&&designView.handle&&<button type="button" className={`design-link-handle${linkingId?' active':''}`} data-card-id={handleNode.id} style={{left:designView.handle.x-10,top:designView.handle.y-10}} aria-label={`Draw a designed relation from ${handleNode.simpleName}: then click its target`} title="Draw a relation: click here, then click the target card" onPointerEnter={()=>setHandleHold(handleNode.id)} onPointerLeave={()=>setHandleHold(h=>h===handleNode.id?null:h)} onClick={event=>{event.stopPropagation();if(linkingId)endLink();else startLink(handleNode.id);setHandleHold(null);}}/>}
+    {linkSourceNode&&<div className="design-link-hint" role="status">Relation from <strong>{linkSourceNode.simpleName}</strong>: click the target card · Esc cancels</div>}
+    {design?.draft&&designView.draft&&<DesignDraftInput key={`${design.draft.kind}:${Math.round(design.draft.box.x1)}:${Math.round(design.draft.box.y1)}`} rect={designView.draft} draft={design.draft} onCommit={design.onDraftCommit} onCancel={design.onDraftCancel}/>}
     {cornerOverlays.map(b=>{
       const n=nodes.find(item=>item.id===b.id);if(!n)return null;
       const hot=hotCorner===`${b.id}:${b.action}`?' hot':'',style={left:b.left,top:b.top,width:b.size,height:b.size,fontSize:Math.max(10,b.size*.5)};
@@ -1038,18 +1176,26 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       {/* Distinct from Collapse above: it brings back the nearest ungrouped box this card sits in. */}
       {menuHiddenAncestor&&<button role="menuitem" onClick={()=>menuSingle(()=>onCollapseInto(menuHiddenAncestor))}><span aria-hidden="true">⊟</span> Collapse into {menuHiddenAncestor.simpleName}</button>}
       {menuNode&&hasCodeButton(menuNode)&&!(menuNode.design&&!menuNode.design.codeId)&&<button role="menuitem" onClick={()=>menuSingle(()=>onViewCode(menuNode))}><span aria-hidden="true">{'</>'}</span> View source</button>}
-      {menuNode&&onDesignCommand&&!menuGroup&&<>
-        {(menuNode.kind==='PACKAGE'||!['METHOD','CONSTRUCTOR','FIELD'].includes(menuNode.kind))&&<button role="menuitem" className="design-menuitem" onClick={()=>menuSingle(()=>onDesignCommand('add-child',menuNode))}><span aria-hidden="true">＋</span> {menuNode.kind==='PACKAGE'?'Add type…':'Add method or nested type…'}</button>}
-        <button role="menuitem" className="design-menuitem" onClick={()=>menuSingle(()=>onDesignCommand('add-relation',menuNode))}><span aria-hidden="true">⤳</span> Add relation from here…</button>
-        <button role="menuitem" className="design-menuitem" onClick={()=>menuSingle(()=>onDesignCommand('explain',menuNode))}><span aria-hidden="true">✎</span> {menuNode.design?.origin==='AUTHORED'?'Edit design…':menuNode.design?.explanation?'Edit explanation…':'Explain intent…'}</button>
+      {menuNode&&design&&!menuGroup&&<>
+        {menuNode.kind==='PACKAGE'&&<>
+          <button role="menuitem" className="design-menuitem" onClick={()=>menuSingle(()=>design.onAdd(menuNode,'CLASS'))}><span aria-hidden="true">＋</span> Add class</button>
+          <button role="menuitem" className="design-menuitem" onClick={()=>menuSingle(()=>design.onAdd(menuNode,'INTERFACE'))}><span aria-hidden="true">＋</span> Add interface</button>
+          <button role="menuitem" className="design-menuitem" onClick={()=>menuSingle(()=>design.onOpenDialog('add-child',menuNode))}><span aria-hidden="true">＋</span> Add other type…</button>
+        </>}
+        {!['PACKAGE','METHOD','CONSTRUCTOR','FIELD'].includes(menuNode.kind)&&<>
+          <button role="menuitem" className="design-menuitem" onClick={()=>menuSingle(()=>design.onAdd(menuNode,'METHOD'))}><span aria-hidden="true">＋</span> Add method</button>
+          <button role="menuitem" className="design-menuitem" onClick={()=>menuSingle(()=>design.onOpenDialog('add-child',menuNode))}><span aria-hidden="true">＋</span> Add nested type…</button>
+        </>}
+        <button role="menuitem" className="design-menuitem" onClick={()=>menuSingle(()=>startLink(menuNode.id))}><span aria-hidden="true">⤳</span> Draw relation from here</button>
+        <button role="menuitem" className="design-menuitem" onClick={()=>{const at=clientOf({x:contextMenu!.x,y:contextMenu!.y});menuSingle(()=>design.onEdit({node:menuNode},at));}}><span aria-hidden="true">✎</span> {menuNode.design?.origin==='AUTHORED'?'Edit design…':menuNode.design?.explanation?'Edit explanation…':'Explain intent…'}</button>
       </>}
       <button role="menuitem" onClick={()=>{onClearSelection();setContextMenu(null);}}><span aria-hidden="true">✕</span> {selectedNodes.length>1?'Clear selection':'Deselect'}</button>
       <p className="graph-context-menu-hint">Right-click or right-drag over more cards to add them. Drag any selected card to move the group.</p>
     </div>}
-    {canvasMenu&&onDesignCommand&&<div className="graph-context-menu" role="menu" aria-label="Map actions" style={{left:canvasMenu.x,top:canvasMenu.y}} onKeyDown={e=>{if(e.key==='Escape')setCanvasMenu(null);}}>
+    {canvasMenu&&design&&<div className="graph-context-menu" role="menu" aria-label="Map actions" style={{left:canvasMenu.x,top:canvasMenu.y}} onKeyDown={e=>{if(e.key==='Escape')setCanvasMenu(null);}}>
       <div className="graph-context-menu-heading">Design</div>
-      <button role="menuitem" className="design-menuitem" autoFocus onClick={()=>{setCanvasMenu(null);onDesignCommand('add-package',null);}}><span aria-hidden="true">＋</span> Add package…</button>
-      <button role="menuitem" className="design-menuitem" onClick={()=>{setCanvasMenu(null);onDesignCommand('add-relation',null);}}><span aria-hidden="true">⤳</span> Add relation…</button>
+      <button role="menuitem" className="design-menuitem" autoFocus onClick={()=>{setCanvasMenu(null);design.onAddPackageAt(canvasMenu.model);}}><span aria-hidden="true">＋</span> Add package</button>
+      <button role="menuitem" className="design-menuitem" onClick={()=>{setCanvasMenu(null);design.onOpenDialog('add-relation',null);}}><span aria-hidden="true">⤳</span> Add relation by key…</button>
       <button role="menuitem" onClick={()=>setCanvasMenu(null)}><span aria-hidden="true">✕</span> Close</button>
     </div>}
     {selectedNodes.length>0&&<div className="selection-bar" role="toolbar" aria-label="Selected resources"><strong>{selectedNodes.length} selected</strong><button className="danger" disabled={!removableNodes.length} title={removalTitle} onClick={removeSelectedFromScope}>{removalLabel}</button><button onClick={onClearSelection}>Clear</button></div>}
@@ -1097,4 +1243,28 @@ function DetailsIcon({ expanded }: { expanded: boolean }) {
     <rect x="3" y="3" width="18" height="18" rx="3"/>
     {expanded ? <path d="M8 12h8"/> : <path d="M7.5 7.5h3v3h-3zM13.5 7.5h3v3h-3zM7.5 13.5h3v3h-3zM13.5 13.5h3v3h-3z"/>}
   </svg>;
+}
+
+/**
+ * A new card typed in place (ADR 0015): the title field is focused at once. Enter commits, Esc or
+ * leaving it empty cancels; a rejected name stays with the server's message under it.
+ */
+function DesignDraftInput({ rect, draft, onCommit, onCancel }: { rect: { left: number; top: number; width: number; height: number }; draft: DesignDraftCard; onCommit: (text: string) => void; onCancel: () => void }) {
+  const [text, setText] = useState('');
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => { input.current?.focus({ preventScroll: true }); }, []);
+  const kindWord = draft.kind.toLowerCase();
+  return <div className={`design-draft-card${draft.error ? ' invalid' : ''}`} data-draft-kind={draft.kind} style={{ left: rect.left, top: rect.top, width: Math.max(200, rect.width), minHeight: Math.max(76, rect.height) }}
+    onPointerDown={e => e.stopPropagation()}>
+    <span className="design-draft-kind">New {kindWord}</span>
+    <input ref={input} value={text} disabled={draft.busy} placeholder={draft.placeholder} aria-label={`Name of the new ${kindWord}`} aria-invalid={!!draft.error}
+      onChange={e => setText(e.target.value)}
+      onKeyDown={e => {
+        e.stopPropagation();
+        if (e.key === 'Enter') { e.preventDefault(); if (text.trim()) onCommit(text); }
+        else if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
+      }}
+      onBlur={() => { if (!text.trim() && !draft.busy) onCancel(); }}/>
+    {draft.error ? <p className="design-draft-error" role="alert">{draft.error}</p> : <p className="design-draft-hint">Enter to add · Esc to cancel</p>}
+  </div>;
 }

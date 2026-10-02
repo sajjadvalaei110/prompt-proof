@@ -1,0 +1,194 @@
+{
+  "plannedPackage": {
+    "designOnly": true,
+    "border": "dashed",
+    "color": "rgb(124,92,196)"
+  },
+  "packageLanding": {
+    "draft": {
+      "x": 761.390625,
+      "y": 483.9921875
+    },
+    "card": {
+      "x": 738,
+      "y": 484
+    }
+  },
+  "popover": {
+    "left": 823.6875,
+    "bottom": 406.640625,
+    "firstLabel": "Intent",
+    "focused": true
+  },
+  "slotLanding": {
+    "slot": {
+      "x": 824.0719770189004,
+      "y": 76.2538122852234
+    },
+    "card": {
+      "x": 824.0862542955326,
+      "y": 76.26817010309276
+    }
+  },
+  "inspector": {
+    "intent": "Owns the order lifecycle from creation to completion.",
+    "detail": "Planned change: publish an OrderCompleted event instead of calling billing directly.",
+    "generatedHeading": "✧ Generated explanation"
+  },
+  "agent": {
+    "schemaVersion": "1",
+    "dryRun": false,
+    "applied": 2,
+    "results": [
+      {
+        "index": 0,
+        "op": "putResource",
+        "key": "com.example.spring.service.OrderService.complete(Long)",
+        "outcome": "created"
+      },
+      {
+        "index": 1,
+        "op": "putRelation",
+        "key": "com.example.spring.service.OrderService -CALLS-> com.example.audit.AuditLog",
+        "outcome": "created"
+      }
+    ]
+  },
+  "designedEdge": {
+    "id": "aggregate:[\"9316ba5c-153b-48c4-a145-53f6e244823e\",\"design:com.example.audit.AuditLog\",\"DESIGN\"]",
+    "style": "dashed",
+    "color": "rgb(139,106,214)",
+    "label": "✎ calls",
+    "source": "OrderService",
+    "target": "AuditLog"
+  },
+  "edgeProvenance": "Written by claude-code · 2026-10-02 00:30:42",
+  "badNameError": "Write a method as name or name(Type, Type)",
+  "rubberBand": {
+    "sourceId": "design:com.example.audit.AuditQuery",
+    "from": {
+      "x": 550.99417074088,
+      "y": 323.1165851823994
+    },
+    "to": {
+      "x": 770.984375,
+      "y": 213.109375
+    }
+  },
+  "newRelation": {
+    "kind": "USES_TYPE",
+    "title": "AuditQuery → AuditLog"
+  },
+  "toggle": {
+    "before": {
+      "design:com.example.audit.AuditQuery": {
+        "x": 824.0862542955326,
+        "y": 76.26817010309276,
+        "parent": "design:com.example.audit",
+        "w": 250,
+        "h": 206
+      },
+      "design:com.example.audit.AuditLog": {
+        "x": 824.0862542955326,
+        "y": -161.73182989690724,
+        "parent": "design:com.example.audit",
+        "w": 250,
+        "h": 206
+      },
+      "design:com.example.audit": {
+        "x": 824.0862542955326,
+        "y": 74.26817010309276,
+        "parent": null,
+        "w": 254,
+        "h": 682
+      },
+      "design:com.example.spring.service.OrderService.complete(Long)": {
+        "x": 2429,
+        "y": 700,
+        "parent": "9316ba5c-153b-48c4-a145-53f6e244823e",
+        "w": 250,
+        "h": 184
+      },
+      "design:com.example.spring.service.OrderService.findByCustomer(Long)": {
+        "x": 2147,
+        "y": 1132,
+        "parent": "9316ba5c-153b-48c4-a145-53f6e244823e",
+        "w": 250,
+        "h": 184
+      }
+    },
+    "after": {
+      "design:com.example.audit": {
+        "x": 824.0862542955326,
+        "y": 74.26817010309276,
+        "parent": null,
+        "w": 254,
+        "h": 682
+      },
+      "design:com.example.audit.AuditLog": {
+        "x": 824.0862542955326,
+        "y": -161.73182989690724,
+        "parent": "design:com.example.audit",
+        "w": 250,
+        "h": 206
+      },
+      "design:com.example.audit.AuditQuery": {
+        "x": 824.0862542955326,
+        "y": 76.26817010309276,
+        "parent": "design:com.example.audit",
+        "w": 250,
+        "h": 206
+      },
+      "design:com.example.spring.service.OrderService.complete(Long)": {
+        "x": 2429,
+        "y": 700,
+        "parent": "9316ba5c-153b-48c4-a145-53f6e244823e",
+        "w": 250,
+        "h": 184
+      },
+      "design:com.example.spring.service.OrderService.findByCustomer(Long)": {
+        "x": 2147,
+        "y": 1132,
+        "parent": "9316ba5c-153b-48c4-a145-53f6e244823e",
+        "w": 250,
+        "h": 184
+      }
+    },
+    "arrangedBoxes": {
+      "design:com.example.audit": null,
+      "9316ba5c-153b-48c4-a145-53f6e244823e": {
+        "x": 1622,
+        "y": 340
+      }
+    }
+  },
+  "promptBytes": 4254,
+  "briefBytes": 83107,
+  "imported": {
+    "position": {
+      "x": 824.0862542955326,
+      "y": 74.26817010309276
+    },
+    "missing": [
+      "design:com.example.spring.service",
+      "design:com.example.spring.model",
+      "design:com.example.spring.repository",
+      "design:com.example.spring.controller",
+      "design:com.example.spring.config",
+      "design:com.example.spring.service.CreditCardPaymentService",
+      "design:com.example.spring.service.NotificationService",
+      "design:com.example.spring.service.OrderService",
+      "design:com.example.spring.service.PayPalPaymentService",
+      "design:com.example.spring.service.PaymentService",
+      "design:com.example.spring.service.UserService",
+      "design:com.example.spring.service.UserServiceImpl",
+      "design:com.example.spring.service.OrderService.OrderService(OrderRepository)",
+      "design:com.example.spring.service.OrderService.complete(Long)",
+      "design:com.example.spring.service.OrderService.create(Order)",
+      "design:com.example.spring.service.OrderService.findByCustomer(Long)",
+      "design:com.example.spring.service.OrderService.findById(Long)"
+    ],
+    "status": "Imported 79 new and 0 updated resources, 117 relations (74 not found in this code)23 unresolved external targets0 explained · 0 queued · 0 failed✧ Explain all"
+  },
+  "pageErrors": []
+}

@@ -1026,6 +1026,15 @@ check('dragging a box carries the parked cards inside it, through nested boxes',
   assert.deepEqual(t.levelViews.PACKAGE.expansions[inner].childPositions, v.expansions[inner].childPositions);
 });
 
+check('arranging a box carries the parked cards inside it', () => {
+  const inner = 'design:com.acme.orders.Refund';
+  let s = explorerViewReducer(initExplorerViewState('PACKAGE'), { type: 'RESET', level: 'PACKAGE', eligibleIds: ['p0'], batchSize: Infinity, placement: placementFor(['p0']) });
+  const p0 = s.levelViews.PACKAGE.positions.p0;
+  s = explorerViewReducer(s, { type: 'EXPAND_RESOURCE', level: 'PACKAGE', id: 'p0', ownerId: null, childPositions: { c0: { x: 100, y: 200 }, [inner]: { x: 400, y: 200 } }, generation: s.generation });
+  s = explorerViewReducer(s, { type: 'ARRANGE_AROUND_RESOURCE', level: 'PACKAGE', generation: s.generation, positions: { p0: { x: p0.x + 1000, y: p0.y } }, childPositions: { p0: { c0: { x: 1100, y: 200 } } } });
+  assert.deepEqual(s.levelViews.PACKAGE.expansions.p0.childPositions[inner], { x: 1400, y: 200 });
+});
+
 check('a pinned new card lands exactly where it was typed; others still go through placeAdditions', () => {
   let s = explorerViewReducer(initExplorerViewState('PACKAGE'), { type: 'RESET', level: 'PACKAGE', eligibleIds: ['p0'], batchSize: Infinity, placement: placementFor(['p0']) });
   const placement = { ...placementFor(['p0', 'design:new', 'p1']), 'design:new': { width: 280, height: 250, name: 'new', pinned: { x: -900, y: 1234 } } };

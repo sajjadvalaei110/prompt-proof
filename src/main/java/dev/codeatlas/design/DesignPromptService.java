@@ -87,23 +87,27 @@ public class DesignPromptService {
             md.append("## ").append(++section).append(". Build: designed, not in the code yet\n\n");
             md.append("Create each of these with exactly this key, inside its parent.\n\n");
             for (var r : planned) resource(md, r, designed, code, signatures);
+            md.append("\n");
         }
         if (!changes.isEmpty()) {
             md.append("## ").append(++section).append(". Change existing code\n\n");
             md.append("These already exist. Make their behaviour match the intention.\n\n");
             for (var r : changes) resource(md, r, designed, code, signatures);
+            md.append("\n");
         }
         if (!relations.isEmpty()) {
             md.append("## ").append(++section).append(". Relations to implement\n\n");
             md.append("A designed relation `A -KIND-> B` means: the engineer wants A, or code inside A, to do KIND to B or to a ")
               .append("resource inside B, for the reason given. Implement each relation in your change.\n\n");
             for (var r : relations) relation(md, r, designed, code);
+            md.append("\n");
         }
         if (!implemented.isEmpty() || !implementedRelations.isEmpty()) {
             md.append("## ").append(++section).append(". Already implemented: verify\n\n");
             md.append("The code already declares these. Check each still matches its intention, and change the code where it does not.\n\n");
             for (var r : implemented) resource(md, r, designed, code, signatures);
             for (var r : implementedRelations) relation(md, r, designed, code);
+            md.append("\n");
         }
         if (!attention.isEmpty() || !attentionRelations.isEmpty()) {
             md.append("## ").append(++section).append(". Needs attention\n\n");

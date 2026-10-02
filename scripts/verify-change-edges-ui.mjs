@@ -21,6 +21,9 @@ const shot=async(name,clip)=>{await pause(400);const r=await cdp('Page.captureSc
 const until=async(expr,label)=>{for(let i=0;i<100;i++){if(await evaluate(expr))return;await pause(150);}throw Error('Timed out: '+label);};
 const click=async(x,y,count=1)=>{for(const type of ['mouseMoved','mousePressed','mouseReleased'])await cdp('Input.dispatchMouseEvent',{type,x,y,button:type==='mouseMoved'?'none':'left',clickCount:count});};
 await cdp('Page.enable');await cdp('Runtime.enable');
+// These checks pin the Design-off contract (ADR 0014/0015: with Design off, behaviour is unchanged). Design mode
+// changes double-click and adds an add slot to expanded boxes, so start every page with Design off.
+await cdp('Page.addScriptToEvaluateOnNewDocument',{source:"try{localStorage.setItem('showDesign','false')}catch{}"});
 await cdp('Emulation.setDeviceMetricsOverride',{width:1600,height:1000,deviceScaleFactor:1,mobile:false});
 await cdp('Page.navigate',{url:`${base}/?snapshotId=${snapshot}`});
 const CY=`document.querySelector('.graph-canvas')._cyreg.cy`;

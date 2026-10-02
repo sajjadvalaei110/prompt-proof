@@ -78,7 +78,7 @@ python3 scripts/verify_git_review_pipeline.py
 python3 scripts/verify_stable_graph_pipeline.py baseline    # known-defect snapshot
 python3 scripts/verify_stable_graph_pipeline.py acceptance  # product-contract assertions
 python3 scripts/verify_code_navigation_pipeline.py          # source-viewer navigation (needs installScipJava + gradle on PATH)
-python3 scripts/verify_design_layer_pipeline.py             # design layer: authoring, agent change set, export/import
+python3 scripts/verify_design_layer_pipeline.py             # design layer: inline authoring, two-click relations, popover, toggle, prompt, agent change set, export/import
 ```
 
 There is deliberately **no separate lint step** (see `docs/TESTING.md` §9 / an ADR would be needed
@@ -102,7 +102,7 @@ Strict module boundaries — don't reach across them without going through the i
 | `jobs` | Background job orchestration, progress, cancellation, resume |
 | `storage` | SQLite/JDBC, Flyway migrations, WAL + foreign keys |
 | `review` | Read-only local Git capture (base commit + working tree) for the Changes overlay — isolated from the normal workspace snapshot; see ADR 0006 |
-| `design` | Engineer-owned design layer (ADR 0014): authored resources/relations + explanations keyed by stable keys, agent change sets, design brief export/import |
+| `design` | Engineer-owned design layer (ADR 0014): authored resources/relations + explanations keyed by stable keys, agent change sets, design brief export/import, agent prompt (ADR 0015) |
 | `api` (+ `dto`) | REST controllers, DTOs |
 | `config` | Spring wiring |
 
@@ -122,7 +122,9 @@ Strict module boundaries — don't reach across them without going through the i
   that feeds the Changes toggle drawn directly on the ordinary Code map (there is no separate review
   page).
 - `design/` — the design layer on the ordinary map (ADR 0014): `designModel.ts` (pure overlay merge),
-  `designExchange.ts` (pure layout capture/apply by key), `DesignEditorDialog.tsx`, `DesignSection.tsx`.
+  `designExchange.ts` (pure layout capture/apply by key), `DesignEditorDialog.tsx`, `DesignSection.tsx`,
+  `DesignPopover.tsx`, `DesignPromptDialog.tsx`. Design mode (ADR 0015): add slots, inline drafts, two-click
+  relations and the double-click popover; design cards are parked, not dropped, while Design is off.
   Design edits are server operations: outside undo history, reconciled into every tab via `RECONCILE_ALL`.
 - `import/`, `settings/` — workspace registration and model-profile configuration.
 
