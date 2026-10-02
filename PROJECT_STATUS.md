@@ -34,8 +34,13 @@ directional selection emphasis, file-grouped evidence), in-place card details
 An external review of rounds 4 and 4b (`docs/review/design-add-blocks-review.md`, 35 findings and 7
 "false claims") was triaged by the owner. Every item is answered in
 `docs/reviews/design-add-blocks-review-response.md`, as fixed, disputed with evidence, a documented limit, or
-deferred. Commits: `bea15be` (pure geometry), `14de86f` (canvas and App), `8d42f2a` (browser checks), and the
-docs commit after them.
+deferred. Commits:
+- `bea15be`: pure geometry;
+- `14de86f`: canvas and App;
+- `8d42f2a`: browser checks;
+- `557e7e4`: docs;
+- `aa4ebfe`: a Design-off collapse also counts parked design cards;
+- the docs commit after it.
 
 Changes (frontend only; no backend, API or migration change):
 - `expansionLayout`:
@@ -61,8 +66,8 @@ Changes (frontend only; no backend, API or migration change):
   - `RECONCILE_ALL` gives each tab its id: the typed tab pins the card and makes room, other tabs give it the
     block's shape (F10);
   - `graphModel.childlessExpansionsAsCards` draws a childless expansion as its card outside design mode, or
-    when ungrouped. Its menu offers Collapse, measured in design-mode geometry so a Design-off collapse gives the
-    room back exactly (F12, F22, F28).
+    when ungrouped. Its menu offers Collapse, measured in design-mode geometry on the design-merged graph, so a
+    Design-off collapse gives the room back exactly, to parked design cards too (F12, F22, F28).
 - Found by the new resize step: a design export/import dropped a resized box's `minSize` (ADR 0016 fidelity).
   The layout now carries it.
 
@@ -72,29 +77,34 @@ Checks run (final jar, built after the last code change):
   review fixes". `test-expansion-layout.mjs` 100-child benchmark on this machine:
   - `designBlocks`: 0.6–2.6 ms over all runs (HEAD before, same benchmark: 5.1–9.5 ms);
   - 1000 `addBlockAt`: 2.2–3.1 ms (before: 22.7–24.9 ms).
-- `./gradlew bootJar`: PASS. The served bundle (`index-D9mxvoKS.js`) was checked to be the final build.
+- `./gradlew bootJar`: PASS. The served bundle (`index-BlYD_fCY.js`) was checked to be the final build.
 - `CHROMIUM=/snap/bin/chromium python3 scripts/verify_design_layer_pipeline.py`: PASS
-  (`build/design-layer/run-54c449fn`).
-  - All 32 screenshots were inspected, in an identical earlier run (`run-fiqganzu`). The final run's images
-    were pixel-diffed against it, and every one that differed was opened again. They were copied with
-    `report.json` and `design-prompt.md` to `docs/evidence/design-layer-ux/`; 05e–05i and 16d are new.
+  (`build/design-layer/run-zkwczg2_`).
+  - All 32 screenshots of that final run were opened and inspected.
+  - They were copied with `report.json` and `design-prompt.md` to `docs/evidence/design-layer-ux/`; 05e–05i and
+    16d are new.
   - Measured in `report.json`:
     - reserve 220×150;
     - empty class block 250×184; empty package block 250×206;
-    - the gap class 250×206, with the package size unchanged (919.6×787.1 → 919.2×787.0);
+    - the gap class 250×206, with the package size unchanged (919.9×787.4 → 919.0×786.7);
     - the narrow class 234×206 (the 8 px snap moved the first class 16 px, not 20);
     - the raced class 250×172 in both the typed and the cloned tab, with the poll asserted to land while the class
       was absent;
     - the zoomed-out draft outline 75×61.8, equal to its block, with content scale 0.6;
-    - Design-off collapse round trip: 3 cards made room, and 0 were off afterwards;
+    - Design-off collapse round trip:
+      - 3 parsed cards made room, and 0 were off afterwards;
+      - the parked design class `MarkerNote` went 767.5 → 833.5 → 767.5;
     - no page errors.
-  - Negative control (one run, then reverted): with every pending entry consumed on every reconciliation, the
-    race step fails with 250×206.
-- `verify_change_edges_pipeline.py`: PASS. `verify_git_review_pipeline.py`: PASS.
-- `verify_ungroup_pipeline.py`: 33/33 PASS, both on HEAD `1b52fae` before any change and on the final jar
-  (`build/ungroup/run-ru8dkox1`).
+  - Negative controls (each one run, then reverted):
+    - with every pending entry consumed on every reconciliation, the race step fails with 250×206;
+    - with the Design-off collapse measured on the raw graph, the parked design class stays at 833.5.
+- `verify_change_edges_pipeline.py`: PASS (`build/change-edges/run-5eadfxgm`).
+- `verify_git_review_pipeline.py`: PASS (`build/git-review/run-lt5p_4rw`).
+- `verify_ungroup_pipeline.py`: 33/33 PASS, both on HEAD `1b52fae` before any change
+  (`build/ungroup/run-udjoru55`) and on the final jar (`build/ungroup/run-0wqpnnc7`).
 - `verify_stable_graph_pipeline.py acceptance`: FAIL at `revealClasses` (line 335, "Cannot read properties of
-  undefined (reading 'click')"). This is the same pre-existing failure as rounds 4 and 4b.
+  undefined (reading 'click')"), in `build/stable-graph/acceptance-of0hz9b7`. This is the same pre-existing
+  failure as rounds 4 and 4b.
 - While writing the browser steps, three harness artifacts were found and handled in the test, not the
   product:
   - a CDP mouse move needs `button: 'left'` for a grip's pointer capture to hold;

@@ -241,8 +241,10 @@ contract above.
   - its box is its empty box;
   - every box around it keeps its add blocks as the cascade goes up, exactly as when it expanded.
 
-  A round trip (expand with Design on, Design off, Collapse) therefore puts every other card back; the browser
-  check asserts it to 1 px. Measured against the Design-off boxes instead, the cascade stopped at the package
+  It is measured on the design-merged graph (outside Changes), so a design card parked while Design is off counts
+  as it did in design mode, and moves with the room given back. A round trip (expand with Design on, Design off,
+  Collapse) therefore puts every other card back, parked design cards included; the browser check asserts it to
+  1 px. Measured against the Design-off boxes instead, the cascade stopped at the package
   around it, and the cards below kept the 66 px the expansion had pushed them.
 - For an expansion emptied by a scope edit with Design off, the same rule gives back the room of its empty box
   in design mode. The room its children took was already left in place by the scope edit.

@@ -35,7 +35,7 @@ Browser steps are those of `scripts/verify-design-layer-ui.mjs`. Its evidence is
 | 9 | **fixed** | `blockStillOpen` (`expansionLayout.ts:165`) keeps a hover block only while it lies inside its box's current inner area with no card on it, or is still one of the box's fixed blocks. `updateDesignView` uses it (`GraphCanvas.tsx:491`). | Unit "a stale hover block is dropped (F9)": covered, moved box, vanished area, reserve kept |
 | 10 | **fixed (multi-tab); disputed (reload)** | See [F10](#f10). | `test-explorer-journeys.mjs` (RECONCILE_ALL tab ids); browser 2e (cloned tab: 250×172) |
 | 11 | **fixed** | No Ungroup square (`GraphCanvas.tsx:449`, `n.isParent()`) and no Ungroup menu item (`:1249`) for a box with nothing drawn inside. `graphModel.childlessExpansionsAsCards` (`graphModel.ts:313`) draws an ungrouped box left with nothing inside as its card in every mode. Previously it drew nothing and took no events, so it was lost. | `test-graph-model.mjs` (hidden empty box → `drawnAsCard`, `hiddenBox:false`, both modes); browser 2d (no Ungroup square or item on an empty box) |
-| 12 | **fixed** | See [F12](#f12). | Browser 6a (RegionTag): 3 cards made room on expand, then Design off, then menu Collapse; 0 cards off by more than 1 px, and no overlap added |
+| 12 | **fixed** | See [F12](#f12). | Browser 6a (RegionTag, with a design class typed into its package first): 3 parsed cards made room on expand, then Design off, then menu Collapse; 0 off by more than 1 px; the parked design class 767.5 → 833.5 → 767.5; no overlap added. Negative control: measured on the raw graph, the design class stays at 833.5. |
 | 13 | **fixed** | `test-expansion-layout.mjs` loads the real `DESIGN_LEAST_BLOCK` / `addSlotSizes` through `placementGeometry`. It asserts `{220,150}` and the 220×150 reserve. | Unit "design add blocks", "make-room keeps the reserve block" (150 px) |
 | 14 | **fixed** | `topLevelOverlaps` now groups cards by parent and checks siblings inside every container as well as on the map, with 1 px tolerance (not 4). | Every overlap assertion of the browser run |
 | 15 | **disputed** | See [F15](#f15). | — |
@@ -130,8 +130,13 @@ typed tab.
 - the box is the expansion's empty box;
 - every box around it keeps its add blocks as the cascade goes up, exactly as when it expanded.
 
-Measuring against the Design-off boxes instead was tried first and found wrong by the browser round trip. The
-cascade stopped at once, and the 3 cards below kept 66 px of displacement.
+It is measured on the design-merged graph, outside Changes. With Design off the active graph has no design
+cards, so a design card parked in a box would otherwise be left out, and would stay displaced.
+
+Two earlier versions were found wrong by the browser round trip:
+- measured against the Design-off boxes, the cascade stopped at once, and the 3 cards below kept 66 px of
+  displacement;
+- measured on the raw graph, a parked design class stayed 66 px off.
 
 ### F15
 

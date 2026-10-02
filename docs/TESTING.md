@@ -846,9 +846,10 @@ under a colour-vision deficiency (WCAG 2.1 SC 1.4.1). The suite asserts all thre
       Negative control, one run: with every pending entry consumed on every reconciliation (the old rule), this
       step fails with 250×206;
     - F10: a cloned tab shows the class at the same 250×172;
-  - 6a, on `RegionTag` (F12): collapse, expand with Design on (3 cards make room), Design off, then menu
-    Collapse. Every other leaf card is back within 1 px, the round trip adds no overlap, and Design on then shows a
-    plain card;
+  - 6a, on `RegionTag` (F12): collapse, type a design class `MarkerNote` into its package, expand with Design
+    on (3 cards and `MarkerNote` make room), Design off, then menu Collapse. Every other leaf card is back within
+    1 px, and so is the parked design class; the round trip adds no overlap, and Design on then shows a plain card.
+    Negative control, one run: measured on the raw graph, `MarkerNote` stays 66 px off;
   - overlap checks run among siblings inside every container as well as on the map, with 1 px tolerance (F14).
 
 ### Quick intent popup, plain prompt, design-only projects (ADR 0016)

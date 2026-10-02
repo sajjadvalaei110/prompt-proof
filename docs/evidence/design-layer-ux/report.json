@@ -252,8 +252,8 @@
       }
     ],
     "sizeBefore": {
-      "w": 919.6344036394667,
-      "h": 787.0844036394666
+      "w": 919.9045513518909,
+      "h": 787.354551351891
     }
   },
   "gapLanding": {
@@ -270,12 +270,12 @@
       "h": 206
     },
     "sizeBefore": {
-      "w": 919.6344036394667,
-      "h": 787.0844036394666
+      "w": 919.9045513518909,
+      "h": 787.354551351891
     },
     "sizeAfter": {
-      "w": 919.2214931188528,
-      "h": 786.9714931188529
+      "w": 918.9542616325884,
+      "h": 786.7042616325881
     },
     "gapsAfter": [
       {
@@ -320,14 +320,14 @@
     ]
   },
   "designedEdge": {
-    "id": "aggregate:[\"12f76c6a-8ea9-4086-b6e1-974b28af5a33\",\"design:com.example.audit.AuditLog\",\"DESIGN\"]",
+    "id": "aggregate:[\"a999b5fa-4516-4ee9-8359-d9f29332fe9a\",\"design:com.example.audit.AuditLog\",\"DESIGN\"]",
     "style": "dashed",
     "color": "rgb(139,106,214)",
     "label": "✎ calls",
     "source": "OrderService",
     "target": "AuditLog"
   },
-  "edgeProvenance": "Written by claude-code · 2026-10-02 16:50:06",
+  "edgeProvenance": "Written by claude-code · 2026-10-02 17:12:50",
   "badNameError": "Write a method as name or name(Type, Type)",
   "methodLanding": {
     "block": {
@@ -423,28 +423,28 @@
       "design:com.example.spring.service.OrderAudit": {
         "x": 1837,
         "y": 1743,
-        "parent": "3c1e1ece-c8e2-45c9-b5dc-f4f289e7d461",
+        "parent": "4f03bcdb-6848-4f37-adfc-e4926b7e29c7",
         "w": 250,
         "h": 206
       },
       "design:com.example.spring.service.OrderArchive": {
         "x": 2111,
         "y": 1743,
-        "parent": "3c1e1ece-c8e2-45c9-b5dc-f4f289e7d461",
+        "parent": "4f03bcdb-6848-4f37-adfc-e4926b7e29c7",
         "w": 234,
         "h": 206
       },
       "design:com.example.spring.service.OrderService.complete(Long)": {
         "x": 2429,
         "y": 836,
-        "parent": "12f76c6a-8ea9-4086-b6e1-974b28af5a33",
+        "parent": "a999b5fa-4516-4ee9-8359-d9f29332fe9a",
         "w": 250,
         "h": 184
       },
       "design:com.example.spring.service.OrderService.findByCustomer(Long)": {
         "x": 2132,
         "y": 1251,
-        "parent": "12f76c6a-8ea9-4086-b6e1-974b28af5a33",
+        "parent": "a999b5fa-4516-4ee9-8359-d9f29332fe9a",
         "w": 220,
         "h": 150
       }
@@ -474,14 +474,14 @@
       "design:com.example.spring.service.OrderArchive": {
         "x": 2111,
         "y": 1743,
-        "parent": "3c1e1ece-c8e2-45c9-b5dc-f4f289e7d461",
+        "parent": "4f03bcdb-6848-4f37-adfc-e4926b7e29c7",
         "w": 234,
         "h": 206
       },
       "design:com.example.spring.service.OrderAudit": {
         "x": 1837,
         "y": 1743,
-        "parent": "3c1e1ece-c8e2-45c9-b5dc-f4f289e7d461",
+        "parent": "4f03bcdb-6848-4f37-adfc-e4926b7e29c7",
         "w": 250,
         "h": 206
       },
@@ -516,21 +516,21 @@
       "design:com.example.spring.service.OrderService.complete(Long)": {
         "x": 2429,
         "y": 836,
-        "parent": "12f76c6a-8ea9-4086-b6e1-974b28af5a33",
+        "parent": "a999b5fa-4516-4ee9-8359-d9f29332fe9a",
         "w": 250,
         "h": 184
       },
       "design:com.example.spring.service.OrderService.findByCustomer(Long)": {
         "x": 2132,
         "y": 1251,
-        "parent": "12f76c6a-8ea9-4086-b6e1-974b28af5a33",
+        "parent": "a999b5fa-4516-4ee9-8359-d9f29332fe9a",
         "w": 220,
         "h": 150
       }
     },
     "arrangedBoxes": {
       "design:com.example.audit": null,
-      "12f76c6a-8ea9-4086-b6e1-974b28af5a33": {
+      "a999b5fa-4516-4ee9-8359-d9f29332fe9a": {
         "x": 1622,
         "y": 601
       }
@@ -630,10 +630,10 @@
     "boxes": {
       "s0": {
         "pkg": [
-          1673.8,
+          1673.5,
           406.79999999999995,
-          2019.2,
-          886.8
+          2019.1999999999998,
+          1068.8
         ],
         "tag": [
           1719.8,
@@ -644,9 +644,9 @@
         "blocks": [
           {
             "x1": 1721.5,
-            "y1": 692.5,
+            "y1": 874.5,
             "x2": 1941.5,
-            "y2": 842.5
+            "y2": 1024.5
           }
         ],
         "kids": [
@@ -656,6 +656,13 @@
             452.8,
             1973.2,
             662.2
+          ],
+          [
+            "MarkerNote",
+            1719.5,
+            690.5,
+            1943.5,
+            844.5
           ]
         ]
       },
@@ -664,7 +671,7 @@
           1673.5,
           406.5,
           2107.5,
-          952.5
+          1134.5
         ],
         "tag": [
           1719.5,
@@ -675,9 +682,9 @@
         "blocks": [
           {
             "x1": 1721.5,
-            "y1": 758.5,
+            "y1": 940.5,
             "x2": 1941.5,
-            "y2": 908.5
+            "y2": 1090.5
           }
         ],
         "kids": [
@@ -687,6 +694,13 @@
             452.5,
             2061.5,
             728.5
+          ],
+          [
+            "MarkerNote",
+            1719.5,
+            756.5,
+            1943.5,
+            910.5
           ]
         ]
       },
@@ -737,6 +751,20 @@
             662.2
           ]
         ]
+      }
+    },
+    "note": {
+      "before": {
+        "x": 1831.5,
+        "y": 767.5
+      },
+      "expanded": {
+        "x": 1831.5,
+        "y": 833.5
+      },
+      "after": {
+        "x": 1831.5,
+        "y": 767.5
       }
     }
   },
