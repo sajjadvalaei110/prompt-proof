@@ -87,11 +87,9 @@ Checks run:
     - in the first-page import, all 20 cards came back with identical position, size, parent, name and roles,
       with nothing extra;
     - imported routes are grey (26) and designed ones violet (2).
-  - On the jar built before roles were carried on import (Design-off pipelines; roles only affect imported
-    cards):
-    - `verify_change_edges_pipeline.py`: PASS. It also PASSES on the final jar.
-    - `verify_ungroup_pipeline.py`: 33/33 PASS.
-    - `verify_git_review_pipeline.py`: PASS.
+  - `verify_change_edges_pipeline.py`: PASS on the final jar.
+  - `verify_ungroup_pipeline.py`: 33/33 PASS on the final jar.
+  - `verify_git_review_pipeline.py`: PASS on the final jar.
   - `python3 scripts/verify_stable_graph_pipeline.py acceptance`: still FAILS at `revealClasses` →
     `clickLevel('Classes')`. That is the removed `.segmented` switcher; the failure predates this work.
 
