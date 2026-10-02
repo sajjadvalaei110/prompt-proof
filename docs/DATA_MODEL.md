@@ -189,7 +189,10 @@ shipped adapter.
 `design_resources(workspace_id, resource_key UNIQUE per workspace, kind, simple_name, parent_key,
 parameter_types JSON, signature, origin AUTHORED|CODE, explanation, created_by, updated_by, revision, timestamps)`
 and `design_relations(workspace_id, source_key, target_key, kind UNIQUE per workspace with the endpoints,
-explanation, created_by, updated_by, revision, timestamps)`.
+explanation, created_by, updated_by, revision, timestamps, origin AUTHORED|CODE)` (`origin` from V015, ADR 0016:
+CODE is a parsed dependency carried along, reported with resolution `CODE` and status PRESENT/MISSING, never
+design work). A design-only project (ADR 0016) is a `workspaces` row with `trust_state = 'design_only'`,
+`canonical_root = 'design-only:<id>'` and one empty published snapshot; it is never analyzed.
 
 - Identity is the parser's logical key (`qualified_name`), so rows survive re-analysis; snapshot deletion
   and the cleanup trigger never touch them.

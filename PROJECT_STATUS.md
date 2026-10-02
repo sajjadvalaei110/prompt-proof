@@ -1,5 +1,5 @@
 # Project status
-Last updated: 2026-10-02 (design-mode direct manipulation, agent prompt, Design toggle keeps geometry, ADR 0015; on top of the design layer, ADR 0014)
+Last updated: 2026-10-02 (quick intent popup, plain prompt, faithful import and design-only projects, ADR 0016; on top of design-mode direct manipulation, ADR 0015, and the design layer, ADR 0014)
 Active milestone: R6 — Developer comprehension redesign (in progress)
 Current revision: Step11 language-neutral Java analysis integrated with step 14 Ungroup (an expanded box's box hidden, its children kept as free cards,
 ADR 0011) merged with main's step 13 (card menu Expand/Collapse + View source, cascading tree
@@ -28,6 +28,84 @@ toggle with a git-style diff code viewer, exploration tabs with per-tab undo/red
 and selection controls, the R6 change-edges slice (one line per direction,
 directional selection emphasis, file-grouped evidence), in-place card details
 (expand packages/classes) and resizable cards; Step 6A remains unstarted
+
+## Design layer round 3: quick intent popup, plain prompt, faithful import, design-only projects (2026-10-02, ADR 0016)
+
+Bounded acceptance criterion, from the owner's feedback on round 2:
+- a two-click relation is CALLS;
+- after any create (package, class, method or relation), a small popup asks for the intent (focused) then the
+  kind. It sits at the relation's middle or next to the new card, never as a dialog. Double-click still edits
+  in full;
+- the Prompt is a plain request with no Code Atlas vocabulary;
+- Import and Export sit at the bottom right of the map, under Fit map / Full screen;
+- an exported map imports exactly as it was, even with no code;
+- the first page can import one.
+
+Owner decisions (AskUserQuestion): the first-page import makes a design-only project; imported code looks like
+the original; the Prompt leaves out implemented items; Prompt stays at the top.
+
+Changes:
+- Backend:
+  - V015 adds `design_relations.origin` (AUTHORED, or CODE for a parsed dependency carried along) and
+    `design_resources.roles`;
+  - `putRelation` stores CODE when the code already has that relation;
+  - import stores parsed dependencies as CODE and keeps Spring roles; export writes them back as `layer: CODE`;
+  - `DesignPromptService` is rewritten as Add / Change / Connect prose, and `AgentGuide.reportBack` is removed;
+  - `POST /api/workspaces/design-only` creates a workspace with an empty published snapshot; analysing it is
+    a 400;
+  - `WorkspaceResponse` gains `designOnly` and `name`.
+- Frontend:
+  - `DesignQuickPopup`;
+  - `defaultRelationKind` returns CALLS;
+  - CODE relations are ordinary routes, merged by `aggregateEdges`, with resolution CODE treated as settled;
+  - imported cards are drawn like the original: no badge, "· imported", parser-style names, roles;
+  - `noSource` in the element data. This fixes a round-2 bug where design-only cards showed a `</>` button;
+  - Export and Import moved under the zoom controls;
+  - the first page's "Import an exported map" opens it as the first tab (`RESET` takes a scope);
+  - in a design-only project, Design is forced on and Changes and Re-analyze are disabled.
+- Docs: ADR 0016, pointers in ADR 0014 and 0015, ARCHITECTURE §8, DATA_MODEL, TESTING, CLAUDE.md.
+
+Checks run:
+- `./gradlew test --tests "dev.codeatlas.design.DesignLayerIntegrationTest"`: 7/7 PASS, including the new
+  `promptIsAPlainRequestForOutstandingWork` and `designOnlyProjectHoldsAnImportedMap`.
+- `./gradlew test`:
+  - first full run: 221 tests, 1 failure. `WorkspaceLanguageIntegrationTest` showed that a new workspace's
+    response lacked `name`; fixed in `WorkspaceService`;
+  - a later run failed to compile a half-finished edit;
+  - the next run: 13 context-load failures, all "checksum mismatch for migration version 015". The local
+    gitignored `./data/codeatlas.db` (test-fixture workspaces only) had the first draft of V015 applied. I
+    dropped that draft's column and history row so Flyway re-applied the final V015; V015 was never pushed;
+  - final run: 221 tests, 0 failures, 1 skipped.
+- `cd frontend && npx tsc -b --force && npm run build`: PASS (existing >500 kB chunk warning only).
+- `node scripts/test-*.mjs`: all 18 PASS. New assertions in `test-design-model.mjs`, `test-design-exchange.mjs`
+  and `test-node-card.mjs`.
+- `./gradlew bootJar`, then with `CHROMIUM=/opt/pw-browsers/chromium-1194/chrome-linux/chrome`:
+  - `python3 scripts/verify_design_layer_pipeline.py`: PASS. 19 screenshots inspected and copied to
+    `docs/evidence/design-layer-ux/` (replacing round 2's), with `report.json` and `design-prompt.md`.
+    Measured:
+    - the relation popup is centred within 0.25 px of the relation's middle;
+    - in the first-page import, all 20 cards came back with identical position, size, parent, name and roles,
+      with nothing extra;
+    - imported routes are grey (26) and designed ones violet (2).
+  - On the jar built before roles were carried on import (Design-off pipelines; roles only affect imported
+    cards):
+    - `verify_change_edges_pipeline.py`: PASS. It also PASSES on the final jar.
+    - `verify_ungroup_pipeline.py`: 33/33 PASS.
+    - `verify_git_review_pipeline.py`: PASS.
+  - `python3 scripts/verify_stable_graph_pipeline.py acceptance`: still FAILS at `revealClasses` →
+    `clickLevel('Classes')`. That is the removed `.segmented` switcher; the failure predates this work.
+
+Not run:
+- live-model verification: no provider is configured, and nothing here calls the model;
+- `constrainedMemoryTest`: no change to bounded explanation work;
+- a real clipboard write: headless Chromium may deny it.
+
+Remaining limits:
+- A relation explained before V015 keeps origin AUTHORED, so its intention no longer reaches the Prompt.
+  Explaining it again does not change that.
+- A design-only project cannot be re-analyzed into a real one. Exporting it and importing into a real project
+  does that.
+- The brief carries Spring roles but not other card data, such as generated explanations or review state.
 
 ## Design-layer UX round 2: direct manipulation, agent prompt, toggle keeps geometry (2026-10-02, ADR 0015)
 

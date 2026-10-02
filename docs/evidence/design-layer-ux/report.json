@@ -14,20 +14,42 @@
       "y": 484
     }
   },
+  "packageQuickPopup": {
+    "popup": {
+      "left": 869.390625,
+      "top": 411.59375,
+      "width": 340,
+      "height": 47.5,
+      "x": 1039.390625,
+      "y": 435.34375
+    },
+    "draft": {
+      "left": 661.390625,
+      "top": 415.59375,
+      "width": 200,
+      "height": 136.796875,
+      "x": 761.390625,
+      "y": 483.9921875
+    }
+  },
   "popover": {
     "left": 823.6875,
     "bottom": 406.640625,
     "firstLabel": "Intent",
     "focused": true
   },
+  "quickClass": {
+    "kind": "INTERFACE",
+    "intent": "Append-only store of audit entries."
+  },
   "slotLanding": {
     "slot": {
       "x": 824.0719770189004,
-      "y": 76.2538122852234
+      "y": 91.78748926116842
     },
     "card": {
       "x": 824.0862542955326,
-      "y": 76.26817010309276
+      "y": 91.80184707903777
     }
   },
   "inspector": {
@@ -55,49 +77,60 @@
     ]
   },
   "designedEdge": {
-    "id": "aggregate:[\"9316ba5c-153b-48c4-a145-53f6e244823e\",\"design:com.example.audit.AuditLog\",\"DESIGN\"]",
+    "id": "aggregate:[\"95ff4fd1-fe22-4838-90a1-797d3dab684a\",\"design:com.example.audit.AuditLog\",\"DESIGN\"]",
     "style": "dashed",
     "color": "rgb(139,106,214)",
     "label": "✎ calls",
     "source": "OrderService",
     "target": "AuditLog"
   },
-  "edgeProvenance": "Written by claude-code · 2026-10-02 00:30:42",
+  "edgeProvenance": "Written by claude-code · 2026-10-02 10:38:47",
   "badNameError": "Write a method as name or name(Type, Type)",
   "rubberBand": {
     "sourceId": "design:com.example.audit.AuditQuery",
     "from": {
       "x": 550.99417074088,
-      "y": 323.1165851823994
+      "y": 314.6165851823994
     },
     "to": {
       "x": 770.984375,
-      "y": 213.109375
+      "y": 204.609375
     }
   },
   "newRelation": {
-    "kind": "USES_TYPE",
-    "title": "AuditQuery → AuditLog"
+    "kind": "CALLS",
+    "popup": {
+      "left": 568.5,
+      "top": 620.4375,
+      "width": 340,
+      "height": 47.5,
+      "x": 738.5,
+      "y": 644.1875
+    },
+    "middle": {
+      "x": 738.5,
+      "y": 644.4375
+    }
   },
   "toggle": {
     "before": {
       "design:com.example.audit.AuditQuery": {
         "x": 824.0862542955326,
-        "y": 76.26817010309276,
+        "y": 91.80184707903777,
         "parent": "design:com.example.audit",
         "w": 250,
         "h": 206
       },
       "design:com.example.audit.AuditLog": {
         "x": 824.0862542955326,
-        "y": -161.73182989690724,
+        "y": -146.19815292096223,
         "parent": "design:com.example.audit",
         "w": 250,
         "h": 206
       },
       "design:com.example.audit": {
         "x": 824.0862542955326,
-        "y": 74.26817010309276,
+        "y": 89.80184707903777,
         "parent": null,
         "w": 254,
         "h": 682
@@ -105,14 +138,14 @@
       "design:com.example.spring.service.OrderService.complete(Long)": {
         "x": 2429,
         "y": 700,
-        "parent": "9316ba5c-153b-48c4-a145-53f6e244823e",
+        "parent": "95ff4fd1-fe22-4838-90a1-797d3dab684a",
         "w": 250,
         "h": 184
       },
       "design:com.example.spring.service.OrderService.findByCustomer(Long)": {
         "x": 2147,
         "y": 1132,
-        "parent": "9316ba5c-153b-48c4-a145-53f6e244823e",
+        "parent": "95ff4fd1-fe22-4838-90a1-797d3dab684a",
         "w": 250,
         "h": 184
       }
@@ -120,21 +153,21 @@
     "after": {
       "design:com.example.audit": {
         "x": 824.0862542955326,
-        "y": 74.26817010309276,
+        "y": 89.80184707903777,
         "parent": null,
         "w": 254,
         "h": 682
       },
       "design:com.example.audit.AuditLog": {
         "x": 824.0862542955326,
-        "y": -161.73182989690724,
+        "y": -146.19815292096223,
         "parent": "design:com.example.audit",
         "w": 250,
         "h": 206
       },
       "design:com.example.audit.AuditQuery": {
         "x": 824.0862542955326,
-        "y": 76.26817010309276,
+        "y": 91.80184707903777,
         "parent": "design:com.example.audit",
         "w": 250,
         "h": 206
@@ -142,32 +175,58 @@
       "design:com.example.spring.service.OrderService.complete(Long)": {
         "x": 2429,
         "y": 700,
-        "parent": "9316ba5c-153b-48c4-a145-53f6e244823e",
+        "parent": "95ff4fd1-fe22-4838-90a1-797d3dab684a",
         "w": 250,
         "h": 184
       },
       "design:com.example.spring.service.OrderService.findByCustomer(Long)": {
         "x": 2147,
         "y": 1132,
-        "parent": "9316ba5c-153b-48c4-a145-53f6e244823e",
+        "parent": "95ff4fd1-fe22-4838-90a1-797d3dab684a",
         "w": 250,
         "h": 184
       }
     },
     "arrangedBoxes": {
       "design:com.example.audit": null,
-      "9316ba5c-153b-48c4-a145-53f6e244823e": {
+      "95ff4fd1-fe22-4838-90a1-797d3dab684a": {
         "x": 1622,
         "y": 340
       }
     }
   },
-  "promptBytes": 4254,
-  "briefBytes": 83107,
+  "promptBytes": 1332,
+  "fileActions": {
+    "actions": {
+      "left": 1052.515625,
+      "top": 908,
+      "width": 147.484375,
+      "height": 32,
+      "x": 1126.2578125,
+      "y": 924
+    },
+    "zoom": {
+      "left": 963.421875,
+      "top": 838.5,
+      "width": 238.578125,
+      "height": 37.5,
+      "x": 1082.7109375,
+      "y": 857.25
+    },
+    "prompt": {
+      "left": 515.75,
+      "top": 263.9375,
+      "width": 64.6875,
+      "height": 36,
+      "x": 548.09375,
+      "y": 281.9375
+    }
+  },
+  "briefBytes": 83657,
   "imported": {
     "position": {
       "x": 824.0862542955326,
-      "y": 74.26817010309276
+      "y": 89.80184707903777
     },
     "missing": [
       "design:com.example.spring.service",
@@ -189,6 +248,24 @@
       "design:com.example.spring.service.OrderService.findById(Long)"
     ],
     "status": "Imported 79 new and 0 updated resources, 117 relations (74 not found in this code)23 unresolved external targets0 explained · 0 queued · 0 failed✧ Explain all"
+  },
+  "designOnlyImport": {
+    "cards": 20,
+    "extra": [],
+    "diffs": [],
+    "project": {
+      "summary": "spring-project19 types across 6 packagesDesign only · no source folder",
+      "changes": true,
+      "design": "true"
+    },
+    "look": {
+      "serviceDesignOnly": false,
+      "serviceBorder": "rgb(22,136,138)",
+      "serviceExpanded": true,
+      "auditDesignOnly": true,
+      "plain": 26,
+      "designed": 2
+    }
   },
   "pageErrors": []
 }

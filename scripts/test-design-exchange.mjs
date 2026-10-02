@@ -60,4 +60,23 @@ assert.notEqual(lv.positions.b1,layout.positions['com.acme'],'coordinates are co
 const narrow=applyLayout(view(level({displayedIds:[],positions:{}})),layout,target);
 assert.deepEqual(narrow.levelViews.PACKAGE.expansions,{});
 assert.ok(!isMapLayout(null)&&!isMapLayout({version:2})&&!isMapLayout('x'));
+// ADR 0016: a design-only project has no parsed code. Every card is a design card (imported references and
+// planned ones alike); the exported layout re-applies by key, so the map comes back exactly as it was.
+const designOnly={nodes:[
+  {id:'design:com.acme',kind:'PACKAGE',simpleName:'com.acme',qualifiedName:'com.acme',design:{key:'com.acme',origin:'CODE'}},
+  {id:'design:com.acme.Svc',kind:'CLASS',simpleName:'Svc',qualifiedName:'com.acme.Svc',parentId:'design:com.acme',design:{key:'com.acme.Svc',origin:'CODE'}},
+  {id:'design:com.acme.Svc.run()',kind:'METHOD',simpleName:'run()',qualifiedName:'com.acme.Svc.run()',parentId:'design:com.acme.Svc',design:{key:'com.acme.Svc.run()',origin:'CODE'}},
+  {id:'design:com.acme.Planned',kind:'CLASS',simpleName:'Planned',qualifiedName:'com.acme.Planned',parentId:'design:com.acme',design:{key:'com.acme.Planned',origin:'AUTHORED'}},
+  {id:'design:com.other',kind:'PACKAGE',simpleName:'com.other',qualifiedName:'com.other',design:{key:'com.other',origin:'CODE'}},
+],edges:[]};
+const fresh=view(level({displayedIds:['design:com.acme','design:com.other'],positions:{'design:com.acme':{x:0,y:0},'design:com.other':{x:0,y:400}}}));
+const whole=captureLayout(sourceView,{mode:'ALL',selectedPackageIds:new Set(),selectedClassIds:new Set()},'ALL',source);
+const rebuilt=applyLayout(fresh,whole,designOnly).levelViews.PACKAGE;
+assert.deepEqual(rebuilt.positions,{'design:com.acme':{x:10,y:20},'design:com.other':{x:500,y:20}},'top-level cards land where they were exported');
+assert.deepEqual(rebuilt.expansions['design:com.acme'].childPositions,{'design:com.acme.Svc':{x:30,y:40},'design:com.acme.Planned':{x:300,y:40}});
+assert.deepEqual(rebuilt.expansions['design:com.acme.Svc'],{ownerId:'design:com.acme',childPositions:{'design:com.acme.Svc.run()':{x:35,y:45}},minSize:null,hidden:true});
+assert.deepEqual(rebuilt.sizes,{'design:com.acme.Svc':{width:300,height:220}});
+assert.deepEqual(rebuilt.camera,{zoom:.8,pan:{x:5,y:6}});
+// Capturing the rebuilt map exports the same layout again (a round trip changes nothing).
+assert.deepEqual(captureLayout({...fresh,levelViews:{...fresh.levelViews,PACKAGE:rebuilt}},{mode:'ALL',selectedPackageIds:new Set(),selectedClassIds:new Set()},'ALL',designOnly),whole);
 console.log('design exchange tests passed');

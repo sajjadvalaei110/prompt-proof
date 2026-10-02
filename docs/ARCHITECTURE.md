@@ -354,7 +354,8 @@ an inactive workspace.
                ├─> POST /design/changes (atomic) ─┤
 [AI agent] ────┘    author recorded, no review    └─> POST /design/export     Markdown brief + json block
                                                       POST /design/import     upsert by key, never deletes
-                                                      GET  /design/prompt     designed work only (ADR 0015)
+                                                      GET  /design/prompt     plain request, outstanding work (ADR 0016)
+[First page] ── POST /api/workspaces/design-only ─> empty published snapshot, then /design/import (ADR 0016)
 ```
 
 - `design.DesignService` validates keys/kinds (`DesignKeys` mirrors `JavaParserAdapter` keys), applies
@@ -380,5 +381,17 @@ an inactive workspace.
     the toggle;
   - adapter: `GraphCanvas` only draws the slot, the handle, the rubber band (direction-overlay canvas, never a
     Cytoscape element) and the draft card.
-- `design.DesignPromptService` (`GET /design/prompt`) renders only the designed work as a prompt for a coding
-  agent: build, change existing code, relations with their semantics, verify, needs attention, report back.
+- `design.DesignPromptService` (`GET /design/prompt`) renders the outstanding designed work as a plain request
+  any coding agent can follow without knowing the tool (ADR 0016): **Add** (planned resources), **Change**
+  (intentions on existing code and on relations the code has), **Connect** (designed relations not yet in the
+  code). Implemented and orphaned items are left out.
+- ADR 0016:
+  - `design_relations.origin` (V015) separates designed relations (AUTHORED) from parsed dependencies carried
+    along (CODE: an explained relation the code has, or one imported from another map). CODE relations are
+    ordinary grey routes (`aggregateEdges` merges them with the parser route); imported resources the code lacks
+    are ordinary cards tagged "imported" (`isImported`).
+  - After any create, `DesignQuickPopup` asks for the intent then the kind (relations: at the route's middle);
+    double-click keeps the full `DesignPopover`.
+  - A design-only project (`trust_state = design_only`, `canonical_root = design-only:<id>`, one empty published
+    snapshot) holds a map imported from the first page; its layout becomes the first tab (`RESET` with a scope).
+    It is never analyzed and has no Changes.

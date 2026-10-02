@@ -89,3 +89,21 @@ console.log('nodeCard tests: PASS');
   assert.ok(svc.includes('fill="#16888a">I</text>'),'service interface: teal I');
 }
 console.log('node card: kind icons ok');
+// ADR 0016: an imported reference to code this project lacks looks like the original card (no design badge,
+// an "imported" note); a planned card keeps its PLANNED badge.
+{
+  const svgOf=n=>decodeURIComponent(nodeCard(n).image.split(',')[1]);
+  const base={id:'design:a.B',kind:'CLASS',simpleName:'B',qualifiedName:'a.B'};
+  const imported=svgOf({...base,design:{key:'a.B',origin:'CODE',status:'MISSING',explanation:''}});
+  assert.ok(!imported.includes('NOT IN CODE')&&imported.includes('· imported'),'an imported card has no design badge');
+  const planned=svgOf({...base,design:{key:'a.B',origin:'AUTHORED',status:'PLANNED',explanation:''}});
+  assert.ok(planned.includes('PLANNED')&&!planned.includes('imported'),'a planned card keeps its badge');
+}
+console.log('node card: imported cards ok');
+// Cytoscape element data has no `design` record: `noSource` keeps the code button off design-only cards.
+{
+  const {cornerButtons}=await import('data:text/javascript;base64,'+Buffer.from(compiled).toString('base64'));
+  assert.deepEqual(cornerButtons({id:'x',kind:'CLASS',simpleName:'X',noSource:true}).map(b=>b.action),[]);
+  assert.deepEqual(cornerButtons({id:'x',kind:'CLASS',simpleName:'X'}).map(b=>b.action),['code']);
+}
+console.log('node card: no source button without source ok');

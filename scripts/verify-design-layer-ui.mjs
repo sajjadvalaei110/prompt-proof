@@ -50,6 +50,15 @@ const rectOf=selector=>evaluate(`(()=>{const el=document.querySelector(${q(selec
 const toModel=p=>evaluate(`(()=>{const cy=${CY},r=document.querySelector('.graph-canvas').getBoundingClientRect();return {x:(${p.x}-r.left-cy.pan().x)/cy.zoom(),y:(${p.y}-r.top-cy.pan().y)/cy.zoom()};})()`);
 const designOverlay=async()=>(await (await fetch(`${base}/api/workspaces/${wsA}/design`)).json());
 const draftFocused=()=>evaluate(`document.activeElement?.matches('.design-draft-card input')===true`);
+// ADR 0016: right after a create, the quick popup asks for the intent (focused), then the kind; no modal.
+const quickPopup=async label=>{
+  await until(`!!document.querySelector('.design-quick-popup input')`,'quick popup after '+label);
+  assert.equal(await evaluate(`document.activeElement?.matches('.design-quick-popup input')===true`),true,'the intent field is focused after '+label);
+  assert.equal(await evaluate(`!!document.querySelector('dialog[open]')||!!document.querySelector('.design-popover')`),false,'no dialog or full popover after '+label);
+  return rectOf('.design-quick-popup');
+};
+const quickKinds=()=>evaluate(`[...document.querySelectorAll('.design-quick-popup select option')].map(o=>o.value)`);
+const pressEnterOnKind=async kind=>{await fill('.design-quick-popup select',kind);await evaluate(`document.querySelector('.design-quick-popup select').focus(),true`);await enter();};
 /** Hover an expanded box (its top-left padding), then click its "+" slot; returns the slot's model center. */
 async function openSlot(boxId,label){
   // Bring the box to the middle of the canvas so its slot is not under the minimap or legend.
@@ -95,6 +104,16 @@ assert.equal(results.plannedPackage.border,'dashed','a planned card is drawn das
 const landed=await evaluate(`(()=>{const cy=${CY},bb=cy.getElementById('design:com.example.audit').renderedBoundingBox({includeLabels:false,includeOverlays:false}),r=document.querySelector('.graph-canvas').getBoundingClientRect();return {x:r.left+(bb.x1+bb.x2)/2,y:r.top+(bb.y1+bb.y2)/2};})()`);
 results.packageLanding={draft:{x:packageDraft.left+packageDraft.width/2,y:packageDraft.top+packageDraft.height/2},card:landed};
 assert.ok(Math.abs(landed.x-results.packageLanding.draft.x)<40&&Math.abs(landed.y-results.packageLanding.draft.y)<40,'the package lands where it was typed: '+JSON.stringify(results.packageLanding));
+// The quick popup: intent only (a package has one kind), next to the new card.
+const pkgQuick=await quickPopup('a new package');
+assert.deepEqual(await quickKinds(),[],'a package offers no kind choice');
+results.packageQuickPopup={popup:pkgQuick,draft:packageDraft};
+assert.ok(Math.abs(pkgQuick.left-(packageDraft.left+packageDraft.width))<60,'the popup sits next to the new card: '+JSON.stringify(results.packageQuickPopup));
+await typeText('Audit trail for order changes.');
+await shot('02b-quick-popup-package');
+await enter();
+await until(`!document.querySelector('.design-quick-popup')`,'quick popup closes on Enter');
+await until(`${CY}.getElementById('design:com.example.audit').data('responsibilitySummary')==='Audit trail for order changes.'`,'quick intent saved');
 
 // 1b. Double-click in design mode: the explanation popover, intent first (not an arrangement).
 await evaluate(`window.__arranged=0;${CY}.on('arranged',()=>{window.__arranged++;}),true`);
@@ -120,6 +139,13 @@ await until(`!!document.querySelector('.design-draft-card input')`,'inline class
 assert.equal(await draftFocused(),true);
 await typeText('AuditLog');await enter();
 await until(`!document.querySelector('.design-draft-card')`,'class saved');
+// Intent, then kind: an interface. Enter on the kind saves both in one change set.
+await quickPopup('a new class');
+assert.deepEqual(await quickKinds(),['CLASS','INTERFACE','ENUM','RECORD','ANNOTATION']);
+await typeText('Append-only store of audit entries.');
+await pressEnterOnKind('INTERFACE');
+await until(`!document.querySelector('.design-quick-popup')`,'class quick popup saved');
+{const r=(await designOverlay()).resources.find(r=>r.key==='com.example.audit.AuditLog');results.quickClass={kind:r.kind,intent:r.intent};assert.equal(r.kind,'INTERFACE');assert.equal(r.intent,'Append-only store of audit entries.');}
 await until(`!!document.querySelector('button[aria-label="Show types inside com.example.audit"]')`,'planned package can expand');
 await evaluate(`document.querySelector('button[aria-label="Show types inside com.example.audit"]').click()`);
 await until(`${CY}.getElementById('design:com.example.audit.AuditLog').length>0`,'planned class inside planned package');
@@ -133,6 +159,11 @@ await typeText('AuditQuery');
 await shot('04-slot-class-draft');
 await enter();
 await until(`${CY}.getElementById('design:com.example.audit.AuditQuery').length>0`,'class added in the slot');
+// Esc on the quick popup saves nothing and keeps the class.
+await quickPopup('a slot class');
+await typeText('not saved');await escape();
+await until(`!document.querySelector('.design-quick-popup')`,'Esc closes the quick popup');
+assert.equal((await designOverlay()).resources.find(r=>r.key==='com.example.audit.AuditQuery').explanation,'','Esc on the quick popup saves nothing');
 results.slotLanding={slot:auditSlot.center,card:await evaluate(`(()=>{const p=${CY}.getElementById('design:com.example.audit.AuditQuery').position();return {x:p.x,y:p.y};})()`)};
 assert.ok(Math.abs(results.slotLanding.slot.x-results.slotLanding.card.x)<2&&Math.abs(results.slotLanding.slot.y-results.slotLanding.card.y)<2,'the new class lands exactly in the slot: '+JSON.stringify(results.slotLanding));
 assert.equal(await evaluate(`${CY}.getElementById('design:com.example.audit.AuditQuery').parent().id()`),'design:com.example.audit');
@@ -210,6 +241,11 @@ const methodRow=(await designOverlay()).resources.find(r=>r.key===methodKey);
 assert.deepEqual(methodRow.parameterTypes,['Long'],'parameter types parsed from name(Long customerId)');
 assert.equal(methodRow.kind,'METHOD');
 assert.equal(await evaluate(`${CY}.getElementById(${q('design:'+methodKey)}).parent().id()`),orderServiceId,'drawn inside its class');
+await quickPopup('a new method');
+assert.deepEqual(await quickKinds(),[],'a method offers no kind choice');
+await typeText('Lists the orders of one customer.');await enter();
+await until(`!document.querySelector('.design-quick-popup')`,'method quick popup saved');
+assert.equal((await designOverlay()).resources.find(r=>r.key===methodKey).intent,'Lists the orders of one customer.');
 
 // 4c. Two-click relation: hover a card, click its handle, a dashed line follows the pointer, click the target.
 const queryId='design:com.example.audit.AuditQuery',logId='design:com.example.audit.AuditLog';
@@ -237,18 +273,20 @@ assert.ok(Math.abs(results.rubberBand.to.x+canvasRect.left-mid.x)<2&&Math.abs(re
 const cyEdgesBefore=await evaluate(`${CY}.edges().length+${CY}.nodes().length`);
 await shot('10-rubber-band');
 assert.equal(await evaluate(`${CY}.edges().length+${CY}.nodes().length`),cyEdgesBefore,'no Cytoscape elements for the rubber band');
+const ends={from:await cardPoint(queryId),to:logCenter};
 await clickAt(logCenter.x,logCenter.y);
-await until(`!!document.querySelector('.design-popover select')`,'relation popover after the second click');
-results.newRelation={kind:await evaluate(`document.querySelector('.design-popover select').value`),title:await evaluate(`document.querySelector('.design-popover header strong').textContent`)};
-assert.equal(results.newRelation.kind,'USES_TYPE','class -> class starts as uses type');
-assert.ok((await designOverlay()).relations.some(r=>r.sourceKey==='com.example.audit.AuditQuery'&&r.targetKey==='com.example.audit.AuditLog'&&r.kind==='USES_TYPE'),'created on the second click');
-await fill('.design-popover select','CALLS');
-await fill('.design-popover input','Queries read the audit log.');
-await shot('11-relation-popover');
-await clickText('.design-popover button','Save');
-await until(`!document.querySelector('.design-popover')`,'relation popover saved');
+// ADR 0016: the quick popup opens at the relation's middle, intent focused, kind CALLS.
+const relQuick=await quickPopup('a two-click relation');
+results.newRelation={kind:await evaluate(`document.querySelector('.design-quick-popup select').value`),popup:relQuick,middle:{x:(ends.from.x+ends.to.x)/2,y:(ends.from.y+ends.to.y)/2}};
+assert.equal(results.newRelation.kind,'CALLS','a two-click relation starts as CALLS');
+assert.ok(Math.abs(relQuick.x-results.newRelation.middle.x)<4&&Math.abs(relQuick.y-results.newRelation.middle.y)<4,'the popup is centred on the relation middle: '+JSON.stringify(results.newRelation));
+assert.ok((await designOverlay()).relations.some(r=>r.sourceKey==='com.example.audit.AuditQuery'&&r.targetKey==='com.example.audit.AuditLog'&&r.kind==='CALLS'),'created on the second click');
+await typeText('Queries read the audit log.');
+await shot('11-relation-quick-popup');
+await enter();
+await until(`!document.querySelector('.design-quick-popup')`,'relation quick popup saved');
 const rels=(await designOverlay()).relations.filter(r=>r.sourceKey==='com.example.audit.AuditQuery');
-assert.deepEqual(rels.map(r=>[r.kind,r.explanation]),[['CALLS','Queries read the audit log.']],'kind changed in the popover replaces the relation');
+assert.deepEqual(rels.map(r=>[r.kind,r.explanation]),[['CALLS','Queries read the audit log.']],'intent saved on the CALLS relation');
 // Esc cancels a pending relation.
 await mouse('mouseMoved',queryCenter.x,queryCenter.y);
 await until(`!!document.querySelector('.design-link-handle')`,'handle again');
@@ -299,12 +337,19 @@ await clickText('.design-controls button','Prompt');
 await until(`!!document.querySelector('dialog.design-prompt-dialog[open] textarea')?.value`,'prompt dialog');
 const prompt=await evaluate(`document.querySelector('dialog.design-prompt-dialog textarea').value`);
 await fs.writeFile(`${outDir}/design-prompt.md`,prompt);
-for(const s of ['## Report back','`com.example.audit.AuditQuery` -CALLS-> `com.example.audit.AuditLog`','means: the engineer wants A, or code inside A, to do KIND to B','> Queries read the audit log.',
-  'class `com.example.spring.service.OrderService`','> Owns the order lifecycle from creation to completion.','`'+methodKey+'`','## 2. Change existing code'])
-  assert.ok(prompt.includes(s),'prompt contains '+s);
-for(const s of ['UserServiceImpl','PaymentService','codeatlas-design','```json'])
+// ADR 0016: a plain request. Add / Change / Connect, each with its intention; nothing about this tool.
+for(const s of ['## Add','## Change','## Connect',
+  'Add a package `com.example.audit`. Purpose: Audit trail for order changes.','   Every state change of an order is recorded once, append-only.',
+  'Add an interface `AuditLog` in package `com.example.audit`. Purpose: Append-only store of audit entries.',
+  'Add a class `AuditQuery` in package `com.example.audit`.',
+  '`findByCustomer(Long)` to class `OrderService` (package `com.example.spring.service`). Purpose: Lists the orders of one customer.',
+  'Change class `OrderService`, in package `com.example.spring.service`. What should change: Owns the order lifecycle from creation to completion.',
+  'Class `AuditQuery` (new) should call interface `AuditLog` (new). Reason: Queries read the audit log.',
+  'Class `OrderService` should call interface `AuditLog` (new). Reason: Each completed order is appended to the audit trail.'])
+  assert.ok(prompt.includes(s),'prompt contains '+s+'\n'+prompt);
+for(const s of ['Code Atlas','127.0.0.1','/api/','design layer','PLANNED','IMPLEMENTED','key','UserServiceImpl','PaymentService','codeatlas-design','```json','Report back'])
   assert.ok(!prompt.includes(s),'prompt leaves out '+s);
-assert.ok(prompt.indexOf('Owns the order lifecycle')>prompt.indexOf('## 2. Change existing code'),'the intention on parsed code is a requested change');
+assert.ok(prompt.indexOf('Owns the order lifecycle')>prompt.indexOf('## Change'),'the intention on parsed code is a requested change');
 results.promptBytes=prompt.length;
 await shot('14-prompt-dialog');
 await clickText('dialog.design-prompt-dialog button','Done');
@@ -315,9 +360,18 @@ await evaluate(`[...document.querySelectorAll('.journey-history button')].find(b
 await pause(600);
 assert.equal((await (await fetch(`${base}/api/workspaces/${wsA}/design`)).json()).resources.length>=4,true,'undo does not reverse design edits');
 
-// 5. Export the brief from the toolbar.
+// 5. Export from the bottom right of the map: Import and Export sit under Fit map / Full screen; Prompt stays on top.
+results.fileActions={actions:await rectOf('.map-file-actions'),zoom:await rectOf('.zoom-controls'),prompt:await rectOf('.design-controls .design-prompt-button')};
+assert.ok(results.fileActions.actions.top>=results.fileActions.zoom.top+results.fileActions.zoom.height-1,'Import/Export sit below the map controls: '+JSON.stringify(results.fileActions));
+assert.ok(Math.abs((results.fileActions.actions.left+results.fileActions.actions.width)-(results.fileActions.zoom.left+results.fileActions.zoom.width))<40,'right-aligned under them');
+assert.equal(await evaluate(`[...document.querySelectorAll('.design-controls button,.design-controls label')].some(b=>/Export|Import/.test(b.textContent))`),false,'no Import/Export at the top');
+assert.ok(results.fileActions.prompt&&results.fileActions.prompt.top<results.fileActions.zoom.top,'Prompt stays at the top');
+await shot('15-file-actions');
 const packagePosition=await evaluate(`(()=>{const p=${CY}.getElementById('design:com.example.audit').position();return {x:p.x,y:p.y};})()`);
-await clickText('.design-controls button','Export');
+// Every drawn card by key, to compare with the design-only project the export opens as (7, below).
+const cardsByKey=()=>evaluate(`Object.fromEntries(${CY}.nodes().filter(n=>!n.data('hiddenBox')).map(n=>[n.data('qualifiedName'),{x:Math.round(n.position().x*100)/100,y:Math.round(n.position().y*100)/100,w:Math.round(n.width()),h:Math.round(n.height()),parent:n.parent().length?n.parent().data('qualifiedName'):null,name:n.data('simpleName'),roles:(n.data('roles')||[]).join(',')}]))`);
+const exportedCards=await cardsByKey();
+await clickText('.map-file-actions button','Export');
 let briefFile=null;
 for(let i=0;i<100&&!briefFile;i++){briefFile=(await fs.readdir(downloads)).find(f=>f.endsWith('-design-brief.md'));if(!briefFile)await pause(150);}
 assert.ok(briefFile,'export downloaded a design brief');
@@ -339,13 +393,42 @@ await until(`${CY}.getElementById('design:com.example.audit').length>0`,'importe
 results.imported=await evaluate(`(()=>{const cy=${CY};const n=cy.getElementById('design:com.example.audit');return {position:{x:n.position().x,y:n.position().y},missing:cy.nodes().filter(n=>n.id().startsWith('design:com.example.spring')).map(n=>n.id()),status:document.querySelector('.app-footer')?.textContent};})()`);
 assert.deepEqual(results.imported.position,packagePosition,'the imported layout keeps the card where it was exported');
 assert.ok(results.imported.missing.length>0,'parsed resources absent from this code come back as placeholders');
-await shot('15-imported-map-in-other-workspace');
+await shot('16-imported-map-in-other-workspace');
 const overlayB=await (await fetch(`${base}/api/workspaces/${wsB}/design`)).json();
 const byKey=Object.fromEntries(overlayB.resources.map(r=>[r.key,r]));
 assert.equal(byKey['com.example.spring.service.OrderService'].status,'MISSING');
 assert.ok(byKey['com.example.spring.service.OrderService'].explanation.includes('OrderCompleted'));
 assert.equal(byKey['com.example.audit.AuditLog'].status,'PLANNED');
 assert.ok(overlayB.relations.some(r=>r.targetKey==='com.example.audit.AuditLog'&&r.createdBy==='claude-code'));
+
+// 7. The first page's Import (ADR 0016): the export opens as a new design-only project, exactly as it was.
+await cdp('Page.navigate',{url:base+'/'});
+await until(`!!document.querySelector('.import-map-button input')`,'first page offers Import');
+await shot('17-first-page-import');
+{
+  const {root}=await cdp('DOM.getDocument',{depth:-1});
+  const {nodeId}=await cdp('DOM.querySelector',{nodeId:root.nodeId,selector:'.import-map-button input'});
+  await cdp('DOM.setFileInputFiles',{nodeId,files:[path.join(downloads,briefFile)]});
+}
+await until(`!!document.querySelector('.graph-canvas')?._cyreg?.cy && ${CY}.getElementById('design:com.example.audit').length>0`,'design-only project opened',300);
+await pause(1200);
+const importedCards=await cardsByKey();
+const diffs=Object.keys(exportedCards).filter(k=>JSON.stringify(exportedCards[k])!==JSON.stringify(importedCards[k])).map(k=>({key:k,exported:exportedCards[k],imported:importedCards[k]}));
+results.designOnlyImport={cards:Object.keys(exportedCards).length,extra:Object.keys(importedCards).filter(k=>!(k in exportedCards)),diffs:diffs.slice(0,10)};
+assert.equal(diffs.length,0,'every card comes back exactly as exported: '+JSON.stringify(results.designOnlyImport));
+assert.equal(results.designOnlyImport.extra.length,0,'and nothing else');
+const projectInfo=await evaluate(`({summary:document.querySelector('.workspace-summary')?.textContent,changes:document.querySelector('.review-toggle')?.disabled,design:document.querySelector('.design-toggle')?.getAttribute('aria-pressed')})`);
+results.designOnlyImport.project=projectInfo;
+assert.ok(projectInfo.summary.includes('Design only'),'the project says it has no source folder');
+assert.equal(projectInfo.changes,true,'Changes is off for a project with no code');
+assert.equal(projectInfo.design,'true','Design is on');
+// Imported code looks like the original: no design badge, ordinary grey routes; designed items stay violet.
+results.designOnlyImport.look=await evaluate(`(()=>{const cy=${CY};const svc=cy.nodes().filter(n=>n.data('qualifiedName')==='com.example.spring.service.OrderService')[0];return {serviceDesignOnly:svc.data('designOnly'),serviceBorder:svc.style('border-color'),serviceExpanded:!!svc.data('expanded'),auditDesignOnly:cy.getElementById('design:com.example.audit').data('designOnly'),plain:cy.edges().filter(e=>!e.data('designed')).length,designed:cy.edges().filter(e=>e.data('designed')).length};})()`);
+assert.equal(results.designOnlyImport.look.serviceDesignOnly,false,'an imported class is not drawn as a plan');
+assert.notEqual(results.designOnlyImport.look.serviceBorder.replace(/\s/g,''),'rgb(124,92,196)','not drawn in the violet design tone');
+assert.equal(results.designOnlyImport.look.auditDesignOnly,true,'a planned package is still a plan');
+assert.ok(results.designOnlyImport.look.plain>0&&results.designOnlyImport.look.designed>0,'imported dependencies are ordinary routes, designed ones violet: '+JSON.stringify(results.designOnlyImport.look));
+await shot('18-design-only-project');
 
 results.pageErrors=errors;
 await fs.writeFile(`${outDir}/report.json`,JSON.stringify(results,null,2));

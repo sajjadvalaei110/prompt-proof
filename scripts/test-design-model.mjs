@@ -10,7 +10,7 @@ const load=src=>import('data:text/javascript;base64,'+Buffer.from(src).toString(
 const design=await load(compile('../frontend/src/features/design/designModel.ts'));
 const stripLocalImport=(src,name)=>src.replace(new RegExp(`import \\{[^}]*\\} from ['"]\\./${name}['"];?\n?`),'');
 const graphModel=await load(stripLocalImport(compile('../frontend/src/features/explorer/scopeModel.ts'),'graphModel')+'\n'+stripLocalImport(compile('../frontend/src/features/explorer/graphModel.ts'),'scopeModel'));
-const {mergeDesignGraph,relationsOfRoute,childKey,childKindsFor,parseParameterTypes,intentOf,detailOf,isDesignOnly,keyOf,designNodeId,parseInlineName,defaultRelationKind,joinExplanation,createResourceOps,explainOps,relationOps}=design;
+const {mergeDesignGraph,relationsOfRoute,childKey,childKindsFor,parseParameterTypes,intentOf,detailOf,isDesignOnly,isImported,isDesignedRelation,keyOf,designNodeId,parseInlineName,defaultRelationKind,joinExplanation,createResourceOps,explainOps,relationOps}=design;
 const {projectDisplayed,childrenOf,wholeSystemScope,getEligibleIds}=graphModel;
 
 const graph={nodes:[
@@ -103,14 +103,8 @@ assert.equal(typeof parseInlineName('com.acme.Refunds','CLASS'),'string','a type
 assert.deepEqual(parseInlineName('com.acme.billing','PACKAGE'),{name:'com.acme.billing',kind:'PACKAGE',parameterTypes:[]});
 assert.equal(typeof parseInlineName('com..billing','PACKAGE'),'string');
 // Default relation kinds from the endpoints.
-assert.equal(defaultRelationKind('METHOD','METHOD'),'CALLS');
-assert.equal(defaultRelationKind('METHOD','CONSTRUCTOR'),'CALLS');
-assert.equal(defaultRelationKind('CLASS','INTERFACE'),'IMPLEMENTS');
-assert.equal(defaultRelationKind('INTERFACE','INTERFACE'),'EXTENDS');
-assert.equal(defaultRelationKind('CLASS','CLASS'),'USES_TYPE');
-assert.equal(defaultRelationKind('METHOD','CLASS'),'USES_TYPE');
-assert.equal(defaultRelationKind('PACKAGE','CLASS'),'DEPENDS_ON');
-assert.equal(defaultRelationKind('CLASS','METHOD'),'CALLS');
+// ADR 0016: a two-click relation is always CALLS until the quick popup changes it.
+for(const [a,b] of [['METHOD','METHOD'],['CLASS','INTERFACE'],['CLASS','CLASS'],['PACKAGE','CLASS'],['PACKAGE','PACKAGE']])assert.equal(defaultRelationKind(a,b),'CALLS');
 // Explanation join is the inverse of intentOf/detailOf.
 const joined=joinExplanation(' Issues  invoices. ','Idempotent.\n\nRetries.');
 assert.equal(intentOf(joined),'Issues invoices.');assert.equal(detailOf(joined),'Idempotent.\n\nRetries.');
@@ -125,4 +119,34 @@ assert.deepEqual(explainOps(authoredCard,'Why.'),[{op:'updateResource',key:'com.
 assert.deepEqual(relationOps('A','B','CALLS','x'),[{op:'putRelation',sourceKey:'A',targetKey:'B',kind:'CALLS',explanation:'x'}]);
 assert.deepEqual(relationOps('A','B','INJECTS','x','CALLS').map(o=>o.op),['deleteRelation','putRelation']);
 assert.equal(relationOps('A','B','CALLS','x','CALLS').length,1);
+// ADR 0016: a parsed dependency carried along (origin CODE) is an ordinary route. Explained on code the map
+// has, it merges with the parser's route; imported between cards the code lacks, it is a grey route between
+// imported cards, which are drawn like the original and are not designed work.
+const carriedOverlay={...overlay,resources:[
+  ...overlay.resources,
+  {...base,id:'i1',key:'com.other',kind:'PACKAGE',name:'com.other',parentKey:null,origin:'CODE',status:'MISSING',explanation:'',intent:''},
+  {...base,id:'i2',key:'com.other.Repo',kind:'CLASS',name:'Repo',parentKey:'com.other',origin:'CODE',status:'MISSING',explanation:'',intent:'',roles:['REPOSITORY']},
+  {...base,id:'i3',key:'com.other.Repo.find(Long)',kind:'METHOD',name:'find',parentKey:'com.other.Repo',parameterTypes:['Long'],origin:'CODE',status:'MISSING',explanation:'',intent:''},
+],relations:[
+  {...base,id:'k1',sourceKey:'com.acme.web.OrderController',targetKey:'com.acme.orders.OrderService',kind:'CALLS',resolution:'CODE',origin:'CODE',status:'PRESENT',explanation:'Validate first.',intent:'Validate first.',sourceCodeId:'w',targetCodeId:'c'},
+  {...base,id:'k2',sourceKey:'com.acme.orders.OrderService',targetKey:'com.other.Repo',kind:'USES_TYPE',resolution:'CODE',origin:'CODE',status:'MISSING',explanation:'',intent:'',sourceCodeId:'c'},
+  {...base,id:'k3',sourceKey:'com.acme.orders.OrderService',targetKey:'com.other.Repo',kind:'CALLS',resolution:'DESIGNED',origin:'AUTHORED',status:'PLANNED',explanation:'',intent:'',sourceCodeId:'c'},
+]};
+const carried=mergeDesignGraph(graph,carriedOverlay);
+const repo=carried.nodes.find(n=>n.id===designNodeId('com.other.Repo'));
+assert.ok(isImported(repo)&&isDesignOnly(repo),'an imported reference is design-only data drawn as imported code');
+assert.deepEqual(repo.roles,['REPOSITORY'],'an imported card keeps its Spring roles');
+assert.equal(carried.nodes.find(n=>n.id===designNodeId('com.other.Repo.find(Long)')).simpleName,'find','an imported member is named as the parser names it');
+assert.equal(carried.nodes.find(n=>n.id===designNodeId('com.acme.orders.OrderService.cancel(OrderId,String)')).simpleName,'cancel(OrderId, String)','a planned member keeps its parameter types');
+assert.ok(!isImported(carried.nodes.find(n=>n.id===designNodeId('com.acme.billing'))),'a planned card is not imported');
+const k1=carried.edges.find(e=>e.id==='design-rel:k1'),k3=carried.edges.find(e=>e.id==='design-rel:k3');
+assert.equal(k1.resolution,'CODE');assert.ok(!isDesignedRelation(k1));assert.ok(isDesignedRelation(k3));
+const routes=projectDisplayed(carried,'PACKAGE',['p','q',designNodeId('com.other')],'ALL').edges;
+const qp=routes.filter(r=>r.sourceId==='q'&&r.targetId==='p');
+assert.equal(qp.length,1,'an explained parsed relation merges with the parser route');
+assert.ok(qp[0].occurrenceIds.includes('design-rel:k1')&&qp[0].occurrenceIds.includes('e1'));
+assert.equal(qp[0].resolution,'RESOLVED','a carried relation never worsens the resolution');
+const toOther=routes.filter(r=>r.sourceId==='p'&&r.targetId===designNodeId('com.other'));
+assert.equal(toOther.length,2,'the carried dependency and the designed relation stay separate routes');
+assert.equal(toOther.filter(r=>isDesignedRelation(r)).length,1);
 console.log('design model tests passed');

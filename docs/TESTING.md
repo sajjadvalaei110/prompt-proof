@@ -786,6 +786,32 @@ under a colour-vision deficiency (WCAG 2.1 SC 1.4.1). The suite asserts all thre
 - Screenshots: `docs/evidence/design-layer-ux/`. The git-review, ungroup, change-edges and stable-graph browser
   scripts start with Design off, because they pin the Design-off contract.
 
+### Quick intent popup, plain prompt, design-only projects (ADR 0016)
+
+- Backend (`DesignLayerIntegrationTest`):
+  - `promptIsAPlainRequestForOutstandingWork`: Add / Change / Connect lines with their wording; an explained
+    parsed relation is stored with origin CODE and appears under Change; nothing about the tool, keys,
+    statuses or the API; implemented and orphaned items are left out.
+  - `designOnlyProjectHoldsAnImportedMap`: `POST /api/workspaces/design-only` gives an empty published
+    snapshot whose graph loads; analysis is a 400; an imported brief stores parsed dependencies as CODE
+    (MISSING, resolution CODE) and designed ones as AUTHORED; only designed work reaches the prompt; a
+    re-export keeps `layer: CODE`; the workspace list says `designOnly`.
+  - `authoringAtEveryLevelComputesStatusAgainstTheCode` now expects an explained parsed relation as CODE/PRESENT.
+- Pure:
+  - `test-design-model.mjs`: two-click relations are always CALLS; CODE relations merge with the parser route
+    and never worsen its resolution, designed ones stay apart; imported cards are `isImported`.
+  - `test-design-exchange.mjs`: an exported layout re-applies by key onto a design-only graph (all `design:`
+    IDs) with identical positions, expansions, sizes and camera, and captures back to the same layout.
+  - `test-node-card.mjs`: imported cards have no design badge and say "imported"; `noSource` hides the code button.
+- Browser (`verify_design_layer_pipeline.py`):
+  - the quick popup follows a new package (no kind), a class (kind INTERFACE saved with the intent in one
+    set), a method (no kind) and a two-click relation (CALLS, centred on the relation's middle), always with
+    the intent focused and no dialog; Esc saves nothing;
+  - Import/Export sit under the zoom controls, right-aligned; Prompt stays at the top;
+  - the Prompt has the plain Add / Change / Connect lines and none of the product words;
+  - first-page Import opens the export as a design-only project: every card at identical position, size and
+    parent, nothing extra, Changes disabled, Design on, imported code not violet, routes grey.
+
 ## 9. On linting
 
 There is deliberately no lint step. `frontend/package.json` previously declared
