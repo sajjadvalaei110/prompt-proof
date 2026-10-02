@@ -462,6 +462,35 @@ await shot('05-planned-package-and-classes');
   await until(`document.querySelectorAll('.journey-tab').length===${tabCount}`,'clone closed');
   await until(`document.getElementById(${q(originalTab)})?.getAttribute('aria-selected')==='true'`,'original tab shown');
   await pause(400);
+  // Review F27(5): dragging a child opens new free space; a hover there offers a block and the class made in
+  // it takes the block's exact shape, with no sibling overlapped.
+  {
+    await focusNotes();
+    await mouse('mouseMoved',5,5);await pause(300);
+    const z=await evaluate(`${CY}.zoom()`);
+    const from=await cardPoint(indexId,.3,.6);
+    await mouse('mouseMoved',from.x,from.y);await mouse('mousePressed',from.x,from.y);
+    for(let i=1;i<=8;i++)await mouse('mouseMoved',from.x+300*z*i/8,from.y,{buttons:1});
+    await mouse('mouseReleased',from.x+300*z,from.y);
+    await pause(800);
+    const area=await areaOf(notesId),moved=area.children.find(c=>c.x1>area.inner.x1+200);
+    assert.ok(moved,'NoteIndex was dragged right inside the package: '+JSON.stringify(area));
+    // The middle of the space the drag opened (its bottom-left corner can sit under the minimap).
+    const opened={x:(area.inner.x1+moved.x1-32)/2,y:(moved.y1+moved.y2)/2};
+    const block=await hoverBlock(notesId,opened);
+    assert.ok(block&&block.x1>=area.inner.x1-.01&&block.x2<=moved.x1-32+.01,'a block in the space the drag opened (hovered straight from the dragged card): '+JSON.stringify({block,moved,area,opened}));
+    {const c=await clientOfModel(opened);await clickAt(c.x,c.y);}
+    await until(`!!document.querySelector('.design-draft-card input')`,'draft in the opened space');
+    await typeText('NoteDraft');await enter();
+    const draftId='design:com.example.notes.NoteDraft';
+    await until(`${CY}.getElementById(${q(draftId)}).length>0`,'class in the opened space');
+    await quickPopup('the class in the opened space');await escape();
+    await until(`!document.querySelector('.design-quick-popup')`,'quick popup closed');
+    results.draggedGap=await assertShape(draftId,block,'a class in the space a drag opened');
+    assert.deepEqual(await topLevelOverlaps(),[],'no sibling overlapped after the drag and the create');
+    await mouse('mouseMoved',5,5);
+    await shot('05j-dragged-child-opens-a-block');
+  }
   await evaluate(`(()=>{const cy=${CY};cy.zoom(${camera0.zoom});cy.pan(${q(camera0.pan)});return true;})()`);
   await mouse('mouseMoved',5,5);await pause(500);
 }

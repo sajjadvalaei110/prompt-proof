@@ -851,6 +851,10 @@ under a colour-vision deficiency (WCAG 2.1 SC 1.4.1). The suite asserts all thre
     1 px, and so is the parked design class; the round trip adds no overlap, and Design on then shows a plain card.
     Negative control, one run: measured on the raw graph, `MarkerNote` stays 66 px off;
   - overlap checks run among siblings inside every container as well as on the map, with 1 px tolerance (F14).
+  - F27(5): NoteIndex is dragged 300 px right, a hover in the space it left (straight off the dragged card) offers a
+    block, and the class made there takes its exact shape, with no sibling overlapped;
+  - `test-expansion-layout.mjs`: `containerLabelLayout` leaves a label that fits unchanged, and otherwise keeps it
+    inside the box and 10 px clear of the corner squares.
 
 ### Quick intent popup, plain prompt, design-only projects (ADR 0016)
 

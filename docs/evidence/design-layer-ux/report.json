@@ -231,6 +231,20 @@
     "w": 250,
     "h": 172
   },
+  "draggedGap": {
+    "block": {
+      "x1": 2064,
+      "y1": 59.36434707903777,
+      "x2": 2314,
+      "y2": 231.36434707903777
+    },
+    "card": {
+      "x": 2064,
+      "y": 59.36434707903777,
+      "w": 250,
+      "h": 172
+    }
+  },
   "inspector": {
     "intent": "Owns the order lifecycle from creation to completion.",
     "detail": "Planned change: publish an OrderCompleted event instead of calling billing directly.",
@@ -252,8 +266,8 @@
       }
     ],
     "sizeBefore": {
-      "w": 919.9045513518909,
-      "h": 787.354551351891
+      "w": 919.0431558242285,
+      "h": 786.4931558242287
     }
   },
   "gapLanding": {
@@ -270,12 +284,12 @@
       "h": 206
     },
     "sizeBefore": {
-      "w": 919.9045513518909,
-      "h": 787.354551351891
+      "w": 919.0431558242285,
+      "h": 786.4931558242287
     },
     "sizeAfter": {
-      "w": 918.9542616325884,
-      "h": 786.7042616325881
+      "w": 919.8920200729904,
+      "h": 787.6420200729904
     },
     "gapsAfter": [
       {
@@ -320,14 +334,14 @@
     ]
   },
   "designedEdge": {
-    "id": "aggregate:[\"a999b5fa-4516-4ee9-8359-d9f29332fe9a\",\"design:com.example.audit.AuditLog\",\"DESIGN\"]",
+    "id": "aggregate:[\"46c5f581-5c34-43d3-b8fe-327ab48104c9\",\"design:com.example.audit.AuditLog\",\"DESIGN\"]",
     "style": "dashed",
     "color": "rgb(139,106,214)",
     "label": "✎ calls",
     "source": "OrderService",
     "target": "AuditLog"
   },
-  "edgeProvenance": "Written by claude-code · 2026-10-02 17:12:50",
+  "edgeProvenance": "Written by claude-code · 2026-10-02 20:48:51",
   "badNameError": "Write a method as name or name(Type, Type)",
   "methodLanding": {
     "block": {
@@ -407,7 +421,7 @@
         "h": 150
       },
       "design:com.example.notes.NoteIndex": {
-        "x": 3172.2,
+        "x": 3472.2,
         "y": 145.36434707903777,
         "parent": "design:com.example.notes",
         "w": 250,
@@ -420,31 +434,38 @@
         "w": 250,
         "h": 206
       },
+      "design:com.example.notes.NoteDraft": {
+        "x": 3181,
+        "y": 145.36434707903777,
+        "parent": "design:com.example.notes",
+        "w": 250,
+        "h": 172
+      },
       "design:com.example.spring.service.OrderAudit": {
         "x": 1837,
         "y": 1743,
-        "parent": "4f03bcdb-6848-4f37-adfc-e4926b7e29c7",
+        "parent": "a46cb82a-1d6a-46be-861d-f0c39be20365",
         "w": 250,
         "h": 206
       },
       "design:com.example.spring.service.OrderArchive": {
         "x": 2111,
         "y": 1743,
-        "parent": "4f03bcdb-6848-4f37-adfc-e4926b7e29c7",
+        "parent": "a46cb82a-1d6a-46be-861d-f0c39be20365",
         "w": 234,
         "h": 206
       },
       "design:com.example.spring.service.OrderService.complete(Long)": {
         "x": 2429,
         "y": 836,
-        "parent": "a999b5fa-4516-4ee9-8359-d9f29332fe9a",
+        "parent": "46c5f581-5c34-43d3-b8fe-327ab48104c9",
         "w": 250,
         "h": 184
       },
       "design:com.example.spring.service.OrderService.findByCustomer(Long)": {
         "x": 2132,
         "y": 1251,
-        "parent": "a999b5fa-4516-4ee9-8359-d9f29332fe9a",
+        "parent": "46c5f581-5c34-43d3-b8fe-327ab48104c9",
         "w": 220,
         "h": 150
       }
@@ -474,14 +495,14 @@
       "design:com.example.spring.service.OrderArchive": {
         "x": 2111,
         "y": 1743,
-        "parent": "4f03bcdb-6848-4f37-adfc-e4926b7e29c7",
+        "parent": "a46cb82a-1d6a-46be-861d-f0c39be20365",
         "w": 234,
         "h": 206
       },
       "design:com.example.spring.service.OrderAudit": {
         "x": 1837,
         "y": 1743,
-        "parent": "4f03bcdb-6848-4f37-adfc-e4926b7e29c7",
+        "parent": "a46cb82a-1d6a-46be-861d-f0c39be20365",
         "w": 250,
         "h": 206
       },
@@ -499,8 +520,15 @@
         "w": 220,
         "h": 150
       },
+      "design:com.example.notes.NoteDraft": {
+        "x": 3181,
+        "y": 145.36434707903777,
+        "parent": "design:com.example.notes",
+        "w": 250,
+        "h": 172
+      },
       "design:com.example.notes.NoteIndex": {
-        "x": 3172.2,
+        "x": 3472.2,
         "y": 145.36434707903777,
         "parent": "design:com.example.notes",
         "w": 250,
@@ -516,27 +544,27 @@
       "design:com.example.spring.service.OrderService.complete(Long)": {
         "x": 2429,
         "y": 836,
-        "parent": "a999b5fa-4516-4ee9-8359-d9f29332fe9a",
+        "parent": "46c5f581-5c34-43d3-b8fe-327ab48104c9",
         "w": 250,
         "h": 184
       },
       "design:com.example.spring.service.OrderService.findByCustomer(Long)": {
         "x": 2132,
         "y": 1251,
-        "parent": "a999b5fa-4516-4ee9-8359-d9f29332fe9a",
+        "parent": "46c5f581-5c34-43d3-b8fe-327ab48104c9",
         "w": 220,
         "h": 150
       }
     },
     "arrangedBoxes": {
       "design:com.example.audit": null,
-      "a999b5fa-4516-4ee9-8359-d9f29332fe9a": {
+      "46c5f581-5c34-43d3-b8fe-327ab48104c9": {
         "x": 1622,
         "y": 601
       }
     }
   },
-  "promptBytes": 1812,
+  "promptBytes": 1872,
   "fileActions": {
     "actions": {
       "left": 1052.515625,
@@ -563,7 +591,7 @@
       "y": 281.9375
     }
   },
-  "briefBytes": 88118,
+  "briefBytes": 88696,
   "imported": {
     "position": {
       "x": 824.0862542955326,
@@ -590,7 +618,7 @@
       "design:com.example.spring.service.OrderService.findByCustomer(Long)",
       "design:com.example.spring.service.OrderService.findById(Long)"
     ],
-    "status": "Imported 86 new and 0 updated resources, 117 relations (74 not found in this code)23 unresolved external targets0 explained · 0 queued · 0 failed✧ Explain all"
+    "status": "Imported 87 new and 0 updated resources, 117 relations (74 not found in this code)23 unresolved external targets0 explained · 0 queued · 0 failed✧ Explain all"
   },
   "emptyParsedDrag": {
     "zoom": 0.8,
@@ -769,11 +797,11 @@
     }
   },
   "designOnlyImport": {
-    "cards": 26,
+    "cards": 27,
     "extra": [],
     "diffs": [],
     "project": {
-      "summary": "spring-project23 types across 8 packagesDesign only · no source folder",
+      "summary": "spring-project24 types across 8 packagesDesign only · no source folder",
       "changes": true,
       "design": "true"
     },

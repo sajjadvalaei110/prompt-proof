@@ -110,6 +110,23 @@ Checks run (final jar, built after the last code change):
   - a CDP mouse move needs `button: 'left'` for a grip's pointer capture to hold;
   - a grip dragged off the canvas is unmounted, so the resize is done at zoom 0.5;
   - switching journey tabs mounts a new canvas, so the `arranged` listener is bound again.
+- Independent rerun by the coordinator on the final jar: design-layer PASS (`build/design-layer/run-g_h0hk7w`),
+  ungroup 33/33 (`run-wqru95sb`).
+- Follow-ups after that review (one commit):
+  - an expanded box's header label stops short of its corner squares and ellipsizes (pure
+    `containerLabelLayout`);
+  - F27(5): a browser step drags a child to open a block, and the class made there takes its exact shape;
+  - a card's `mouseout` no longer drops its box's hover block.
+
+  Rerun after them:
+  - `tsc -b --force` and build: PASS;
+  - all 18 node tests: PASS;
+  - `bootJar`: PASS;
+  - design-layer: PASS (`build/design-layer/run-iqyj8a3r`, evidence refreshed). The new and changed screenshots
+    were inspected: 05b, 05e, 05j and 16b;
+  - ungroup: 33/33 (`run-j5o_p0_i`);
+  - change-edges: PASS (`run-rhbib1yz`);
+  - git-review: PASS (`run-b7zrgtcn`). Its wide expanded labels are unchanged.
 - For verification only, a throwaway git worktree in the scratchpad checked that the first commit builds and
   passes on its own. It was removed; all work was done in the main checkout.
 

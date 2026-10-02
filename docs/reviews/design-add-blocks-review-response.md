@@ -50,7 +50,7 @@ Browser steps are those of `scripts/verify-design-layer-ui.mjs`. Its evidence is
 | 24 | **fixed** | Same change as F6: exact enumeration with deterministic tie-breaking, so no sort-order crossover remains. | Unit "the free rectangle is exact and stable" (`at(499.9)` vs `at(500.1)`) |
 | 25 | **fixed** | 2b asserts the reserve is exactly 220×150; 3b asserts the narrow card is 220–249 wide (measured 234). 2d and 2e assert the empty-box blocks are exactly 250×184 and 250×206. | browser |
 | 26 | **fixed** | 2e hovers clamp exactly at the inner corner (`x2 = inner.x2`, `y2 = inner.y2`), keep GAP beside a child, give none within GAP of a child or on the header band, and give a shorter block below a child. Unit tests cover corners and edges as well. | browser 2e; unit |
-| 27 | **partly fixed** | (1) Container resize, then add: done (2e). (2) Empty package: done (2e). (4) Undo/redo of an empty-box expansion: done (2e). (3) Changes mode with a childless expansion: covered by the pure projection test only; the design pipeline's fixtures have no Git history, so it is **deferred**. (5) Dragging children to make new gaps: not added as a browser step; the geometry is covered by the fuzz test. | as listed |
+| 27 | **fixed except (3)** | (1) Container resize, then add: done (2e). (2) Empty package: done (2e). (4) Undo/redo of an empty-box expansion: done (2e). (5) Dragging children to make new gaps: done (2e). NoteIndex is dragged 300 px right; a hover in the space it left, moving straight off the dragged card, offers a 250×172 block; NoteDraft takes exactly that shape, and no sibling overlaps (`05j-dragged-child-opens-a-block.png`). That step found a real ordering bug: a card's `mouseout`, firing after its box's `mousemove`, dropped the box's hover block. Now `mouseout` drops it only when leaving the node that owns it. (3) Changes mode with a childless expansion: covered by the pure projection test only; the design pipeline's fixtures have no Git history, so it is **deferred**. | as listed |
 | 28 | **fixed** | Documented in ADR 0017 §12. The card menu offers Collapse for a `drawnAsCard` card (`menuExpand`, `canToggle`). | Browser 6a (menu lists Collapse, no Ungroup, no Expand) |
 | 29 | **fixed (doc), reviewer's cause disputed** | See [F29](#f29). | Ungroup pipeline 33/33 on HEAD `1b52fae` (`build/ungroup/run-udjoru55`) and on the final jar (`run-ru8dkox1`) |
 | 30 | **fixed** | TESTING.md says 220×150 and has a new "Add-block review fixes" section. | — |
@@ -209,6 +209,13 @@ ARCHITECTURE §8.
 - A grip dragged off the canvas is unmounted. A real user who drags the grip past the canvas edge also ends the
   resize there; this is recorded as a limit.
 - Switching journey tabs mounts a new canvas, so test listeners are bound again.
+
+**Header labels ran under the corner squares** (coordinator follow-up, screenshot 05e).
+- `expansionLayout.containerLabelLayout` (pure) leaves a label that fits between the button bands unchanged.
+- Otherwise the label moves left by half the band and is limited to the space left of the squares; Cytoscape
+  ellipsizes the rest (`text-wrap: ellipsis`).
+- Pinned by `test-expansion-layout.mjs`. Wide ordinary boxes are unchanged in the ungroup, change-edges and
+  git-review screenshots (inspected).
 
 **Drawn compounds sit 2 px further out.** Where a card meets a user-resized inner edge, a drawn compound sits up to
 2 px further out than its model box. Cytoscape pads children's bounding boxes, which include their borders. The

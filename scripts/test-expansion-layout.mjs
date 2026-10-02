@@ -6,7 +6,7 @@ const require = createRequire(new URL('../frontend/package.json', import.meta.ur
 const ts = require('typescript');
 // Only type imports from graphPlacement.ts, which transpileModule elides.
 const compiled = ts.transpileModule(fs.readFileSync(new URL('../frontend/src/features/explorer/expansionLayout.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } }).outputText;
-const { layoutChildren, placeMissingChildren, containerBox, roomShifts, roomMoves, boxOfCard, designSlot, designBlocks, boxWithBlocks, freeRect, addBlockAt, blockStillOpen, emptyBoxCenter, emptyBoxAnchor, minSizeWithSlot, CONTAINER_PADDING: PAD } = await import('data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'));
+const { layoutChildren, placeMissingChildren, containerBox, roomShifts, roomMoves, boxOfCard, designSlot, designBlocks, boxWithBlocks, freeRect, addBlockAt, blockStillOpen, emptyBoxCenter, emptyBoxAnchor, containerLabelLayout, CONTAINER_BUTTON_BAND, CONTAINER_LABEL_UNLIMITED, minSizeWithSlot, CONTAINER_PADDING: PAD } = await import('data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'));
 // A single sibling with no one else to clamp against behaves exactly like the old single-card rule.
 const roomShift = (card, before, after) => roomShifts([card], before, after)[0];
 
@@ -468,4 +468,21 @@ const size = b => [b.x2 - b.x1, b.y2 - b.y1];
   assert.ok(r.gaps.length > 0 && hits > 0);
   console.log(`PASS: 100 children: designBlocks ${(t1 - t0).toFixed(1)} ms, 1000 addBlockAt ${(t2 - t1).toFixed(1)} ms (${hits} blocks) (F8)`);
   assert.ok(t1 - t0 < 200 && t2 - t1 < 200, 'fast enough for a render and for pointer moves');
+}
+
+// Coordinator follow-up: an expanded box's header label never runs under its corner squares.
+{
+  assert.equal(CONTAINER_BUTTON_BAND, 114, 'collapse, stack and Ungroup squares: 6 + 3 x 32 + 2 x 6');
+  const wide = containerLabelLayout(900, 'com.example.spring.service  ·  9 types');
+  assert.deepEqual(wide, { maxWidth: CONTAINER_LABEL_UNLIMITED, shiftX: 0 }, 'a label that fits between the bands is unchanged');
+  const empty = containerLabelLayout(342, 'com.example.notes  ·  0 types');
+  assert.deepEqual(empty, { maxWidth: 342 - 114 - 20, shiftX: -57 }, 'an empty box: moved left, limited to the space left of the squares');
+  // The limited label stays inside the box and 10 px clear of the squares, whatever the width.
+  for (const w of [250, 342, 500, 700]) {
+    const l = containerLabelLayout(w, 'x'.repeat(80));
+    const centre = w / 2 + l.shiftX;
+    assert.ok(centre + l.maxWidth / 2 <= w - CONTAINER_BUTTON_BAND - 10 + 1e-9 && centre - l.maxWidth / 2 >= 10 - 1e-9, JSON.stringify({ w, l }));
+  }
+  assert.equal(containerLabelLayout(100, 'long label here').maxWidth, 0, 'never negative');
+  console.log('PASS: an expanded box header label stops short of its corner squares');
 }

@@ -256,6 +256,15 @@ contract above.
 - It now carries `minSize` (`designExchange.captureLayout` / `applyLayout`), so a resized box comes back at its
   size, with the blocks its cards were made in.
 
+### 14. Header labels stop short of the corner squares
+
+- `containerLabelLayout` (pure) leaves an expanded box's header label as it was when it fits between the corner
+  squares' bands; wide boxes are unchanged.
+- Otherwise the label moves left by half the band and is limited to the space left of the squares. The renderer
+  ellipsizes the rest.
+- A card's `mouseout` drops the hover block only when it leaves the box that owns the block. A pointer moving
+  from a card onto its box's empty space keeps the block that space's `mousemove` set.
+
 ### Limits kept
 
 - The keyboard "Add …" (card menu) creates in the box's first gap; there is no keyboard way to pick another
@@ -279,8 +288,7 @@ contract above.
 - Cards created in reserves stack in a column at the box's left. Space beside them appears when the box
   is resized larger or a child is dragged, and a block can then be made anywhere in it.
 - A card made in a small space is smaller than a default card. It can be resized like any card.
-- An empty box's header label shares its width with the corner buttons, as in any narrow box. A long
-  name can run under them.
+- A narrow or empty box's header label is ellipsized before its corner buttons (Round 3, §14).
 - An empty box opened in design mode keeps its expansion when Design is turned off, but it is drawn as
   its card until Design is on again. It then reopens on its block, at the same corner. Meanwhile its card
   menu offers Collapse, which gives back the room its box took (Round 3, §12).

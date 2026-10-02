@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEve
 import cytoscape from 'cytoscape';
 import { AtlasNode, AtlasEdge, kindSummary, reviewRouteSummary } from './graphModel';
 import { nodeCard, DESIGN_TONE, cornerButtons, hasCodeButton, hasDetailsButton, CODE_BUTTON, MIN_CARD_SIZE, CornerAction, CardSize } from './nodeCard';
-import { ADD_BLOCK_SNAP, AddArea, Box, CONTAINER_BUTTON, CONTAINER_PADDING, addBlockAt, blockStillOpen, emptyBoxAnchor, emptyBoxCenter } from './expansionLayout';
+import { ADD_BLOCK_SNAP, AddArea, Box, CONTAINER_BUTTON, CONTAINER_LABEL_UNLIMITED, CONTAINER_PADDING, addBlockAt, blockStillOpen, containerLabelLayout, emptyBoxAnchor, emptyBoxCenter } from './expansionLayout';
 import { addSlotSizes } from './placementGeometry';
 import CodeButton from '../../components/CodeButton';
 import { REVIEW_CHANGE_PALETTE } from '../review/reviewPalette';
@@ -269,6 +269,8 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     const reviewLabel=reviewChange==='UNKNOWN'?' · NOT ANALYZED':reviewChange?` · ${reviewChange} +${n.reviewAddedLines||0} −${n.reviewRemovedLines||0}`:'';
     return {...rest,...(n.reviewChange?{reviewChange:n.reviewChange}:{}),expanded:!!n.expanded,hiddenBox:!!n.hiddenBox,emptyBox,drawnAsCard:!!n.drawnAsCard,designOnly:!!design&&!design.codeId&&design.origin!=='CODE',noSource:!!design&&!design.codeId,card:card.image,cardWidth:card.width,cardHeight:card.height,minW:min?.width||0,minH:min?.height||0,
       containerLabel:`${n.kind==='PACKAGE'?n.qualifiedName||n.simpleName:n.simpleName}  ·  ${childCounts.get(n.id)||0} ${childWord}${reviewLabel}`,
+      // An expanded box's label room is set from its drawn width by updateMap (containerLabelLayout).
+      labelMaxWidth:CONTAINER_LABEL_UNLIMITED,labelShiftX:0,
       label:n.simpleName+'\n'+(n.roles?.[0]?.toLowerCase().replaceAll('_',' ')||n.kind.toLowerCase()),color:n.kind==='PACKAGE'?'#6c79b6':n.roles?.includes('SERVICE')?'#16888a':n.roles?.includes('REPOSITORY')?'#6287c8':'#8293a8'};
   };
 
@@ -286,7 +288,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
         // user-resizable minimum box that grows to the right and down from its top-left corner.
         // An empty one (design mode, ADR 0017) has no children to wrap, so its reserve block is its size.
         { selector: 'node[?expanded][?emptyBox]', style: { width: 'data(minW)', height: 'data(minH)' } },
-        { selector: 'node[?expanded]', style: { 'background-image': 'none', 'background-color': '#f5f8fc', 'border-width': 2, 'border-style': 'dashed', label: 'data(containerLabel)', 'text-valign': 'top', 'text-halign': 'center', 'text-margin-y': CONTAINER_PADDING - 10, 'font-size': 18, 'font-weight': 600, color: '#19334f', 'text-max-width': '2000px', 'text-wrap': 'none', padding: `${CONTAINER_PADDING}px`, 'compound-sizing-wrt-labels': 'exclude', 'min-width': 'data(minW)', 'min-height': 'data(minH)', 'min-width-bias-left': '0%', 'min-width-bias-right': '100%', 'min-height-bias-top': '0%', 'min-height-bias-bottom': '100%' } as any },
+        { selector: 'node[?expanded]', style: { 'background-image': 'none', 'background-color': '#f5f8fc', 'border-width': 2, 'border-style': 'dashed', label: 'data(containerLabel)', 'text-valign': 'top', 'text-halign': 'center', 'text-margin-y': CONTAINER_PADDING - 10, 'font-size': 18, 'font-weight': 600, color: '#19334f', 'text-max-width': 'data(labelMaxWidth)', 'text-wrap': 'ellipsis', 'text-margin-x': 'data(labelShiftX)', padding: `${CONTAINER_PADDING}px`, 'compound-sizing-wrt-labels': 'exclude', 'min-width': 'data(minW)', 'min-height': 'data(minH)', 'min-width-bias-left': '0%', 'min-width-bias-right': '100%', 'min-height-bias-top': '0%', 'min-height-bias-bottom': '100%' } as any },
         // The outgoing stack's root keeps the inspected look. Both sit before the review fills so a
         // changed resource keeps its factual change color while inspected or rooting a stack.
         { selector: 'node.inspected, node.stack-root', style: { 'background-color': '#e0f4f3', 'border-color': '#07888c', 'border-width': 2.5 } },
@@ -438,6 +440,11 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       const onScreen = (b: { left: number; top: number; size: number }) => b.left > -b.size && b.top > -b.size && b.left < w && b.top < h;
       const corners: { id: string; action: CornerHit; left: number; top: number; size: number }[] = [], grips: { id: string; left: number; top: number; size: number }[] = [];
       const gripSize = Math.max(12, Math.min(22, 18 * zoomNow));
+      // An expanded box's header label stops short of its corner squares (pure containerLabelLayout on its drawn width).
+      cy.batch(() => cy.nodes('[?expanded][!hiddenBox]').forEach(n => {
+        const l = containerLabelLayout(n.boundingBox({ includeLabels: false, includeOverlays: false }).w, n.data('containerLabel') || '');
+        if (n.data('labelMaxWidth') !== l.maxWidth || n.data('labelShiftX') !== l.shiftX) n.data({ labelMaxWidth: l.maxWidth, labelShiftX: l.shiftX });
+      }));
       cy.nodes().forEach(n => {
         if (n.data('hiddenBox')) return;
         const bb = n.renderedBoundingBox({ includeLabels: false, includeOverlays: false });
@@ -574,7 +581,9 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       if (blockKey(prevHover?.box) !== blockKey(block ?? undefined) || prevHover?.id !== addHoverRef.current?.id) updateDesignView();
       setHotCorner(prev => prev === key ? prev : key);
     });
-    cy.on('mouseout', 'node', () => { setHotCorner(null); setHoverCard(null); if (addHoverRef.current) { addHoverRef.current = null; updateDesignView(); } });
+    // Leaving a card inside a box (onto the box's empty space) must not drop the box's own hover block, which
+    // that space's mousemove may already have set: only leaving the node that owns the block drops it.
+    cy.on('mouseout', 'node', e => { setHotCorner(null); setHoverCard(null); if (addHoverRef.current && addHoverRef.current.id === e.target.id()) { addHoverRef.current = null; updateDesignView(); } });
     cy.on('mouseover', 'node', e => setHoverCard(e.target.id()));
     // Ctrl/Cmd/Shift+click toggles a card in the multi-selection without inspecting it; a plain click inspects.
     const multiKey = (e: cytoscape.EventObject) => { const o = e.originalEvent as MouseEvent | undefined; return !!o && (o.ctrlKey || o.metaKey || o.shiftKey); };

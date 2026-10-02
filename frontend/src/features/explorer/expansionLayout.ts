@@ -12,6 +12,22 @@ import type { Point } from './graphPlacement';
 export const CONTAINER_PADDING = 44;
 /** The collapse square inside an expanded card's top-right corner, in model pixels. */
 export const CONTAINER_BUTTON = { inset: 6, size: 32 };
+/** The header band an expanded box's corner squares take from its right edge: collapse, stack toggle, Ungroup. */
+export const CONTAINER_BUTTON_BAND = CONTAINER_BUTTON.inset + 3 * CONTAINER_BUTTON.size + 2 * 6;
+/** An expanded box's header label width when nothing limits it. */
+export const CONTAINER_LABEL_UNLIMITED = 2000;
+
+/**
+ * Where an expanded box's header label may run (ADR 0017 round 3): never under the corner squares. A label
+ * that fits centred between the two bands is left exactly as before (no limit, no shift). One that does not
+ * is moved left by half the band and limited to the space left of it, minus `margin` on each side; the
+ * renderer then ellipsizes what still does not fit. `charWidth` estimates the label's width (18 px, weight
+ * 600); an overestimate only moves a label left, an underestimate is caught by the ellipsis.
+ */
+export function containerLabelLayout(boxWidth: number, label: string, charWidth = 10.5, margin = 10): { maxWidth: number; shiftX: number } {
+  if (label.length * charWidth + 2 * (CONTAINER_BUTTON_BAND + margin) <= boxWidth) return { maxWidth: CONTAINER_LABEL_UNLIMITED, shiftX: 0 };
+  return { maxWidth: Math.max(0, Math.floor(boxWidth - CONTAINER_BUTTON_BAND - 2 * margin)), shiftX: -CONTAINER_BUTTON_BAND / 2 };
+}
 const GAP = 32;
 const MAX_COLUMNS = 4;
 
