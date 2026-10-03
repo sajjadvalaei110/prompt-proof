@@ -373,11 +373,13 @@ an inactive workspace.
 - Design mode (ADR 0015), by layer:
   - pure: `designModel.ts` (`parseInlineName`, `defaultRelationKind`, change-set builders, `unionGraphs`) and
     `expansionLayout.designBlocks` / `boxWithBlocks` / `addBlockAt` (ADR 0017: a block anywhere empty under
-    the pointer, in the exact shape the card takes; one small reserve only when no space is left; an empty
-    box is one card-sized block at its corner), through `placementGeometry` (`{designSlots}` → `slots` as a
+    the pointer, in the exact shape the card takes; an empty box is one card-sized block at its corner). Round 4:
+    a box with no space left grows a band one card tall below its children (`designBlocks.band`, part of
+    `AddArea.inner`), and `addBlockNear` gives the block a hover anywhere in the box shows (under the pointer, or
+    the nearest one from `AddArea.regions`); `draftCamera` is the camera a too-small draft brings. All of this goes through `placementGeometry` (`{designSlots}` → `slots` as a
     list per box, `areas`, `slotMinSizes`). Round 3: `freeRect` is exact (every maximal empty rectangle
-    around the pointer, scored); `addBlockAt` snaps to `ADD_BLOCK_SNAP`; `blockStillOpen` and
-    `emptyBoxCenter`/`emptyBoxAnchor` are the canvas's only geometry. `graphModel.childlessExpansionsAsCards`
+    around the pointer, scored); `addBlockAt` snaps to `ADD_BLOCK_SNAP`; `addBlockNear`, `blockStillOpen`,
+    `draftCamera` and `emptyBoxCenter`/`emptyBoxAnchor` are the canvas's only geometry. `graphModel.childlessExpansionsAsCards`
     draws an expansion with nothing inside as its card (`drawnAsCard`) outside design mode, or when ungrouped.
     `designModel.takeAdmitted` releases a pending pin or growth only to the reconciliation that admits its card;
   - reducer: `explorerViewState` pins a card typed in place (`PlacementDims.pinned`) and carries parked children
@@ -389,7 +391,8 @@ an inactive workspace.
     in design-mode geometry (`collapseRoomAsInDesign`), so a Design-off collapse gives back exactly the room the
     expansion took. While Design is off, App parks the design-merged graph, so design geometry survives
     the toggle;
-  - adapter: `GraphCanvas` only draws the hovered add block, an empty expanded box (a plain node sized by its
+  - adapter: `GraphCanvas` only draws the hovered box's add block (`.hot` under the pointer, `.near` otherwise;
+    only `.hot` is clicked), moves the camera to a too-small draft, and draws an empty expanded box (a plain node sized by its
     block), the handle, the rubber band (direction-overlay canvas, never a
     Cytoscape element) and the draft card.
 - `design.DesignPromptService` (`GET /design/prompt`) renders the outstanding designed work as a plain request

@@ -39,8 +39,8 @@ Browser steps are those of `scripts/verify-design-layer-ui.mjs`. Its evidence is
 | 13 | **fixed** | `test-expansion-layout.mjs` loads the real `DESIGN_LEAST_BLOCK` / `addSlotSizes` through `placementGeometry`. It asserts `{220,150}` and the 220×150 reserve. | Unit "design add blocks", "make-room keeps the reserve block" (150 px) |
 | 14 | **fixed** | `topLevelOverlaps` now groups cards by parent and checks siblings inside every container as well as on the map, with 1 px tolerance (not 4). | Every overlap assertion of the browser run |
 | 15 | **disputed** | See [F15](#f15). | — |
-| 16 | **fixed** | `DesignDraftInput`: the outline is the block's exact stage rect. Its content is drawn at model size, scaled by `max(zoom, DRAFT_MIN_SCALE = 0.6)` and anchored at the outline's corner; zoomed far out it spills over the outline. | Browser 2e: at zoom 0.3 the outline equals the block (75×61.8), the content scale is 0.6 and the input is ≥ 20 px tall (`05f-draft-zoomed-out.png`). Browser 2b: the outline equals the block, corner and size. |
-| 17 | **fixed, with one deliberate exception** | See [F17](#f17). | Unit "a resized empty box offers its card-sized corner block…"; browser 2e (resize, a far hover offers the corner block, the first class keeps the model area) |
+| 16 | **fixed (revised in ADR 0017 round 4)** | `DesignDraftInput`: the outline is the block's exact stage rect, and its content is drawn at model size scaled by the true zoom, so it always lies inside the outline. A draft opened below zoom 0.5 first brings the camera to it (`expansionLayout.draftCamera`, view-only, outside undo). A rejected name replaces the hint inside the outline. The round-3 `DRAFT_MIN_SCALE` spill is gone: the owner found the draft larger than its block and its package. | Browser 2e: opened at zoom 0.3, the camera comes to ≥ 0.5, the outline equals the block at the new camera, the content is inside it at the true zoom and the input is ≥ 16 px tall (`05f-draft-zoomed-out.png`). Browser 2b and 3b: input, hint and body inside the outline. Browser 4b: the error inside the outline. |
+| 17 | **fixed, with one deliberate exception (revised in ADR 0017 round 4)** | See [F17](#f17). | Unit "a resized empty box shows its card-sized corner block…"; browser 2e (resize, a far hover shows the corner block as nearest, a click there creates nothing, a click inside it does, and the first class keeps the box's corner and size) |
 | 18 | **fixed** | A rejected name is a label attached under the outline: absolute, unscaled, `min-width: max(100%, 240px)`. It no longer overflows the fixed-height card unseen. | Browser 4b screenshot `09-inline-error.png` (inspected) |
 | 19 | **fixed** | Same change as F7: one `hitAt` per mousemove. | as F7 |
 | 20 | **fixed** | The reconciliation leaves the position alone for an expanded node that is no compound yet but gets its first child in this batch (`GraphCanvas.tsx:933`). No position write, no `arranged`. | Browser 1b / 4e `arranged` counters keep passing. Not asserted on its own: no step counts `arranged` across a first-child create. |
@@ -146,9 +146,13 @@ Two earlier versions were found wrong by the browser round trip:
 
 ### F17
 
-**Fixed.** A resized empty box keeps one **card-sized** block at its corner (there is no giant card any more), and
-a hover anywhere in it offers that block (`AddArea.only`). Geometry keeps the resized size
-(`placementGeometry` `slotMinSizes`).
+**Fixed.** A resized empty box keeps one **card-sized** block at its corner (there is no giant card any more).
+Geometry keeps the resized size (`placementGeometry` `slotMinSizes`).
+
+**Revised in ADR 0017 round 4.** `AddArea.only` is gone. The corner block is the box's whole add area and its
+one region: a hover anywhere else in the box shows it as its nearest block (`addBlockNear`), and only a click
+inside it creates. Before, a click anywhere in the box created a card at the corner, away from the pointer;
+round 4 makes "shown" and "clickable" separate everywhere.
 
 **The deliberate exception.** The first card is not placed under the pointer.
 - Cytoscape derives a compound's box from its children (min-size biases grow it right and down only).

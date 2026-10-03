@@ -1,8 +1,11 @@
 # ADR 0017: Add blocks fill a box's empty space; empty packages and types expand in design mode
 
 - Status: Accepted. "Round 2" below supersedes §2 and §3 and amends §1 (the least block is 220×150, and the
-  natural spots are scanned with more edges). "Round 3" (review fixes) amends §1, §4, §6 and §7; where a
-  section and a later round disagree, the later round holds.
+  natural spots are scanned with more edges). "Round 3" (review fixes) amends §1, §4, §6 and §7. "Round 4"
+  (2026-10-03) replaces the reserve of §1/§7 with a growth band, makes a hovered box always show a block
+  (amends §2, §6, §9, §10), draws the draft at the true zoom (supersedes `DRAFT_MIN_SCALE` and the external
+  error of §9) and names planned members by their name alone. Where a section and a later round disagree, the
+  later round holds.
 - Date: 2026-10-02
 - Amends: ADR 0015 §1 (the add slot) and its consequence "a new card may land a row lower than its slot"
 - Scope: `expansionLayout` (`designBlocks`, `boxWithBlocks`, `RoomCard.blocks`), `placementGeometry`
@@ -281,15 +284,125 @@ contract above.
 - Changes mode with a childless expansion is covered by the pure projection test only, not by a browser run
   (the design pipeline's fixtures have no Git history).
 
+## Round 4 (owner feedback, 2026-10-03): a growth band, a block always shown, the draft inside its block
+
+The owner reported three problems:
+- a full box grew by a fixed bottom-left block, which read as the old "+ class" button, and hover creation did
+  not work in the space it added;
+- the name-entry draft was larger than its dashed outline, and larger than the package;
+- planned methods read `search()` or `find(Long)`, unlike parsed methods.
+
+They chose the band rule below, and added one requirement: while the pointer is over an expanded package or
+class, a "+ class" / "+ method" block is always shown, under the pointer wherever a card fits there.
+
+### 15. A growth band replaces the reserve (supersedes the reserve of §1 and §7)
+
+- When `designBlocks` finds no gap, it returns a **band**:
+  - **position:** a strip `GAP` below the lowest child, from the inner left edge;
+  - **width:** the inner width, at least one card;
+  - **height:** one card (`card.height`: 206 for a class, 184 for a method).
+- The box grows to hold it, right and down only (`geometryForJourney` through `minSizeWithSlot`, and
+  `boxWithBlocks` for `toggleExpand`, `resizeContainer` and `roomMoves`).
+- `AddArea.inner` is the old inner area plus the band. So `addBlockAt` offers a block under the pointer
+  anywhere in it, with no special case and no fixed block.
+- `JourneyGeometry.slots` keeps one job: the block a card menu "Add …" uses. That is the first gap, or the
+  card-sized start of the band.
+- Gaps are still searched on the box without the band, so the band never counts as its own gap:
+  - **Room left in the row:** a card made in the band leaves gaps, so the band goes. The box keeps its height,
+    because the band was one card tall and the card fills it.
+  - **No room left:** a new band appears below.
+- **Why below, as wide as the box (the owner's choice):**
+  - it follows the grid's own growth (`placeMissingChildren` adds rows);
+  - the box never widens by itself;
+  - in a band at least a card wide, every block is a whole card, clamped at the band's ends and never shrunk.
+- **Consequence:** a one-column box keeps growing as one column; its band is a single card. The box is
+  widened with the resize grip, and that width is ordinary free space.
+
+### 16. A hovered box always shows a block (amends §2, §6 and §9)
+
+- **Where the pointer counts as over a box:** anywhere in it, including:
+  - its header band and padding;
+  - the slivers between cards;
+  - over its collapsed child cards.
+- **Nested boxes:** the innermost expanded box holding the pointer wins ("+ method" inside a class box that
+  sits in a package).
+- **Which block is shown:** `expansionLayout.addBlockNear` (pure) decides.
+  - Where `addBlockAt` finds a block at the pointer, that block is shown with `under: true`.
+  - Anywhere else, the block nearest the pointer is shown, with `under: false`. It comes from
+    `AddArea.regions` (the gaps, else the band, else the empty box's corner block): it is the first region
+    nearest the pointer, and in it the block nearest the pointer.
+  - A box in design mode always has a region, so the result is never null. The unit fuzz checks that it stays
+    inside the add area and keeps GAP from every child.
+- **Shown is not the same as clickable.**
+  - Only a block under the pointer is hit (`hitAt` → `'add'`). A click on the header, a corner square or a
+    child card does exactly what it did before.
+  - The nearest block is drawn calmer (`.design-slot.near`); a block under the pointer is `.hot`
+    (`data-under`).
+- **When no block is drawn:**
+  - while a draft, quick popup or popover is open (`DesignCanvas.suppressBlocks`);
+  - during a two-click relation, a card drag or a resize drag;
+  - once the pointer leaves the canvas (onto a button over it, such as the relation handle, or off it);
+  - with Design off, or in Changes.
+- `blockStillOpen(area, block)` loses its `slots` argument: the band lies inside `area.inner`.
+- `mouseout` keeps the block while the pointer is still inside the box that owns it, so crossing its cards
+  never makes it flicker.
+
+### 17. An empty box (amends §10)
+
+- An empty box's add area **is** its card-sized corner block, and that block is its one region. `AddArea.only`
+  is gone.
+- In a box the user resized larger, a hover elsewhere shows the corner block as its nearest block, and only a
+  click inside the block creates. The first card still keeps the box's corner (F17). The pointer now has to be
+  on the block, not anywhere in the box.
+
+### 18. The draft is the block (supersedes `DRAFT_MIN_SCALE` and the external error of §9)
+
+- The draft's content is laid out at the block's model size and scaled by the **true** zoom, so content and
+  outline always coincide.
+- The layout fits the smallest block (220×150 model px):
+  - kind line, 13 px;
+  - name field, 26 px, larger than before so it reads at the usual zoom;
+  - hint, 13 px.
+- **Camera move.** When a draft opens below `DRAFT_READABLE_ZOOM` (0.5, where the name field's text would
+  render under 13 px), the camera centres on the block at `DRAFT_FOCUS_ZOOM` (0.8). It zooms less if the block
+  would not fit, and never zooms out.
+  - At a readable zoom the user's zoom is kept. The camera only pans, and only if the block is partly off
+    screen.
+  - `expansionLayout.draftCamera` (pure) computes it.
+  - It applies to every draft: blocks, the canvas "Add package" draft, and the draft below a collapsed card.
+  - It is view-only state outside undo (ADR 0009), written as the zoom buttons write it
+    (`__setProgrammaticCamera`, then `onCameraChange(…, transient)`).
+- **Rejected name.** The error replaces the hint inside the outline: at most two lines, with the full text as
+  its `title`, and the outline turns red.
+  - **Why inside:** it stays with the block, never covers the package or its neighbours, and never makes the
+    draft look larger than the card it will become.
+  - The duplicate-name message names what was typed and its owner (`search already exists in AuditQuery`), not
+    the full key, so it fits.
+
+### 19. Planned members are named like parsed ones (supersedes Round 2's `displayName`)
+
+- A planned method or constructor's card reads its name alone (`search`), as parsed members do.
+- Its key, `Owner.search(String)`, is unchanged: it is the identity the API, export/import and agents use, the
+  node id, and the `qualifiedName` the inspector shows under the name.
+- Parameter types stay where parsed members show them:
+  - the inspector's subtitle;
+  - a class inspector's method list;
+  - the design section's signature;
+  - the Prompt text.
+- **Overloads:** two planned overloads (`find(Long)`, `find(String)`) both read `find`, exactly as parsed
+  overloads do.
+
 ## Consequences
 
-- An expanded box with a gap does not change size when Design turns on. A full box grows by one small
-  block, not by a card row.
-- Cards created in reserves stack in a column at the box's left. Space beside them appears when the box
-  is resized larger or a child is dragged, and a block can then be made anywhere in it.
+- An expanded box with a gap does not change size when Design turns on. A full box grows by a band one
+  card tall, as wide as the box, where a hover offers a block anywhere (Round 4, §15).
+- A one-column box grows as one column. Space beside its cards appears when the box is resized larger or a
+  child is dragged, and a block can then be made anywhere in it.
 - A card made in a small space is smaller than a default card. It can be resized like any card.
 - A narrow or empty box's header label is ellipsized before its corner buttons (Round 3, §14).
 - An empty box opened in design mode keeps its expansion when Design is turned off, but it is drawn as
   its card until Design is on again. It then reopens on its block, at the same corner. Meanwhile its card
   menu offers Collapse, which gives back the room its box took (Round 3, §12).
-- When a card fills a box's last free space, the box keeps a 220×150 reserve and grows for it (§7, Round 3).
+- When a card fills a box's last free space, the box grows a new band below it (Round 4, §15).
+- A hovered expanded box always shows a block, so the pointer never has to hunt for where a card can go
+  (Round 4, §16).

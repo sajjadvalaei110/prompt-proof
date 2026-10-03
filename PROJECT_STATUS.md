@@ -1,5 +1,5 @@
 # Project status
-Last updated: 2026-10-02 (review fixes for add blocks, ADR 0017 round 3; add blocks in a box's empty space and empty boxes that expand in design mode, ADR 0017; on top of the quick intent popup, plain prompt, faithful import and design-only projects, ADR 0016; on top of design-mode direct manipulation, ADR 0015, and the design layer, ADR 0014)
+Last updated: 2026-10-03 (add blocks round 5: growth band, a hovered box always shows its block, the draft inside its block, plain member names, ADR 0017 round 4; review fixes for add blocks, ADR 0017 round 3; add blocks in a box's empty space and empty boxes that expand in design mode, ADR 0017; on top of the quick intent popup, plain prompt, faithful import and design-only projects, ADR 0016; on top of design-mode direct manipulation, ADR 0015, and the design layer, ADR 0014)
 Active milestone: R6 — Developer comprehension redesign (in progress)
 Current revision: Step11 language-neutral Java analysis integrated with step 14 Ungroup (an expanded box's box hidden, its children kept as free cards,
 ADR 0011) merged with main's step 13 (card menu Expand/Collapse + View source, cascading tree
@@ -28,6 +28,63 @@ toggle with a git-style diff code viewer, exploration tabs with per-tab undo/red
 and selection controls, the R6 change-edges slice (one line per direction,
 directional selection emphasis, file-grouped evidence), in-place card details
 (expand packages/classes) and resizable cards; Step 6A remains unstarted
+
+## Design layer round 5: growth band, always-shown block, draft inside its block (2026-10-03, ADR 0017 "Round 4")
+
+From `docs/handoff/design-add-blocks-round5.md`: three owner complaints, plus one requirement the owner added
+while choosing the band rule ("while hovering an expanded package or class a + block is always shown, under the
+pointer where a card fits"). Frontend only; no backend, API or migration change. Commits: `4735701` (member
+names), then the geometry/canvas commit and the docs/evidence commit after it.
+
+Changes:
+- `expansionLayout`:
+  - `designBlocks` returns `{ gaps, band, area }`. With no gap, the box grows a band one card tall, `GAP` below its
+    lowest child, as wide as the inner area (at least one card), and `AddArea.inner` includes it, so a hover
+    anywhere in it offers a block under the pointer. The fixed 220×150 reserve, `designSlot` and `AddArea.only`
+    are gone. The owner chose "below, as wide as the box" over a two-card minimum and a right-or-below rule;
+  - `AddArea.regions` (gaps, else band, else the empty box's corner block) and new `addBlockNear`: the block a
+    hover anywhere in a box shows, under the pointer or the nearest one;
+  - `blockStillOpen(area, block)` (no `slots`), and new `draftCamera` with `DRAFT_READABLE_ZOOM` 0.5 /
+    `DRAFT_FOCUS_ZOOM` 0.8.
+- `placementGeometry`: the band grows the box (`slotMinSizes`); `slots` is the first gap or the band's start
+  (the card menu "Add …").
+- `GraphCanvas`:
+  - the innermost expanded box under the pointer (itself, or the box around the card under it) always shows a
+    block (`.hot` under the pointer, `.near` otherwise); only a block under the pointer is clicked;
+  - no block while a draft, quick popup or popover is open (`DesignCanvas.suppressBlocks`), during a link, a
+    drag or a resize, or once the pointer leaves the canvas;
+  - the draft is drawn at the true zoom inside its block (no `DRAFT_MIN_SCALE`); a draft too small on screen or
+    off it brings the camera (transient camera, outside undo); a rejected name replaces the hint inside it.
+- `App`: `suppressBlocks`; the duplicate-name message names what was typed and its owner.
+- `designModel`: a planned member's card reads its name alone; its key is unchanged.
+
+Checks run (final jar, built after the last code change; only `scripts/verify-design-layer-ui.mjs` changed after it):
+- `cd frontend && npx tsc -b --force && npm run build`: PASS.
+- `node scripts/test-*.mjs`: all 18 PASS. New coverage is listed in `docs/TESTING.md`, "Growth band, always-shown
+  block…". The 100-child benchmark on this machine: `designBlocks` 0.5 ms, 1000 `addBlockAt` 0.9 ms, 1000
+  `addBlockNear` 2.1 ms. The `addBlockNear` fuzz: 2426 hovers under the pointer, 5074 nearest, none null.
+- `./gradlew bootJar`: PASS.
+- `CHROMIUM=/snap/bin/chromium python3 scripts/verify_design_layer_pipeline.py`: PASS (`build/design-layer/run-4mgxlxn6`).
+  - All 38 screenshots of that run were opened and inspected; they were copied with `report.json` and
+    `design-prompt.md` to `docs/evidence/design-layer-ux/`. 04a, 05c2, 06e, 06f and 06g are new.
+  - Measured in `report.json`: the one-class package's band 250×206 and the class made at its right edge
+    250×206; the class's method band 250×184; the draft opened at zoom 0.3 moved the camera to 0.8, its outline
+    200×164.8 equal to the block and its content at scale 0.8; the full service package's band 814×206; the class
+    made at its right part 250×206 at the right edge, the package's model box unchanged to the pixel (drawn
+    1012 → 1015.7 px tall, cards' borders); no page errors.
+  - Earlier runs of the new steps failed on test harness issues, fixed in the test: a negative model coordinate
+    built `x--n` in an evaluated expression; the drawn box compared while the inspected card's halo widened it;
+    probes off screen or on the relation handle (they had passed only because a stale block stayed drawn, which
+    the canvas `mouseleave` fix removed), now handled by `focusBox`, which zooms out until the box fits.
+- Design-off contract, same final jar:
+  - `verify_change_edges_pipeline.py`: PASS (`build/change-edges/run-usmv73jy`);
+  - `verify_ungroup_pipeline.py`: 33/33 PASS (`build/ungroup/run-uajance0`);
+  - `verify_git_review_pipeline.py`: PASS (`build/git-review/run-r921pbcu`);
+  - `verify_stable_graph_pipeline.py acceptance`: FAIL at `revealClasses` (line 335, "Cannot read properties of
+    undefined (reading 'click')"), `build/stable-graph/acceptance-t9ipya1e`: the same pre-existing failure as
+    rounds 4, 4b and 4c.
+- Not run: `./gradlew test`. No backend file changed (the constructor name the card now shows is the class name
+  the server already stores, `DesignService`).
 
 ## Design layer round 4c: review fixes for add blocks (2026-10-02, ADR 0017 "Round 3")
 
