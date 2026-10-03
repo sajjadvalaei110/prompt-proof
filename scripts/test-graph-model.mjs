@@ -11,7 +11,7 @@ const stripLocalImport=(src,name)=>src.replace(new RegExp(`import \\{[^}]*\\} fr
 const scopeCompiled=stripLocalImport(compile('../frontend/src/features/explorer/scopeModel.ts'),'graphModel');
 const graphCompiled=stripLocalImport(compile('../frontend/src/features/explorer/graphModel.ts'),'scopeModel');
 const combined=scopeCompiled+'\n'+graphCompiled;
-const {projectGraph,projectDisplayed,childrenOf,wholeSystemScope,emptyScope,isClassInScope,getPackageCheckState,getPackageGroupCheckState,buildPackageHierarchy,togglePackages,togglePackage,toggleClass,scopeToLabel,EXPLANATION_RANK,explanationRank,dominantOccurrenceIndex,kindSummary,sortedKindCounts,routeReviewChange,revealContainers,collapseBranch,collapseAll}=await import('data:text/javascript;base64,'+Buffer.from(combined).toString('base64'));
+const {childlessExpansionsAsCards,projectGraph,projectDisplayed,childrenOf,wholeSystemScope,emptyScope,isClassInScope,getPackageCheckState,getPackageGroupCheckState,buildPackageHierarchy,togglePackages,togglePackage,toggleClass,scopeToLabel,EXPLANATION_RANK,explanationRank,dominantOccurrenceIndex,kindSummary,sortedKindCounts,routeReviewChange,revealContainers,collapseBranch,collapseAll}=await import('data:text/javascript;base64,'+Buffer.from(combined).toString('base64'));
 
 const nodes=[{id:'p1',kind:'PACKAGE',simpleName:'api'},{id:'p2',kind:'PACKAGE',simpleName:'service'}, {id:'a',kind:'CLASS',simpleName:'Controller',parentId:'p1'}, {id:'b',kind:'INTERFACE',simpleName:'Worker',parentId:'p2'}, {id:'a1',kind:'METHOD',simpleName:'handle',parentId:'a'}, {id:'b1',kind:'METHOD',simpleName:'work',parentId:'b'}, {id:'b2',kind:'METHOD',simpleName:'audit',parentId:'b'}];
 const edges=[{id:'e1',sourceId:'a1',targetId:'b1',kind:'CALLS',resolution:'RESOLVED'},{id:'e2',sourceId:'a1',targetId:'b1',kind:'CALLS',resolution:'RESOLVED'},{id:'e3',sourceId:'a',targetId:'b',kind:'INJECTS',resolution:'CANDIDATE'},{id:'e4',sourceId:'b1',targetId:'b2',kind:'CALLS',resolution:'RESOLVED'},{id:'e5',sourceId:'a1',targetId:null,kind:'CALLS',resolution:'UNRESOLVED'}];
@@ -405,4 +405,29 @@ console.log('PASS: review overlay keeps one line per ordered pair and change sta
     }
   }
   console.log('PASS: the card menu expand count matches what expanding shows, under any scope');
+}
+
+// ADR 0017 §4 (review F11, F12, F28): an expansion with nothing drawn inside is drawn as its card, still
+// marked as an expansion so it can be collapsed; an ungrouped one is never left invisible.
+{
+  const p={nodes:[
+    {id:'empty',kind:'PACKAGE',simpleName:'e',expanded:true},
+    {id:'hidden',kind:'PACKAGE',simpleName:'h',expanded:true,hiddenBox:true},
+    {id:'full',kind:'PACKAGE',simpleName:'f',expanded:true},{id:'kid',kind:'CLASS',simpleName:'K',containerId:'full'},
+    {id:'ungrouped',kind:'PACKAGE',simpleName:'u',expanded:true,hiddenBox:true},{id:'freed',kind:'CLASS',simpleName:'F',containerId:'ungrouped'},
+    {id:'card',kind:'PACKAGE',simpleName:'c'},
+  ],edges:[{id:'r'}]};
+  const by=(q,id)=>q.nodes.find(n=>n.id===id);
+  const off=childlessExpansionsAsCards(p,false);
+  assert.deepEqual(by(off,'empty'),{...by(p,'empty'),expanded:false,hiddenBox:false,drawnAsCard:true},'outside design mode an empty expansion is its card, still marked');
+  assert.deepEqual(by(off,'hidden'),{...by(p,'hidden'),expanded:false,hiddenBox:false,drawnAsCard:true},'an ungrouped box with nothing left is drawn as its card');
+  for(const id of ['full','kid','ungrouped','freed','card'])assert.strictEqual(by(off,id),by(p,id),'untouched: '+id);
+  assert.strictEqual(off.edges,p.edges,'routes untouched');
+  const on=childlessExpansionsAsCards(p,true);
+  assert.strictEqual(by(on,'empty'),by(p,'empty'),'in design mode an empty expansion stays a box (its add block)');
+  assert.equal(by(on,'hidden').drawnAsCard,true,'an ungrouped empty box is a card in design mode too');
+  assert.equal(by(on,'hidden').hiddenBox,false,'and takes pointer events again');
+  const plain={nodes:[by(p,'full'),by(p,'kid'),by(p,'card')],edges:[]};
+  assert.strictEqual(childlessExpansionsAsCards(plain,false),plain,'nothing to change: the same object');
+  console.log('PASS: childless expansions are drawn as collapsible cards; none is left invisible');
 }

@@ -12,6 +12,22 @@ import type { Point } from './graphPlacement';
 export const CONTAINER_PADDING = 44;
 /** The collapse square inside an expanded card's top-right corner, in model pixels. */
 export const CONTAINER_BUTTON = { inset: 6, size: 32 };
+/** The header band an expanded box's corner squares take from its right edge: collapse, stack toggle, Ungroup. */
+export const CONTAINER_BUTTON_BAND = CONTAINER_BUTTON.inset + 3 * CONTAINER_BUTTON.size + 2 * 6;
+/** An expanded box's header label width when nothing limits it. */
+export const CONTAINER_LABEL_UNLIMITED = 2000;
+
+/**
+ * Where an expanded box's header label may run (ADR 0017 round 3): never under the corner squares. A label
+ * that fits centred between the two bands is left exactly as before (no limit, no shift). One that does not
+ * is moved left by half the band and limited to the space left of it, minus `margin` on each side; the
+ * renderer then ellipsizes what still does not fit. `charWidth` estimates the label's width (18 px, weight
+ * 600); an overestimate only moves a label left, an underestimate is caught by the ellipsis.
+ */
+export function containerLabelLayout(boxWidth: number, label: string, charWidth = 10.5, margin = 10): { maxWidth: number; shiftX: number } {
+  if (label.length * charWidth + 2 * (CONTAINER_BUTTON_BAND + margin) <= boxWidth) return { maxWidth: CONTAINER_LABEL_UNLIMITED, shiftX: 0 };
+  return { maxWidth: Math.max(0, Math.floor(boxWidth - CONTAINER_BUTTON_BAND - 2 * margin)), shiftX: -CONTAINER_BUTTON_BAND / 2 };
+}
 const GAP = 32;
 const MAX_COLUMNS = 4;
 
@@ -50,6 +66,212 @@ export function placeMissingChildren(topLeft: Point, placed: PlacedCard[], missi
   const left = Math.min(...placed.map(c => c.x - c.width / 2));
   const bottom = Math.max(...placed.map(c => c.y + c.height / 2));
   return layoutChildren({ x: left - CONTAINER_PADDING, y: bottom + GAP - CONTAINER_PADDING }, missing);
+}
+
+/**
+ * Where design mode may place a new card inside an expanded box: its inner area (with its growth band, ADR
+ * 0017 round 4) and its children's boxes. `regions` are the places a whole block surely fits: the box's gaps,
+ * else its growth band, else (an empty box) its one corner block. A hover where no block fits shows the
+ * block nearest the pointer in them (addBlockNear), so a hovered box always shows one.
+ */
+export interface AddArea { inner: Box; children: Box[]; regions: Box[] }
+
+/**
+ * The model-pixel grid a hovered add block's corner snaps to (ADR 0017, round 3): the block, its key and
+ * the drawn "+" change only every few pixels of pointer travel, not on every mousemove. A block clamped
+ * against a child or the box edge sits exactly on that edge instead.
+ */
+export const ADD_BLOCK_SNAP = 8;
+const EPS = 1e-6;
+const inflate = (b: Box, d: number): Box => ({ x1: b.x1 - d, y1: b.y1 - d, x2: b.x2 + d, y2: b.y2 + d });
+const meets = (a: Box, b: Box) => a.x1 < b.x2 - 0.5 && b.x1 < a.x2 - 0.5 && a.y1 < b.y2 - 0.5 && b.y1 < a.y2 - 0.5;
+const within = (b: Box, outer: Box) => b.x1 >= outer.x1 - 0.5 && b.y1 >= outer.y1 - 0.5 && b.x2 <= outer.x2 + 0.5 && b.y2 <= outer.y2 + 0.5;
+/** `inner` cut down to `reach` around `p` on every side: only children near the point can matter. */
+const windowAround = (inner: Box, p: Point, reach: Size): Box => ({ x1: Math.max(inner.x1, p.x - reach.width), y1: Math.max(inner.y1, p.y - reach.height), x2: Math.min(inner.x2, p.x + reach.width), y2: Math.min(inner.y2, p.y + reach.height) });
+
+/**
+ * The best empty rectangle around `p` inside `inner` that keeps GAP from every child (ADR 0017, round 3).
+ * Exact, not greedy: it looks at every maximal empty rectangle that contains `p`. Each one's left edge is
+ * the inner edge or a child's right edge (plus GAP), and its right edge the inner edge or a child's left
+ * edge; for each such pair the children in that column bound it above and below. The best one is chosen
+ * in this order:
+ * 1. one where a `fit.least` block fits (both sides at least that long);
+ * 2. the largest area capped at `fit.card` (the block a card is made in is never larger than a card);
+ * 3. the largest raw area;
+ * 4. the first found, nearest edges first, so the result never flips between equal choices.
+ * Without `fit` it is the largest empty rectangle around `p`. Null when `p` is outside `inner`, on a
+ * child or within GAP of one. O(n²) in the children that meet `inner`.
+ */
+export function freeRect(inner: Box, children: Box[], p: Point, fit?: BlockSizes): Box | null {
+  if (p.x < inner.x1 || p.x > inner.x2 || p.y < inner.y1 || p.y > inner.y2) return null;
+  const obstacles = children.map(c => inflate(c, GAP)).filter(g => meets(g, inner));
+  if (obstacles.some(g => p.x > g.x1 && p.x < g.x2 && p.y > g.y1 && p.y < g.y2)) return null;
+  const distinct = (xs: number[]) => xs.filter((x, i) => i === 0 || Math.abs(x - xs[i - 1]) > EPS);
+  const lefts = distinct([inner.x1, ...obstacles.map(g => g.x2).filter(x => x > inner.x1 && x <= p.x)].sort((a, b) => b - a));
+  const rights = distinct([...obstacles.map(g => g.x1).filter(x => x >= p.x && x < inner.x2), inner.x2].sort((a, b) => a - b));
+  const byLeft = [...obstacles].sort((a, b) => a.x1 - b.x1);
+  const score = (b: Box) => {
+    const w = b.x2 - b.x1, h = b.y2 - b.y1;
+    if (!fit) return [1, w * h, w * h];
+    return [w >= fit.least.width - EPS && h >= fit.least.height - EPS ? 1 : 0, Math.min(w, fit.card.width) * Math.min(h, fit.card.height), w * h];
+  };
+  const better = (a: number[], b: number[]) => a[0] !== b[0] ? a[0] > b[0] : a[1] !== b[1] ? a[1] > b[1] + EPS : a[2] > b[2] + EPS;
+  let best: Box | null = null, bestScore: number[] = [];
+  for (const left of lefts) {
+    // The children that reach right of this left edge, in the order the right edge sweeps over them.
+    const live = byLeft.filter(g => g.x2 > left + 0.5);
+    let top = inner.y1, bottom = inner.y2, i = 0, blocked = false;
+    for (const right of rights) {
+      for (; i < live.length && live[i].x1 < right - 0.5; i++) {
+        const g = live[i];
+        if (g.y2 <= p.y) top = Math.max(top, g.y2);
+        else if (g.y1 >= p.y) bottom = Math.min(bottom, g.y1);
+        else { blocked = true; break; }
+      }
+      // A child level with the pointer is in this column: every wider column holds it too.
+      if (blocked) break;
+      const b = { x1: left, y1: top, x2: right, y2: bottom }, s = score(b);
+      if (!best || better(s, bestScore)) { best = b; bestScore = s; }
+    }
+  }
+  return best;
+}
+
+/**
+ * The add block under the pointer (ADR 0017): a card-sized block around `p`, shifted and shrunk to stay
+ * inside the empty space around it, never smaller than `least`. Null where no such block fits. The block
+ * is the exact shape the new card takes, so creating it never grows the box. Its corner snaps to `snap`
+ * model pixels; where it is clamped to the free space it sits exactly on its edge, never past it (no
+ * rounding after the clamp). Only the children near `p` are looked at.
+ */
+export function addBlockAt(a: AddArea, p: Point, card: Size, least: Size, snap = 0): Box | null {
+  if (p.x < a.inner.x1 || p.x > a.inner.x2 || p.y < a.inner.y1 || p.y > a.inner.y2) return null;
+  const reach = { width: Math.max(card.width, least.width), height: Math.max(card.height, least.height) };
+  const win = windowAround(a.inner, p, reach);
+  const free = freeRect(win, a.children.filter(c => meets(inflate(c, GAP), win)), p, { card, least });
+  if (!free) return null;
+  const width = Math.min(card.width, free.x2 - free.x1), height = Math.min(card.height, free.y2 - free.y1);
+  if (width < least.width - EPS || height < least.height - EPS) return null;
+  const place = (centre: number, size: number, lo: number, hi: number) => {
+    const at = snap ? Math.round((centre - size / 2) / snap) * snap : centre - size / 2;
+    return Math.min(Math.max(at, lo), hi - size);
+  };
+  const x1 = place(p.x, width, free.x1, free.x2), y1 = place(p.y, height, free.y1, free.y2);
+  return { x1, y1, x2: Math.min(x1 + width, free.x2), y2: Math.min(y1 + height, free.y2) };
+}
+
+/**
+ * Whether a hovered add block is still offered (ADR 0017): it lies inside its box's current inner area (its
+ * growth band included) and no card covers it. A block that a new card now covers, or that a moved or shrunk
+ * box left behind, is not.
+ */
+export function blockStillOpen(area: AddArea | undefined, b: Box): boolean {
+  return !!area && within(b, area.inner) && !area.children.some(c => meets(c, b));
+}
+
+/**
+ * The block a hover at `p` shows (ADR 0017 round 4): the block under the pointer (addBlockAt) where one fits,
+ * `under` true; anywhere else in the box (its header, a sliver between cards, over a child card) the block
+ * nearest the pointer, `under` false, so a hovered box always shows one. Nearest: the first of `regions`
+ * closest to `p`, and in it the block addBlockAt gives at the point of the region closest to `p`. Null only
+ * for an area without regions, which designBlocks never returns.
+ */
+export function addBlockNear(a: AddArea, p: Point, card: Size, least: Size, snap = 0): { box: Box; under: boolean } | null {
+  const at = addBlockAt(a, p, card, least, snap);
+  if (at) return { box: at, under: true };
+  let best: Box | null = null, bestD = Infinity;
+  for (const r of a.regions) {
+    const dx = Math.max(r.x1 - p.x, 0, p.x - r.x2), dy = Math.max(r.y1 - p.y, 0, p.y - r.y2), d = dx * dx + dy * dy;
+    if (d < bestD - EPS) { best = r; bestD = d; }
+  }
+  if (!best) return null;
+  const q = { x: Math.min(Math.max(p.x, best.x1), best.x2), y: Math.min(Math.max(p.y, best.y1), best.y2) };
+  const box = addBlockAt(a, q, card, least, snap) || { x1: best.x1, y1: best.y1, x2: Math.min(best.x2, best.x1 + card.width), y2: Math.min(best.y2, best.y1 + card.height) };
+  return { box, under: p.x >= box.x1 && p.x <= box.x2 && p.y >= box.y1 && p.y <= box.y2 };
+}
+
+/**
+ * The design layer's add blocks for one expanded card (ADR 0017). `area` is where a hover may place a new
+ * card anywhere empty (addBlockAt, addBlockNear). `gaps` are top-left anchored blocks at the natural spots
+ * (the inner corner, beside, below and above each child), each as large as the free space allows up to
+ * `card` and at least `least`: they say there is room, and the first is where a card menu "Add …" puts its
+ * card. Only when there is no gap is there a `band` (round 4): a strip one card tall, GAP below the lowest
+ * child, as wide as the inner area and at least one card, which the box grows right and down to hold. It is
+ * part of `area.inner`, so a hover anywhere in it offers a block under the pointer, exactly like any other
+ * empty space. Gaps are searched on the box without the band, so the band never counts as its own gap: a
+ * card made in the band that leaves room in its row leaves gaps, the band goes, and the box keeps the card's
+ * height (the band is one card tall); a card that fills the row leaves none, and a new band appears below.
+ * A box with no children has one card-sized block at its top-left corner (its `band`, and its whole
+ * `area.inner`): the first card must keep the box's corner, or the box would move. A box the user resized
+ * larger keeps that block, which a hover elsewhere in the box shows as its nearest block. Every block lies
+ * inside `area.inner`, and the new card takes the block's exact shape.
+ */
+export function designBlocks(topLeft: Point, children: Box[], minSize: Size | null, card: Size, least: Size): { gaps: Box[]; band: Box | null; area: AddArea | null } {
+  if (!children.length) {
+    const x1 = topLeft.x + CONTAINER_PADDING, y1 = topLeft.y + CONTAINER_PADDING;
+    const block = { x1, y1, x2: x1 + card.width, y2: y1 + card.height };
+    return { gaps: [], band: block, area: { inner: { ...block }, children: [], regions: [block] } };
+  }
+  const outer = containerBox(children, minSize)!;
+  const inner = { x1: outer.x1 + CONTAINER_PADDING, y1: outer.y1 + CONTAINER_PADDING, x2: outer.x2 - CONTAINER_PADDING, y2: outer.y2 - CONTAINER_PADDING };
+  const seen = new Set<string>(), candidates: Point[] = [];
+  const add = (x: number, y: number) => { const k = `${Math.round(x)},${Math.round(y)}`; if (!seen.has(k)) { seen.add(k); candidates.push({ x, y }); } };
+  add(inner.x1, inner.y1);
+  for (const c of children) { add(c.x2 + GAP, c.y1); add(c.x1, c.y2 + GAP); add(inner.x1, c.y2 + GAP); add(c.x2 + GAP, inner.y1); add(c.x1, inner.y1); }
+  candidates.sort((a, b) => a.y - b.y || a.x - b.x);
+  const gaps: Box[] = [], fit = { card, least };
+  const reach = { width: 2 * Math.max(card.width, least.width), height: 2 * Math.max(card.height, least.height) };
+  for (const { x, y } of candidates) {
+    if (x >= inner.x2 || y >= inner.y2) continue;
+    const probe = { x: x + least.width / 2, y: y + least.height / 2 };
+    const win = windowAround(inner, probe, reach);
+    const near = [...children, ...gaps].filter(c => meets(inflate(c, GAP), win));
+    const free = freeRect(win, near, probe, fit);
+    if (!free) continue;
+    // The natural spot may sit just inside a child's GAP or above the free space: the gap starts where the space does.
+    const gx = Math.max(x, free.x1), gy = Math.max(y, free.y1);
+    const width = Math.min(card.width, free.x2 - gx), height = Math.min(card.height, free.y2 - gy);
+    if (width < least.width - EPS || height < least.height - EPS) continue;
+    gaps.push({ x1: gx, y1: gy, x2: gx + width, y2: gy + height });
+  }
+  if (gaps.length) return { gaps, band: null, area: { inner, children, regions: gaps } };
+  const y1 = Math.max(...children.map(c => c.y2)) + GAP;
+  const band = { x1: inner.x1, y1, x2: inner.x1 + Math.max(inner.x2 - inner.x1, card.width), y2: y1 + card.height };
+  const grown = { x1: inner.x1, y1: inner.y1, x2: Math.max(inner.x2, band.x2), y2: Math.max(inner.y2, band.y2) };
+  return { gaps, band, area: { inner: grown, children, regions: [band] } };
+}
+
+/**
+ * Where an expanded box with no children (design mode, ADR 0017) is drawn. Cytoscape has no compound for
+ * it, so it is a plain node whose centre keeps the card's own top-left corner: `anchor` is the card's
+ * stored centre, `card` its card size and `min` the box's inner size. emptyBoxAnchor is the exact inverse,
+ * so a drag reads back the anchor it was drawn from and never creeps by the border.
+ */
+export const emptyBoxCenter = (anchor: Point, card: Size, min: Size): Point => ({ x: anchor.x - card.width / 2 + CONTAINER_PADDING + min.width / 2, y: anchor.y - card.height / 2 + CONTAINER_PADDING + min.height / 2 });
+export const emptyBoxAnchor = (center: Point, card: Size, min: Size): Point => ({ x: center.x - min.width / 2 - CONTAINER_PADDING + card.width / 2, y: center.y - min.height / 2 - CONTAINER_PADDING + card.height / 2 });
+
+/** What an expanded card's add blocks hold in design mode (ADR 0017): the card one becomes, and the smallest block. */
+export interface BlockSizes { card: Size; least: Size }
+
+/**
+ * An expanded card's drawn box with design mode's growth band (ADR 0017 round 4) when it has no gap left;
+ * without `blocks` it is exactly containerBox. `topLeft` is the card's own top-left corner.
+ */
+export function boxWithBlocks(topLeft: Point, children: Box[], minSize: Size | null, blocks?: BlockSizes | null): Box | null {
+  const band = blocks ? designBlocks(topLeft, children, minSize, blocks.card, blocks.least).band : null;
+  return containerBox(band ? [...children, band] : children, minSize);
+}
+
+/**
+ * The inner (padding-free) minimum that makes an expanded card's box also hold `slot`, never
+ * smaller than the user's own `minSize`. Fed to the same min-width/min-height biases (right and
+ * bottom) as a resize, so the box only grows right and down and no other card moves.
+ */
+export function minSizeWithSlot(children: Box[], minSize: Size | null, slot: Box): Size {
+  const all = [...children, slot];
+  const x1 = Math.min(...all.map(b => b.x1)), y1 = Math.min(...all.map(b => b.y1));
+  const x2 = Math.max(...all.map(b => b.x2)), y2 = Math.max(...all.map(b => b.y2));
+  return { width: Math.max(minSize?.width ?? 0, x2 - x1), height: Math.max(minSize?.height ?? 0, y2 - y1) };
 }
 
 /**
@@ -126,6 +348,8 @@ export interface RoomCard {
   position?: Point;
   /** An expanded card's user-resized inner minimum. */
   minSize?: Size | null;
+  /** Design mode (ADR 0017): its add blocks, so a box that keeps a growth band still holds it as it grows. */
+  blocks?: BlockSizes | null;
 }
 
 /**
@@ -175,7 +399,7 @@ export function roomMoves(cards: RoomCard[], id: string, before: Box, after: Box
     const container = parent === null ? undefined : byId.get(parent);
     if (!container) return moves;
     const containerBefore = container.box;
-    const nextAfter = containerBox(layer(container.id).map(k => (k.id === current ? after : shifted.get(k.id) || k.box)), container.minSize || null);
+    const nextAfter = boxWithBlocks({ x: containerBefore.x1, y: containerBefore.y1 }, layer(container.id).map(k => (k.id === current ? after : shifted.get(k.id) || k.box)), container.minSize || null, container.blocks);
     if (!nextAfter) return moves;
     // The container's own box did not change, so nothing further up the hierarchy can have changed
     // either: stop the cascade here instead of walking every remaining ancestor (F-11).
@@ -183,4 +407,34 @@ export function roomMoves(cards: RoomCard[], id: string, before: Box, after: Box
     if (unchanged) return moves;
     before = containerBefore; after = nextAfter; current = container.id; parent = visibleContainer(container.containerId);
   }
+}
+
+/**
+ * The smallest zoom a new card's inline draft is typed at (ADR 0017 round 4): the draft is drawn at the
+ * block's exact shape and the true zoom, so below this its 26 px (model) name field reads under 13 px.
+ */
+export const DRAFT_READABLE_ZOOM = 0.5;
+/** The zoom a draft opened below DRAFT_READABLE_ZOOM brings the camera to, unless the block would not fit. */
+export const DRAFT_FOCUS_ZOOM = 0.8;
+
+/**
+ * The camera that makes a new card's draft at `box` (model coordinates) usable in a `view`-sized canvas
+ * (ADR 0017 round 4), or null when the current one already does. Below DRAFT_READABLE_ZOOM it centres on the
+ * block at DRAFT_FOCUS_ZOOM (less if the block would not fit with `margin` around it, never less than now).
+ * At a readable zoom it only pans, and only as far as needed to bring the block inside the margin; the
+ * user's zoom is kept. View-only state, outside undo (ADR 0009).
+ */
+export function draftCamera(view: Size, camera: { zoom: number; pan: Point }, box: Box, margin = 24): { zoom: number; pan: Point } | null {
+  const w = box.x2 - box.x1, h = box.y2 - box.y1, cx = (box.x1 + box.x2) / 2, cy = (box.y1 + box.y2) / 2;
+  if (camera.zoom < DRAFT_READABLE_ZOOM - EPS) {
+    const fit = Math.min((view.width - 2 * margin) / w, (view.height - 2 * margin) / h);
+    const zoom = Math.max(camera.zoom, Math.min(DRAFT_FOCUS_ZOOM, fit));
+    return { zoom, pan: { x: view.width / 2 - cx * zoom, y: view.height / 2 - cy * zoom } };
+  }
+  const z = camera.zoom;
+  // Per axis: a block larger than the room left is aligned at the margin; otherwise moved just inside it.
+  const shift = (lo: number, size: number, room: number) => size > room - 2 * margin ? margin - lo : lo < margin ? margin - lo : lo + size > room - margin ? room - margin - lo - size : 0;
+  const dx = shift(box.x1 * z + camera.pan.x, w * z, view.width), dy = shift(box.y1 * z + camera.pan.y, h * z, view.height);
+  if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return null;
+  return { zoom: z, pan: { x: camera.pan.x + dx, y: camera.pan.y + dy } };
 }

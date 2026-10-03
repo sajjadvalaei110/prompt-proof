@@ -320,7 +320,7 @@ public class ExplanationService {
                 try { ClaimBasis.valueOf(basis); } catch(Exception e) {throw new IllegalArgumentException("Use SOURCE_FACT, INFERRED_PURPOSE or UNKNOWN for claim basis");}
                 List<String> ids=boundedArray(claim.path("evidenceIds"), properties.getExplanations().getEvidenceOccurrences(), 1000);
                 if(description.isBlank() || description.length()>textLimit || ids.isEmpty() || ids.size()>properties.getExplanations().getEvidenceOccurrences() || !allowed.containsAll(ids)) throw new IllegalArgumentException("Each bounded claim must cite only supplied evidence IDs");
-                if("SOURCE_FACT".equals(basis) && ids.stream().allMatch(e->e.startsWith("doc-") || e.startsWith("ai-"))) throw new IllegalArgumentException("Document/generated-only claims must be INFERRED_PURPOSE, not SOURCE_FACT");
+                if("SOURCE_FACT".equals(basis) && ids.stream().allMatch(e->e.startsWith("doc-") || e.startsWith("ai-") || e.startsWith("design-"))) throw new IllegalArgumentException("Document/design/generated-only claims must be INFERRED_PURPOSE, not SOURCE_FACT");
                 claims.add(Map.of("description",description,"basis",basis,"evidenceIds",ids));
             }
             // Navigation hints are an optional convenience, not a grounded claim. Models routinely

@@ -20,6 +20,9 @@ public class JobService {
     }
 
     public JobResponse createAnalysisJob(String workspaceId) {
+        // A design-only project (ADR 0016) has no source folder to analyze.
+        if (!jdbcTemplate.queryForList("SELECT 1 FROM workspaces WHERE id = ? AND trust_state = 'design_only'", workspaceId).isEmpty())
+            throw new IllegalArgumentException("This project has no source folder: it holds only a design, so there is nothing to analyze.");
         String id = UUID.randomUUID().toString();
         jdbcTemplate.update(
             "INSERT INTO jobs (id, workspace_id, operation, status, created_at, updated_at) VALUES (?, ?, 'ANALYSIS', 'RUNNING', datetime('now'), datetime('now'))",

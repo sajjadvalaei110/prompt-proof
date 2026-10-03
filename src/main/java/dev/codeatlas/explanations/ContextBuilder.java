@@ -106,6 +106,7 @@ public class ContextBuilder {
         writer.add("ev-source", "Target source declaration", source, Math.max(300, tokenBudget / 5), limits.getSourceChars());
 
         if (edge) addEdgeEvidence(snapshotId, subject, writer, omissions);
+        addDesignExplanation(snapshotId, workspace, subject, edge, writer, Math.max(300, tokenBudget / 6), limits.getExplanationChars());
         var roles = strings(subject.get("roles"));
         if (!roles.isEmpty()) writer.add("ev-roles", "Spring stereotypes (static recognition)", roles.toString(), 500, 2000);
 
@@ -195,6 +196,32 @@ public class ContextBuilder {
         return new SymbolContext(id, String.valueOf(subject.get("simple_name")), String.valueOf(subject.get("qualified_name")),
             String.valueOf(subject.get("kind")), parentName, roles, strings(subject.get("annotations")), source,
             List.copyOf(evidence), out.toString(), List.copyOf(dependencies), List.copyOf(omissions));
+    }
+
+    /**
+     * The engineer's own explanation of the subject from the design layer (ADR 0014). Its first
+     * paragraph states the intended purpose. It is the engineer's assertion, not a parser fact, so
+     * the block prefix is checked like documents: it can never alone support a SOURCE_FACT claim.
+     */
+    private void addDesignExplanation(String snapshot, String workspace, Map<String, Object> subject, boolean edge,
+                                      Budget writer, int allowance, int maxChars) {
+        List<Map<String, Object>> rows;
+        if (edge) {
+            var targets = db.queryForList("SELECT qualified_name FROM symbol_versions WHERE id=? AND snapshot_id=? LIMIT 1", String.class, subject.get("target_symbol_id"), snapshot);
+            metrics.rowsLoaded(targets.size());
+            if (targets.isEmpty()) return;
+            rows = db.queryForList("SELECT id,revision,substr(explanation,1,?) AS explanation FROM design_relations WHERE workspace_id=? AND source_key=? AND target_key=? AND kind=? AND explanation<>'' LIMIT 1",
+                maxChars, workspace, subject.get("qualified_name"), targets.get(0), subject.get("kind"));
+        } else {
+            rows = db.queryForList("SELECT id,revision,substr(explanation,1,?) AS explanation FROM design_resources WHERE workspace_id=? AND resource_key=? AND explanation<>'' LIMIT 1",
+                maxChars, workspace, subject.get("qualified_name"));
+        }
+        metrics.rowsLoaded(rows.size());
+        if (rows.isEmpty()) return;
+        var row = rows.get(0);
+        writer.add("design-" + row.get("id") + "-r" + row.get("revision"),
+            "Engineer-authored explanation; first paragraph states the intended purpose (design layer, untrusted assertion, not parser facts)",
+            String.valueOf(row.get("explanation")), allowance, maxChars);
     }
 
     private void addEdgeEvidence(String snapshot, Map<String, Object> subject, Budget writer, List<Omission> omissions) {

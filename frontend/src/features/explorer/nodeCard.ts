@@ -40,14 +40,19 @@ export function wrapText(s: string, fontSize: number, maxWidth: number, maxLines
   return lines;
 }
 /** True for card kinds that own a source range and therefore get a quick-code button on the map. */
-export const hasCodeButton = (node: AtlasNode) => node.kind !== 'PACKAGE';
+/** A design-only card (ADR 0014) has no declaration to open. */
+// `noSource` is the same fact on Cytoscape element data, which carries no `design` record (GraphCanvas).
+export const hasCodeButton = (node: AtlasNode) => node.kind !== 'PACKAGE' && !(node.design && !node.design.codeId) && !(node as { noSource?: boolean }).noSource;
 /**
  * True for cards that can expand in place into a container of their children: a package into its
  * types, a type into its methods, when it has any (graphModel's `detailCount`, so a class whose only
  * members are nested types shows no button). Mirrors graphModel.isExpandable, kept inline so this module stays
  * free of runtime imports (scripts/test-node-card.mjs loads it on its own).
  */
-export const hasDetailsButton = (node: AtlasNode) => !['METHOD', 'FIELD', 'CONSTRUCTOR'].includes(node.kind) && (node.detailCount || 0) > 0;
+/** Packages and types: the cards that expand in design mode even with nothing inside (ADR 0017). */
+export const expandsWhenEmpty = (kind: string) => kind === 'PACKAGE' || ['CLASS', 'INTERFACE', 'ENUM', 'RECORD', 'ANNOTATION'].includes(kind);
+// `designMode`: an empty package or type also expands then, onto one add block (ADR 0017).
+export const hasDetailsButton = (node: AtlasNode, designMode = false) => !['METHOD', 'FIELD', 'CONSTRUCTOR'].includes(node.kind) && ((node.detailCount || 0) > 0 || (designMode && !node.expanded && expandsWhenEmpty(node.kind)));
 /**
  * The quick-code button's square in card-local pixels, measured from the card's top-right corner.
  * The SVG keeps this corner free and GraphCanvas positions a real DOM button over it, scaled by the
@@ -59,11 +64,11 @@ export type CornerAction = 'code' | 'details';
  * Every on-card corner button, right to left, in the same card-local terms as CODE_BUTTON: the
  * quick-code square keeps its corner, and the details (expand) square sits just to its left.
  */
-export function cornerButtons(node: AtlasNode): { action: CornerAction; right: number; top: number; size: number }[] {
+export function cornerButtons(node: AtlasNode, designMode = false): { action: CornerAction; right: number; top: number; size: number }[] {
   const out: { action: CornerAction; right: number; top: number; size: number }[] = [];
   let right = CODE_BUTTON.right;
   if (hasCodeButton(node)) { out.push({ action: 'code', right, top: CODE_BUTTON.top, size: CODE_BUTTON.size }); right += CODE_BUTTON.size + 8; }
-  if (hasDetailsButton(node)) out.push({ action: 'details', right, top: CODE_BUTTON.top, size: CODE_BUTTON.size });
+  if (hasDetailsButton(node, designMode)) out.push({ action: 'details', right, top: CODE_BUTTON.top, size: CODE_BUTTON.size });
   return out;
 }
 /** The kind glyph in a card's (and a tree row's) top-left badge: a folder for packages, otherwise
@@ -75,6 +80,10 @@ export function kindIcon(kind: string): { folder: true } | { folder: false; lett
 }
 /** The same folder outline the scope tree draws, in the 16-unit box it was drawn for. */
 export const FOLDER_PATH = 'M1.8 4.3c0-.72.58-1.3 1.3-1.3h2.85l1.2 1.4h5.75c.72 0 1.3.58 1.3 1.3v5.7c0 .72-.58 1.3-1.3 1.3H3.1c-.72 0-1.3-.58-1.3-1.3V4.3z';
+
+/** Design-layer badge text by status, and its violet tone (distinct from every review color). */
+const DESIGN_BADGE: Record<string, string> = { PLANNED: 'PLANNED', MISSING: 'NOT IN CODE', ORPHANED: 'ORPHANED', IMPLEMENTED: 'IMPLEMENTED', PRESENT: 'IN CODE' };
+export const DESIGN_TONE = { badgeFill: '#f1ebff', border: '#7c5cc4', text: '#4f3592', nodeFill: '#faf7ff', route: '#8b6ad6', arrow: '#6a4bb5' };
 
 export interface CardSize { width: number; height: number }
 /** The card's size when the user has not resized it. */
@@ -97,7 +106,7 @@ const NAME_SIZE = 30;
  * line, a taller one shows more member rows, and a shorter one drops lower lines that no longer
  * fit. At the default size the output is unchanged.
  */
-export function nodeCard(node: AtlasNode, size?: CardSize) {
+export function nodeCard(node: AtlasNode, size?: CardSize, designMode = false) {
   const pkg=node.kind==='PACKAGE', method=node.kind==='METHOD'||node.kind==='CONSTRUCTOR';
   const {width,height}=size||defaultCardSize(node);
   const ready=['CLASS','METHOD'].includes(node.kind) && node.explanationStatus==='READY';
@@ -115,10 +124,19 @@ export function nodeCard(node: AtlasNode, size?: CardSize) {
   // when a package contains many changed declarations.
   const reviewFont=Math.max(7,Math.min(11,(reviewWidth-18)/(reviewLabel.length*.58)));
   const badgeTone=unknown?REVIEW_CHANGE_PALETTE.UNKNOWN:reviewChange==='ADDED'?REVIEW_CHANGE_PALETTE.ADDED:reviewChange==='REMOVED'?REVIEW_CHANGE_PALETTE.REMOVED:REVIEW_CHANGE_PALETTE.MODIFIED;
+  // A card that exists only in the design layer (ADR 0014) says so in the same slot: it is a plan
+  // or a reference, not parsed code. Review and design never show together (Changes hides design).
+  // An imported reference to code this project lacks (ADR 0016) is drawn like the original card: no badge,
+  // only an "imported" note in the subtitle.
+  const imported=!!node.design&&!node.design.codeId&&node.design.origin==='CODE';
+  const designOnly=!reviewChange&&!!node.design&&!node.design.codeId&&!imported;
+  const designLabel=designOnly?DESIGN_BADGE[node.design!.status]||'DESIGNED':'';
+  const designWidth=Math.min(Math.max(96,designLabel.length*7+26),Math.max(96,width-24));
   const review=reviewChange
-    ? `<g transform="translate(12 55)"><rect width="${reviewWidth}" height="24" rx="12" fill="${badgeTone.badgeFill}" stroke="${badgeTone.border}"${unknown?' stroke-dasharray="4 3"':''}/><text x="10" y="16" font-size="${reviewFont}" font-weight="600" fill="${badgeTone.text}">${xml(fitText(reviewLabel,reviewFont,reviewWidth-18))}</text></g>` : '';
+    ? `<g transform="translate(12 55)"><rect width="${reviewWidth}" height="24" rx="12" fill="${badgeTone.badgeFill}" stroke="${badgeTone.border}"${unknown?' stroke-dasharray="4 3"':''}/><text x="10" y="16" font-size="${reviewFont}" font-weight="600" fill="${badgeTone.text}">${xml(fitText(reviewLabel,reviewFont,reviewWidth-18))}</text></g>`
+    : designOnly ? `<g transform="translate(12 55)"><rect width="${designWidth}" height="24" rx="12" fill="${DESIGN_TONE.badgeFill}" stroke="${DESIGN_TONE.border}" stroke-dasharray="4 3"/><text x="10" y="16" font-size="11" font-weight="600" fill="${DESIGN_TONE.text}">${xml(fitText(designLabel,11,designWidth-18))}</text></g>` : '';
   // Top row: kind icon, subtitle, then (right-aligned) the sparkle and the corner button area.
-  const corners=cornerButtons(node);
+  const corners=cornerButtons(node,designMode);
   const codeLeft=corners.length?width-Math.max(...corners.map(c=>c.right+c.size)):width-12;
   const sparkleX=codeLeft-36;
   const sparkle=ready?`<defs><linearGradient id="sparkle" x1="0" y1="1" x2="1" y2="0"><stop stop-color="#9461ef"/><stop offset=".6" stop-color="#4b8af2"/><stop offset="1" stop-color="#80ddff"/></linearGradient></defs><g transform="translate(${sparkleX} 16) scale(1.2)"><circle cx="12" cy="12" r="14" fill="#9461ef" opacity=".07"/><circle cx="12" cy="12" r="11" fill="#4b8af2" opacity=".08"/><path fill="url(#sparkle)" d="M12 1C13.4 8.1 15.9 10.6 23 12C15.9 13.4 13.4 15.9 12 23C10.6 15.9 8.1 13.4 1 12C8.1 10.6 10.6 8.1 12 1Z"/></g>`:'';
@@ -129,13 +147,15 @@ export function nodeCard(node: AtlasNode, size?: CardSize) {
   const kindGlyph=icon.folder
     ?`<path transform="translate(5 5) scale(1.25)" d="${FOLDER_PATH}" stroke="${color}" stroke-width="1.2" stroke-linejoin="round" fill="none"/>`
     :`<text x="15" y="20.5" text-anchor="middle" font-size="16" font-weight="700" fill="${color}">${xml(icon.letter)}</text>`;
-  const subtitle=pkg?`${node.memberCount||0} types`:role;
+  // ✎ marks a card that carries the engineer's explanation.
+  const subtitle=(node.design?.explanation?'✎ ':'')+(pkg?`${node.memberCount||0} types`:role)+(imported?' · imported':'');
   const inner=width-32;
   const nameLines=wrapText(name,NAME_SIZE,inner,2);
   // The review badge occupies the upper-left band. Keep the title below it and move the lower
   // metadata/divider down by the same amount so a two-line reviewed name never collides with either.
-  const reviewOffset=reviewChange?36:0;
-  const nameY=reviewChange?112:nameLines.length===1?109:92;
+  const badged=!!reviewChange||designOnly;
+  const reviewOffset=badged?36:0;
+  const nameY=badged?112:nameLines.length===1?109:92;
   const nameSvg=`<text font-size="${NAME_SIZE}" font-weight="600" fill="#19334f">${nameLines.map((line,i)=>`<tspan x="16" y="${nameY+i*34}">${xml(line)}</tspan>`).join('')}</text>`;
   // A text line fits while its baseline leaves room for descenders above the bottom border.
   const fits=(baseline:number)=>baseline+8<=height;

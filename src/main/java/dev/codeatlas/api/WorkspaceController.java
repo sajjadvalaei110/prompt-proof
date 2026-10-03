@@ -27,6 +27,12 @@ public class WorkspaceController {
         return workspaceService.createWorkspace(request);
     }
 
+    /** A project with no source folder, for a design imported from an exported map (ADR 0016). */
+    @PostMapping("/design-only")
+    public WorkspaceResponse createDesignOnly(@RequestBody(required = false) java.util.Map<String, String> request) {
+        return workspaceService.createDesignOnly(request == null ? null : request.get("name"));
+    }
+
     @GetMapping
     public List<WorkspaceResponse> listWorkspaces() {
         return workspaceService.listWorkspaces();

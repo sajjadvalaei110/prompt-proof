@@ -81,7 +81,7 @@ public class WorkspaceService {
             String indexer = AnalysisPortRegistry.indexerOf(engine);
             workspaceRepository.insert(id, canonicalPath, name, language, indexer, trustFor(engine));
             
-            return new WorkspaceResponse(id, canonicalPath, null, language, indexer);
+            return new WorkspaceResponse(id, canonicalPath, null, language, indexer, false, name);
         } catch (IllegalArgumentException e) {
             // Preserve client-facing validation failures so the API advice can return 400. In
             // particular, a path that is already registered for another language is a conflict
@@ -90,6 +90,16 @@ public class WorkspaceService {
         } catch (Exception e) {
             throw new RuntimeException("Failed to register workspace", e);
         }
+    }
+
+    /** A project with no source folder for an imported or authored design (ADR 0016). */
+    public WorkspaceResponse createDesignOnly(String name) {
+        String display = name == null ? "" : name.replaceAll("[\\p{Cntrl}]", " ").strip();
+        if (display.isEmpty()) display = "Imported design";
+        if (display.length() > 120) display = display.substring(0, 120);
+        String id = UUID.randomUUID().toString();
+        workspaceRepository.insertDesignOnly(id, display, UUID.randomUUID().toString());
+        return workspaceRepository.findById(id).orElseThrow();
     }
 
     public List<WorkspaceResponse> listWorkspaces() {

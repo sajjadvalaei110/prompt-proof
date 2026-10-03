@@ -249,3 +249,87 @@ h1 { font-size: 25px; letter-spacing: -.7px; line-height: 1.3; font-weight: 650;
 .welcome label.build-consent, .open-project-bar label.build-consent { flex: 1 1 100%; order: 10; display: flex; flex-direction: row; gap: 8px; align-items: flex-start; font-size: 12px; line-height: 1.4; }
 .welcome .build-consent input, .open-project-bar .build-consent input { flex: none; width: 16px; height: 16px; margin-top: 1px; }
 @media(max-width:760px) { .welcome label.build-consent, .open-project-bar label.build-consent { order: 0; } }
+
+/* Design layer (ADR 0014): violet and dashed, never confused with parsed facts or review colors. */
+.design-controls { display: flex; align-items: center; gap: 4px; }
+/* Export / Import (ADR 0016): the right end of the legend row, right under the map's Fit map / Full screen controls. */
+.map-file-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+.map-file-actions > button, .map-file-actions .design-import { font-size: 12px; padding: 6px 11px; }
+.graph-legend .map-file-actions ~ .legend-thickness { margin-left: 0; }
+.import-map-option { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+.import-map-option small { color: #7c8ea3; font-size: 12px; }
+.import-map-button { display: inline-flex; align-items: center; position: relative; cursor: pointer; font-size: 13px; padding: 9px 14px; }
+.import-map-button input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; padding: 0; }
+.import-map-button.disabled { opacity: .55; pointer-events: none; }
+.design-controls > button, .design-controls .design-import { font-size: 12px; padding: 8px 12px; }
+.design-toggle.active { background: #f1ebff; border-color: #7c5cc4; color: #4f3592; }
+.design-controls .design-import, .map-file-actions .design-import { display: inline-flex; align-items: center; cursor: pointer; position: relative; border-radius: 6px; }
+.design-controls .design-import input, .map-file-actions .design-import input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; padding: 0; }
+.design-controls .design-import.disabled, .map-file-actions .design-import.disabled { opacity: .5; cursor: not-allowed; }
+.inspector .design-section, .design-section { border-left: 3px solid #7c5cc4; padding-left: 14px; }
+.design-section .design-intent { font-weight: 600; color: #2b1d55; font-size: 14px; line-height: 1.6; }
+.design-section .design-detail { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.7; color: #3e4f66; margin-top: 8px; }
+.design-section .design-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.design-section .design-actions button { font-size: 12px; padding: 7px 10px; }
+.design-section .design-signature code, .design-key-preview code, .design-relation-ends code { font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere; }
+.design-section .muted { color: #7c8ea3; font-size: 13px; }
+.design-relation { border-top: 1px solid #ece6f8; padding-top: 10px; margin-top: 10px; }
+.design-relation-head { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+.tag.design-status { background: #f1ebff; color: #4f3592; }
+.tag.design-status-missing, .tag.design-status-orphaned { background: #fff3dc; color: #7a541a; }
+.tag.design-status-implemented, .tag.design-status-present { background: #e6f4f4; color: #087f86; }
+.design-provenance { color: #7c8ea3; }
+.design-dialog textarea.design-explanation-input { min-height: 180px; resize: vertical; line-height: 1.6; font-size: 13px; width: 100%; }
+.design-dialog label { display: grid; gap: 6px; font-size: 12px; }
+.design-key-preview { font-size: 12px; color: #4f3592; }
+.graph-context-menu .design-menuitem { color: #4f3592; }
+.line-sample.design { border-top: 2px dashed #8b6ad6; }
+.card-sample.design { display: inline-block; width: 14px; height: 10px; border: 1.5px dashed #7c5cc4; border-radius: 3px; background: #faf7ff; }
+/* Design-mode direct manipulation (ADR 0015). Overlays sit above the Cytoscape canvas, in stage pixels. */
+.design-slot { position: absolute; z-index: 2; pointer-events: none; border: 2px dashed #b9a5ea; border-radius: 12px; background: #faf7ffcc; display: grid; place-items: center; color: #6a4bb5; font-weight: 600; font-size: 14px; transition: background .12s, border-color .12s; }
+.design-slot.hot { background: #f1ebff; border-color: #7c5cc4; color: #4f3592; }
+/* The hovered box's nearest block, away from the pointer (ADR 0017 round 4): shown, calmer, not clicked where the pointer is. */
+.design-slot.near { background: #faf7ff99; border-color: #cdbff0; color: #8a73c9; }
+.design-slot.near span { border-style: dashed; }
+.design-slot span { padding: 6px 12px; border-radius: 999px; background: #fff; border: 1px solid #d9ccf5; white-space: nowrap; }
+.design-link-handle { position: absolute; z-index: 4; width: 20px; height: 20px; padding: 0; border-radius: 50%; border: 2px solid #fff; background: #7c5cc4; box-shadow: 0 0 0 1.5px #7c5cc4, 0 2px 6px #4f359255; cursor: crosshair; }
+.design-link-handle::after { content: ''; position: absolute; inset: 5px; border-radius: 50%; background: #fff; }
+.design-link-handle:hover, .design-link-handle:focus-visible, .design-link-handle.active { background: #4f3592; transform: scale(1.15); }
+.graph-stage.design-linking .graph-canvas { cursor: crosshair; }
+.design-link-hint { position: absolute; z-index: 5; top: 12px; left: 50%; transform: translateX(-50%); background: #4f3592; color: #fff; font-size: 12px; padding: 7px 12px; border-radius: 999px; box-shadow: 0 4px 14px #2b1d5533; pointer-events: none; }
+.design-draft-card { position: absolute; z-index: 5; box-sizing: border-box; }
+/* The outline: exactly the shape the card will take (ADR 0017), drawn over the content. */
+.design-draft-card::after { content: ''; position: absolute; inset: 0; border: 2px dashed #7c5cc4; border-radius: 12px; pointer-events: none; }
+.design-draft-card.invalid::after { border-color: #c0392b; }
+/* Laid out at the card's model size (at least 220x150) and scaled by the zoom: it always fits its outline. */
+.design-draft-body { box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr); align-content: center; gap: 6px; padding: 10px 12px; border-radius: 12px; background: #faf7ff; box-shadow: 0 4px 14px #4f359226; overflow: hidden; }
+.design-draft-kind { font-size: 13px; line-height: 17px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #6a4bb5; }
+.design-draft-card input { font-size: 26px; line-height: 31px; font-weight: 600; color: #19334f; padding: 4px 8px; border: 1px solid #d9ccf5; border-radius: 6px; background: #fff; min-width: 0; width: 100%; box-sizing: border-box; }
+.design-draft-hint { margin: 0; font-size: 13px; line-height: 17px; color: #7c8ea3; }
+/* A rejected name: in place of the hint, inside the outline, at most two lines (its full text is the title),
+   larger than the hint so it reads at the usual zoom. */
+.design-draft-error { margin: 0; font-size: 16px; line-height: 20px; font-weight: 600; color: #b03a2e; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.design-draft-card.invalid input { border-color: #e3b4ae; }
+.design-popover { position: fixed; z-index: 60; width: 340px; max-width: calc(100vw - 16px); background: #fff; border: 1px solid #d9ccf5; border-top: 3px solid #7c5cc4; border-radius: 10px; box-shadow: 0 12px 32px #2b1d5533; padding: 10px 12px 12px; font-size: 13px; }
+.design-popover header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.design-popover header strong { color: #2b1d55; overflow-wrap: anywhere; }
+.design-popover header button { border: 0; background: none; padding: 2px 6px; }
+.design-popover form { display: grid; gap: 8px; }
+.design-popover label { display: grid; gap: 4px; font-size: 12px; color: #4c647f; }
+.design-popover input, .design-popover textarea, .design-popover select { font-size: 13px; width: 100%; box-sizing: border-box; }
+.design-popover textarea { resize: vertical; line-height: 1.5; }
+.design-popover footer { display: flex; align-items: center; gap: 6px; }
+.design-popover footer > span { margin-left: auto; font-size: 11px; color: #9aa9ba; }
+.design-popover footer button { font-size: 12px; padding: 6px 10px; }
+.design-popover-key { margin: 0; font-size: 11px; color: #7c8ea3; overflow-wrap: anywhere; }
+.design-popover-key code { font-family: var(--font-mono); }
+.design-popover-picker { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.design-popover-picker button { width: 100%; text-align: left; font-size: 12px; }
+.design-quick-popup { position: fixed; z-index: 60; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; width: 340px; max-width: calc(100vw - 16px); background: #fff; border: 1px solid #d9ccf5; border-left: 3px solid #7c5cc4; border-radius: 9px; box-shadow: 0 10px 26px #2b1d5533; padding: 6px; font-size: 13px; }
+.design-quick-popup input { flex: 1 1 150px; min-width: 0; font-size: 13px; padding: 6px 8px; }
+.design-quick-popup select { flex: 0 1 120px; font-size: 12px; padding: 5px 4px; }
+.design-quick-popup button { padding: 5px 9px; font-size: 13px; line-height: 1; }
+.design-quick-popup .notice { flex-basis: 100%; margin: 2px 0 0; font-size: 12px; }
+.design-prompt-dialog { width: min(860px, calc(100vw - 32px)); }
+.design-prompt-text { width: 100%; box-sizing: border-box; font-family: var(--font-mono); font-size: 12px; line-height: 1.55; min-height: 320px; resize: vertical; }
+.design-prompt-note { font-size: 12px; color: #4f3592; margin: 6px 0; }

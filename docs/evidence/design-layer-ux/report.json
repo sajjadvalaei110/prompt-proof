@@ -1,0 +1,1064 @@
+{
+  "plannedPackage": {
+    "designOnly": true,
+    "border": "dashed",
+    "color": "rgb(124,92,196)"
+  },
+  "packageLanding": {
+    "draft": {
+      "x": 737.9921875,
+      "y": 487.3359375
+    },
+    "card": {
+      "x": 738,
+      "y": 487.33727435125985
+    }
+  },
+  "packageQuickPopup": {
+    "popup": {
+      "left": 822.59375,
+      "top": 414.9375,
+      "width": 340,
+      "height": 47.5,
+      "x": 992.59375,
+      "y": 438.6875
+    },
+    "draft": {
+      "left": 661.390625,
+      "top": 418.9375,
+      "width": 153.203125,
+      "height": 136.796875,
+      "x": 737.9921875,
+      "y": 487.3359375
+    }
+  },
+  "popover": {
+    "left": 823.6875,
+    "bottom": 409.96875,
+    "firstLabel": "Intent",
+    "focused": true
+  },
+  "quickClass": {
+    "kind": "INTERFACE",
+    "intent": "Append-only store of audit entries."
+  },
+  "auditBand": {
+    "blocks": [
+      {
+        "x1": 699.0862542955326,
+        "y1": -11.19815292096223,
+        "x2": 949.0862542955326,
+        "y2": 194.80184707903777
+      }
+    ],
+    "regions": [
+      {
+        "x1": 699.0862542955326,
+        "y1": -11.19815292096223,
+        "x2": 949.0862542955326,
+        "y2": 194.80184707903777
+      }
+    ]
+  },
+  "auditDraft": {
+    "outline": {
+      "left": 670.09375,
+      "top": 654.28125,
+      "width": 136.796875,
+      "height": 112.71875,
+      "x": 738.4921875,
+      "y": 710.640625
+    },
+    "want": {
+      "left": 670.1002256487401,
+      "top": 654.2870675065814,
+      "width": 136.79954870251973,
+      "height": 112.72282813087625
+    },
+    "body": {
+      "left": 670.09375,
+      "top": 654.28125,
+      "width": 136.799560546875,
+      "height": 112.72283935546875,
+      "x": 738.4935302734375,
+      "y": 710.6426696777344
+    },
+    "input": {
+      "left": 676.66015625,
+      "top": 699.4251098632812,
+      "width": 123.666748046875,
+      "height": 22.43511962890625,
+      "x": 738.4935302734375,
+      "y": 710.6426696777344
+    },
+    "error": null,
+    "hint": {
+      "left": 676.66015625,
+      "top": 725.1434326171875,
+      "width": 123.666748046875,
+      "height": 9.3023681640625,
+      "x": 738.4935302734375,
+      "y": 729.7946166992188
+    }
+  },
+  "slotLanding": {
+    "block": {
+      "x1": 699.0862542955326,
+      "y1": -11.19815292096223,
+      "x2": 949.0862542955326,
+      "y2": 194.80184707903777
+    },
+    "card": {
+      "x": 699.0862542955326,
+      "y": -11.19815292096223,
+      "w": 250,
+      "h": 206
+    }
+  },
+  "emptyClass": {
+    "blocks": [
+      {
+        "x1": 743.0862542955326,
+        "y1": 32.80184707903777,
+        "x2": 993.0862542955326,
+        "y2": 216.80184707903777
+      }
+    ],
+    "box": {
+      "x1": 697.0862542955326,
+      "y1": -13.19815292096223,
+      "w": 342,
+      "h": 276
+    },
+    "collapsedTopLeft": {
+      "x": 699.0862542955326,
+      "y": -11.19815292096223
+    }
+  },
+  "emptyBoxCollapseClick": {
+    "square": {
+      "left": 880.09375,
+      "top": 386.9375,
+      "width": 25.59375,
+      "height": 25.59375,
+      "x": 892.890625,
+      "y": 399.734375
+    }
+  },
+  "emptyBoxMenu": [
+    "− Remove from scope",
+    "⇶ Show outgoing stack",
+    "⇇ Show incoming stack",
+    "⊟ Collapse",
+    "＋ Add method",
+    "＋ Add nested type…",
+    "⤳ Draw relation from here",
+    "✎ Edit design…",
+    "✕ Deselect"
+  ],
+  "firstMethod": {
+    "block": {
+      "x1": 743.0862542955326,
+      "y1": 32.80184707903777,
+      "x2": 993.0862542955326,
+      "y2": 216.80184707903777
+    },
+    "card": {
+      "x": 743.0862542955326,
+      "y": 32.80184707903777,
+      "w": 250,
+      "h": 184
+    }
+  },
+  "methodBand": [
+    {
+      "x1": 743.0862542955326,
+      "y1": 248.80184707903777,
+      "x2": 993.0862542955326,
+      "y2": 432.80184707903777
+    }
+  ],
+  "emptyPackage": {
+    "blocks": [
+      {
+        "x1": 2055.2,
+        "y1": -178.63565292096223,
+        "x2": 2305.2,
+        "y2": 27.36434707903777
+      }
+    ],
+    "box": {
+      "x1": 2009.1999999999998,
+      "y1": -224.63565292096223,
+      "w": 342,
+      "h": 298
+    },
+    "collapsedTL": {
+      "x": 2011.1999999999998,
+      "y": -222.63565292096223
+    }
+  },
+  "zoomedOutDraft": {
+    "slotAtStart": {
+      "left": 701,
+      "top": 613.53125,
+      "width": 75,
+      "height": 61.796875,
+      "x": 738.5,
+      "y": 644.4296875
+    },
+    "zoom": 0.8,
+    "scale": 0.8,
+    "outline": {
+      "left": 638.5,
+      "top": 562.03125,
+      "width": 200,
+      "height": 164.796875,
+      "x": 738.5,
+      "y": 644.4296875
+    },
+    "want": {
+      "left": 638.5,
+      "top": 562.0375,
+      "width": 200,
+      "height": 164.8
+    },
+    "body": {
+      "left": 638.5,
+      "top": 562.03125,
+      "width": 200,
+      "height": 164.79998779296875,
+      "x": 738.5,
+      "y": 644.4312438964844
+    },
+    "input": {
+      "left": 648.0999755859375,
+      "top": 628.03125,
+      "width": 180.800048828125,
+      "height": 32.79998779296875,
+      "x": 738.5,
+      "y": 644.4312438964844
+    },
+    "error": null,
+    "hint": {
+      "left": 648.0999755859375,
+      "top": 665.6312255859375,
+      "width": 180.800048828125,
+      "height": 13.60003662109375,
+      "x": 738.5,
+      "y": 672.4312438964844
+    }
+  },
+  "resizedFirst": {
+    "block": {
+      "x1": 2055.2,
+      "y1": -178.63565292096223,
+      "x2": 2305.2,
+      "y2": 27.36434707903777
+    },
+    "card": {
+      "x": 2055.2,
+      "y": -178.63565292096223,
+      "w": 250,
+      "h": 206
+    }
+  },
+  "hovers": {
+    "area": {
+      "inner": {
+        "x1": 2055.2,
+        "y1": -178.63565292096223,
+        "x2": 2669.2,
+        "y2": 231.36434707903777
+      },
+      "children": [
+        {
+          "x1": 2055.2,
+          "y1": -178.63565292096223,
+          "x2": 2305.2,
+          "y2": 27.36434707903777
+        }
+      ],
+      "regions": [
+        {
+          "x1": 2337.2,
+          "y1": -178.63565292096223,
+          "x2": 2587.2,
+          "y2": 27.36434707903777
+        },
+        {
+          "x1": 2055.2,
+          "y1": 59.36434707903777,
+          "x2": 2305.2,
+          "y2": 231.36434707903777
+        }
+      ]
+    },
+    "cornerBlock": {
+      "x1": 2419.2,
+      "y1": 25.36434707903777,
+      "x2": 2669.2,
+      "y2": 231.36434707903777
+    },
+    "beside": {
+      "x1": 2337.2,
+      "y1": -176,
+      "x2": 2587.2,
+      "y2": 30
+    }
+  },
+  "race": {
+    "classPresentWhenPollLanded": false
+  },
+  "raceLanding": {
+    "block": {
+      "x1": 2055.2,
+      "y1": 59.36434707903777,
+      "x2": 2305.2,
+      "y2": 231.36434707903777
+    },
+    "card": {
+      "x": 2055.2,
+      "y": 59.36434707903777,
+      "w": 250,
+      "h": 172
+    }
+  },
+  "cloneShape": {
+    "w": 250,
+    "h": 172
+  },
+  "draggedGap": {
+    "block": {
+      "x1": 2064,
+      "y1": 59.36434707903777,
+      "x2": 2314,
+      "y2": 231.36434707903777
+    },
+    "card": {
+      "x": 2064,
+      "y": 59.36434707903777,
+      "w": 250,
+      "h": 172
+    }
+  },
+  "inspector": {
+    "intent": "Owns the order lifecycle from creation to completion.",
+    "detail": "Planned change: publish an OrderCompleted event instead of calling billing directly.",
+    "generatedHeading": "✧ Generated explanation"
+  },
+  "serviceGaps": {
+    "gaps": [
+      {
+        "x1": 1696,
+        "y1": 1288,
+        "x2": 1946,
+        "y2": 1494
+      },
+      {
+        "x1": 1978,
+        "y1": 1288,
+        "x2": 2228,
+        "y2": 1494
+      }
+    ],
+    "sizeBefore": {
+      "w": 917.7405898601805,
+      "h": 785.1905898601807
+    }
+  },
+  "gapLanding": {
+    "block": {
+      "x1": 1712,
+      "y1": 1288,
+      "x2": 1962,
+      "y2": 1494
+    },
+    "card": {
+      "x": 1712,
+      "y": 1288,
+      "w": 250,
+      "h": 206
+    },
+    "sizeBefore": {
+      "w": 917.7405898601805,
+      "h": 785.1905898601807
+    },
+    "sizeAfter": {
+      "w": 920.8055897164131,
+      "h": 788.5555897164131
+    },
+    "gapsAfter": [
+      {
+        "x1": 1994,
+        "y1": 1288,
+        "x2": 2228,
+        "y2": 1494
+      }
+    ]
+  },
+  "narrowLanding": {
+    "block": {
+      "x1": 1994,
+      "y1": 1288,
+      "x2": 2228,
+      "y2": 1494
+    },
+    "card": {
+      "x": 1994,
+      "y": 1288,
+      "w": 234,
+      "h": 206
+    }
+  },
+  "serviceBand": {
+    "regions": [
+      {
+        "x1": 1414,
+        "y1": 1526,
+        "x2": 2228,
+        "y2": 1732
+      }
+    ],
+    "inner": {
+      "x1": 1414,
+      "y1": 812,
+      "x2": 2228,
+      "y2": 1732
+    }
+  },
+  "serviceBandDraft": {
+    "outline": {
+      "left": 638.5,
+      "top": 562.03125,
+      "width": 200,
+      "height": 164.796875,
+      "x": 738.5,
+      "y": 644.4296875
+    },
+    "want": {
+      "left": 638.5,
+      "top": 562.0374999999999,
+      "width": 200,
+      "height": 164.8
+    },
+    "body": {
+      "left": 638.5,
+      "top": 562.03125,
+      "width": 200,
+      "height": 164.79998779296875,
+      "x": 738.5,
+      "y": 644.4312438964844
+    },
+    "input": {
+      "left": 648.0999755859375,
+      "top": 628.03125,
+      "width": 180.800048828125,
+      "height": 32.79998779296875,
+      "x": 738.5,
+      "y": 644.4312438964844
+    },
+    "error": null,
+    "hint": {
+      "left": 648.0999755859375,
+      "top": 665.6312255859375,
+      "width": 180.800048828125,
+      "height": 13.60003662109375,
+      "x": 738.5,
+      "y": 672.4312438964844
+    }
+  },
+  "bandLanding": {
+    "block": {
+      "x1": 1978,
+      "y1": 1526,
+      "x2": 2228,
+      "y2": 1732
+    },
+    "card": {
+      "x": 1978,
+      "y": 1526,
+      "w": 250,
+      "h": 206
+    }
+  },
+  "bandBoxes": {
+    "sizeFull": {
+      "w": 909.6999999999998,
+      "h": 1012
+    },
+    "sizeAfterBand": {
+      "w": 909.6999999999998,
+      "h": 1015.6999999999999
+    },
+    "innerFull": {
+      "x1": 1414,
+      "y1": 812,
+      "x2": 2228,
+      "y2": 1732
+    },
+    "innerAfter": {
+      "x1": 1414,
+      "y1": 812,
+      "x2": 2228,
+      "y2": 1732
+    }
+  },
+  "agent": {
+    "schemaVersion": "1",
+    "dryRun": false,
+    "applied": 2,
+    "results": [
+      {
+        "index": 0,
+        "op": "putResource",
+        "key": "com.example.spring.service.OrderService.complete(Long)",
+        "outcome": "created"
+      },
+      {
+        "index": 1,
+        "op": "putRelation",
+        "key": "com.example.spring.service.OrderService -CALLS-> com.example.audit.AuditLog",
+        "outcome": "created"
+      }
+    ]
+  },
+  "designedEdge": {
+    "id": "aggregate:[\"540e3526-fa91-4b68-852e-f0c6f9acc632\",\"design:com.example.audit.AuditLog\",\"DESIGN\"]",
+    "style": "dashed",
+    "color": "rgb(139,106,214)",
+    "label": "✎ calls",
+    "source": "OrderService",
+    "target": "AuditLog"
+  },
+  "edgeProvenance": "Written by claude-code · 2026-10-03 00:26:43",
+  "badNameError": "Write a method as name or name(Type, Type)",
+  "badNameDraft": {
+    "outline": {
+      "left": 597.09375,
+      "top": 711.875,
+      "width": 133.8125,
+      "height": 98.484375,
+      "x": 664,
+      "y": 761.1171875
+    },
+    "want": {
+      "left": 597.0976694915253,
+      "top": 711.8866525423729,
+      "width": 133.8276836158192,
+      "height": 98.49717514124293
+    },
+    "body": {
+      "left": 597.09375,
+      "top": 711.875,
+      "width": 133.82769775390625,
+      "height": 98.4971923828125,
+      "x": 664.0075988769531,
+      "y": 761.1235961914062
+    },
+    "input": {
+      "left": 603.5174560546875,
+      "top": 743.99365234375,
+      "width": 120.980224609375,
+      "height": 21.94775390625,
+      "x": 664.007568359375,
+      "y": 754.967529296875
+    },
+    "error": {
+      "left": 603.5174560546875,
+      "top": 769.1532592773438,
+      "width": 120.980224609375,
+      "height": 21.41241455078125,
+      "x": 664.007568359375,
+      "y": 779.8594665527344
+    },
+    "hint": null
+  },
+  "methodLanding": {
+    "block": {
+      "x1": 2024,
+      "y1": 1288,
+      "x2": 2274,
+      "y2": 1472
+    },
+    "card": {
+      "x": 2024,
+      "y": 1288,
+      "w": 250,
+      "h": 184
+    }
+  },
+  "rubberBand": {
+    "sourceId": "design:com.example.audit.AuditQuery",
+    "from": {
+      "x": 549.4844632768361,
+      "y": 313.20197740112997
+    },
+    "to": {
+      "x": 769.484375,
+      "y": 203.1875
+    }
+  },
+  "newRelation": {
+    "kind": "CALLS",
+    "popup": {
+      "left": 568.5,
+      "top": 620.4375,
+      "width": 340,
+      "height": 47.5,
+      "x": 738.5,
+      "y": 644.1875
+    },
+    "middle": {
+      "x": 738.5,
+      "y": 644.4375
+    }
+  },
+  "toggle": {
+    "before": {
+      "design:com.example.audit": {
+        "x": 824.0862542955326,
+        "y": 89.80184707903777,
+        "parent": null,
+        "w": 254,
+        "h": 682
+      },
+      "design:com.example.notes": {
+        "x": 3352.2,
+        "y": 26.36434707903777,
+        "parent": null,
+        "w": 614,
+        "h": 414
+      },
+      "design:com.example.racecheck": {
+        "x": 140,
+        "y": 2463,
+        "parent": null,
+        "w": 280,
+        "h": 250
+      },
+      "design:com.example.audit.AuditLog": {
+        "x": 824.0862542955326,
+        "y": -146.19815292096223,
+        "parent": "design:com.example.audit",
+        "w": 250,
+        "h": 206
+      },
+      "design:com.example.audit.AuditQuery": {
+        "x": 824.0862542955326,
+        "y": 91.80184707903777,
+        "parent": "design:com.example.audit",
+        "w": 250,
+        "h": 206
+      },
+      "design:com.example.notes.NoteIndex": {
+        "x": 3472.2,
+        "y": 145.36434707903777,
+        "parent": "design:com.example.notes",
+        "w": 250,
+        "h": 172
+      },
+      "design:com.example.notes.NoteStore": {
+        "x": 3172.2,
+        "y": -75.63565292096223,
+        "parent": "design:com.example.notes",
+        "w": 250,
+        "h": 206
+      },
+      "design:com.example.notes.NoteDraft": {
+        "x": 3181,
+        "y": 145.36434707903777,
+        "parent": "design:com.example.notes",
+        "w": 250,
+        "h": 172
+      },
+      "design:com.example.spring.service.OrderAudit": {
+        "x": 1837,
+        "y": 1889,
+        "parent": "d74ba622-b7fd-4ccf-a219-5da6a71bcb8a",
+        "w": 250,
+        "h": 206
+      },
+      "design:com.example.spring.service.OrderArchive": {
+        "x": 2111,
+        "y": 1889,
+        "parent": "d74ba622-b7fd-4ccf-a219-5da6a71bcb8a",
+        "w": 234,
+        "h": 206
+      },
+      "design:com.example.spring.service.OrderLedger": {
+        "x": 2103,
+        "y": 2127,
+        "parent": "d74ba622-b7fd-4ccf-a219-5da6a71bcb8a",
+        "w": 250,
+        "h": 206
+      },
+      "design:com.example.spring.service.OrderService.complete(Long)": {
+        "x": 2429,
+        "y": 948,
+        "parent": "540e3526-fa91-4b68-852e-f0c6f9acc632",
+        "w": 250,
+        "h": 184
+      },
+      "design:com.example.spring.service.OrderService.findByCustomer(Long)": {
+        "x": 2149,
+        "y": 1380,
+        "parent": "540e3526-fa91-4b68-852e-f0c6f9acc632",
+        "w": 250,
+        "h": 184
+      }
+    },
+    "after": {
+      "design:com.example.audit": {
+        "x": 824.0862542955326,
+        "y": 89.80184707903777,
+        "parent": null,
+        "w": 254,
+        "h": 682
+      },
+      "design:com.example.notes": {
+        "x": 3352.2,
+        "y": 26.36434707903777,
+        "parent": null,
+        "w": 614,
+        "h": 414
+      },
+      "design:com.example.racecheck": {
+        "x": 140,
+        "y": 2463,
+        "parent": null,
+        "w": 280,
+        "h": 250
+      },
+      "design:com.example.spring.service.OrderArchive": {
+        "x": 2111,
+        "y": 1889,
+        "parent": "d74ba622-b7fd-4ccf-a219-5da6a71bcb8a",
+        "w": 234,
+        "h": 206
+      },
+      "design:com.example.spring.service.OrderAudit": {
+        "x": 1837,
+        "y": 1889,
+        "parent": "d74ba622-b7fd-4ccf-a219-5da6a71bcb8a",
+        "w": 250,
+        "h": 206
+      },
+      "design:com.example.spring.service.OrderLedger": {
+        "x": 2103,
+        "y": 2127,
+        "parent": "d74ba622-b7fd-4ccf-a219-5da6a71bcb8a",
+        "w": 250,
+        "h": 206
+      },
+      "design:com.example.audit.AuditLog": {
+        "x": 824.0862542955326,
+        "y": -146.19815292096223,
+        "parent": "design:com.example.audit",
+        "w": 250,
+        "h": 206
+      },
+      "design:com.example.audit.AuditQuery": {
+        "x": 824.0862542955326,
+        "y": 91.80184707903777,
+        "parent": "design:com.example.audit",
+        "w": 250,
+        "h": 206
+      },
+      "design:com.example.notes.NoteDraft": {
+        "x": 3181,
+        "y": 145.36434707903777,
+        "parent": "design:com.example.notes",
+        "w": 250,
+        "h": 172
+      },
+      "design:com.example.notes.NoteIndex": {
+        "x": 3472.2,
+        "y": 145.36434707903777,
+        "parent": "design:com.example.notes",
+        "w": 250,
+        "h": 172
+      },
+      "design:com.example.notes.NoteStore": {
+        "x": 3172.2,
+        "y": -75.63565292096223,
+        "parent": "design:com.example.notes",
+        "w": 250,
+        "h": 206
+      },
+      "design:com.example.spring.service.OrderService.complete(Long)": {
+        "x": 2429,
+        "y": 948,
+        "parent": "540e3526-fa91-4b68-852e-f0c6f9acc632",
+        "w": 250,
+        "h": 184
+      },
+      "design:com.example.spring.service.OrderService.findByCustomer(Long)": {
+        "x": 2149,
+        "y": 1380,
+        "parent": "540e3526-fa91-4b68-852e-f0c6f9acc632",
+        "w": 250,
+        "h": 184
+      }
+    },
+    "arrangedBoxes": {
+      "design:com.example.audit": null,
+      "540e3526-fa91-4b68-852e-f0c6f9acc632": {
+        "x": 1622,
+        "y": 696
+      }
+    }
+  },
+  "promptBytes": 1943,
+  "fileActions": {
+    "actions": {
+      "left": 1052.515625,
+      "top": 908,
+      "width": 147.484375,
+      "height": 32,
+      "x": 1126.2578125,
+      "y": 924
+    },
+    "zoom": {
+      "left": 964.609375,
+      "top": 838.5,
+      "width": 237.390625,
+      "height": 37.5,
+      "x": 1083.3046875,
+      "y": 857.25
+    },
+    "prompt": {
+      "left": 515.75,
+      "top": 263.9375,
+      "width": 64.6875,
+      "height": 36,
+      "x": 548.09375,
+      "y": 281.9375
+    }
+  },
+  "briefBytes": 89316,
+  "imported": {
+    "position": {
+      "x": 824.0862542955326,
+      "y": 89.80184707903777
+    },
+    "missing": [
+      "design:com.example.spring.service",
+      "design:com.example.spring.model",
+      "design:com.example.spring.repository",
+      "design:com.example.spring.controller",
+      "design:com.example.spring.config",
+      "design:com.example.spring.service.CreditCardPaymentService",
+      "design:com.example.spring.service.NotificationService",
+      "design:com.example.spring.service.OrderArchive",
+      "design:com.example.spring.service.OrderAudit",
+      "design:com.example.spring.service.OrderLedger",
+      "design:com.example.spring.service.OrderService",
+      "design:com.example.spring.service.PayPalPaymentService",
+      "design:com.example.spring.service.PaymentService",
+      "design:com.example.spring.service.UserService",
+      "design:com.example.spring.service.UserServiceImpl",
+      "design:com.example.spring.service.OrderService.OrderService(OrderRepository)",
+      "design:com.example.spring.service.OrderService.complete(Long)",
+      "design:com.example.spring.service.OrderService.create(Order)",
+      "design:com.example.spring.service.OrderService.findByCustomer(Long)",
+      "design:com.example.spring.service.OrderService.findById(Long)"
+    ],
+    "status": "Imported 88 new and 0 updated resources, 117 relations (74 not found in this code)23 unresolved external targets0 explained · 0 queued · 0 failed✧ Explain all"
+  },
+  "emptyParsedDrag": {
+    "zoom": 0.8,
+    "box0": {
+      "x1": 1682,
+      "y1": 340
+    },
+    "box1": {
+      "x1": 1832,
+      "y1": 390
+    }
+  },
+  "emptyParsedDesignOff": {
+    "off": {
+      "expanded": false,
+      "w": 250,
+      "cw": 250,
+      "x": 1959,
+      "y": 495
+    },
+    "offAfter": {
+      "x": 1846.5,
+      "y": 557.5
+    }
+  },
+  "designOffCollapse": {
+    "moved": 3,
+    "menu": [
+      "− Remove from scope",
+      "⇶ Show outgoing stack",
+      "⇇ Show incoming stack",
+      "⊟ Collapse",
+      "</> View source",
+      "✕ Deselect"
+    ],
+    "off": [],
+    "boxes": {
+      "s0": {
+        "pkg": [
+          1673.5,
+          406.79999999999995,
+          2019.5,
+          1180.8
+        ],
+        "tag": [
+          1719.8,
+          452.8,
+          1973.2,
+          662.2
+        ],
+        "blocks": [
+          {
+            "x1": 1721.5,
+            "y1": 930.5,
+            "x2": 1971.5,
+            "y2": 1136.5
+          }
+        ],
+        "kids": [
+          [
+            "RegionTag",
+            1719.8,
+            452.8,
+            1973.2,
+            662.2
+          ],
+          [
+            "MarkerNote",
+            1719.5,
+            690.5,
+            1973.5,
+            900.5
+          ]
+        ]
+      },
+      "s1": {
+        "pkg": [
+          1673.5,
+          406.5,
+          2107.5,
+          1246.5
+        ],
+        "tag": [
+          1719.5,
+          452.5,
+          2061.5,
+          728.5
+        ],
+        "blocks": [
+          {
+            "x1": 1721.5,
+            "y1": 996.5,
+            "x2": 1971.5,
+            "y2": 1202.5
+          }
+        ],
+        "kids": [
+          [
+            "RegionTag",
+            1719.5,
+            452.5,
+            2061.5,
+            728.5
+          ],
+          [
+            "MarkerNote",
+            1719.5,
+            756.5,
+            1973.5,
+            966.5
+          ]
+        ]
+      },
+      "s1off": {
+        "pkg": [
+          1673.8,
+          406.79999999999995,
+          2019.2,
+          708.2
+        ],
+        "tag": [
+          1719.8,
+          452.8,
+          1973.2,
+          662.2
+        ],
+        "blocks": null,
+        "kids": [
+          [
+            "RegionTag",
+            1719.8,
+            452.8,
+            1973.2,
+            662.2
+          ]
+        ]
+      },
+      "s2": {
+        "pkg": [
+          1673.8,
+          406.79999999999995,
+          2019.2,
+          708.2
+        ],
+        "tag": [
+          1719.8,
+          452.8,
+          1973.2,
+          662.2
+        ],
+        "blocks": null,
+        "kids": [
+          [
+            "RegionTag",
+            1719.8,
+            452.8,
+            1973.2,
+            662.2
+          ]
+        ]
+      }
+    },
+    "note": {
+      "before": {
+        "x": 1846.5,
+        "y": 795.5
+      },
+      "expanded": {
+        "x": 1846.5,
+        "y": 861.5
+      },
+      "after": {
+        "x": 1846.5,
+        "y": 795.5
+      }
+    }
+  },
+  "designOnlyImport": {
+    "cards": 28,
+    "extra": [],
+    "diffs": [],
+    "project": {
+      "summary": "spring-project25 types across 8 packagesDesign only · no source folder",
+      "changes": true,
+      "design": "true"
+    },
+    "look": {
+      "serviceDesignOnly": false,
+      "serviceBorder": "rgb(22,136,138)",
+      "serviceExpanded": true,
+      "auditDesignOnly": true,
+      "plain": 26,
+      "designed": 2
+    }
+  },
+  "pageErrors": []
+}

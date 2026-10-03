@@ -192,6 +192,9 @@ const packageScope = async name => evaluate(`(()=>{const input=[...document.quer
 await cdp('Runtime.enable');
 await cdp('Network.enable');
 await cdp('Page.enable');
+// These checks pin the Design-off contract (ADR 0014/0015: with Design off, behaviour is unchanged). Design mode
+// changes double-click and adds an add slot to expanded boxes, so start every page with Design off.
+await cdp('Page.addScriptToEvaluateOnNewDocument',{source:"try{localStorage.setItem('showDesign','false')}catch{}"});
 await cdp('Page.bringToFront');
 await cdp('Emulation.setDeviceMetricsOverride', { width: 1500, height: 1000, deviceScaleFactor: 1, mobile: false });
 await cdp('Page.navigate', { url: `${base}/?snapshotId=${encodeURIComponent(initialSnapshotId)}` });

@@ -1,4 +1,5 @@
 import { ScopeSelection, isNodeInScope } from './scopeModel';
+import type { DesignRelation, DesignResource } from '../design/designModel';
 export interface AtlasNode { id: string; simpleName: string; qualifiedName?: string; kind: string; parentId?: string; roles?: string[]; responsibilitySummary?: string; explanationStatus?: string; memberNames?: string[]; memberCount?: number; packageName?: string;
   /** A comparison overlay may mark a parser-owned resource; ordinary exploration leaves this absent. */
   reviewChange?: 'ADDED' | 'MODIFIED' | 'REMOVED' | 'UNCHANGED' | 'UNKNOWN'; reviewSnapshotId?: string; reviewSide?: 'base' | 'head'; reviewSourceId?: string; reviewAddedLines?: number; reviewRemovedLines?: number;
@@ -10,15 +11,22 @@ export interface AtlasNode { id: string; simpleName: string; qualifiedName?: str
   expanded?: boolean;
   /** An ungrouped expanded card: its box is not drawn and it takes no pointer events (ADR 0011). */
   hiddenBox?: boolean;
+  /** An expansion with nothing drawn inside it, drawn as its card (App's projection, ADR 0017 §4): outside
+   * design mode, or an ungrouped box with nothing left. Still an expansion, so its card menu offers Collapse. */
+  drawnAsCard?: boolean;
   /** A method/constructor card's owning class name, shown on the card (ADR 0011). */
-  ownerName?: string }
+  ownerName?: string;
+  /** The design layer's record for this card (ADR 0014): an engineer explanation on parsed code, or a card that exists only in the design. */
+  design?: DesignResource }
 export interface AtlasEdge { id: string; sourceId: string; targetId: string | null; kind: string; resolution: string; descriptiveLabel?: string; occurrenceCount?: number; occurrenceIds?: string[]; hoverSummary?: string; explanationStatus?: string;
   /** Kept in the aggregate key for review overlay facts, so added/removed routes cannot cancel out. */
   reviewChange?: 'ADDED' | 'REMOVED' | 'UNCHANGED' | 'UNKNOWN'; reviewSnapshotId?: string; reviewSide?: 'base' | 'head';
   /** Review occurrence metadata; ordinary graph edges leave these absent. */
   reviewSourceId?: string;
   /** Aggregate-only (see aggregateEdges): per-occurrence kinds aligned with occurrenceIds, per-kind counts, distinct resolutions present, and the computed line width. */
-  occurrenceKinds?: string[]; kindCounts?: Record<string, number>; resolutions?: string[]; strengthWidth?: number }
+  occurrenceKinds?: string[]; kindCounts?: Record<string, number>; resolutions?: string[]; strengthWidth?: number;
+  /** A designed relation (ADR 0014, resolution DESIGNED); aggregateEdges keeps it on its own route. */
+  design?: DesignRelation }
 export interface AtlasGraph { nodes: AtlasNode[]; edges: AtlasEdge[]; metadata?: Record<string, any> }
 export type Level = 'PACKAGE' | 'CLASS' | 'METHOD';
 export const isType = (n: AtlasNode) => !['PACKAGE', 'METHOD', 'FIELD', 'CONSTRUCTOR'].includes(n.kind);
@@ -152,7 +160,8 @@ export function revealContainers(node: AtlasNode, all: Map<string, AtlasNode>): 
 }
 
 /** Uncertainty rank: the aggregate's representative resolution is the least certain one present, so a single candidate/unresolved occurrence is never reported as resolved (hover text, inspector). The line itself is not styled by resolution (ADR 0008 amendment, 2026-09-25). */
-const RESOLUTION_RANK: Record<string, number> = { RESOLVED: 0, CANDIDATE: 1, UNRESOLVED: 2 };
+// CODE: a parsed dependency carried along by the design layer (ADR 0016), as settled as the map it came from.
+const RESOLUTION_RANK: Record<string, number> = { RESOLVED: 0, CODE: 0, CANDIDATE: 1, UNRESOLVED: 2 };
 const worseResolution = (a: string, b: string) => ((RESOLUTION_RANK[b] ?? 2) > (RESOLUTION_RANK[a] ?? 2) ? b : a);
 
 /**
@@ -276,7 +285,9 @@ function aggregateEdges(graph: AtlasGraph, level: Level, all: Map<string, AtlasN
     if (source === target && !['METHOD', 'CONSTRUCTOR'].includes(all.get(source)!.kind)) continue;
     // A card and the container it sits in are drawn nested, so a route between them has nowhere to go.
     if (source !== target && (inside(source, target) || inside(target, source))) continue;
-    const key = e.reviewChange ? JSON.stringify([source, target, e.reviewChange]) : JSON.stringify([source, target]);
+    // A designed relation is intent, not a parser fact: it gets its own route so it never thickens or recolors one.
+    // A parsed dependency the design layer carries along (origin CODE, ADR 0016) joins the ordinary route.
+    const key = e.design && e.design.origin !== 'CODE' ? JSON.stringify([source, target, 'DESIGN']) : e.reviewChange ? JSON.stringify([source, target, e.reviewChange]) : JSON.stringify([source, target]);
     const group = grouped.get(key);
     if (group) {
       group.occurrenceIds!.push(e.id); group.occurrenceKinds!.push(e.kind); group.occurrenceCount!++;
@@ -290,6 +301,19 @@ function aggregateEdges(graph: AtlasGraph, level: Level, all: Map<string, AtlasN
   const edges = [...grouped.values()];
   for (const edge of edges) { edge.kind = sortedKindCounts(edge)[0][0]; edge.strengthWidth = strengthWidth(edge.occurrenceCount || 1); }
   return edges;
+}
+
+/**
+ * An expansion with nothing drawn inside it is drawn, measured and dragged as its card (ADR 0017 §4), marked
+ * `drawnAsCard` so its card menu still offers Collapse. Outside design mode (Design off, or Changes) that is
+ * any such expansion: opened empty in design mode, or emptied by a scope edit; geometry gives it no box. In
+ * design mode it is only an ungrouped one (ADR 0011): it draws no box and takes no pointer events, so
+ * without this it would be lost on the map. Returns `p` itself when nothing changes.
+ */
+export function childlessExpansionsAsCards<P extends { nodes: AtlasNode[] }>(p: P, designMode: boolean): P {
+  const parents = new Set(p.nodes.map(n => n.containerId));
+  const asCard = (n: AtlasNode) => !!n.expanded && !parents.has(n.id) && (!!n.hiddenBox || !designMode);
+  return p.nodes.some(asCard) ? { ...p, nodes: p.nodes.map(n => asCard(n) ? { ...n, expanded: false, hiddenBox: false, drawnAsCard: true } : n) } : p;
 }
 
 /**

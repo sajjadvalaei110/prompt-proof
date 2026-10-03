@@ -1,0 +1,63 @@
+{
+  "plannedPackage": {
+    "designOnly": true,
+    "border": "dashed",
+    "color": "rgb(124,92,196)"
+  },
+  "inspector": {
+    "intent": "Owns the order lifecycle from creation to completion.",
+    "detail": "Planned change: publish an OrderCompleted event instead of calling billing directly.",
+    "generatedHeading": "✧ Generated explanation"
+  },
+  "agent": {
+    "schemaVersion": "1",
+    "dryRun": false,
+    "applied": 2,
+    "results": [
+      {
+        "index": 0,
+        "op": "putResource",
+        "key": "com.example.spring.service.OrderService.complete(Long)",
+        "outcome": "created"
+      },
+      {
+        "index": 1,
+        "op": "putRelation",
+        "key": "com.example.spring.service.OrderService -CALLS-> com.example.audit.AuditLog",
+        "outcome": "created"
+      }
+    ]
+  },
+  "designedEdge": {
+    "id": "aggregate:[\"ffdb56ee-95c4-4625-af23-ac872869224f\",\"design:com.example.audit.AuditLog\",\"DESIGN\"]",
+    "style": "dashed",
+    "color": "rgb(139,106,214)",
+    "label": "✎ calls",
+    "source": "OrderService",
+    "target": "AuditLog"
+  },
+  "edgeProvenance": "Written by claude-code · 2026-10-01 18:22:17",
+  "briefBytes": 80963,
+  "imported": {
+    "position": {
+      "x": 169,
+      "y": 981
+    },
+    "missing": [
+      "design:com.example.spring.service",
+      "design:com.example.spring.model",
+      "design:com.example.spring.repository",
+      "design:com.example.spring.controller",
+      "design:com.example.spring.config",
+      "design:com.example.spring.service.CreditCardPaymentService",
+      "design:com.example.spring.service.NotificationService",
+      "design:com.example.spring.service.OrderService",
+      "design:com.example.spring.service.PayPalPaymentService",
+      "design:com.example.spring.service.PaymentService",
+      "design:com.example.spring.service.UserService",
+      "design:com.example.spring.service.UserServiceImpl"
+    ],
+    "status": "Imported 77 new and 0 updated resources, 116 relations (74 not found in this code)23 unresolved external targets0 explained · 0 queued · 0 failed✧ Explain all"
+  },
+  "pageErrors": []
+}

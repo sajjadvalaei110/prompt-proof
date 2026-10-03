@@ -19,8 +19,10 @@ export interface ImportScreenProps {
   /** Explicit consent that a build-running engine may run this project's build (ADR 0012). */
   allowBuild?: boolean;
   onAllowBuildChange?: (allow: boolean) => void;
-  recent?: Array<{ id: string; path: string; language: WorkspaceLanguage; indexer?: string; activeSnapshotId?: string | null }>;
+  recent?: Array<{ id: string; path: string; language: WorkspaceLanguage; indexer?: string; activeSnapshotId?: string | null; designOnly?: boolean; name?: string | null }>;
   onOpenRecent?: (workspace: NonNullable<ImportScreenProps['recent']>[number]) => void;
+  /** Opens an exported map with no code (ADR 0016): it becomes a new design-only project. */
+  onImportMap?: (file: File) => void;
 }
 
 /**
@@ -44,6 +46,7 @@ export function ImportScreen({
   onAllowBuildChange,
   recent = [],
   onOpenRecent,
+  onImportMap,
 }: ImportScreenProps) {
   const engines = indexers.filter(option => option.language === language);
   const selected = displayedIndexer(indexers, language, indexer) ?? undefined;
@@ -115,6 +118,14 @@ export function ImportScreen({
       <p className="muted">{needsConsent
         ? 'Compiler-accurate analysis. The repository itself stays read-only: Gradle runs in a private copy, reusing dependencies already in your Gradle cache (offline first).'
         : 'Source-only analysis. Your repository is read-only; no Gradle builds or application code are executed.'}</p>
+      {onImportMap && <div className="import-map-option">
+        <label className={`file-button import-map-button${busy ? ' disabled' : ''}`} title="Open a map exported from Code Atlas, exactly as it was, as a new project with no source folder">
+          <span>⇪ Import an exported map</span>
+          <input type="file" accept=".md,.markdown,.txt" aria-label="Import an exported map" disabled={busy}
+            onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) onImportMap(file); }}/>
+        </label>
+        <small>No code needed: you see the map as it was exported, and can keep designing on it.</small>
+      </div>}
       {recent.length > 0 && <div className="recent-projects">
         <h3>Recent projects</h3>
         {recent.map(workspace => <button
@@ -123,7 +134,9 @@ export function ImportScreen({
           disabled={busy}
           onClick={() => onOpenRecent?.(workspace)}
         >
-          <span>▱ {workspace.path.split('/').filter(Boolean).pop() || workspace.path}<small>{workspace.path}</small></span>
+          {workspace.designOnly
+            ? <span>✎ {workspace.name || 'Imported design'}<small>Design only · no source folder</small></span>
+            : <span>▱ {workspace.path.split('/').filter(Boolean).pop() || workspace.path}<small>{workspace.path}</small></span>}
           <span>Open ↗</span>
         </button>)}
       </div>}

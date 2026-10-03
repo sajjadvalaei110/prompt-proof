@@ -973,4 +973,74 @@ check('collapseTargets drops only targets drawn inside another target', () => {
   assert.deepEqual(collapseTargets(['C', 's'], containerOf), ['C', 's'], 'unrelated targets both stay, in order');
 });
 
+// --- ADR 0015: toggling Design parks design cards instead of dropping their geometry ---
+check('design cards keep top-level and in-container geometry while Design is off', () => {
+  const top = 'design:com.acme.billing', inner = 'design:com.acme.orders.Refund', method = 'design:com.acme.orders.Refund.issue(Long)';
+  let s = explorerViewReducer(initExplorerViewState('PACKAGE'), { type: 'RESET', level: 'PACKAGE', eligibleIds: ['p0', top], batchSize: Infinity, placement: placementFor(['p0', top]) });
+  s = explorerViewReducer(s, { type: 'NODE_MOVED', level: 'PACKAGE', id: top, position: { x: 1500, y: 900 }, generation: s.generation });
+  s = explorerViewReducer(s, { type: 'EXPAND_RESOURCE', level: 'PACKAGE', id: 'p0', ownerId: null, childPositions: { c0: { x: 100, y: 200 }, [inner]: { x: 400, y: 200 } }, generation: s.generation });
+  s = explorerViewReducer(s, { type: 'EXPAND_RESOURCE', level: 'PACKAGE', id: inner, ownerId: 'p0', childPositions: { [method]: { x: 420, y: 500 } }, generation: s.generation });
+  s = explorerViewReducer(s, { type: 'RESIZE_RESOURCE', level: 'PACKAGE', id: top, containerId: null, size: { width: 400, height: 300 }, position: { x: 1500, y: 900 }, generation: s.generation });
+  const before = s.levelViews.PACKAGE;
+  const withDesign = { p0: ['c0', inner], [inner]: [method] };
+  // Design off: the ordinary graph has only p0/c0; App parks every design ID eligible in the merged graph.
+  s = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: ['p0'], batchSize: Infinity, placement: placementFor(['p0', top]), parkedIds: [top, inner], expansionChildren: withDesign });
+  // Design on again.
+  s = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: ['p0', top], batchSize: Infinity, placement: placementFor(['p0', top]), expansionChildren: withDesign });
+  const after = s.levelViews.PACKAGE;
+  assert.deepEqual(after.positions[top], before.positions[top], 'a top-level design card returns where it was');
+  assert.deepEqual(after.sizes[top], before.sizes[top], 'and keeps its size');
+  assert.deepEqual(after.expansions, before.expansions, 'design children keep their positions inside parsed and designed boxes');
+  // Without parking (the old behaviour), the top-level card's geometry is dropped.
+  const dropped = explorerViewReducer(explorerViewReducer(explorerViewReducer(initExplorerViewState('PACKAGE'), { type: 'RESET', level: 'PACKAGE', eligibleIds: ['p0', top], batchSize: Infinity, placement: placementFor(['p0', top]) }), { type: 'SCOPE_UPDATED', eligibleIds: ['p0'], batchSize: Infinity }), { type: 'SCOPE_UPDATED', eligibleIds: ['p0'], batchSize: Infinity });
+  assert.equal(dropped.levelViews.PACKAGE.positions[top], undefined);
+});
+
+check('a parent collapsed while Design is off drops its parked design children', () => {
+  const inner = 'design:com.acme.orders.Refund';
+  let s = explorerViewReducer(initExplorerViewState('PACKAGE'), { type: 'RESET', level: 'PACKAGE', eligibleIds: ['p0'], batchSize: Infinity, placement: placementFor(['p0']) });
+  s = explorerViewReducer(s, { type: 'EXPAND_RESOURCE', level: 'PACKAGE', id: 'p0', ownerId: null, childPositions: { c0: { x: 100, y: 200 }, [inner]: { x: 400, y: 200 } }, generation: s.generation });
+  s = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: ['p0'], batchSize: Infinity, parkedIds: [inner], expansionChildren: { p0: ['c0', inner] } });
+  s = explorerViewReducer(s, { type: 'COLLAPSE_RESOURCE', level: 'PACKAGE', id: 'p0', position: s.levelViews.PACKAGE.positions.p0, generation: s.generation });
+  assert.equal(s.levelViews.PACKAGE.expansions.p0, undefined, 'the collapse removes the box and the parked child position with it');
+});
+
+check('dragging a box carries the parked cards inside it, through nested boxes', () => {
+  const inner = 'design:com.acme.orders.Refund', method = 'design:com.acme.orders.Refund.issue(Long)';
+  let s = explorerViewReducer(initExplorerViewState('PACKAGE'), { type: 'RESET', level: 'PACKAGE', eligibleIds: ['p0'], batchSize: Infinity, placement: placementFor(['p0']) });
+  const p0 = s.levelViews.PACKAGE.positions.p0;
+  s = explorerViewReducer(s, { type: 'EXPAND_RESOURCE', level: 'PACKAGE', id: 'p0', ownerId: null, childPositions: { c0: { x: 100, y: 200 }, [inner]: { x: 400, y: 200 } }, generation: s.generation });
+  s = explorerViewReducer(s, { type: 'EXPAND_RESOURCE', level: 'PACKAGE', id: inner, ownerId: 'p0', childPositions: { [method]: { x: 420, y: 500 } }, generation: s.generation });
+  // Design off: only p0 and c0 are drawn, so only they are reported by the drag.
+  s = explorerViewReducer(s, { type: 'NODES_MOVED', level: 'PACKAGE', generation: s.generation, moves: [
+    { id: 'p0', position: { x: p0.x + 50, y: p0.y - 20 }, containerId: null },
+    { id: 'c0', position: { x: 150, y: 180 }, containerId: 'p0' },
+  ] });
+  const v = s.levelViews.PACKAGE;
+  assert.deepEqual(v.expansions.p0.childPositions.c0, { x: 150, y: 180 }, 'reported cards take their reported position');
+  assert.deepEqual(v.expansions.p0.childPositions[inner], { x: 450, y: 180 }, 'a parked child moves with its box');
+  assert.deepEqual(v.expansions[inner].childPositions[method], { x: 470, y: 480 }, 'and so does a parked box\'s own content');
+  // A group drag of loose cards (no box among them) moves nothing else.
+  const t = explorerViewReducer(s, { type: 'NODES_MOVED', level: 'PACKAGE', generation: s.generation, moves: [{ id: 'c0', position: { x: 10, y: 10 }, containerId: 'p0' }, { id: 'c9', position: { x: 20, y: 20 }, containerId: null }] });
+  assert.deepEqual(t.levelViews.PACKAGE.expansions.p0.childPositions[inner], v.expansions.p0.childPositions[inner]);
+  assert.deepEqual(t.levelViews.PACKAGE.expansions[inner].childPositions, v.expansions[inner].childPositions);
+});
+
+check('arranging a box carries the parked cards inside it', () => {
+  const inner = 'design:com.acme.orders.Refund';
+  let s = explorerViewReducer(initExplorerViewState('PACKAGE'), { type: 'RESET', level: 'PACKAGE', eligibleIds: ['p0'], batchSize: Infinity, placement: placementFor(['p0']) });
+  const p0 = s.levelViews.PACKAGE.positions.p0;
+  s = explorerViewReducer(s, { type: 'EXPAND_RESOURCE', level: 'PACKAGE', id: 'p0', ownerId: null, childPositions: { c0: { x: 100, y: 200 }, [inner]: { x: 400, y: 200 } }, generation: s.generation });
+  s = explorerViewReducer(s, { type: 'ARRANGE_AROUND_RESOURCE', level: 'PACKAGE', generation: s.generation, positions: { p0: { x: p0.x + 1000, y: p0.y } }, childPositions: { p0: { c0: { x: 1100, y: 200 } } } });
+  assert.deepEqual(s.levelViews.PACKAGE.expansions.p0.childPositions[inner], { x: 1400, y: 200 });
+});
+
+check('a pinned new card lands exactly where it was typed; others still go through placeAdditions', () => {
+  let s = explorerViewReducer(initExplorerViewState('PACKAGE'), { type: 'RESET', level: 'PACKAGE', eligibleIds: ['p0'], batchSize: Infinity, placement: placementFor(['p0']) });
+  const placement = { ...placementFor(['p0', 'design:new', 'p1']), 'design:new': { width: 280, height: 250, name: 'new', pinned: { x: -900, y: 1234 } } };
+  s = explorerViewReducer(s, { type: 'SCOPE_UPDATED', eligibleIds: ['p0', 'design:new', 'p1'], batchSize: Infinity, placement });
+  assert.deepEqual(s.levelViews.PACKAGE.positions['design:new'], { x: -900, y: 1234 });
+  assert.ok(s.levelViews.PACKAGE.positions.p1, 'an unpinned addition is still placed');
+});
+
 console.log(`PASS: ${passCount} explorerViewState reducer checks (inspection/membership separation, append-only scope growth, show more, back navigation, reset, Step 3 geometry/camera, Step 4 inactive-level scope reconciliation and Back precedence, Step 5 focused arrangement, Step 5 review remediation A1/B1)`);

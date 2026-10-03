@@ -1,5 +1,5 @@
 # Project status
-Last updated: 2026-10-01 (source-viewer navigation and find in file, ADR 0013)
+Last updated: 2026-10-03 (add blocks round 5: growth band, a hovered box always shows its block, the draft inside its block, plain member names, ADR 0017 round 4; review fixes for add blocks, ADR 0017 round 3; add blocks in a box's empty space and empty boxes that expand in design mode, ADR 0017; on top of the quick intent popup, plain prompt, faithful import and design-only projects, ADR 0016; on top of design-mode direct manipulation, ADR 0015, and the design layer, ADR 0014)
 Active milestone: R6 — Developer comprehension redesign (in progress)
 Current revision: Step11 language-neutral Java analysis integrated with step 14 Ungroup (an expanded box's box hidden, its children kept as free cards,
 ADR 0011) merged with main's step 13 (card menu Expand/Collapse + View source, cascading tree
@@ -28,6 +28,568 @@ toggle with a git-style diff code viewer, exploration tabs with per-tab undo/red
 and selection controls, the R6 change-edges slice (one line per direction,
 directional selection emphasis, file-grouped evidence), in-place card details
 (expand packages/classes) and resizable cards; Step 6A remains unstarted
+
+## Design layer round 5: growth band, always-shown block, draft inside its block (2026-10-03, ADR 0017 "Round 4")
+
+From `docs/handoff/design-add-blocks-round5.md`: three owner complaints, plus one requirement the owner added
+while choosing the band rule ("while hovering an expanded package or class a + block is always shown, under the
+pointer where a card fits"). Frontend only; no backend, API or migration change. Commits: `4735701` (member
+names), `c915aeb` (geometry and canvas), `0c1b49e` (docs and evidence), then the follow-up below.
+
+Changes:
+- `expansionLayout`:
+  - `designBlocks` returns `{ gaps, band, area }`. With no gap, the box grows a band one card tall, `GAP` below its
+    lowest child, as wide as the inner area (at least one card), and `AddArea.inner` includes it, so a hover
+    anywhere in it offers a block under the pointer. The fixed 220×150 reserve, `designSlot` and `AddArea.only`
+    are gone. The owner chose "below, as wide as the box" over a two-card minimum and a right-or-below rule;
+  - `AddArea.regions` (gaps, else band, else the empty box's corner block) and new `addBlockNear`: the block a
+    hover anywhere in a box shows, under the pointer or the nearest one;
+  - `blockStillOpen(area, block)` (no `slots`), and new `draftCamera` with `DRAFT_READABLE_ZOOM` 0.5 /
+    `DRAFT_FOCUS_ZOOM` 0.8.
+- `placementGeometry`: the band grows the box (`slotMinSizes`); `slots` is the first gap or the band's start
+  (the card menu "Add …").
+- `GraphCanvas`:
+  - the innermost expanded box under the pointer (itself, or the box around the card under it) always shows a
+    block (`.hot` under the pointer, `.near` otherwise); only a block under the pointer is clicked;
+  - no block while a draft, quick popup or popover is open (`DesignCanvas.suppressBlocks`), during a link, a
+    drag or a resize, or once the pointer leaves the box that owns it (a button over the canvas inside the box,
+    such as the relation handle, keeps it);
+  - the draft is drawn at the true zoom inside its block (no `DRAFT_MIN_SCALE`); a draft too small on screen or
+    off it brings the camera (transient camera, outside undo); a rejected name replaces the hint inside it.
+- `App`: `suppressBlocks`; the duplicate-name message names what was typed (a member with its parameter types)
+  and its owner.
+- `designModel`: a planned member's card reads its name alone; its key is unchanged.
+
+Checks run (final jar, built after the last code change; only `scripts/verify-design-layer-ui.mjs` changed after it):
+- `cd frontend && npx tsc -b --force && npm run build`: PASS.
+- `node scripts/test-*.mjs`: all 18 PASS. New coverage is listed in `docs/TESTING.md`, "Growth band, always-shown
+  block…". The 100-child benchmark on this machine: `designBlocks` 0.5 ms, 1000 `addBlockAt` 0.9 ms, 1000
+  `addBlockNear` 2.1 ms. The `addBlockNear` fuzz: 2426 hovers under the pointer, 5074 nearest, none null.
+- `./gradlew bootJar`: PASS.
+- `CHROMIUM=/snap/bin/chromium python3 scripts/verify_design_layer_pipeline.py`: PASS (`build/design-layer/run-4mgxlxn6`; after the follow-up
+  below, `run-av1wo16w`).
+  - All 38 screenshots of that run were opened and inspected; they were copied with `report.json` and
+    `design-prompt.md` to `docs/evidence/design-layer-ux/`. 04a, 05c2, 06e, 06f and 06g are new.
+  - Measured in `report.json`: the one-class package's band 250×206 and the class made at its right edge
+    250×206; the class's method band 250×184; the draft opened at zoom 0.3 moved the camera to 0.8, its outline
+    200×164.8 equal to the block and its content at scale 0.8; the full service package's band 814×206; the class
+    made at its right part 250×206 at the right edge, the package's model box unchanged to the pixel (drawn
+    1012 → 1015.7 px tall, cards' borders); no page errors.
+  - Earlier runs of the new steps failed on test harness issues, fixed in the test: a negative model coordinate
+    built `x--n` in an evaluated expression; the drawn box compared while the inspected card's halo widened it;
+    probes off screen or on the relation handle (they had passed only because a stale block stayed drawn, which
+    the canvas `mouseleave` fix removed), now handled by `focusBox`, which zooms out until the box fits.
+- Design-off contract, same final jar:
+  - `verify_change_edges_pipeline.py`: PASS (`build/change-edges/run-usmv73jy`);
+  - `verify_ungroup_pipeline.py`: 33/33 PASS (`build/ungroup/run-uajance0`);
+  - `verify_git_review_pipeline.py`: PASS (`build/git-review/run-r921pbcu`);
+  - `verify_stable_graph_pipeline.py acceptance`: FAIL at `revealClasses` (line 335, "Cannot read properties of
+    undefined (reading 'click')"), `build/stable-graph/acceptance-t9ipya1e`: the same pre-existing failure as
+    rounds 4, 4b and 4c.
+- Follow-up after an advisor review (one commit): leaving the canvas element (onto the relation handle or a resize
+  grip, buttons over the canvas) dropped the block although the pointer was still over the box, contrary to the
+  owner's "never disappears". `leaveCanvas` now keeps it while the pointer is inside the owning box; a browser step
+  hovers a card's relation handle in the service package and asserts the block stays. The duplicate-name message
+  keeps a member's parameter types (`find(Long) already exists in OrderService`). Rerun: `tsc -b --force` and
+  build PASS, `bootJar` PASS, design-layer PASS (`build/design-layer/run-av1wo16w`). Its screenshots were diffed
+  against `run-4mgxlxn6`; those that differ beyond timestamps and edge animation (06b, 06e, 17) were opened and
+  inspected, and the evidence was refreshed from this run. The Design-off pipelines were not rerun: the block
+  state (`addHoverRef`) is never set while Design is off, so the changed handler does nothing there.
+- Not run: `./gradlew test`. No backend file changed (the constructor name the card now shows is the class name
+  the server already stores, `DesignService`).
+
+## Design layer round 4c: review fixes for add blocks (2026-10-02, ADR 0017 "Round 3")
+
+An external review of rounds 4 and 4b (`docs/review/design-add-blocks-review.md`, 35 findings and 7
+"false claims") was triaged by the owner. Every item is answered in
+`docs/reviews/design-add-blocks-review-response.md`, as fixed, disputed with evidence, a documented limit, or
+deferred. Commits:
+- `bea15be`: pure geometry;
+- `14de86f`: canvas and App;
+- `8d42f2a`: browser checks;
+- `557e7e4`: docs;
+- `aa4ebfe`: a Design-off collapse also counts parked design cards;
+- the docs commit after it.
+
+Changes (frontend only; no backend, API or migration change):
+- `expansionLayout`:
+  - `freeRect` is exact: every maximal empty rectangle around the pointer, scored by "a least block fits",
+    then capped area, then raw area (F6, F24);
+  - `addBlockAt` looks only at children near the pointer and snaps to 8 px, with no rounding after the clamp
+    (F4, F7);
+  - `designBlocks` snaps natural spots into the free space and adds column-top spots (F5);
+  - an empty box offers its card-sized corner block for any hover, also when resized (F17);
+  - new `blockStillOpen` (F9) and `emptyBoxCenter` / `emptyBoxAnchor` (F32).
+- `GraphCanvas`:
+  - the corner squares are hit-tested first, and a double-click on empty space opens the popover (F1);
+  - the hit-test runs once per mousemove (F19), a click creates in the drawn block, and the stale hover is
+    dropped (F9);
+  - no Ungroup on a box with nothing drawn inside (F11);
+  - the draft keeps the block's outline, with content at a 0.6 minimum scale and an attached error label
+    (F16, F18);
+  - no spurious first-child position write (F20);
+  - design mode is passed as an explicit parameter to `nodeCard` (F35).
+- `App`:
+  - pending pins and growth are keyed by card and used only by the reconciliation that admits that card
+    (`designModel.takeAdmitted`, F3);
+  - `RECONCILE_ALL` gives each tab its id: the typed tab pins the card and makes room, other tabs give it the
+    block's shape (F10);
+  - `graphModel.childlessExpansionsAsCards` draws a childless expansion as its card outside design mode, or
+    when ungrouped. Its menu offers Collapse, measured in design-mode geometry on the design-merged graph, so a
+    Design-off collapse gives the room back exactly, to parked design cards too (F12, F22, F28).
+- Found by the new resize step: a design export/import dropped a resized box's `minSize` (ADR 0016 fidelity).
+  The layout now carries it.
+
+Checks run (final jar, built after the last code change):
+- `cd frontend && npx tsc -b --force && npm run build`: PASS.
+- `node scripts/test-*.mjs`: all 18 PASS. New or changed coverage is listed in `docs/TESTING.md`, "Add-block
+  review fixes". `test-expansion-layout.mjs` 100-child benchmark on this machine:
+  - `designBlocks`: 0.6–2.6 ms over all runs (HEAD before, same benchmark: 5.1–9.5 ms);
+  - 1000 `addBlockAt`: 2.2–3.1 ms (before: 22.7–24.9 ms).
+- `./gradlew bootJar`: PASS. The served bundle (`index-BlYD_fCY.js`) was checked to be the final build.
+- `CHROMIUM=/snap/bin/chromium python3 scripts/verify_design_layer_pipeline.py`: PASS
+  (`build/design-layer/run-zkwczg2_`).
+  - All 32 screenshots of that final run were opened and inspected.
+  - They were copied with `report.json` and `design-prompt.md` to `docs/evidence/design-layer-ux/`; 05e–05i and
+    16d are new.
+  - Measured in `report.json`:
+    - reserve 220×150;
+    - empty class block 250×184; empty package block 250×206;
+    - the gap class 250×206, with the package size unchanged (919.9×787.4 → 919.0×786.7);
+    - the narrow class 234×206 (the 8 px snap moved the first class 16 px, not 20);
+    - the raced class 250×172 in both the typed and the cloned tab, with the poll asserted to land while the class
+      was absent;
+    - the zoomed-out draft outline 75×61.8, equal to its block, with content scale 0.6;
+    - Design-off collapse round trip:
+      - 3 parsed cards made room, and 0 were off afterwards;
+      - the parked design class `MarkerNote` went 767.5 → 833.5 → 767.5;
+    - no page errors.
+  - Negative controls (each one run, then reverted):
+    - with every pending entry consumed on every reconciliation, the race step fails with 250×206;
+    - with the Design-off collapse measured on the raw graph, the parked design class stays at 833.5.
+- `verify_change_edges_pipeline.py`: PASS (`build/change-edges/run-5eadfxgm`).
+- `verify_git_review_pipeline.py`: PASS (`build/git-review/run-lt5p_4rw`).
+- `verify_ungroup_pipeline.py`: 33/33 PASS, both on HEAD `1b52fae` before any change
+  (`build/ungroup/run-udjoru55`) and on the final jar (`build/ungroup/run-0wqpnnc7`).
+- `verify_stable_graph_pipeline.py acceptance`: FAIL at `revealClasses` (line 335, "Cannot read properties of
+  undefined (reading 'click')"), in `build/stable-graph/acceptance-of0hz9b7`. This is the same pre-existing
+  failure as rounds 4 and 4b.
+- While writing the browser steps, three harness artifacts were found and handled in the test, not the
+  product:
+  - a CDP mouse move needs `button: 'left'` for a grip's pointer capture to hold;
+  - a grip dragged off the canvas is unmounted, so the resize is done at zoom 0.5;
+  - switching journey tabs mounts a new canvas, so the `arranged` listener is bound again.
+- Independent rerun by the coordinator on the final jar: design-layer PASS (`build/design-layer/run-g_h0hk7w`),
+  ungroup 33/33 (`run-wqru95sb`).
+- Follow-ups after that review (one commit):
+  - an expanded box's header label stops short of its corner squares and ellipsizes (pure
+    `containerLabelLayout`);
+  - F27(5): a browser step drags a child to open a block, and the class made there takes its exact shape;
+  - a card's `mouseout` no longer drops its box's hover block.
+
+  Rerun after them:
+  - `tsc -b --force` and build: PASS;
+  - all 18 node tests: PASS;
+  - `bootJar`: PASS;
+  - design-layer: PASS (`build/design-layer/run-iqyj8a3r`, evidence refreshed). The new and changed screenshots
+    were inspected: 05b, 05e, 05j and 16b;
+  - ungroup: 33/33 (`run-j5o_p0_i`);
+  - change-edges: PASS (`run-rhbib1yz`);
+  - git-review: PASS (`run-b7zrgtcn`). Its wide expanded labels are unchanged.
+- For verification only, a throwaway git worktree in the scratchpad checked that the first commit builds and
+  passes on its own. It was removed; all work was done in the main checkout.
+
+Not run: `./gradlew test` (no backend change), live-model verification, `constrainedMemoryTest`.
+
+Remaining limits (ADR 0017 Round 3, "Limits kept"):
+- An empty box's first card goes at its corner, not under the pointer.
+- The keyboard "Add …" uses the first gap.
+- A drawn compound can sit up to 2 px outside its model box where a card meets a resized edge.
+- Undo past a create loses that card's shape in the restored entry.
+- The journey layout is not persisted across reloads.
+- Changes mode with a childless expansion is covered only by the pure projection test.
+- Other tabs do not make room for the new card.
+- Undo/redo after a create was not exercised in the browser.
+
+## Design layer round 4b: a block anywhere empty, in the card's exact shape (2026-10-02, ADR 0017 "Round 2")
+
+Owner feedback on round 4: with plenty of space, only two fixed places offered "+ class" / "+ method".
+They asked that the resource can be created anywhere empty, and that once created it is no bigger than the
+shape the block promised.
+
+Changes (frontend only):
+- `expansionLayout.freeRect` and `addBlockAt`:
+  - a hover anywhere in an expanded box's empty inner area offers a block centred on the pointer;
+  - the block is shifted and shrunk to keep GAP from every child, up to a card, at least
+    `DESIGN_LEAST_BLOCK` (220×150).
+- `JourneyGeometry.areas` → `DesignCanvas.areas`. `GraphCanvas` calls the pure helper on mousemove and
+  click.
+- `designBlocks.gaps` are now as large as the free space allows. They decide whether a reserve is needed and
+  where a card menu "Add …" goes.
+- The draft is drawn at the block's model size, scaled by the zoom. The commit stores the card's position
+  **and size** with `RESIZE_RESOURCE` inside `RECONCILE_ALL`, so the card is exactly the block and the box
+  never grows for it.
+- A hover block that a card now covers is dropped, so there is no stale "+".
+- The least block went from 180×130 to 220×150: at 180×130 a two-line name was cut ("AuditQuery" showed as
+  "Audit").
+- `docs/reviews/design-add-blocks-codex-review.md`: a self-contained prompt for an external (Codex) review of
+  all commits after `d8c6111`.
+
+Checks run (final build):
+- `cd frontend && npx tsc -b --force && npm run build`: PASS.
+- `node scripts/test-*.mjs`: all 18 PASS. `test-expansion-layout.mjs` has a new block covering:
+  - a full card under the pointer far from children;
+  - one shifted inside at the edge;
+  - one keeping GAP beside a child;
+  - none on or within GAP of a child;
+  - a 236 px space giving a 236-wide block;
+  - none below the least size;
+  - every gap inside the inner area.
+- `./gradlew bootJar`: PASS.
+- `CHROMIUM=/snap/bin/chromium python3 scripts/verify_design_layer_pipeline.py`: PASS. All 26 screenshots
+  inspected and copied to `docs/evidence/design-layer-ux/`. 06d is new. Asserted:
+  - 3b: hovered 20 px right of the first empty cell's centre, the block follows the pointer (x1 = cell
+    x1 + 20). The class takes its exact corner and size (250×206). The package size is unchanged (< 8 px).
+    No stale button. No overlap;
+  - the remaining space (231 px in that run's `report.json`; this entry first said 230) is still a block,
+    narrower than a card. A class made there is 231 wide;
+  - every create in a block (reserve class, first method of an empty class, gap class, narrow class, method in a
+    parsed class) asserts the card's corner and size equal the block's. The package of step 1 and the class
+    added under the collapsed package in step 2 are not made in blocks and are not shape-checked. (Correction
+    in round 4c: this line first said "every create".)
+- `verify_change_edges_pipeline.py`: PASS. `verify_git_review_pipeline.py`: PASS.
+  `verify_stable_graph_pipeline.py acceptance`: the same failure as before this work (`revealClasses`).
+- `verify_ungroup_pipeline.py`: **not verified this round**.
+  - It hung three times at its step 9, the first `evaluate` after a `?selectedSymbol=` navigation, until the
+    timeout.
+  - To bisect, I built the previous commit `d5f367f` in a separate worktree. It hangs at the same step, yet
+    it passed this pipeline 33/33 earlier the same day. So the hang is not caused by this round.
+  - After that, the snap Chromium became unstable on this machine: crashpad `ptrace` errors, then "Unable to
+    capture screenshot", then a DevTools endpoint that never starts. A plain `--headless --screenshot` still
+    works.
+  - Neither ungroup nor a further design pipeline run could be completed. Rerun ungroup on a healthy
+    browser before merging.
+  - Correction (round 4c), rerun on the same HEAD `1b52fae` after /tmp space was freed: **33/33 PASS**
+    (`build/ungroup/run-udjoru55`).
+    - The most likely cause was the tmpfs /tmp per-user quota running out ("Disk quota exceeded" that day).
+      That fits the crashpad and screenshot failures. It is not proven.
+    - The review's explanation (an unhandled destroyed execution context after `Page.navigate`) does not hold:
+      the harness's `until` catches a failed `evaluate` and retries it, so a destroyed context gives a retry,
+      not a hang.
+    - The harness was not changed.
+- While investigating I briefly tried drawing childless expansions as card-sized compounds in the canvas,
+  instead of the `projected` memo. I reverted it: the bisect cleared the memo, and the reverted state is the
+  one the passing design run above verified.
+
+Not run: `./gradlew test` (no backend change; the round-4 run stands), live-model verification,
+`constrainedMemoryTest`.
+
+Remaining limits:
+- The free rectangle is greedy (nearest child first). In odd layouts it can miss a larger free area that a
+  different cut order would find; the block is then smaller than possible, never overlapping.
+- A card made in a small space stays small (at least 220×150) until resized.
+- The draft scales with the zoom like a card, so at very low zoom its input is small.
+
+## Design layer round 4: add blocks in a box's empty space, empty boxes expand (2026-10-02, ADR 0017)
+
+Bounded acceptance criterion, from the owner's feedback on round 3:
+- in design mode, an expanded package does not stretch just to fit "+ class";
+- hovering any empty block inside it shows "+ class" ("+ method" in an expanded class);
+- the box grows only when no empty block is left, and that block may be smaller than a card;
+- an empty package or class expands in design mode onto a single block for its first class or method.
+
+Changes (frontend only; no backend, API or migration change):
+- `expansionLayout.designBlocks` is the one pure rule:
+  - gaps are where a full card fits beside the children without touching any. They are clipped only by the
+    box's own right and bottom edge, and never below `MIN_CARD_SIZE` (180×130);
+  - a 180×130 reserve exists only when there is no gap, placed where the next child would go;
+  - an empty box is one card-sized block.
+- `boxWithBlocks` feeds `geometryForJourney`, `toggleExpand`, `resizeContainer` and `roomMoves`
+  (`RoomCard.blocks`).
+- `slots` is a list of blocks per box. Only the hovered block is drawn. The hover key is the block's corner,
+  so a stale key cannot light a block that moved into its place.
+- A card created in a block is stored at the block's top-left corner, through `Growth.child` and
+  `ARRANGE_AROUND_RESOURCE`, inside `RECONCILE_ALL`. This removes the round-2 limit "may land one row below
+  its slot".
+- Empty packages and types:
+  - `hasDetailsButton` accepts `designExpandable`, set by `GraphCanvas` in design mode only;
+  - `toggleExpand` and the menu's Expand allow them in design mode;
+  - the empty box is a plain Cytoscape node, `node[?expanded][?emptyBox]` sized by `minW`/`minH` and
+    positioned at the card's corner.
+- Two round-2 room-making bugs became visible and are fixed:
+  - the cascade dropped an ancestor's reserve, so the card below moved up into the box;
+  - nested growth was measured against the outer box after the change, so the cascade stopped and the
+    package overlapped the row below. `Growth.boxes` snapshots the boxes before the change.
+- Docs: ADR 0017, a pointer in ADR 0015, ARCHITECTURE §8, TESTING, CLAUDE.md.
+
+Checks run:
+- `node scripts/test-*.mjs`: all 18 PASS. `test-expansion-layout.mjs` has two new blocks ("design add blocks",
+  "make-room keeps the reserve block"). `test-node-card.mjs` covers `designExpandable`.
+- `cd frontend && npx tsc -b --force && npm run build`: PASS (existing >500 kB chunk warning only).
+- `./gradlew bootJar`: PASS.
+- `./gradlew test`: 221 tests, 1 failure, 0 skipped. The failure is `ScipJavaLiveIndexingTest`. scip-java is
+  installed on this machine, so the test runs instead of being skipped, as it was in round 3. scip-java then
+  exits 1 indexing `test-fixtures/scip-gradle-project`'s real Gradle build. This change touches no backend
+  code (`git diff --stat` is frontend and scripts only), so the failure comes from the environment (the
+  fixture's Gradle build on this machine). It is not a regression.
+- With `CHROMIUM=/snap/bin/chromium` (the `/opt/pw-browsers` Chromium of round 3 is not on this machine):
+  - `python3 scripts/verify_design_layer_pipeline.py`: PASS, 23 screenshots (05b, 05c, 06b and 06c new); see
+    the follow-up below for the inspected 25. Measured:
+    - a one-class package has one reserve of 180×130;
+    - the service package (7 types, 3 columns) offers 2 gaps. A class made in the first keeps the gap's
+      corner exactly. The package size is unchanged within 4 px of border/hover outline, and 1 gap remains;
+    - an empty planned class expands onto 1 block at its own corner, within 2 px. Its first method lands on
+      that block;
+    - no top-level card overlaps another after each create.
+  - The first runs of the new steps failed, and each failure is fixed:
+    - a 3.9 px size tolerance (border, not stretch);
+    - screenshots showed a stale "+ class" on the next gap, which led to the corner-keyed hover;
+    - screenshots showed the package below moving up into the box, which led to `RoomCard.blocks`;
+    - screenshots showed the outer package overlapping the row below after a nested create, which led to
+      `Growth.boxes`.
+  - `verify_change_edges_pipeline.py`: PASS. `verify_ungroup_pipeline.py`: 33/33 PASS.
+    `verify_git_review_pipeline.py`: PASS. Sample screenshots inspected: Design-off geometry is unchanged.
+  - `python3 scripts/verify_stable_graph_pipeline.py acceptance`: still FAILS at `revealClasses`, the removed
+    `.segmented` switcher. The failure predates this work.
+
+Not run:
+- live-model verification: nothing here calls the model;
+- `constrainedMemoryTest`: no change to bounded explanation work.
+
+Follow-up (second commit, after review):
+- Outside design mode, App's projection now draws a childless expansion as its card (`expanded: false`).
+  - Before: an empty box opened in design mode, or one emptied by a scope edit, was drawn with Design off
+    as a padded dashed node, while geometry measured it as a card. Every drag stored its anchor 44 px off.
+  - Now drawing, room-making and drag agree, and the card is exactly an unexpanded one.
+- `cardMove` reads an empty box's anchor with the exact inverse of its drawn position, which removes a 2 px
+  creep per drag.
+- New pipeline checks:
+  - 4b: the method keeps its block's corner, and nothing overlaps;
+  - 6a, in fixture B: the method-less parsed type `RegionTag` expands in design mode onto one block. Dragged
+    by (120, 40) px, its box moves by exactly that over the zoom (±1.5). With Design off it is a card-sized,
+    unexpanded card that lands exactly where it was dropped, and nothing overlaps. Screenshots 16b and 16c.
+- Reruns on the follow-up jar:
+  - `npx tsc -b --force && npm run build`: PASS;
+  - all 18 `node scripts/test-*.mjs`: PASS;
+  - `./gradlew bootJar`: PASS;
+  - `verify_design_layer_pipeline.py`: PASS. All 25 screenshots inspected (01–18, including 05b, 05c, 06b,
+    06c, 16b and 16c) and copied to `docs/evidence/design-layer-ux/`, replacing the first commit's 23;
+  - `verify_change_edges_pipeline.py`: PASS; `verify_ungroup_pipeline.py`: 33/33 PASS;
+    `verify_git_review_pipeline.py`: PASS. Sample screenshots inspected;
+  - `verify_stable_graph_pipeline.py acceptance`: the same failure as before this work, at `revealClasses`.
+  - `./gradlew test` was not rerun: no backend change since the first run.
+- In the first commit's checks, "23 screenshots inspected" was too strong. About 8 of them had been looked
+  at. The follow-up run above is the one fully inspected.
+
+Remaining limits:
+- Cards created in reserves stack in a column at the box's left, so gaps mostly come from parsed packages,
+  resized boxes and dragged children.
+- In a narrow (empty) box, a long header label can run under the corner buttons.
+- A drag of a child inside a box does not make room around the box (unchanged behaviour). Screenshot 16b
+  shows the marker package overlapping a neighbour after the drag of `RegionTag`.
+
+## Design layer round 3: quick intent popup, plain prompt, faithful import, design-only projects (2026-10-02, ADR 0016)
+
+Bounded acceptance criterion, from the owner's feedback on round 2:
+- a two-click relation is CALLS;
+- after any create (package, class, method or relation), a small popup asks for the intent (focused) then the
+  kind. It sits at the relation's middle or next to the new card, never as a dialog. Double-click still edits
+  in full;
+- the Prompt is a plain request with no Code Atlas vocabulary;
+- Import and Export sit at the bottom right of the map, under Fit map / Full screen;
+- an exported map imports exactly as it was, even with no code;
+- the first page can import one.
+
+Owner decisions (AskUserQuestion): the first-page import makes a design-only project; imported code looks like
+the original; the Prompt leaves out implemented items; Prompt stays at the top.
+
+Changes:
+- Backend:
+  - V015 adds `design_relations.origin` (AUTHORED, or CODE for a parsed dependency carried along) and
+    `design_resources.roles`;
+  - `putRelation` stores CODE when the code already has that relation;
+  - import stores parsed dependencies as CODE and keeps Spring roles; export writes them back as `layer: CODE`;
+  - `DesignPromptService` is rewritten as Add / Change / Connect prose, and `AgentGuide.reportBack` is removed;
+  - `POST /api/workspaces/design-only` creates a workspace with an empty published snapshot; analysing it is
+    a 400;
+  - `WorkspaceResponse` gains `designOnly` and `name`.
+- Frontend:
+  - `DesignQuickPopup`;
+  - `defaultRelationKind` returns CALLS;
+  - CODE relations are ordinary routes, merged by `aggregateEdges`, with resolution CODE treated as settled;
+  - imported cards are drawn like the original: no badge, "· imported", parser-style names, roles;
+  - `noSource` in the element data. This fixes a round-2 bug where design-only cards showed a `</>` button;
+  - Export and Import moved under the zoom controls;
+  - the first page's "Import an exported map" opens it as the first tab (`RESET` takes a scope);
+  - in a design-only project, Design is forced on and Changes and Re-analyze are disabled.
+- Docs: ADR 0016, pointers in ADR 0014 and 0015, ARCHITECTURE §8, DATA_MODEL, TESTING, CLAUDE.md.
+
+Checks run:
+- `./gradlew test --tests "dev.codeatlas.design.DesignLayerIntegrationTest"`: 7/7 PASS, including the new
+  `promptIsAPlainRequestForOutstandingWork` and `designOnlyProjectHoldsAnImportedMap`.
+- `./gradlew test`:
+  - first full run: 221 tests, 1 failure. `WorkspaceLanguageIntegrationTest` showed that a new workspace's
+    response lacked `name`; fixed in `WorkspaceService`;
+  - a later run failed to compile a half-finished edit;
+  - the next run: 13 context-load failures, all "checksum mismatch for migration version 015". The local
+    gitignored `./data/codeatlas.db` (test-fixture workspaces only) had the first draft of V015 applied. I
+    dropped that draft's column and history row so Flyway re-applied the final V015; V015 was never pushed;
+  - final run: 221 tests, 0 failures, 1 skipped.
+- `cd frontend && npx tsc -b --force && npm run build`: PASS (existing >500 kB chunk warning only).
+- `node scripts/test-*.mjs`: all 18 PASS. New assertions in `test-design-model.mjs`, `test-design-exchange.mjs`
+  and `test-node-card.mjs`.
+- `./gradlew bootJar`, then with `CHROMIUM=/opt/pw-browsers/chromium-1194/chrome-linux/chrome`:
+  - `python3 scripts/verify_design_layer_pipeline.py`: PASS. 19 screenshots inspected and copied to
+    `docs/evidence/design-layer-ux/` (replacing round 2's), with `report.json` and `design-prompt.md`.
+    Measured:
+    - the relation popup is centred within 0.25 px of the relation's middle;
+    - in the first-page import, all 20 cards came back with identical position, size, parent, name and roles,
+      with nothing extra;
+    - imported routes are grey (26) and designed ones violet (2).
+  - `verify_change_edges_pipeline.py`: PASS on the final jar.
+  - `verify_ungroup_pipeline.py`: 33/33 PASS on the final jar.
+  - `verify_git_review_pipeline.py`: PASS on the final jar.
+  - `python3 scripts/verify_stable_graph_pipeline.py acceptance`: still FAILS at `revealClasses` →
+    `clickLevel('Classes')`. That is the removed `.segmented` switcher; the failure predates this work.
+
+Not run:
+- live-model verification: no provider is configured, and nothing here calls the model;
+- `constrainedMemoryTest`: no change to bounded explanation work;
+- a real clipboard write: headless Chromium may deny it.
+
+Remaining limits:
+- A relation explained before V015 keeps origin AUTHORED, so its intention no longer reaches the Prompt.
+  Explaining it again does not change that.
+- A design-only project cannot be re-analyzed into a real one. Exporting it and importing into a real project
+  does that.
+- The brief carries Spring roles but not other card data, such as generated explanations or review state.
+
+## Design-layer UX round 2: direct manipulation, agent prompt, toggle keeps geometry (2026-10-02, ADR 0015)
+
+Bounded acceptance criterion: in design mode (Design on, Changes off):
+- an expanded package or class keeps an add slot; hovering it shows "+ class" or "+ method";
+- clicking it, or a menu "Add …", creates the card in place with its title focused (Enter commits, Esc or an
+  empty blur cancels, a rejected name shows inline, `name(Type)` sets parameter types);
+- a hover handle plus two clicks draws a relation, with a dashed rubber band in between, then opens the
+  intent-first popover, which can change the kind;
+- double-click opens that popover instead of arranging;
+- the Prompt button copies only the designed work as a work order for a coding agent;
+- toggling Design off and on leaves every design card where it was.
+
+With Design off and in Changes, behaviour is unchanged. All grilling recommendations (Q1–Q9) were accepted. One
+refinement to Q3: the draft is a DOM card over the slot, not a Cytoscape node.
+
+Commits:
+1. Pure layer:
+   - `designModel` adds `parseInlineName`, `defaultRelationKind`, `joinExplanation` and change-set builders;
+   - `expansionLayout` adds `designSlot` and `minSizeWithSlot`, and `placementGeometry` adds `{designSlots}`;
+   - `explorerViewState` adds `PlacementDims.pinned` and carries parked children when a box is dragged;
+   - tests for all of the above.
+2. Parking and Prompt backend:
+   - App parks the design-merged graph while Design is off (`unionGraphs`), and slot minimums reach Cytoscape;
+   - `DesignPromptService` and `GET /design/prompt`, with `AgentGuide.reportBack`;
+   - new test `DesignLayerIntegrationTest.promptListsOnlyDesignedWork`.
+3. UI, pipeline and docs:
+   - `GraphCanvas`: the slot overlay and `'add'` hit, the relation handle, the rubber band on the
+     direction-overlay canvas, the draft card, design-mode double-click on cards and designed routes, and the
+     new menu items;
+   - new components `DesignPopover` and `DesignPromptDialog`;
+   - App: the toolbar "+ Add" is replaced by "Prompt"; room-making when a slot card grows its box, inside
+     `RECONCILE_ALL`; arrange and room moves carry parked children too;
+   - `verify-design-layer-ui.mjs` rewritten around real CDP pointer and keyboard input;
+   - the other browser scripts start with Design off;
+   - docs: ADR 0015, an ADR 0014 pointer, STABLE_GRAPH_INTERACTIONS, ARCHITECTURE §8, TESTING, CLAUDE.md.
+
+Checks run:
+- `./gradlew test`: 220 tests, 0 failures, 1 skipped. Run twice, the second after the last backend edit.
+  `LargeProjectBenchmarkTest` did not flake this time.
+- `cd frontend && npx tsc -b --force && npm run build`: PASS, with the existing >500 kB chunk warning only.
+- `node scripts/test-*.mjs`: all 18 PASS. `test-explorer-view-state.mjs` now has 79 checks.
+- `./gradlew bootJar`, then with `CHROMIUM=/opt/pw-browsers/chromium-1194/chrome-linux/chrome`:
+  - `python3 scripts/verify_design_layer_pipeline.py`: PASS on the final jar.
+    - 15 screenshots were inspected and copied to `docs/evidence/design-layer-ux/`, together with `report.json`
+      and the generated `design-prompt.md`.
+    - Measured: the slot card landed within 0.02 model px of the slot centre.
+    - Design off then on returned every design card to identical positions, including one inside a parsed
+      class box.
+    - The rubber band ended at the pointer, with no Cytoscape elements added.
+  - `verify_change_edges_pipeline.py`: PASS.
+  - `verify_ungroup_pipeline.py`: 33/33 PASS.
+  - `verify_git_review_pipeline.py`: 41/41 PASS.
+  - Ungroup and git-review first failed with Design on (the default): ungroup double-clicks to arrange, and
+    git-review compares box minimums across Changes, which differ by the design slot. Both are intended
+    design-mode behaviour (ADR 0015), so these scripts, plus change-edges and stable-graph, now start pages
+    with Design off. They pin the Design-off contract.
+- `python3 scripts/verify_stable_graph_pipeline.py acceptance`: still FAILS at its first level click
+  (`.segmented button`, line 325). This is pre-existing (ADR 0007 removed that switcher) and unrelated.
+
+Not run:
+- Live-model verification: no provider is configured, and nothing here calls the model.
+- `constrainedMemoryTest`: no change to bounded explanation work.
+- A real clipboard write: headless Chromium may deny it. The dialog then says so, and Copy and Download stay
+  available.
+
+Remaining limits:
+- The slot is placed from drawn child boxes, and a new child from stored card sizes. With a nested expanded
+  child in the box, a new card may land a row below its slot.
+- A card added under a collapsed container is not visible until that container is expanded. The status line
+  says where it went.
+- The draft card is at least 200 px wide, so at low zoom it is wider than the card it becomes.
+- The Prompt is always the whole workspace, never the tab's scope.
+- The design toggle remains a per-viewer preference.
+
+## Design layer: authored resources and relations, agent API, design brief (2026-10-01, ADR 0014)
+
+Bounded acceptance criterion: on the ordinary Code map the engineer can add packages, types and methods (also
+inside parsed packages/classes) and relations at any level, edit authored ones, and write an explanation on any
+resource or relation whose first paragraph is the intent. AI agents make the same changes through an atomic REST
+change set, with no review step. The map exports to one Markdown design brief an agent can read cold, and the
+brief imports back into any workspace to rebuild the same map, layout included. Decisions were settled with the
+owner in a grilling round. Owner overrides: no proposals or comments (agents write directly, the engineer edits
+afterwards); intent is the leading part of the one explanation, not a separate field; change intent on parsed
+code is free text; author is stored and shown quietly, not as a badge.
+
+Commits:
+1. Backend: V014 `design_resources`/`design_relations`; `design` module (`DesignKeys`, `DesignService`,
+   `DesignExchangeService`, `AgentGuide`); `DesignController` (`GET /design`, `POST /design/changes[?dryRun]`,
+   `GET|POST /design/export`, `POST /design/import`, `GET /api/agent-guide`); engineer explanation as an untrusted
+   `design-` context block, prompt v4.1, `design-` added to the SOURCE_FACT citation rule, narrow staleness.
+2. Frontend: `features/design/` (pure `designModel.ts`, `designExchange.ts`; `DesignEditorDialog`,
+   `DesignSection`); designed routes kept apart in `aggregateEdges`; design-only card badge and styling;
+   card-menu and empty-canvas design commands; inspector design sections (generated explanation relabelled);
+   toolbar Design toggle / Add / Export / Import; 4 s polling so agent changes appear; `RECONCILE_ALL`
+   journey action.
+3. Tests, pipeline, docs: `DesignLayerIntegrationTest`, `scripts/test-design-model.mjs`,
+   `scripts/test-design-exchange.mjs`, `scripts/verify_design_layer_pipeline.py` + `verify-design-layer-ui.mjs`,
+   ADR 0014, AGENTS.md invariant amendment, ARCHITECTURE.md §2/§3/§8, DATA_MODEL.md, TESTING.md, CLAUDE.md.
+
+Checks run:
+- `./gradlew test --tests "dev.codeatlas.design.DesignLayerIntegrationTest"` — 5/5 PASS.
+- `./gradlew test` — first run: 219 tests, 1 failure, 1 skipped. The failure was
+  `LargeProjectBenchmarkTest` ("Must extract 1005 total relationships", got 993); it touches no design code.
+  The test passed when run alone, the full suite on the base commit 9ec2e2e passed, and a second full run on
+  this branch passed (219 tests, 0 failures, 1 skipped). Recorded as intermittent; the cause is not
+  investigated.
+- `cd frontend && npx tsc -b --force && npm run build` — PASS (existing >500 kB chunk warning only).
+- `node scripts/test-*.mjs` — all 18 PASS (16 existing + `test-design-model.mjs` + `test-design-exchange.mjs`).
+- `./gradlew bootJar` then, with `CHROMIUM=/opt/pw-browsers/chromium-1194/chrome-linux/chrome`:
+  - `python3 scripts/verify_design_layer_pipeline.py` — PASS; screenshots inspected and copied to
+    `docs/evidence/design-layer/` with `report.json` and the exported brief.
+  - `verify_change_edges_pipeline.py` — PASS.
+  - `verify_ungroup_pipeline.py` — PASS (33/33).
+  - `verify_git_review_pipeline.py` — PASS.
+- `python3 scripts/verify_stable_graph_pipeline.py acceptance` — FAILS before reaching any design code: the
+  script still clicks the removed Packages/Classes/Methods `.segmented` switcher (ADR 0007). This is
+  pre-existing and not caused by this change.
+
+Not run: live-model verification (no provider configured). The `design-` context block and prompt v4.1 are
+covered only by the integration test's context assertions, not by a real model response.
+`constrainedMemoryTest` was not run (no change to bounded explanation work).
+
+Remaining limits: an ORPHANED type has no package card and is not drawn (it is listed in the API and the brief);
+planned methods match the JavaParser key format, so one may not become IMPLEMENTED under scip-java's signature
+printing; the Design toggle is a per-viewer preference, not per-tab undoable state; Design and Changes are not
+shown together.
 
 ## Source-viewer navigation: find in file, Ctrl/Cmd+click go to definition (2026-10-01, ADR 0013)
 

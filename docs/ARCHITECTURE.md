@@ -48,6 +48,7 @@ The backend enforces strict modular separation across domain boundaries:
 | `storage` | SQLite connection management, Flyway migrations, database constraints, and repository data access. |
 | `api` | REST endpoints, SSE stream handlers, DTO validation, and structured error responses. |
 | `review` | Read-only local Git capture, isolated before/after analysis and deterministic snapshot comparison. |
+| `design` | The engineer-owned design layer (ADR 0014): authored resources/relations and explanations keyed by stable keys, status computed against a snapshot, atomic agent change sets, the Markdown design brief (export/import). |
 
 ---
 
@@ -141,6 +142,11 @@ Code Atlas strictly decouples deterministic code facts from probabilistic langua
 1. **Deterministic Code Facts**: Parser facts own graph topology. Nodes (classes, methods) and edges (calls, injection, inheritance) are grounded directly in source text with byte/line/column ranges.
 2. **Probabilistic Explanations**: Model output provides explanations only. Every explanation references specific evidence IDs, records prompt/model provenance, and separates verifiable source facts from inferred developer intent.
 3. **Graceful Degradation**: If the local model is unconfigured or offline, graph visualization, symbol lookup, and source navigation remain fully functional.
+4. **Design layer** ([ADR 0014](adr/0014-design-layer.md)): a third, engineer-owned layer. Resources and
+   relations the engineer or an AI agent adds, and explanations on any element (first paragraph = intent),
+   live in `design_resources`/`design_relations`, keyed by the parser's stable keys. They are drawn dashed
+   violet (relations with resolution `DESIGNED`), never mixed into parser facts, never written by analysis
+   or models. The model may read an engineer explanation as an untrusted `design-` context block.
 
 ---
 
@@ -340,3 +346,66 @@ visible. The model adapter independently caps serialized request and streamed re
 bytes and permits one outstanding request. Queue status is aggregate-only. React
 polling is serialized and lifecycle-scoped, so slow requests do not overlap or update
 an inactive workspace.
+
+## 8. Design layer, agent API and design brief (ADR 0014)
+
+```
+[Engineer UI] ─┐                                  ┌─> GET  /design            overlay + computed status
+               ├─> POST /design/changes (atomic) ─┤
+[AI agent] ────┘    author recorded, no review    └─> POST /design/export     Markdown brief + json block
+                                                      POST /design/import     upsert by key, never deletes
+                                                      GET  /design/prompt     plain request, outstanding work (ADR 0016)
+[First page] ── POST /api/workspaces/design-only ─> empty published snapshot, then /design/import (ADR 0016)
+```
+
+- `design.DesignService` validates keys/kinds (`DesignKeys` mirrors `JavaParserAdapter` keys), applies
+  change sets in one transaction (`dryRun` rolls back), and resolves the overlay against a snapshot:
+  `PLANNED`/`IMPLEMENTED` (authored), `PRESENT`/`MISSING` (code references), `ORPHANED`. A designed
+  relation is `IMPLEMENTED` when a parser relationship of its kind joins its endpoints or anything inside them.
+- `design.DesignExchangeService` renders the brief (reading contract, module tree with explanations,
+  relations, `AgentGuide`, fenced `json codeatlas-design` block with layout) and imports it, creating
+  `MISSING` placeholders for parsed resources the target code lacks.
+- Frontend: `features/design/designModel.ts` (pure) merges the overlay into the ordinary map graph
+  (`design:<key>` cards, `design-rel:<id>` routes, annotations on parsed cards); `aggregateEdges` keys a
+  designed relation on its own route. `designExchange.ts` (pure) captures/applies a tab layout by key.
+  App reconciles every tab's current journey in place when the merged graph changes (`RECONCILE_ALL`):
+  design edits are server operations outside undo history. The Changes overlay never shows the design layer.
+- Design mode (ADR 0015), by layer:
+  - pure: `designModel.ts` (`parseInlineName`, `defaultRelationKind`, change-set builders, `unionGraphs`) and
+    `expansionLayout.designBlocks` / `boxWithBlocks` / `addBlockAt` (ADR 0017: a block anywhere empty under
+    the pointer, in the exact shape the card takes; an empty box is one card-sized block at its corner). Round 4:
+    a box with no space left grows a band one card tall below its children (`designBlocks.band`, part of
+    `AddArea.inner`), and `addBlockNear` gives the block a hover anywhere in the box shows (under the pointer, or
+    the nearest one from `AddArea.regions`); `draftCamera` is the camera a too-small draft brings. All of this goes through `placementGeometry` (`{designSlots}` → `slots` as a
+    list per box, `areas`, `slotMinSizes`). Round 3: `freeRect` is exact (every maximal empty rectangle
+    around the pointer, scored); `addBlockAt` snaps to `ADD_BLOCK_SNAP`; `addBlockNear`, `blockStillOpen`,
+    `draftCamera` and `emptyBoxCenter`/`emptyBoxAnchor` are the canvas's only geometry. `graphModel.childlessExpansionsAsCards`
+    draws an expansion with nothing inside as its card (`drawnAsCard`) outside design mode, or when ungrouped.
+    `designModel.takeAdmitted` releases a pending pin or growth only to the reconciliation that admits its card;
+  - reducer: `explorerViewState` pins a card typed in place (`PlacementDims.pinned`) and carries parked children
+    with a moved box (`carryUnreportedChildren`);
+  - App: the inline draft, the popover, the two-click relation, and, inside `RECONCILE_ALL` (whose reconcile
+    receives each tab's id), storing a new card in its block's shape: the typed tab (`Growth.tabId`) pins it at
+    the block and makes room when it grows its box (measured against the boxes before the change, so nested
+    growth cascades), other tabs give it the same size. The collapse of a `drawnAsCard` expansion is measured
+    in design-mode geometry (`collapseRoomAsInDesign`), so a Design-off collapse gives back exactly the room the
+    expansion took. While Design is off, App parks the design-merged graph, so design geometry survives
+    the toggle;
+  - adapter: `GraphCanvas` only draws the hovered box's add block (`.hot` under the pointer, `.near` otherwise;
+    only `.hot` is clicked), moves the camera to a too-small draft, and draws an empty expanded box (a plain node sized by its
+    block), the handle, the rubber band (direction-overlay canvas, never a
+    Cytoscape element) and the draft card.
+- `design.DesignPromptService` (`GET /design/prompt`) renders the outstanding designed work as a plain request
+  any coding agent can follow without knowing the tool (ADR 0016): **Add** (planned resources), **Change**
+  (intentions on existing code and on relations the code has), **Connect** (designed relations not yet in the
+  code). Implemented and orphaned items are left out.
+- ADR 0016:
+  - `design_relations.origin` (V015) separates designed relations (AUTHORED) from parsed dependencies carried
+    along (CODE: an explained relation the code has, or one imported from another map). CODE relations are
+    ordinary grey routes (`aggregateEdges` merges them with the parser route); imported resources the code lacks
+    are ordinary cards tagged "imported" (`isImported`).
+  - After any create, `DesignQuickPopup` asks for the intent then the kind (relations: at the route's middle);
+    double-click keeps the full `DesignPopover`.
+  - A design-only project (`trust_state = design_only`, `canonical_root = design-only:<id>`, one empty published
+    snapshot) holds a map imported from the first page; its layout becomes the first tab (`RESET` with a scope).
+    It is never analyzed and has no Changes.

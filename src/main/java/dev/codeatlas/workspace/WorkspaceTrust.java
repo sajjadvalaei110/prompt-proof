@@ -8,6 +8,8 @@ package dev.codeatlas.workspace;
 public final class WorkspaceTrust {
     public static final String SOURCE_ONLY = "source_only";
     public static final String BUILD_ALLOWED = "build_allowed";
+    /** A project with no source folder, holding only a design (ADR 0016). Never analyzed. */
+    public static final String DESIGN_ONLY = "design_only";
 
     private WorkspaceTrust() { }
 }

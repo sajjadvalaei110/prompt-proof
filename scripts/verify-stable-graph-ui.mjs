@@ -314,6 +314,9 @@ async function panAndZoom() {
 // Page setup
 // ---------------------------------------------------------------------------
 await cdp('Runtime.enable'); await cdp('Page.enable');
+// These checks pin the Design-off contract (ADR 0014/0015: with Design off, behaviour is unchanged). Design mode
+// changes double-click and adds an add slot to expanded boxes, so start every page with Design off.
+await cdp('Page.addScriptToEvaluateOnNewDocument',{source:"try{localStorage.setItem('showDesign','false')}catch{}"});
 await cdp('Emulation.setDeviceMetricsOverride', { width: 1500, height: 980, deviceScaleFactor: 1, mobile: false });
 await cdp('Page.navigate', { url: `${base}/?snapshotId=${snapshot}` });
 await until(() => evaluate(`!!document.querySelector('.graph-canvas')?._cyreg?.cy`), 'canvas mount');

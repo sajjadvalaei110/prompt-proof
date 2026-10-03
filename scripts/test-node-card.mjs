@@ -54,6 +54,16 @@ console.log('nodeCard tests: PASS');
   assert.deepEqual(cornerButtons({kind:'METHOD'}).map(b=>b.action),['code']);
   assert.deepEqual(cornerButtons({kind:'PACKAGE',detailCount:1}).map(b=>[b.action,b.right]),[['details',12]]);
   assert.equal(hasDetailsButton({kind:'CLASS',memberCount:1,detailCount:0}),false,'a class holding only a nested type has nothing to expand into');
+  // ADR 0017: in design mode an empty package or class still opens, onto its one add block.
+  // ADR 0017 (review F35): design mode is an explicit parameter, not a field set on the node.
+  assert.equal(hasDetailsButton({kind:'CLASS',detailCount:0},true),true,'an empty class expands in design mode');
+  assert.equal(hasDetailsButton({kind:'PACKAGE',detailCount:0},true),true,'an empty package expands in design mode');
+  assert.equal(hasDetailsButton({kind:'RECORD',detailCount:0},true),true,'an empty record expands in design mode');
+  assert.equal(hasDetailsButton({kind:'CLASS',detailCount:0}),false,'outside design mode an empty class does not');
+  assert.equal(hasDetailsButton({kind:'CLASS',detailCount:0,designExpandable:true}),false,'a stray designExpandable field no longer counts');
+  assert.equal(hasDetailsButton({kind:'CLASS',detailCount:0,expanded:true},true),false,'an expanded card shows its collapse square instead');
+  assert.equal(hasDetailsButton({kind:'METHOD',detailCount:0},true),false,'a method never expands');
+  assert.deepEqual(cornerButtons({kind:'CLASS',detailCount:0},true).map(b=>[b.action,b.right]),[['code',12],['details',60]],'the details square appears beside the code square in design mode');
   console.log('nodeCard resize/corner tests: PASS');
 }
 
@@ -89,3 +99,21 @@ console.log('nodeCard tests: PASS');
   assert.ok(svc.includes('fill="#16888a">I</text>'),'service interface: teal I');
 }
 console.log('node card: kind icons ok');
+// ADR 0016: an imported reference to code this project lacks looks like the original card (no design badge,
+// an "imported" note); a planned card keeps its PLANNED badge.
+{
+  const svgOf=n=>decodeURIComponent(nodeCard(n).image.split(',')[1]);
+  const base={id:'design:a.B',kind:'CLASS',simpleName:'B',qualifiedName:'a.B'};
+  const imported=svgOf({...base,design:{key:'a.B',origin:'CODE',status:'MISSING',explanation:''}});
+  assert.ok(!imported.includes('NOT IN CODE')&&imported.includes('· imported'),'an imported card has no design badge');
+  const planned=svgOf({...base,design:{key:'a.B',origin:'AUTHORED',status:'PLANNED',explanation:''}});
+  assert.ok(planned.includes('PLANNED')&&!planned.includes('imported'),'a planned card keeps its badge');
+}
+console.log('node card: imported cards ok');
+// Cytoscape element data has no `design` record: `noSource` keeps the code button off design-only cards.
+{
+  const {cornerButtons}=await import('data:text/javascript;base64,'+Buffer.from(compiled).toString('base64'));
+  assert.deepEqual(cornerButtons({id:'x',kind:'CLASS',simpleName:'X',noSource:true}).map(b=>b.action),[]);
+  assert.deepEqual(cornerButtons({id:'x',kind:'CLASS',simpleName:'X'}).map(b=>b.action),['code']);
+}
+console.log('node card: no source button without source ok');

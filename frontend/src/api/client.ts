@@ -1,8 +1,12 @@
 import type { Language } from '../types';
+import type { DesignOverlay } from '../features/design/designModel';
 
 const API_BASE = '/api';
 
 export type WorkspaceLanguage = Language;
+/** One design-layer change; see the agent guide (GET /api/agent-guide) for the full contract. */
+export interface DesignOperation { op: 'putResource' | 'updateResource' | 'deleteResource' | 'putRelation' | 'deleteRelation'; key?: string; kind?: string; name?: string; parentKey?: string | null; parameterTypes?: string[]; signature?: string; explanation?: string; sourceKey?: string; targetKey?: string }
+export interface DesignImportResult { resourcesCreated: number; resourcesUpdated: number; relationsCreated: number; relationsUpdated: number; placeholders: number; warnings: string[]; layout: unknown; sourceWorkspace: string | null }
 /** One definition site from go to definition (1-based, inclusive end column, UTF-16 code units). */
 export interface DefinitionLocation { path: string; startLine: number; startColumn: number; endLine: number; endColumn: number; displayName?: string | null; signature?: string | null; symbolId?: string | null }
 export interface DefinitionResult { status: 'found' | 'external' | 'no_symbol' | 'not_indexed'; locations: DefinitionLocation[]; indexer?: string | null; indexerLabel?: string | null; navigationIndexers?: string[] }
@@ -106,6 +110,10 @@ export const apiClient = {
       body: JSON.stringify({ path, language, ...(engine.indexer ? { indexer: engine.indexer, allowBuildExecution: !!engine.allowBuildExecution } : {}) })
     }),
 
+  /** A project with no source folder for an exported map (ADR 0016): an empty snapshot, Design always on. */
+  createDesignOnlyWorkspace: (name: string): Promise<any> =>
+    requestJson(`${API_BASE}/workspaces/design-only`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) }),
+
   /** Shipped indexing engines per language, with whether each can run on this machine. */
   listIndexers: (): Promise<IndexerOption[]> => requestJson(`${API_BASE}/indexers`),
 
@@ -122,6 +130,59 @@ export const apiClient = {
 
   getGraph: (snapshotId: string): Promise<any> =>
     requestJson(`${API_BASE}/snapshots/${snapshotId}/graph`),
+
+  // --- Design layer (ADR 0014) ---
+
+  /** The workspace's design layer with status computed against `snapshotId`. */
+  getDesign: (workspaceId: string, snapshotId?: string | null): Promise<DesignOverlay> =>
+    requestJson(`${API_BASE}/workspaces/${workspaceId}/design${snapshotId ? `?snapshotId=${encodeURIComponent(snapshotId)}` : ''}`),
+
+  /** Applies one atomic change set (the same contract AI agents use). */
+  applyDesignChanges: (workspaceId: string, operations: DesignOperation[], author = 'user'): Promise<any> =>
+    requestJson(`${API_BASE}/workspaces/${workspaceId}/design/changes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ author, operations })
+    }),
+
+  /** The Markdown design brief for the given scope and layout. */
+  exportDesign: async (workspaceId: string, body: { scope?: { mode: string; packageKeys: string[]; classKeys: string[] }; layout?: unknown }): Promise<string> => {
+    let res: Response;
+    try {
+      res = await fetch(`${API_BASE}/workspaces/${workspaceId}/design/export`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    } catch (err: any) {
+      throw new Error(`Failed to connect to Code Atlas server: ${err?.message || 'Connection refused'}`);
+    }
+    if (!res.ok) {
+      let detail = res.statusText;
+      try { const b = await res.json(); detail = b.message || detail; } catch { /* not JSON */ }
+      throw new Error(detail || `Export failed with status ${res.status}`);
+    }
+    return res.text();
+  },
+
+  /** The design prompt (ADR 0015): the designed work only, as Markdown for an AI coding agent. */
+  getDesignPrompt: async (workspaceId: string): Promise<string> => {
+    let res: Response;
+    try {
+      res = await fetch(`${API_BASE}/workspaces/${workspaceId}/design/prompt`);
+    } catch (err: any) {
+      throw new Error(`Failed to connect to Code Atlas server: ${err?.message || 'Connection refused'}`);
+    }
+    if (!res.ok) {
+      let detail = res.statusText;
+      try { const b = await res.json(); detail = b.message || detail; } catch { /* not JSON */ }
+      throw new Error(detail || `Prompt failed with status ${res.status}`);
+    }
+    return res.text();
+  },
+
+  importDesign: (workspaceId: string, content: string, author = 'user'): Promise<DesignImportResult> =>
+    requestJson(`${API_BASE}/workspaces/${workspaceId}/design/import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content, author })
+    }),
 
   /** Creates one immutable base-vs-working-tree comparison. Its snapshots retain source evidence for both sides. */
   createReview: (workspaceId: string, baseRef?: string): Promise<any> =>

@@ -727,6 +727,197 @@ under a colour-vision deficiency (WCAG 2.1 SC 1.4.1). The suite asserts all thre
 
 `docs/evidence/change-edges/` holds the report and the inspected screenshots from a full run.
 
+## Design layer (ADR 0014)
+
+- Backend: `./gradlew test --tests "dev.codeatlas.design.DesignLayerIntegrationTest"` — MockMvc over the analyzed
+  `spring-project` fixture in a private SQLite directory: authoring at every level and parser-shaped keys;
+  status against parser facts (a designed CALLS between parsed classes whose methods call each other is
+  IMPLEMENTED); atomic change sets (a bad second operation saves nothing, `dryRun` never persists); rejected
+  kinds, parents, endpoints and renames of parsed code; rename re-keys children (a constructor follows its type)
+  and relations; delete cascades without touching unrelated explanations; the engineer explanation reaches the
+  model context as an untrusted `design-` block and stales a READY generated explanation; export → import into
+  another workspace yields MISSING placeholders, PLANNED resources, preserved authors, layout, and an idempotent
+  second import; a brief without the JSON block is a 400.
+- Frontend pure logic: `node scripts/test-design-model.mjs` (overlay merge, design-only vs annotated cards,
+  designed routes kept apart by `aggregateEdges`, keys mirroring `DesignKeys`, parameter parsing, intent) and
+  `node scripts/test-design-exchange.mjs` (layout capture by key and re-application to other snapshot IDs:
+  positions, nested/ungrouped expansions, sizes, camera, scope; copies, never aliases).
+- Browser: `python3 scripts/verify_design_layer_pipeline.py` (packaged jar, headless Chromium, COPIES of
+  `spring-project` and `stable-graph-fixture` hashed before/after, model URL on a closed port). Adds a package
+  from the empty-canvas menu and a class from the card menu, explains a parsed class (intent shown first,
+  generated explanation labelled), applies an agent change set over REST while the map is open (picked up
+  without reload, author shown), checks a planned method and that Undo leaves design edits alone, exports the
+  brief from the toolbar, imports it into the second workspace and checks the same card position in the new
+  tab. Screenshots: `docs/evidence/design-layer/`.
+
+### Design-mode direct manipulation (ADR 0015)
+
+- Backend: `DesignLayerIntegrationTest.promptListsOnlyDesignedWork` covers `GET /design/prompt`:
+  - an empty layer gives one line, and the response is `no-store` Markdown;
+  - sections come in order;
+  - planned resources show their parent chain;
+  - an intention on parsed code sits under "Change existing code";
+  - the relation semantics sentence is present, and implemented relations are listed only under "verify";
+  - ORPHANED items are under "Needs attention";
+  - no undesigned parsed class, and no JSON block.
+- Pure:
+  - `test-design-model.mjs`: inline names, default relation kinds, intent/details join, change-set builders.
+  - `test-expansion-layout.mjs`: a block below the children only grows the box right and down. ADR 0017
+    (`designBlocks`): a short last row gives a card-sized gap inside the box and no band; a full grid gives a
+    band one card tall, as wide as the box (round 4); a resized box gives gaps on the right; no full card in a
+    gap touches a child; a sliver below the least size is no gap; an empty box is one card-sized block; and
+    `roomMoves` keeps a box's band as a child grows.
+  - `test-explorer-view-state.mjs`:
+    - design IDs parked through Design off and on keep top-level and in-box geometry;
+    - a collapsed parent drops them;
+    - drag and arrange carry parked children, nested too;
+    - a pinned new card lands where it was typed.
+- Browser: `verify_design_layer_pipeline.py` now drives real pointer and keyboard input (CDP `Input`):
+  - an inline package from a real right-click lands where it was typed;
+  - double-click opens the popover in design mode (no arrangement);
+  - "+ class" on hover of an expanded package: the draft sits on the slot, and the card lands exactly there;
+  - ADR 0017: only the hovered box shows a block. A one-class package has a one-card band (round 4).
+    The service package's short last row has gaps: a class made in one keeps the gap's corner, the package
+    does not stretch, one gap fewer remains, and no stale button shows. An empty planned class expands onto
+    one block at its own corner, and its first method lands there. No top-level card overlaps another after
+    any of these;
+  - ADR 0017 round 2: hovering 20 px off a fixed spot puts the block under the pointer; every created card
+    has exactly its block's corner and size; a space narrower than a card still makes a (narrower) card;
+  - ADR 0017 in fixture B: the method-less parsed type `RegionTag` expands onto one block, and a drag moves
+    it exactly (no creep). With Design off it is an unexpanded card that lands where it was dropped;
+  - Esc and empty-blur cancel with nothing on the server;
+  - "+ method" in a parsed class: a bad name shows the inline error, then `findByCustomer(Long customerId)`
+    gives key `…findByCustomer(Long)`;
+  - two-click relation: the handle sits on the right edge, the rubber band ends at the pointer (screenshot),
+    and no Cytoscape elements are added;
+  - the popover preselects USES_TYPE and a kind change replaces the relation; Esc cancels a pending relation;
+  - double-click on a designed route opens its popover;
+  - Design off then on returns every design card to identical positions, including inside a parsed class box;
+  - with Design off, double-click arranges;
+  - Prompt dialog contents.
+- Screenshots: `docs/evidence/design-layer-ux/`. The git-review, ungroup, change-edges and stable-graph browser
+  scripts start with Design off, because they pin the Design-off contract.
+
+### Add-block review fixes (ADR 0017 round 3)
+
+- Pure:
+  - `test-expansion-layout.mjs` loads the real `DESIGN_LEAST_BLOCK` and `addSlotSizes` through
+    `placementGeometry` (220×150; class card 250×206, method card 250×184). It covers:
+    - the reviewer's counter-examples: F5, a band whose natural spot lies inside a child's GAP, now a
+      250×206 gap with no reserve; F6, a diagonal child that the greedy cut used to lose, now a full card;
+    - fractional bounds (F4): the block stays inside the inner area and keeps GAP, with and without the 8 px snap;
+    - exact 220 px gaps, and no gap at 219 px;
+    - hovers at the inner corner, below and beside a child, and on the header band or padding;
+    - a stable answer across a tie;
+    - fuzz: 400 random layouts, where every block keeps GAP, contains the pointer, stays inside the inner area,
+      and is between the least block and a card in size, and none is missed when a brute-force 222×152 box
+      exists; 200 more for `freeRect`;
+    - `blockStillOpen` (F9);
+    - a resized empty box (F17): it offers its card-sized corner block for any hover; with that block as its
+      first child the box keeps its corner and size; a block elsewhere would move it; through
+      `geometryForJourney` it keeps its resized size;
+    - `emptyBoxCenter` / `emptyBoxAnchor` are inverses (F32);
+    - a 100-child benchmark (F8): it prints its timings, and fails above 200 ms.
+  - `test-graph-model.mjs`: `childlessExpansionsAsCards`. An empty expansion is a `drawnAsCard` card
+    outside design mode; an ungrouped empty box is a card in every mode; boxes with children are untouched;
+    with nothing to change it returns the same object (F11, F12).
+  - `test-design-model.mjs`: `takeAdmitted` keeps a pending pin or growth until the graph holds its card (F3).
+  - `test-explorer-journeys.mjs`: `RECONCILE_ALL` passes every open and closed tab its own id, with no history
+    entry (F3, F10).
+  - `test-node-card.mjs`: design mode is an explicit `hasDetailsButton` / `cornerButtons` parameter; a stray
+    `designExpandable` field no longer counts (F35).
+  - `test-design-exchange.mjs`: a resized box's `minSize` is exported and imported.
+- Browser (`verify-design-layer-ui.mjs`, real CDP mouse input):
+  - exact sizes: a band is one card tall (round 4), an empty class opens on a 250×184 block, an empty package on a
+    250×206 block, the draft outline equals the block, and the narrow card is at least 220 wide;
+  - F1, on the empty class: a double-click inside it opens the popover and drops the draft; a real click on its
+    collapse square collapses it, and a real click on its details square expands it again; there is no Ungroup
+    square and no Ungroup menu item (F11);
+  - 2e, an empty package:
+    - expand, then undo and redo onto the same block;
+    - a draft at zoom 0.3 (amended in round 4): the camera comes to a readable zoom, the outline equals the block
+      at the new camera, the content is at the true zoom and inside the outline, and the input is at least 16 px tall;
+    - a pointer resize, then a hover far away shows the corner block as its nearest (round 4: a click there
+      creates nothing, a click inside the block does), and the first class keeps the box's corner and size;
+    - hovers clamp exactly at the inner corner, keep GAP beside a child, and give nothing within GAP or on the
+      header band;
+    - F3: the create request is held back 9 s while an agent change lands through the 4 s overlay poll. The poll
+      is asserted to land while the class is still absent, and the class still takes its block's 250×172 shape.
+      Negative control, one run: with every pending entry consumed on every reconciliation (the old rule), this
+      step fails with 250×206;
+    - F10: a cloned tab shows the class at the same 250×172;
+  - 6a, on `RegionTag` (F12): collapse, type a design class `MarkerNote` into its package, expand with Design
+    on (3 cards and `MarkerNote` make room), Design off, then menu Collapse. Every other leaf card is back within
+    1 px, and so is the parked design class; the round trip adds no overlap, and Design on then shows a plain card.
+    Negative control, one run: measured on the raw graph, `MarkerNote` stays 66 px off;
+  - overlap checks run among siblings inside every container as well as on the map, with 1 px tolerance (F14).
+  - F27(5): NoteIndex is dragged 300 px right, a hover in the space it left (straight off the dragged card) offers a
+    block, and the class made there takes its exact shape, with no sibling overlapped;
+  - `test-expansion-layout.mjs`: `containerLabelLayout` leaves a label that fits unchanged, and otherwise keeps it
+    inside the box and 10 px clear of the corner squares.
+
+### Growth band, always-shown block, draft inside its block, plain member names (ADR 0017 round 4)
+
+- Pure (`test-expansion-layout.mjs`):
+  - a full 2×2 grid gives a band `[inner.x1, lowest.y2 + 32, inner width, 206]`; `addBlockAt` succeeds at its
+    left, middle and right, a whole card each, clamped exactly at its ends; the drawn box holds it, right and
+    down only;
+  - a card made at the band's left leaves gaps: no band, the box keeps its height; filling the row brings the
+    band back below; a card made in its middle brings it back at once;
+  - a one-column box's band is one card; in a band at least a card wide every block is a whole card; a box
+    narrower than a card widens to a one-card band; methods use 250×184;
+  - `addBlockNear` fuzz: 300 layouts × 25 points anywhere in the drawn box (header, padding, slivers, over
+    children): never null, inside the add area and the drawn box, keeps GAP, at least the least block, equal
+    to `addBlockAt` with `under` where that finds one, stable for the same point;
+  - a resized empty box shows its corner block as nearest, and `under` only inside it (F17, round 4);
+  - `draftCamera`: nothing at a readable zoom on screen; a pan only when partly off screen; centred at the focus
+    zoom when too small; a tiny canvas fits the block;
+  - `blockStillOpen(area, block)`, and the 100-child benchmark times 1000 `addBlockNear` too.
+- Pure (`test-design-model.mjs`): a planned method's card reads `cancel`; its qualified name is the key.
+- Browser (`verify-design-layer-ui.mjs`):
+  - 2b: the one-class package's band is 250×206; nothing is drawn with the pointer off the box; both band ends
+    offer the block under the pointer; over the class card the nearest block is drawn as `.near`
+    (`04a-band-shown-over-a-child.png`); a header click opens no draft; a class made at the band's right edge
+    takes the block's shape and a new band appears below it; the draft's input, hint and body lie inside its
+    outline;
+  - every `openSlot` first hovers the header and finds the nearest block drawn, not under the pointer;
+  - 2d: the first method reads `search`; the full class grows a 250×184 band where "+ method" follows the
+    pointer; over the method card the class shows its nearest method block (`05c2-method-band.png`);
+  - 2e: the zoomed-out draft and the resized empty box, as amended above; within GAP of a child or on the header
+    no block is under the pointer, but the nearest one is shown;
+  - 3b: no block while the quick popup is open; once the service package's last row is full it has one band as
+    wide as its three columns; over a card and over a sliver the nearest block is shown
+    (`06e-full-package-nearest-block.png`); hovered at the band's right part the block follows the pointer, is
+    clamped exactly at the right edge, and the draft lies inside it (`06f-band-class-draft.png`); the class
+    takes its shape, the band goes and the package keeps its size; a click on a class card creates nothing;
+  - 4b: a rejected method name is shown inside the outline, in place of the hint (`09-inline-error.png`).
+
+### Quick intent popup, plain prompt, design-only projects (ADR 0016)
+
+- Backend (`DesignLayerIntegrationTest`):
+  - `promptIsAPlainRequestForOutstandingWork`: Add / Change / Connect lines with their wording; an explained
+    parsed relation is stored with origin CODE and appears under Change; nothing about the tool, keys,
+    statuses or the API; implemented and orphaned items are left out.
+  - `designOnlyProjectHoldsAnImportedMap`: `POST /api/workspaces/design-only` gives an empty published
+    snapshot whose graph loads; analysis is a 400; an imported brief stores parsed dependencies as CODE
+    (MISSING, resolution CODE) and designed ones as AUTHORED; only designed work reaches the prompt; a
+    re-export keeps `layer: CODE`; the workspace list says `designOnly`.
+  - `authoringAtEveryLevelComputesStatusAgainstTheCode` now expects an explained parsed relation as CODE/PRESENT.
+- Pure:
+  - `test-design-model.mjs`: two-click relations are always CALLS; CODE relations merge with the parser route
+    and never worsen its resolution, designed ones stay apart; imported cards are `isImported`.
+  - `test-design-exchange.mjs`: an exported layout re-applies by key onto a design-only graph (all `design:`
+    IDs) with identical positions, expansions, sizes and camera, and captures back to the same layout.
+  - `test-node-card.mjs`: imported cards have no design badge and say "imported"; `noSource` hides the code button.
+- Browser (`verify_design_layer_pipeline.py`):
+  - the quick popup follows a new package (no kind), a class (kind INTERFACE saved with the intent in one
+    set), a method (no kind) and a two-click relation (CALLS, centred on the relation's middle), always with
+    the intent focused and no dialog; Esc saves nothing;
+  - Import/Export sit under the zoom controls, right-aligned; Prompt stays at the top;
+  - the Prompt has the plain Add / Change / Connect lines and none of the product words;
+  - first-page Import opens the export as a design-only project: every card at identical position, size and
+    parent, nothing extra, Changes disabled, Design on, imported code not violet, routes grey.
+
 ## 9. On linting
 
 There is deliberately no lint step. `frontend/package.json` previously declared

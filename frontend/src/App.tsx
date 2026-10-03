@@ -4,13 +4,13 @@ import { apiClient, type IndexerOption, type WorkspaceLanguage } from './api/cli
 import { DEFAULT_INDEXER_BY_LANGUAGE, type ImportEngineChoice } from './features/import/importEngine';
 import { ImportScreen } from './features/import/ImportScreen';
 import GraphCanvas from './features/explorer/GraphCanvas';
-import { AtlasGraph, AtlasNode, AtlasEdge, Level, isType, ownerAt, getEligibleIds, rankEligibleIds, projectDisplayed, childrenOf, revealContainers } from './features/explorer/graphModel';
+import { AtlasGraph, AtlasNode, AtlasEdge, Level, isType, ownerAt, getEligibleIds, rankEligibleIds, projectDisplayed, childlessExpansionsAsCards, childrenOf, revealContainers } from './features/explorer/graphModel';
 import { ScopeSelection, wholeSystemScope, scopeToLabel, isNodeInScope, isClassInScope, togglePackages, toggleClass } from './features/explorer/scopeModel';
 import { explorerViewReducer, initExplorerViewState, nearestHiddenAncestor, collapseTargets, ExplorerViewState, ExplorerAction, PlacementDims, Point, Camera, CardMoves } from './features/explorer/explorerViewState';
 import { arrangeDisplayed, ArrangeEdge, DisplayedCard } from './features/explorer/focusedArrangement';
-import { nodeCard, defaultCardSize, CardSize } from './features/explorer/nodeCard';
-import { Box, RoomCard, boxOfCard, containerBox, layoutChildren, roomMoves } from './features/explorer/expansionLayout';
-import { geometryForJourney, placementForGraphs } from './features/explorer/placementGeometry';
+import { nodeCard, defaultCardSize, expandsWhenEmpty, CardSize } from './features/explorer/nodeCard';
+import { AddArea, Box, RoomCard, boxOfCard, boxWithBlocks, layoutChildren, roomMoves } from './features/explorer/expansionLayout';
+import { addSlotSizes, geometryForJourney, placementForGraphs } from './features/explorer/placementGeometry';
 import NavigationPane from './features/explorer/NavigationPane';
 import InspectorPanel from './features/inspector/InspectorPanel';
 import SettingsScreen from './features/settings/SettingsScreen';
@@ -23,6 +23,14 @@ import { useExplorerJourneys, flushExplorerCamera } from './features/explorer/us
 import { Journey, collapseInJourney, cycleRelationStack, newJourney, toggleJourneyReview, toggleRelationStack } from './features/explorer/explorerJourney';
 import { revalidateJourneyState } from './features/explorer/revalidateJourney';
 import { outgoingStack, stackSummary, type StackDirection } from './features/explorer/outgoingStack';
+import { DesignOverlay, MEMBER_KINDS, childKey, createResourceOps, defaultRelationKind, designNodeId, keyOf, mergeDesignGraph, parseInlineName, relationOps, relationsOfRoute, takeAdmitted, unionGraphs } from './features/design/designModel';
+import { applyLayout, captureLayout, isMapLayout, scopeFromLayout } from './features/design/designExchange';
+import DesignEditorDialog, { type DesignDraft } from './features/design/DesignEditorDialog';
+import { slotKind, type DesignCanvas } from './features/explorer/GraphCanvas';
+import DesignPopover, { type PopoverRelation, type PopoverTarget } from './features/design/DesignPopover';
+import DesignPromptDialog from './features/design/DesignPromptDialog';
+import DesignQuickPopup, { type QuickTarget } from './features/design/DesignQuickPopup';
+import type { DesignOperation } from './api/client';
 
 const REVIEW_BATCH_SIZE = 12;
 
@@ -35,6 +43,12 @@ function initialViewForGraph(g: AtlasGraph) {
   }
   return explorerViewReducer(initExplorerViewState(), { type: 'RESET', level: 'PACKAGE', eligibleIds: initialPackageIds, batchSize: Infinity, placement });
 }
+
+/** A card typed into an expanded box (ADR 0015, 0017): the box before, and the new card's stored center inside it.
+ * `boxes` are every expanded box before the change, so a nested box's growth cascades through the boxes around it. */
+/** A card typed into an add block (ADR 0017): the box it went into and that box before, every box then, the
+ * card's place and shape, and the tab it was typed in (only that tab pins it there and makes room). */
+interface Growth { containerId:string; before:Box; boxes:Record<string,Box>; child:{ id:string; position:Point; size:CardSize }; tabId:number }
 
 export default function App() {
   const searchId = 'global-search';
@@ -50,7 +64,20 @@ export default function App() {
   // overlay for the currently loaded Git comparison. `graph` below (used by everything downstream --
   // projection, tree, search, inspector, canvas) picks whichever the ACTIVE TAB currently shows, so
   // one tab can browse the map while another reviews changes side by side.
-  const [mapGraph,setMapGraph]=useState<AtlasGraph|null>(null),[routes,setRoutes]=useState<any[]>([]),[recent,setRecent]=useState<any[]>([]);
+  const [rawMapGraph,setMapGraph]=useState<AtlasGraph|null>(null),[routes,setRoutes]=useState<any[]>([]),[recent,setRecent]=useState<any[]>([]);
+  // The engineer-owned design layer (ADR 0014), merged onto the ordinary map only: the Changes overlay
+  // stays purely parser facts. Showing it is a per-viewer preference, not exploration history.
+  const [designOverlay,setDesignOverlay]=useState<DesignOverlay|null>(null),[designDraft,setDesignDraft]=useState<DesignDraft|null>(null);
+  const [showDesign,setShowDesignState]=useState(()=>{try{return localStorage.getItem('showDesign')!=='false';}catch{return true;}});
+  // The map with its design layer, whether or not it is shown. While Design is off its design cards
+  // are parked like the Changes overlay's hidden cards (ADR 0015), so toggling never moves them.
+  const designMergedGraph=useMemo(()=>rawMapGraph?mergeDesignGraph(rawMapGraph,designOverlay):null,[rawMapGraph,designOverlay]);
+  const mapGraph=showDesign?designMergedGraph:rawMapGraph;
+  const hiddenDesignGraph=!showDesign&&designMergedGraph!==rawMapGraph?designMergedGraph:null;
+  /** What the ordinary map parks: the comparison overlay's cards and, with Design off, the design cards. */
+  const mapParkedGraph=(reviewGraph:AtlasGraph|null|undefined):AtlasGraph|undefined=>unionGraphs(reviewGraph||undefined,hiddenDesignGraph||undefined);
+  /** What Changes parks: the ordinary map, design cards included even while Design is off. */
+  const reviewParkedGraph=():AtlasGraph|undefined=>designMergedGraph||mapGraph||undefined;
   const [status,setStatus]=useState('Open a project to begin'),[busy,setBusy]=useState(false),[error,setError]=useState('');
   const reviewComparison=useReviewComparison(workspace?.id||null,mapGraph);
   // Updates end an outgoing stack whose root they take off the map, judged against the graph each journey renders.
@@ -146,7 +173,9 @@ export default function App() {
       resetNavWidth();
     }
   }
-  const name=workspace?.path?.split('/').filter(Boolean).pop()||'Your workspace';
+  // A design-only project (ADR 0016) has no source folder: it is named by its display name.
+  const designOnlyProject=!!workspace?.designOnly;
+  const name=designOnlyProject?(workspace?.name||'Imported design'):workspace?.path?.split('/').filter(Boolean).pop()||'Your workspace';
   const levelOf=(n:AtlasNode):Level=>n.kind==='PACKAGE'?'PACKAGE':isType(n)?'CLASS':'METHOD';
   const eligibleFor=(targetLevel:Level,targetScope:ScopeSelection=scope):string[]=>graph?rankEligibleIds(graph,targetLevel,getEligibleIds(graph,targetLevel,targetScope)):[];
   // Actual card dimensions (nodeCard.ts owns them) for a set of eligible IDs, so the reducer can
@@ -160,7 +189,7 @@ export default function App() {
     // They are absent from `graph`, but still occupy the map and may enlarge a shared expanded
     // card. This is deliberately symmetric: ordinary-only cards stay parked while Changes is on,
     // just as review-only cards do while it is off.
-    const parkedGraph=active.present.review?mapGraph||undefined:reviewComparison.graph||undefined;
+    const parkedGraph=active.present.review?reviewParkedGraph():mapParkedGraph(reviewComparison.graph);
     return placementForGraphs(graph,viewState,targetScope,kind,ids,parkedGraph);
   };
   const node=graph&&viewState.inspectedKind==='NODE'&&viewState.inspectedSubjectId?graph.nodes.find(n=>n.id===viewState.inspectedSubjectId)||null:null;
@@ -202,7 +231,10 @@ export default function App() {
   function handleNodeMoved(id:string,position:Point,containerId:string|null){dispatchView({type:'NODE_MOVED',level,id,position,containerId,generation:viewState.generation});}
   function handleNodesMoved(moves:{id:string;position:Point;containerId:string|null}[]){dispatchView({type:'NODES_MOVED',level,moves,generation:viewState.generation});}
   const expansionInput=useMemo(()=>({expansions:Object.entries(expansions).map(([id,e])=>({id,ownerId:e.ownerId,hidden:e.hidden})),scope}),[expansions,scope]);
-  const projected=useMemo(()=>graph?projectDisplayed(graph,level,displayedIds,kind,expansionInput):{nodes:[] as AtlasNode[],edges:[] as AtlasEdge[]},[graph,level,displayedIds,kind,expansionInput]);
+  const projectedDesignMode=showDesign&&!active.present.review;
+  const rawProjected=useMemo(()=>graph?projectDisplayed(graph,level,displayedIds,kind,expansionInput):{nodes:[] as AtlasNode[],edges:[] as AtlasEdge[]},[graph,level,displayedIds,kind,expansionInput]);
+  // An expansion with nothing drawn inside is drawn as its card, still collapsible (ADR 0017 §4).
+  const projected=useMemo(()=>childlessExpansionsAsCards(rawProjected,projectedDesignMode),[rawProjected,projectedDesignMode]);
   // The relation stack (outgoing, or incoming over reversed facts): a walk over the tab's parser facts
   // (`graph`, ordinary or Changes) at the root's granularity, mapped onto the drawn cards and routes and
   // recomputed whenever they, the filter or the expansions change (docs/OUTGOING_STACK.md). GraphCanvas
@@ -222,10 +254,13 @@ export default function App() {
   // particular, an expanded card is placed using its derived compound box (including a user
   // minimum size), rather than its stale ordinary card dimensions.
   const geometry=useMemo(()=>{
-    if(!graph)return {positions:{} as Record<string,Point>,boxes:{} as Record<string,Box>};
-    const derived=geometryForJourney(graph,viewState,scope,kind,projected);
-    return {positions:derived.positions,boxes:derived.boxes};
-  },[graph,level,displayedIds,projected,levelGeometry.positions,expansions,sizes,scope,kind]);
+    if(!graph)return {positions:{} as Record<string,Point>,boxes:{} as Record<string,Box>,slots:{} as Record<string,Box[]>,areas:{} as Record<string,AddArea>,slotMinSizes:{} as Record<string,CardSize>};
+    // Design mode offers "+ class"/"+ method" in every expanded package/type's empty blocks; a box with
+    // none left reserves one small block (ADR 0015, 0017), which grows it right and down only.
+    const derived=geometryForJourney(graph,viewState,scope,kind,projected,undefined,{designSlots:showDesign&&!active.present.review});
+    return {positions:derived.positions,boxes:derived.boxes,slots:derived.slots,areas:derived.areas,slotMinSizes:derived.slotMinSizes};
+  },[graph,level,displayedIds,projected,levelGeometry.positions,expansions,sizes,scope,kind,showDesign,active.present.review]);
+  const canvasContainerSizes=useMemo(()=>Object.keys(geometry.slotMinSizes).length?{...containerSizes,...geometry.slotMinSizes}:containerSizes,[containerSizes,geometry.slotMinSizes]);
   // An inspected aggregate edge must survive a relationship-filter change that excludes its kind
   // (Step 4, Appendix F3): its identity is resolved independently of the currently filtered
   // `projected.edges` by also checking an unfiltered ('ALL') projection of the same displayed page.
@@ -284,11 +319,19 @@ export default function App() {
   // Files the parser could not read: every type they declare is missing from the map, so say so.
   const unanalyzedFiles:string[]=(graph?.metadata as any)?.unanalyzedFiles||[];
   const mapStatus=node&&graph?(!isNodeInScope(node,scope,graph)?'OUT_OF_SCOPE':expansions[node.id]?.hidden?'UNGROUPED':(level===levelOf(node)&&displayedIds.includes(node.id))||projected.nodes.some(n=>n.id===node.id)?'DISPLAYED':'IN_SCOPE_NOT_DISPLAYED'):null;
-  async function loadSnapshot(id:string, ws?:any) {
-    const [data,entryPoints]=await Promise.all([apiClient.getGraph(id),apiClient.getSpringRoutes(id)]);
+  /** `layout`: an imported map's layout, which becomes the first tab exactly as it was exported (ADR 0016). */
+  async function loadSnapshot(id:string, ws?:any, layout?:unknown) {
+    let [data,entryPoints]=await Promise.all([apiClient.getGraph(id),apiClient.getSpringRoutes(id)]);
+    const rawData=data;
     if(!ws&&!data?.metadata?.workspaceId)throw new Error('Snapshot response is missing workspace metadata; try re-opening the project.');
     const owner=ws||await apiClient.getWorkspace(data.metadata.workspaceId);
-    setWorkspace(owner);setPath(owner.path);setLanguage(owner.language);setIndexer(owner.indexer||'');setAllowBuild(false);setSnapshot(id);setMapGraph(data);setRoutes(entryPoints);setQueue(null);setStatus('Source analysis ready');setShowOpen(false);reviewComparison.reset();
+    const design=await apiClient.getDesign(owner.id,id).catch(()=>null);
+    // A design-only project, or an imported map, is only visible with Design on.
+    const designOn=showDesign||!!owner.designOnly||isMapLayout(layout);
+    if(designOn&&!showDesign)setShowDesign(true);
+    setDesignOverlay(design);designReconcile.current=false;
+    if(designOn)data=mergeDesignGraph(data,design);
+    setWorkspace(owner);setPath(owner.path);setLanguage(owner.language);setIndexer(owner.indexer||'');setAllowBuild(false);setSnapshot(id);setMapGraph(rawData);setRoutes(entryPoints);setQueue(null);setStatus('Source analysis ready');setShowOpen(false);reviewComparison.reset();
     const placementIn=(g:AtlasGraph,ids:string[]):Record<string,PlacementDims>=>{const all=new Map(g.nodes.map(n=>[n.id,n]));const out:Record<string,PlacementDims>={};for(const id of ids){const n=all.get(id);if(n){const c=nodeCard(n);out[id]={width:c.width,height:c.height,name:n.qualifiedName||n.simpleName};}}return out;};
     const initialPackageIds=rankEligibleIds(data,'PACKAGE',getEligibleIds(data,'PACKAGE',wholeSystemScope()));
     let initialView=explorerViewReducer(initExplorerViewState(),{type:'RESET',level:'PACKAGE',eligibleIds:initialPackageIds,batchSize:Infinity,placement:placementIn(data,initialPackageIds)});
@@ -316,7 +359,12 @@ export default function App() {
         initialView=explorerViewReducer(initialView,{type:'INSPECT_NODE',id:n.id});
       }
     }
-    journeys.reset(initialView);
+    if(isMapLayout(layout)){
+      const layoutScope=scopeFromLayout(layout,data);
+      const ids=rankEligibleIds(data,'PACKAGE',getEligibleIds(data,'PACKAGE',layoutScope));
+      const base=explorerViewReducer(initExplorerViewState(),{type:'RESET',level:'PACKAGE',eligibleIds:ids,batchSize:Infinity,placement:placementIn(data,ids)});
+      journeys.reset(applyLayout(base,layout,data),layoutScope,layout.kind||'ALL');
+    } else journeys.reset(initialView);
     historyReplace(id);
   }
   function historyReplace(id:string){const url=new URL(location.href);url.search='';url.searchParams.set('snapshotId',id);window.history.replaceState(null,'',url);}
@@ -537,12 +585,30 @@ export default function App() {
     dispatchView({type:'ARRANGE_AROUND_RESOURCE',level,positions:moves.positions,childPositions:moves.childPositions,generation:viewState.generation});
   }
   const boxOf=(k:AtlasNode):Box=>geometry.boxes[k.id]||boxOfCard({id:k.id,...cardSizeOf(k),...(geometry.positions[k.id]||{x:0,y:0})});
+  // The collapse of an expansion drawn as its card, in design-mode geometry (ADR 0017 §4): its box is its
+  // empty box (its card-sized block, or the user's larger size), and every box around it keeps its add blocks
+  // as the cascade goes up, exactly as when it expanded in design mode. So a round trip (expand with Design
+  // on, collapse with Design off) puts every other card back. Null for an ungrouped one: it takes no room.
+  // Measured on the design-merged graph (outside Changes), so design cards parked while Design is off count as
+  // they did in design mode, and move with the room given back.
+  function collapseRoomAsInDesign(n:AtlasNode,size:CardSize):{before:Box;moves:CardMoves}|null{
+    const designGraph=!active.present.review&&designMergedGraph?designMergedGraph:graph;
+    if(!designGraph)return null;
+    const designProjection=childlessExpansionsAsCards(projectDisplayed(designGraph,level,displayedIds,kind,expansionInput),true);
+    const g=geometryForJourney(designGraph,viewState,scope,kind,designProjection,undefined,{designSlots:true});
+    const before=g.boxes[n.id];
+    if(!before)return null;
+    const after={x1:before.x1,y1:before.y1,x2:before.x1+size.width,y2:before.y1+size.height};
+    const cards:RoomCard[]=designProjection.nodes.map(k=>({id:k.id,containerId:k.containerId??null,expanded:k.expanded,hidden:k.hiddenBox,box:g.boxes[k.id]||boxOfCard({id:k.id,...cardSizeOf(k),...(g.positions[k.id]||{x:0,y:0})}),position:g.positions[k.id],minSize:expansions[k.id]?.minSize??null,blocks:k.expanded&&!k.hiddenBox?addSlotSizes(k.kind):null}));
+    return {before,moves:roomMoves(cards,n.id,before,after)};
+  }
   // When card `n`'s box changes from `before` to `after` (expand, collapse, resize), cards to its right
   // or below make room (expansionLayout.roomMoves, which looks through an ungrouped box). When it sits inside a container, that container's
   // resulting change makes room around it in turn, up to the map itself. Returns the moves to dispatch
   // together with the change, so one action updates everything at once.
   function makeRoom(n:AtlasNode,before:Box,after:Box):CardMoves{
-    const cards:RoomCard[]=projected.nodes.map(k=>({id:k.id,containerId:k.containerId??null,expanded:k.expanded,hidden:k.hiddenBox,box:boxOf(k),position:geometry.positions[k.id],minSize:expansions[k.id]?.minSize??null}));
+    const designMode=showDesign&&!active.present.review;
+    const cards:RoomCard[]=projected.nodes.map(k=>({id:k.id,containerId:k.containerId??null,expanded:k.expanded,hidden:k.hiddenBox,box:boxOf(k),position:geometry.positions[k.id],minSize:expansions[k.id]?.minSize??null,blocks:designMode&&k.expanded&&!k.hiddenBox?addSlotSizes(k.kind):null}));
     return roomMoves(cards,n.id,before,after);
   }
   // Details: expand a package/type card in place into a box of its children laid out from the card's
@@ -557,17 +623,24 @@ export default function App() {
     if(!graph||!n)return false;
     const size=cardSizeOf(n);
     if(expansions[n.id]){
-      const before=boxOf(n),after={x1:before.x1,y1:before.y1,x2:before.x1+size.width,y2:before.y1+size.height};
-      const action:Extract<ExplorerAction,{type:'COLLAPSE_RESOURCE'}>={type:'COLLAPSE_RESOURCE',level,id:n.id,position:{x:before.x1+size.width/2,y:before.y1+size.height/2},moves:makeRoom(n,before,after),generation:viewState.generation};
+      // An expansion drawn as its card (ADR 0017 §4: Design off or Changes) made its room in design mode,
+      // around its empty box: collapsing it gives that room back, measured as design mode measures it.
+      const asInDesign=n.drawnAsCard?collapseRoomAsInDesign(n,size):null;
+      const before=asInDesign?.before||boxOf(n),after={x1:before.x1,y1:before.y1,x2:before.x1+size.width,y2:before.y1+size.height};
+      const action:Extract<ExplorerAction,{type:'COLLAPSE_RESOURCE'}>={type:'COLLAPSE_RESOURCE',level,id:n.id,position:{x:before.x1+size.width/2,y:before.y1+size.height/2},moves:asInDesign?asInDesign.moves:makeRoom(n,before,after),generation:viewState.generation};
       if(explorerViewReducer(viewState,action)===viewState)return false;
       collapse(action,group);
       return true;
     }
     const before=boxOf(n),children=childrenOf(graph,n,scope).map(c=>({id:c.id,...cardSizeOf(c)}));
-    // Nothing in scope to show: an empty box would only hide the card.
-    if(!children.length)return false;
+    // In design mode the new box offers its add blocks (ADR 0015, 0017), so neighbours make room for a
+    // reserve too; a package or type with nothing inside opens on its single block.
+    const slotSizes=showDesign&&!active.present.review?addSlotSizes(n.kind):null;
+    // Nothing in scope to show: outside design mode an empty box would only hide the card.
+    if(!children.length&&!(slotSizes&&expandsWhenEmpty(n.kind)))return false;
     const childPositions=layoutChildren({x:before.x1,y:before.y1},children);
-    const after=containerBox(children.map(c=>boxOfCard({...c,...childPositions[c.id]})),null)||before;
+    const childBoxes=children.map(c=>boxOfCard({...c,...childPositions[c.id]}));
+    const after=boxWithBlocks({x:before.x1,y:before.y1},childBoxes,null,slotSizes)||before;
     const action:ExplorerAction={type:'EXPAND_RESOURCE',level,id:n.id,ownerId:n.containerId??null,childPositions,moves:makeRoom(n,before,after),generation:viewState.generation};
     // The same state the dispatch applies to, so a reveal chain learns now whether to wait for it.
     if(explorerViewReducer(viewState,action)===viewState)return false;
@@ -621,8 +694,10 @@ export default function App() {
   function resizeContainer(id:string,minSize:CardSize){
     const n=projected.nodes.find(k=>k.id===id);
     if(!n)return;
-    const after=containerBox(projected.nodes.filter(k=>k.containerId===id).map(boxOf),minSize);
-    dispatchView({type:'RESIZE_CONTAINER',level,id,minSize,moves:after?makeRoom(n,boxOf(n),after):undefined,generation:viewState.generation});
+    const before=boxOf(n);
+    // In design mode a box with no gap left keeps its reserve block (ADR 0017) at the new size too.
+    const after=boxWithBlocks({x:before.x1,y:before.y1},projected.nodes.filter(k=>k.containerId===id).map(boxOf),minSize,showDesign&&!active.present.review&&!n.hiddenBox?addSlotSizes(n.kind):null);
+    dispatchView({type:'RESIZE_CONTAINER',level,id,minSize,moves:after?makeRoom(n,before,after):undefined,generation:viewState.generation});
   }
   // Story 6: "Code map" returns to the last map view -- whatever level, scope, and inspection the
   // user had -- rather than resetting to Packages or clearing selection. viewState already
@@ -643,7 +718,7 @@ export default function App() {
     // Every expanded card, on any level, learns which of its children are still in scope.
     const all=new Map(graph.nodes.map(n=>[n.id,n]));
     // Scope reconciliation retains eligible cards from the hidden graph in either direction.
-    const parkedGraph=active.present.review?mapGraph:reviewComparison.graph;
+    const parkedGraph=active.present.review?reviewParkedGraph():mapParkedGraph(reviewComparison.graph);
     const parkedAll=parkedGraph&&new Map(parkedGraph.nodes.map(n=>[n.id,n]));
     const expansionChildren:Record<string,string[]>={};
     for(const lvl of (['PACKAGE','CLASS','METHOD'] as Level[]))for(const id of Object.keys(viewState.levelViews[lvl].expansions)){
@@ -709,7 +784,7 @@ export default function App() {
    * graph. This includes ordinary IDs that have no comparison row, which are the cards whose
    * geometry would otherwise be pruned on entry to Changes. */
   const parkedIdsFor = (lvl:Level,s:ScopeSelection=scope) => {
-    const hidden=active.present.review?mapGraph:reviewComparison.graph;
+    const hidden=active.present.review?reviewParkedGraph():mapParkedGraph(reviewComparison.graph);
     return hidden ? eligibleByLevel(hidden,s,lvl) : undefined;
   };
 
@@ -735,17 +810,50 @@ export default function App() {
    * geometry. Existing eligible IDs retain their order/positions; only newly admitted IDs are
    * placed by the reducer. In map mode review-only IDs are parked only while they remain eligible
    * in the current comparison, so an ordinary scope edit cannot resurrect an excluded resource. */
-  function reconcileJourneyGraph(j:Journey,targetGraph:AtlasGraph,targetIsReview:boolean,reviewGraph?:AtlasGraph):Journey {
+  function reconcileJourneyGraph(j:Journey,targetGraph:AtlasGraph,targetIsReview:boolean,reviewGraph?:AtlasGraph,pins:Record<string,Point>={},growths:Growth[]=[],tabId?:number):Journey {
     const levels=(['PACKAGE','CLASS','METHOD'] as Level[]);
     const eligible=Object.fromEntries(levels.map(l=>[l,eligibleByLevel(targetGraph,j.scope,l)])) as Record<Level,string[]>;
-    const parkedGraph=targetIsReview?mapGraph||undefined:reviewGraph;
+    const parkedGraph=targetIsReview?reviewParkedGraph():mapParkedGraph(reviewGraph);
     const parkedByLevel:Partial<Record<Level,string[]>>={};
     if(parkedGraph) for(const l of levels) parkedByLevel[l]=eligibleByLevel(parkedGraph,j.scope,l);
     const reviewOnlyByLevel:Partial<Record<Level,string[]>>={};
     if(!targetIsReview&&reviewGraph) for(const l of levels) reviewOnlyByLevel[l]=reviewOnly(parkedByLevel[l]||[]);
     const activeLevel=j.view.activeLevel;
-    const view=explorerViewReducer(j.view,{type:'SCOPE_UPDATED',eligibleIds:eligible[activeLevel],batchSize:activeLevel==='PACKAGE'?Infinity:REVIEW_BATCH_SIZE,placement:placementForJourney(targetGraph,j,eligible[activeLevel],parkedGraph),otherLevels:Object.fromEntries(levels.filter(l=>l!==activeLevel).map(l=>[l,eligible[l]])) as Partial<Record<Level,string[]>>,expansionChildren:expansionChildrenFor(targetGraph,j,parkedGraph),preserveReviewOnly:!targetIsReview,reviewOnlyIds:reviewOnlyByLevel[activeLevel],otherReviewOnlyIds:reviewOnlyByLevel,parkedIds:parkedByLevel[activeLevel],otherParkedIds:parkedByLevel});
+    const placement=placementForJourney(targetGraph,j,eligible[activeLevel],parkedGraph);
+    // A card typed in place on the map lands where it was typed (ADR 0015).
+    for(const [id,p] of Object.entries(pins)) if(placement[id]) placement[id]={...placement[id],pinned:p};
+    let view=explorerViewReducer(j.view,{type:'SCOPE_UPDATED',eligibleIds:eligible[activeLevel],batchSize:activeLevel==='PACKAGE'?Infinity:REVIEW_BATCH_SIZE,placement,otherLevels:Object.fromEntries(levels.filter(l=>l!==activeLevel).map(l=>[l,eligible[l]])) as Partial<Record<Level,string[]>>,expansionChildren:expansionChildrenFor(targetGraph,j,parkedGraph),preserveReviewOnly:!targetIsReview,reviewOnlyIds:reviewOnlyByLevel[activeLevel],otherReviewOnlyIds:reviewOnlyByLevel,parkedIds:parkedByLevel[activeLevel],otherParkedIds:parkedByLevel});
+    if(!targetIsReview)for(const growth of growths){
+      // The card typed into an add block takes the block's shape in every tab whose box admits it (ADR 0017).
+      // RESIZE_RESOURCE sets position and size at once; inside RECONCILE_ALL it stays outside undo history.
+      const id=growth.child.id,lv=view.levelViews[activeLevel],e=lv.expansions[growth.containerId];
+      if(!e||e.childPositions[id]||!expansionChildrenFor(targetGraph,{...j,view},parkedGraph)[growth.containerId]?.includes(id))continue;
+      if(growth.tabId===tabId){
+        // The tab it was typed in: exactly where it was typed, and the box's neighbours make room (ADR 0015).
+        view=explorerViewReducer(view,{type:'RESIZE_RESOURCE',level:activeLevel,id,containerId:growth.containerId,size:growth.child.size,position:growth.child.position,generation:view.generation});
+        view=makeRoomForGrowth(view,j,targetGraph,growth);
+      }else{
+        // Any other tab: the same shape, placed below the box's other children like any new card. The place is
+        // stored with the size, so the next reconciliation keeps both.
+        const sized={...view,levelViews:{...view.levelViews,[activeLevel]:{...lv,sizes:{...lv.sizes,[id]:growth.child.size}}}};
+        const at=geometryForJourney(targetGraph,sized,j.scope,j.kind).positions[id];
+        if(at)view=explorerViewReducer(view,{type:'RESIZE_RESOURCE',level:activeLevel,id,containerId:growth.containerId,size:growth.child.size,position:at,generation:view.generation});
+      }
+    }
     return revalidateJourney({ ...j, view },targetGraph,targetIsReview);
+  }
+  /** A card created in a box's add block may grow the box (ADR 0015, 0017): its neighbours make room, as for any expand. */
+  function makeRoomForGrowth(view:ExplorerViewState,j:Journey,targetGraph:AtlasGraph,growth:Growth):ExplorerViewState{
+    const lv=view.levelViews[view.activeLevel],e=lv.expansions[growth.containerId];
+    if(!e)return view;
+    const g=geometryForJourney(targetGraph,view,j.scope,j.kind,undefined,undefined,{designSlots:true});
+    const after=g.boxes[growth.containerId];
+    if(!after)return view;
+        // Boxes as they were before the card was added: the cascade measures each one's growth against them.
+    const cards:RoomCard[]=g.projected.nodes.map(k=>({id:k.id,containerId:k.containerId??null,expanded:k.expanded,hidden:k.hiddenBox,box:growth.boxes[k.id]||g.boxes[k.id]||boxOfCard({id:k.id,...(lv.sizes[k.id]||defaultCardSize(k)),...(g.positions[k.id]||{x:0,y:0})}),position:g.positions[k.id],minSize:lv.expansions[k.id]?.minSize??null,blocks:k.expanded&&!k.hiddenBox?addSlotSizes(k.kind):null}));
+    const moves=roomMoves(cards,growth.containerId,growth.before,after);
+    if(!Object.keys(moves.positions).length&&!Object.keys(moves.childPositions).length)return view;
+    return explorerViewReducer(view,{type:'ARRANGE_AROUND_RESOURCE',level:view.activeLevel,positions:moves.positions,childPositions:moves.childPositions,generation:view.generation});
   }
 
   /** Comparison-aware identity cleanup; ordinary recapture keeps ordinary edge/source state. */
@@ -801,6 +909,225 @@ export default function App() {
       }
     });
   }
+  // ---- Design layer (ADR 0014) ----
+  // Design edits are server operations, like project documents: they never enter undo history. When
+  // the merged graph changes because of one, every tab's current journey is reconciled in place, so
+  // a new card is admitted (placed below, or inside its expanded container) and a deleted one leaves.
+  const designReconcile=useRef(false);
+  const pendingLayout=useRef<unknown>(null);
+  async function refreshDesign(){
+    if(!workspace)return;
+    const overlay=await apiClient.getDesign(workspace.id,snapshot);
+    designReconcile.current=true;
+    setDesignOverlay(overlay);
+  }
+  useEffect(()=>{
+    if(!designReconcile.current||!mapGraph)return;
+    designReconcile.current=false;
+    const target=mapGraph,comparison=reviewComparison.graph||undefined;
+    // A pin or growth is used only by the reconciliation that admits its card (takeAdmitted): one that lands
+    // before the card exists (the overlay poll, while the create is in flight) leaves it for the next one.
+    // The command may run its reconcile later (a state updater), so it takes them with it.
+    const ids=new Set(target.nodes.map(n=>n.id));
+    const pinned=takeAdmitted(pendingPins.current,id=>ids.has(id)),grown=takeAdmitted(pendingGrowth.current,id=>ids.has(id));
+    pendingPins.current=pinned.kept;pendingGrowth.current=grown.kept;
+    const pins=pinned.taken,growths=Object.values(grown.taken);
+    // Only the tab the card was typed in pins it and grows around it; other tabs give it the same shape.
+    journeys.command({type:'RECONCILE_ALL',reconcile:(j,tabId)=>j.review?j:reconcileJourneyGraph(j,target,false,comparison,pins,growths,tabId)});
+    const layout=pendingLayout.current;
+    pendingLayout.current=null;
+    if(isMapLayout(layout))openLayoutTab(layout,target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[mapGraph]);
+  // AI agents change the design over REST while the engineer watches the map: pick their changes up
+  // without a reload. Serialized polling, only while the page is visible; an unchanged layer is a no-op.
+  const designOverlayRef=useRef(designOverlay); designOverlayRef.current=designOverlay;
+  useEffect(()=>{
+    if(!workspace?.id||!snapshot)return;
+    const ws=workspace.id,snap=snapshot;
+    return startSerialPolling({
+      load:()=>document.hidden?Promise.resolve(null):apiClient.getDesign(ws,snap),
+      onValue:overlay=>{if(overlay&&JSON.stringify(overlay)!==JSON.stringify(designOverlayRef.current)){designReconcile.current=true;setDesignOverlay(overlay);}},
+      shouldContinue:()=>true,
+      intervalMs:4000
+    });
+  },[workspace?.id,snapshot]);
+  async function applyDesign(operations:DesignOperation[]){
+    if(!workspace)throw new Error('Open a project first');
+    await apiClient.applyDesignChanges(workspace.id,operations,'user');
+    await refreshDesign();
+    // Engineer explanations feed generated ones; an edit can make a READY one stale.
+    setRevision(r=>r+1);
+  }
+  function setShowDesign(next:boolean){
+    try{localStorage.setItem('showDesign',String(next));}catch{}
+    designReconcile.current=true;
+    setShowDesignState(next);
+  }
+  const designEnabled=showDesign&&!active.present.review;
+  // ---- Direct manipulation in design mode (ADR 0015) ----
+  // A new card is a local draft until Enter: never in history, never on the server, never seen by agents.
+  // `inBox`: the draft fills one of an expanded parent's add blocks, so the card is stored at the draft's place (ADR 0017).
+  const [inlineDraft,setInlineDraft]=useState<{parent:AtlasNode|null;kind:string;box:Box;pinned:Point|null;inBox:boolean;error:string|null;busy:boolean}|null>(null);
+  const [designPopover,setDesignPopover]=useState<{target:PopoverTarget;anchor:Point}|null>(null);
+  const [promptView,setPromptView]=useState<{text:string;copied:boolean}|null>(null);
+  // Right after a relation or resource is created (ADR 0016): intent first, then kind; double-click edits in full.
+  const [quickPopup,setQuickPopup]=useState<{target:QuickTarget;anchor:Point}|null>(null);
+  // Where a new top-level card was typed: consumed by the next reconciliation so it lands there.
+  const pendingPins=useRef<Record<string,Point>>({});
+  // The box a card was typed into, its box before, and where in it the card goes: the reconciliation
+  // that admits the card stores it there and makes room around the box.
+  const pendingGrowth=useRef<Record<string,Growth>>({});
+  /** "+ class"/"+ method" in a box's add block, or a card menu "Add …" (its first block): the draft sits where the card will live. */
+  function startInlineAdd(parent:AtlasNode,kind?:string,block?:Box){
+    const childKind=kind||slotKind(parent.kind);
+    const size=defaultCardSize({kind:childKind} as AtlasNode);
+    // A block is the exact shape the new card takes (ADR 0017), so the box never grows for it.
+    const at=parent.expanded?block||geometry.slots[parent.id]?.[0]:undefined;
+    // A collapsed card holds its new child out of sight, so the draft sits just below it.
+    const below=()=>{const b=boxOf(parent);return {x1:b.x1,y1:b.y2+24,x2:b.x1+size.width,y2:b.y2+24+size.height};};
+    setDesignPopover(null);setQuickPopup(null);
+    setInlineDraft({parent,kind:childKind,box:at?{...at}:below(),pinned:null,inBox:!!at,error:null,busy:false});
+  }
+  function startPackageAt(point:Point){
+    const size=defaultCardSize({kind:'PACKAGE'} as AtlasNode);
+    setDesignPopover(null);setQuickPopup(null);
+    setInlineDraft({parent:null,kind:'PACKAGE',box:{x1:point.x-size.width/2,y1:point.y-size.height/2,x2:point.x+size.width/2,y2:point.y+size.height/2},pinned:point,inBox:false,error:null,busy:false});
+  }
+  async function commitInlineDraft(text:string,anchor:Point){
+    const d=inlineDraft;
+    if(!d)return;
+    const parentKey=d.parent?keyOf(d.parent):null;
+    const owner=d.parent?(d.parent.design?.name||d.parent.simpleName):null;
+    const parsed=parseInlineName(text,d.kind,owner);
+    if(typeof parsed==='string'){setInlineDraft({...d,error:parsed});return;}
+    const key=childKey(parsed.kind,parentKey,parsed.name,parsed.parameterTypes);
+    // Creating a key that already exists would silently edit it instead (putResource upserts).
+    // Named by what was typed, not the full key: the message fits inside the draft (ADR 0017 round 4).
+    // A member is named with its parameter types here: its card reads the name alone, like an overload's.
+    const typed=MEMBER_KINDS.includes(parsed.kind)?`${parsed.name}(${(parsed.parameterTypes||[]).join(', ')})`:parsed.name;
+    if(designMergedGraph?.nodes.some(n=>keyOf(n)===key)){setInlineDraft({...d,error:`${typed} already exists${owner?` in ${owner}`:''}`});return;}
+    setInlineDraft({...d,error:null,busy:true});
+    try{
+      if(d.pinned)pendingPins.current[designNodeId(key)]=d.pinned;
+      if(d.parent&&d.inBox&&geometry.boxes[d.parent.id])pendingGrowth.current[designNodeId(key)]={containerId:d.parent.id,before:geometry.boxes[d.parent.id],boxes:{...geometry.boxes},child:{id:designNodeId(key),position:{x:(d.box.x1+d.box.x2)/2,y:(d.box.y1+d.box.y2)/2},size:{width:d.box.x2-d.box.x1,height:d.box.y2-d.box.y1}},tabId:active.id};
+      await applyDesign(createResourceOps(parentKey,parsed));
+      setInlineDraft(null);
+      setQuickPopup({target:{resource:{key,kind:parsed.kind,name:parsed.name}},anchor});
+      setStatus(`Added ${parsed.kind.toLowerCase()} ${key}${d.parent&&!d.parent.expanded?` inside ${d.parent.simpleName}`:''}`);
+    }catch(e:any){delete pendingPins.current[designNodeId(key)];delete pendingGrowth.current[designNodeId(key)];setInlineDraft(cur=>cur&&{...cur,busy:false,error:e.message});}
+  }
+  /** The second click of a two-click relation: create it as CALLS, then ask for its intent and kind at its middle. */
+  async function linkCards(source:AtlasNode,target:AtlasNode,anchor:Point){
+    const relation={sourceKey:keyOf(source),targetKey:keyOf(target),kind:defaultRelationKind(source.kind,target.kind),explanation:''};
+    const existing=designOverlay?.relations.find(r=>r.sourceKey===relation.sourceKey&&r.targetKey===relation.targetKey&&r.kind===relation.kind);
+    try{
+      if(!existing)await applyDesign(relationOps(relation.sourceKey,relation.targetKey,relation.kind,''));
+      setDesignPopover(null);
+      setQuickPopup({target:{relation:{sourceKey:relation.sourceKey,targetKey:relation.targetKey,kind:relation.kind}},anchor});
+    }catch(e:any){setError(e.message);}
+  }
+  function editDesign(target:{node:AtlasNode}|{edge:AtlasEdge},anchor:Point){
+    setInlineDraft(null);setQuickPopup(null);
+    if('node' in target){setDesignPopover({target,anchor});return;}
+    const relations=relationsOfRoute(target.edge,designOverlay).map(r=>({sourceKey:r.sourceKey,targetKey:r.targetKey,kind:r.kind,explanation:r.explanation}));
+    if(relations.length)setDesignPopover({target:relations.length===1?{relation:relations[0]}:{relations},anchor});
+  }
+  function popoverMore(target:{node:AtlasNode}|{relation:PopoverRelation}){
+    setDesignPopover(null);
+    if('node' in target){setDesignDraft({mode:'resource-edit',node:target.node});return;}
+    const r=target.relation,stored=designOverlay?.relations.find(x=>x.sourceKey===r.sourceKey&&x.targetKey===r.targetKey&&x.kind===r.kind);
+    setDesignDraft(stored?{mode:'relation-edit',relation:stored}:{mode:'relation-new',sourceKey:r.sourceKey,targetKey:r.targetKey});
+  }
+  /** The design prompt for an AI coding agent: copied at once, and shown with Copy and Download. */
+  async function openPrompt(){
+    if(!workspace)return;
+    try{
+      const text=await apiClient.getDesignPrompt(workspace.id);
+      let copied=false;
+      try{await navigator.clipboard.writeText(text);copied=true;}catch{/* shown in the dialog instead */}
+      setPromptView({text,copied});
+      setStatus(copied?'Design prompt copied to the clipboard':'Design prompt ready');
+    }catch(e:any){setError(e.message);}
+  }
+  // Leaving design mode drops what was being typed or edited in place.
+  useEffect(()=>{if(!designEnabled){setInlineDraft(null);setDesignPopover(null);setQuickPopup(null);}},[designEnabled]);
+  const designCanvas:DesignCanvas|undefined=designEnabled?{
+    slots:geometry.slots,
+    areas:geometry.areas,
+    suppressBlocks:!!quickPopup||!!designPopover,
+    draft:inlineDraft&&{box:inlineDraft.box,kind:inlineDraft.kind,error:inlineDraft.error,busy:inlineDraft.busy,
+      placeholder:inlineDraft.kind==='PACKAGE'?'com.acme.billing':MEMBER_KINDS.includes(inlineDraft.kind)?'findById(Long)':inlineDraft.kind==='INTERFACE'?'Invoicing':'InvoiceService'},
+    onAdd:startInlineAdd,
+    onAddPackageAt:startPackageAt,
+    onOpenDialog:(command,n)=>setDesignDraft(command==='add-relation'?{mode:'relation-new',sourceKey:n?keyOf(n):null}:n?{mode:'resource-new',parentKey:keyOf(n),parentKind:n.kind,parentLabel:n.simpleName}:{mode:'resource-new',parentKey:null,parentKind:null,parentLabel:null}),
+    onDraftCommit:(text,anchor)=>void commitInlineDraft(text,anchor),
+    onDraftCancel:()=>setInlineDraft(null),
+    onLink:(source,target,anchor)=>void linkCards(source,target,anchor),
+    onEdit:editDesign,
+  }:undefined;
+  /** The active tab's map as a Markdown design brief: scope, layout, design layer and explanations. */
+  async function exportBrief(){
+    if(!workspace||!graph)return;
+    try{
+      const layout=captureLayout(viewState,scope,kind,graph);
+      const brief=await apiClient.exportDesign(workspace.id,{scope:layout.scope,layout});
+      const url=URL.createObjectURL(new Blob([brief],{type:'text/markdown;charset=utf-8'}));
+      const a=document.createElement('a');
+      a.href=url;a.download=`${name.replace(/[^\w.-]+/g,'-')}-design-brief.md`;
+      document.body.appendChild(a);a.click();a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),1000);
+      setStatus('Design brief exported');
+    }catch(e:any){setError(e.message);}
+  }
+  async function importBrief(file:File){
+    if(!workspace)return;
+    if(file.size>8_000_000){setError('A design brief may be at most 8 MB.');return;}
+    try{
+      const result=await apiClient.importDesign(workspace.id,await file.text(),'user');
+      // The imported layout opens as a new tab once the merged graph carries the imported cards; an import
+      // turns Design on, since that is the only way to see it.
+      if(!showDesign)setShowDesign(true);
+      pendingLayout.current=result.layout;
+      await refreshDesign();
+      setRevision(r=>r+1);
+      setStatus(`Imported ${result.resourcesCreated} new and ${result.resourcesUpdated} updated resources, ${result.relationsCreated+result.relationsUpdated} relations${result.placeholders?` (${result.placeholders} not found in this code)`:''}`);
+      if(result.warnings.length)setError(`Import skipped ${result.warnings.length} item(s): ${result.warnings.slice(0,3).join(' · ')}${result.warnings.length>3?' …':''}`);
+    }catch(e:any){setError(e.message);}
+  }
+  /**
+   * The first page's Import (ADR 0016): an exported map becomes a new design-only project (no source folder),
+   * opened exactly as it was exported. Parsed code from the export is carried as imported references.
+   */
+  async function importMapAsProject(file:File){
+    if(file.size>8_000_000){setError('An exported map may be at most 8 MB.');return;}
+    setBusy(true);setError('');
+    try{
+      const text=await file.text();
+      if(!/^`{3,}json[ \t]+codeatlas-design[ \t]*$/m.test(text))throw new Error('This file is not a map exported from Code Atlas (no codeatlas-design block).');
+      const named=/"workspace"\s*:\s*\{[^}]*?"name"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(text)?.[1];
+      let projectName=file.name.replace(/(-design-brief)?\.(md|markdown|txt)$/i,'');
+      try{if(named)projectName=JSON.parse(`"${named}"`);}catch{/* keep the file name */}
+      setStatus('Opening the exported map…');
+      const ws=await apiClient.createDesignOnlyWorkspace(projectName||'Imported design');
+      const result=await apiClient.importDesign(ws.id,text,'user');
+      await loadSnapshot(ws.activeSnapshotId,ws,result.layout);
+      setRecent(await apiClient.listWorkspaces());
+      setStatus(`Opened ${projectName}: ${result.resourcesCreated} resources, ${result.relationsCreated} relations`);
+      if(result.warnings.length)setError(`Import skipped ${result.warnings.length} item(s): ${result.warnings.slice(0,3).join(' · ')}${result.warnings.length>3?' …':''}`);
+    }catch(e:any){setError(e.message);}finally{setBusy(false);}
+  }
+  /** A new tab showing an imported layout, its keys resolved to this graph's cards. */
+  function openLayoutTab(layout:Parameters<typeof applyLayout>[1],g:AtlasGraph){
+    const layoutScope=scopeFromLayout(layout,g);
+    const ids=rankEligibleIds(g,'PACKAGE',getEligibleIds(g,'PACKAGE',layoutScope));
+    const placement:Record<string,PlacementDims>={};
+    for(const id of ids){const n=g.nodes.find(x=>x.id===id);if(n){const c=nodeCard(n);placement[id]={width:c.width,height:c.height,name:n.qualifiedName||n.simpleName};}}
+    const base=explorerViewReducer(initExplorerViewState(),{type:'RESET',level:'PACKAGE',eligibleIds:ids,batchSize:Infinity,placement});
+    const view=applyLayout(base,layout,g);
+    journeys.command({type:'NEW',present:{...newJourney(view),scope:layoutScope,kind:layout.kind||'ALL'}});
+  }
+  const designRelations=useMemo(()=>edge?relationsOfRoute(edge,designOverlay):[],[edge,designOverlay]);
   const reviewFilesByPath=useMemo(()=>Object.fromEntries((reviewComparison.review?.files||[]).map((f:any)=>[f.path,{status:f.status,hunks:f.hunks||[],lineCountsAvailable:f.lineCountsAvailable}])),[reviewComparison.review]);
   // SourceDialog's data-loading effect depends on this object by reference (P1.3): App re-renders on
   // every 2s queue poll, journey update, etc., so an inline object literal at the call site below
@@ -868,6 +1195,7 @@ export default function App() {
     {(showOpen||!graph)&&<ImportScreen path={path} language={language} busy={busy} graphOpen={!!graph}
       onPathChange={setPath} onLanguageChange={l=>{setLanguage(l);setIndexer('');setAllowBuild(false);}} onSubmit={engine=>{void analyze(path,language,engine);}} recent={recent}
       indexers={indexers} indexer={indexer} onIndexerChange={id=>{setIndexer(id);setAllowBuild(false);}} allowBuild={allowBuild} onAllowBuildChange={setAllowBuild}
+      onImportMap={file=>void importMapAsProject(file)}
       onOpenRecent={ws=>{if(ws.activeSnapshotId){setBusy(true);loadSnapshot(ws.activeSnapshotId,ws).catch(e=>setError(e.message)).finally(()=>setBusy(false));}else{setPath(ws.path);setLanguage(ws.language);void analyze(ws.path,ws.language,null);}}}/>}
     {graph&&<><div className="journey-bar">
       <div className="journey-tabs" role="tablist" aria-label="Exploration tabs">{journeys.state.tabs.map(t=><div className={`journey-tab ${t.id===active.id?'active':''}`} key={t.id}>
@@ -890,7 +1218,7 @@ export default function App() {
       <aside className="navigation" ref={navRef} style={navWidth!=null?{['--nav-width' as any]:`${navWidth}px`}:undefined}><nav className="workspace-nav"><button className={tab==='map'?'active':''} onClick={openCodeMap}>▦ <span>Code map</span></button><button className={tab==='routes'?'active':''} onClick={()=>{setTab('routes');setMobilePane('map');}}>▷ <span>Entry points</span><small>{routes.length}</small></button><button className={tab==='context'?'active':''} onClick={()=>{setTab('context');setMobilePane('map');}}>▤ <span>Project context</span></button></nav>
         <NavigationPane treeOpen={active.present.treeOpen} onTreeChange={update=>journeys.set('treeOpen',update)} graph={graph} scope={scope} selectedNode={node} search={search} onScopeChange={handleScopeChange} onSelect={select} onViewClasses={viewClasses} onViewMethods={viewMethods}/>
         {recentHistory.length>0&&<div className="recent-symbols"><h3>Recently viewed</h3>{recentHistory.map(h=>{const n=graph.nodes.find(x=>x.id===h.subjectId);return n?<button key={h.subjectId} onClick={()=>select(n)}>◷ {n.simpleName}</button>:null;})}</div>}
-        <div className="workspace-summary"><strong>{name}</strong><span>{active.present.review?'Base + changes overlay':`${typeCount} types across ${packages.length} packages`}</span><button className="text-button" disabled={busy} onClick={()=>analyze(path,language,null)}>↻ Re-analyze source</button></div>
+        <div className="workspace-summary"><strong>{name}</strong><span>{active.present.review?'Base + changes overlay':`${typeCount} types across ${packages.length} packages`}</span>{designOnlyProject?<span className="muted">Design only · no source folder</span>:<button className="text-button" disabled={busy} onClick={()=>analyze(path,language,null)}>↻ Re-analyze source</button>}</div>
       </aside>
       <div className="nav-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize navigation panel. Use arrow keys, hold Shift for larger steps, Home to reset." tabIndex={0} aria-valuenow={Math.round(navWidth??currentNavWidth())} aria-valuemin={NAV_MIN} aria-valuemax={Math.round(navMax())} onPointerDown={startNavResize} onKeyDown={navResizeKeyDown} onDoubleClick={()=>{if(justDraggedNavRef.current){justDraggedNavRef.current=false;return;}resetNavWidth();}} />
       <section className="workspace-content">
@@ -902,25 +1230,31 @@ export default function App() {
           <div className={`map-heading${headingCollapsed?' collapsed':''}`} onWheel={onHeadingWheel}>
           <div className="map-heading-collapsible" inert={headingCollapsed} aria-hidden={headingCollapsed}><div className="breadcrumbs"><button onClick={openCodeMap}>{scopeCrumb}</button><span>/</span><span className="breadcrumb-level">{levelWord}</span>{node&&<><span>/</span><button onClick={()=>inspectNode(node,'details')}>{node.simpleName}</button></>}</div><div className="page-heading"><div><h1>{node?node.simpleName:'Understand the whole system'}</h1><p>{node?'Follow the relationships around this part of the codebase.':`${typeCount} types across ${packages.length} packages. Choose a starting point.`}</p></div><button onClick={()=>{const entry=viewState.history[viewState.history.length-1];if(entry)dispatchView({type:'NAVIGATE_BACK',eligibleIds:eligibleFor(entry.level),preserveReviewOnly:!active.present.review,reviewOnlyIds:active.present.review?undefined:reviewOnly(parkedIdsFor(entry.level)||[]),parkedIds:parkedIdsFor(entry.level)});}} disabled={!viewState.history.length}>← Back</button></div></div>
           <div className="graph-toolbar"><select aria-label="Relationship kind" value={kind} onChange={e=>setKind(e.target.value)}><option value="ALL">All dependencies</option>{[...new Set(graph.edges.map(e=>e.kind))].sort().map(k=><option key={k} value={k}>{k.toLowerCase().replaceAll('_',' ')}</option>)}</select>
-            {workspace&&<div className="review-controls"><button className={`review-toggle${active.present.review?' active':''}`} aria-pressed={active.present.review} disabled={reviewComparison.loading} onClick={toggleChanges} title="Show Base + changes: amber changed cards, green added routes, red removed routes">{reviewComparison.loading?'Comparing…':active.present.review?'✓ Changes':'Changes'}</button><details className="review-options"><summary aria-label="Review comparison options">▾</summary><div><label>Base revision<input value={reviewComparison.baseRef} onChange={e=>reviewComparison.setBaseRef(e.target.value)} placeholder="Default merge base, or origin/main"/></label><button className="primary full-width" type="button" disabled={reviewComparison.loading} onClick={recompare}>{reviewComparison.loading?'Comparing…':'Recompare'}</button>{reviewComparison.review&&<p className="muted">Comparing against <code>{reviewComparison.review.base.resolvedRef||reviewComparison.review.base.requestedRef||'merge base'}</code></p>}{reviewComparison.review?.base.warning&&<p className="notice">{reviewComparison.review.base.warning}</p>}{reviewComparison.error&&<p className="notice" role="alert">{reviewComparison.error}</p>}</div></details></div>}
+            {workspace&&<div className="design-controls" role="group" aria-label="Design layer"><button className={`design-toggle${showDesign?' active':''}`} aria-pressed={showDesign} disabled={active.present.review||designOnlyProject} onClick={()=>setShowDesign(!showDesign)} title={designOnlyProject?'This project holds only a design, so Design is always on':active.present.review?'The design layer is hidden while Changes is shown':'Show the design layer: planned resources, designed relations and your explanations'}>{showDesign?'✓ Design':'Design'}</button><button className="design-prompt-button" onClick={()=>void openPrompt()} title="Copy a plain request for an AI coding agent: only what you designed and still needs doing, with each intention">Prompt</button></div>}
+            {workspace&&<div className="review-controls"><button className={`review-toggle${active.present.review?' active':''}`} aria-pressed={active.present.review} disabled={reviewComparison.loading||designOnlyProject} onClick={toggleChanges} title="Show Base + changes: amber changed cards, green added routes, red removed routes">{reviewComparison.loading?'Comparing…':active.present.review?'✓ Changes':'Changes'}</button><details className="review-options"><summary aria-label="Review comparison options">▾</summary><div><label>Base revision<input value={reviewComparison.baseRef} onChange={e=>reviewComparison.setBaseRef(e.target.value)} placeholder="Default merge base, or origin/main"/></label><button className="primary full-width" type="button" disabled={reviewComparison.loading} onClick={recompare}>{reviewComparison.loading?'Comparing…':'Recompare'}</button>{reviewComparison.review&&<p className="muted">Comparing against <code>{reviewComparison.review.base.resolvedRef||reviewComparison.review.base.requestedRef||'merge base'}</code></p>}{reviewComparison.review?.base.warning&&<p className="notice">{reviewComparison.review.base.warning}</p>}{reviewComparison.error&&<p className="notice" role="alert">{reviewComparison.error}</p>}</div></details></div>}
           </div>
           <div className="map-heading-collapsible" inert={headingCollapsed} aria-hidden={headingCollapsed}><div className="scope-banner"><span className="scope-banner-icon" aria-hidden="true">{scope.mode==='ALL'?'◈':'⌖'}</span><div className="scope-banner-text"><strong>{graph?scopeToLabel(graph,scope):''}</strong><span>Showing {levelWord.toLowerCase()} · {scopedCount} {levelWord.toLowerCase()}{scope.mode!=='ALL'?` in ${scopeUnitLabel()}`:''}</span></div><div className="scope-banner-actions">{node&&<span className="tag inspecting-chip">Inspecting {node.simpleName}</span>}{edge&&!node&&<span className="tag inspecting-chip">Inspecting a relationship</span>}{viewState.newlyAddedIds.length>0&&displayedIds.length>viewState.newlyAddedIds.length&&<span className="tag added-below-chip">{viewState.newlyAddedIds.length} added below</span>}{omittedCount>0&&<button className="show-more" onClick={()=>{const ids=eligibleFor(level);dispatchView({type:'SHOW_MORE',eligibleIds:ids,batchSize:BATCH_SIZE,placement:placementFor(ids),preserveReviewOnly:!active.present.review,reviewOnlyIds:active.present.review?undefined:reviewOnly(parkedIdsFor(level)||[]),parkedIds:parkedIdsFor(level)});}}>Showing {visibleCount} of {scopedCount} in scope · show {Math.min(BATCH_SIZE,omittedCount)} more</button>}{scope.mode==='CUSTOM'&&<button className="text-button" onClick={resetScope}>Reset to whole system</button>}</div></div></div>
           <button className="map-heading-grip" type="button" aria-expanded={!headingCollapsed} aria-label={headingCollapsed?'Expand map heading':'Collapse map heading'} onPointerDown={startHeadingDrag} onClick={toggleHeadingCollapsed}/>
           </div>
           {scopeEmpty
             ? <div className="scope-empty-state"><h2>No packages or classes selected</h2><p>Check packages or classes in the left tree to define what the graph shows.</p><button className="primary" onClick={resetScope}>Select all</button></div>
-            : <GraphCanvas multiIds={active.present.multiIds} onMultiIdsChange={v=>journeys.set('multiIds',v)} mapOpen={active.present.mapOpen} onMapOpenChange={v=>journeys.setTransient('mapOpen',v)} fullscreen={active.present.fullscreen} onFullscreenChange={v=>journeys.setTransient('fullscreen',v)} onClearSelection={clearSelection} nodes={projected.nodes} edges={projected.edges} positions={geometry.positions} sizes={sizes} containerSizes={containerSizes} onToggleExpand={toggleExpand} onToggleExpandMany={toggleExpandMany} onUngroup={ungroup} hiddenAncestorOf={hiddenAncestorOf} onCollapseInto={collapseInto} outgoingStack={stack} stackRoot={stack&&relationStack?relationStack:null} onCycleStack={cycleStack} onToggleStack={toggleStack} onResizeNode={resizeNode} onResizeContainer={resizeContainer} camera={levelGeometry.camera} selectedId={node?.id||edge?.id} onNodeSelect={select} onEdgeSelect={inspectEdge} canRemoveFromScope={n=>isNodeInScope(n,scope,graph)} onRemoveFromScope={removeFromScope} scopeRemovalTargets={nodes=>planScopeRemoval(nodes).removed} onCameraChange={handleCameraChange} onNodeMoved={handleNodeMoved} onNodesMoved={handleNodesMoved} onArrangeAroundResource={id=>{
+            : <GraphCanvas multiIds={active.present.multiIds} onMultiIdsChange={v=>journeys.set('multiIds',v)} mapOpen={active.present.mapOpen} onMapOpenChange={v=>journeys.setTransient('mapOpen',v)} fullscreen={active.present.fullscreen} onFullscreenChange={v=>journeys.setTransient('fullscreen',v)} onClearSelection={clearSelection} nodes={projected.nodes} edges={projected.edges} positions={geometry.positions} sizes={sizes} containerSizes={canvasContainerSizes} onToggleExpand={toggleExpand} onToggleExpandMany={toggleExpandMany} onUngroup={ungroup} hiddenAncestorOf={hiddenAncestorOf} onCollapseInto={collapseInto} outgoingStack={stack} stackRoot={stack&&relationStack?relationStack:null} onCycleStack={cycleStack} onToggleStack={toggleStack} onResizeNode={resizeNode} onResizeContainer={resizeContainer} camera={levelGeometry.camera} selectedId={node?.id||edge?.id} onNodeSelect={select} onEdgeSelect={inspectEdge} canRemoveFromScope={n=>isNodeInScope(n,scope,graph)} onRemoveFromScope={removeFromScope} scopeRemovalTargets={nodes=>planScopeRemoval(nodes).removed} onCameraChange={handleCameraChange} onNodeMoved={handleNodeMoved} onNodesMoved={handleNodesMoved} onArrangeAroundResource={id=>{
               cancelReclick();
               arrangeAround(id);
               setMobilePane('details');
-            }} onViewCode={n=>openSource(n,'symbol')} restoreVersion={active.restoreVersion}/>}
-          {!active.present.review&&<div className="graph-legend"><span><i className="line-sample"/>Static dependency</span><span>Hover a line for its kinds and resolution</span></div>}
+            }} onViewCode={n=>openSource(n,'symbol')} restoreVersion={active.restoreVersion} design={designCanvas}/>}
+          <div className="graph-legend">{!active.present.review&&<><span><i className="line-sample"/>Static dependency</span>{designEnabled&&<span><i className="line-sample design"/>Designed relation</span>}{designEnabled&&<span><i className="card-sample design"/>Planned or not in code</span>}<span>Hover a line for its kinds and resolution</span>{designEnabled&&<span>Right-click empty map to add a package</span>}</>}
+            {workspace&&<div className="map-file-actions" role="group" aria-label="Export or import this map"><button onClick={()=>void exportBrief()} title="Download this map exactly as it is (layout, design and explanations) as a file you can import again, here or on another machine">⇩ Export</button><label className={`file-button design-import${active.present.review?' disabled':''}`} title="Import an exported map: adds its resources, relations and explanations, and opens it in a new tab exactly as it was"><span>⇪ Import</span><input type="file" accept=".md,.markdown,.txt" aria-label="Import an exported map" disabled={active.present.review} onChange={e=>{const f=e.target.files?.[0];e.target.value='';if(f)void importBrief(f);}}/></label></div>}</div>
         </>}
       </section>
-      {tab!=='context'&&<InspectorPanel selectedNode={node} selectedEdge={edge} mapStatus={mapStatus} edgeFilteredOut={edgeFilteredOut} edgeHiddenByExpansion={edgeHiddenByExpansion} selectedOccurrenceId={viewState.inspectedOccurrenceId} onSelectOccurrence={id=>dispatchView({type:'SELECT_OCCURRENCE',occurrenceId:id})} workspaceId={workspace?.id||null} snapshotId={snapshot} graph={graph} routes={routes} revision={revision} onExplanationReady={()=>setRevision(r=>r+1)} onInspectEdge={inspectEdge} onSelect={select} onViewClasses={viewClasses} onViewMethods={viewMethods} onArrangeAroundResource={n=>arrangeAround(n.id)} onSource={(n,type='symbol')=>openSource(n,type)} onClose={clearSelection} outgoingStackSummary={stack&&node&&node.id===stackRootId?stackSummary(stack,stackDirection):null} stackDirection={stackDirection}/>}
+      {tab!=='context'&&<InspectorPanel selectedNode={node} selectedEdge={edge} mapStatus={mapStatus} edgeFilteredOut={edgeFilteredOut} edgeHiddenByExpansion={edgeHiddenByExpansion} selectedOccurrenceId={viewState.inspectedOccurrenceId} onSelectOccurrence={id=>dispatchView({type:'SELECT_OCCURRENCE',occurrenceId:id})} workspaceId={workspace?.id||null} snapshotId={snapshot} graph={graph} routes={routes} revision={revision} onExplanationReady={()=>setRevision(r=>r+1)} onInspectEdge={inspectEdge} onSelect={select} onViewClasses={viewClasses} onViewMethods={viewMethods} onArrangeAroundResource={n=>arrangeAround(n.id)} onSource={(n,type='symbol')=>openSource(n,type)} onClose={clearSelection} outgoingStackSummary={stack&&node&&node.id===stackRootId?stackSummary(stack,stackDirection):null} stackDirection={stackDirection} designRelations={designRelations} onDesign={designEnabled?setDesignDraft:undefined}/>}
     </main></>}
     <footer className="app-footer">{graph?.metadata?.diagnostics?.warnings?.length>0&&<details className="analysis-warnings"><summary>{graph?.metadata?.diagnostics?.warnings.length} analysis warning(s)</summary><div>{graph?.metadata?.diagnostics?.warnings.map((w:string,i:number)=><p key={i}>{w}</p>)}</div></details>}<span><i className={`status-dot ${graph?'configured':''}`}/>{status}</span>{graph&&<span>{graph.metadata?.unresolvedCount||0} unresolved external targets</span>}{unanalyzedFiles.length>0&&<span className="unanalyzed-files" title={`These files could not be parsed, so the types they declare are missing from the map:\n${unanalyzedFiles.join('\n')}`}>{unanalyzedFiles.length} file(s) not analyzed</span>}<div className="queue-summary">{queue?.activeJobId&&queue.synthesisStatus!=='READY'&&<span className="synthesis-progress"><i aria-hidden="true"/>{queue.synthesisStage || 'Preparing architecture'} · {synthesisElapsed}s · {queue.synthesisCompleted || 0} validated</span>}{!queue?.activeJobId&&queue?.jobStatus==='CANCELLED'&&<span>Explain all cancelled</span>}{queue&&<span>{queue.completed} explained · {queue.pending+queue.inProgress} queued · {queue.failed} failed</span>}{snapshot&&<button className={queue?.activeJobId?'':'primary'} onClick={explainAll}>{queue?.activeJobId?'Stop explain all':'✧ Explain all'}</button>}</div></footer>
     <SettingsScreen isOpen={settings} onClose={()=>setSettings(false)}/>
+    {quickPopup&&<DesignQuickPopup key={JSON.stringify(quickPopup.target)} target={quickPopup.target} anchor={quickPopup.anchor} onApply={applyDesign} onClose={()=>setQuickPopup(null)}/>}
+    {designPopover&&<DesignPopover key={JSON.stringify(designPopover.anchor)} target={designPopover.target} anchor={designPopover.anchor} onApply={applyDesign} onMore={popoverMore} onClose={()=>setDesignPopover(null)}/>}
+    {promptView&&<DesignPromptDialog text={promptView.text} copied={promptView.copied} fileName={`${name.replace(/[^\w.-]+/g,'-')}-design-prompt.md`} onClose={()=>setPromptView(null)}/>}
+    {designDraft&&graph&&<DesignEditorDialog draft={designDraft} graph={graph} onApply={applyDesign} onClose={()=>setDesignDraft(null)}/>}
     {source&&(source.snapshotId||snapshot)&&<SourceDialog snapshot={source.snapshotId||snapshot!} subject={source.node} type={source.type} snapshotLabel={source.label||'analyzed snapshot'} historical={!!source.snapshotId} reviewDiff={reviewDiff} onClose={()=>setSource(null)}/>}
   </div>;
 }
