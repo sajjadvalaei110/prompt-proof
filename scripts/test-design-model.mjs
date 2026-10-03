@@ -47,7 +47,8 @@ assert.ok(pkg&&isDesignOnly(pkg),'a planned package is its own card');
 assert.equal(byId.get(designNodeId('com.acme.billing.InvoiceService')).parentId,designNodeId('com.acme.billing'),'a planned type sits in its planned package');
 const cancel=byId.get(designNodeId('com.acme.orders.OrderService.cancel(OrderId,String)'));
 assert.equal(cancel.parentId,'c','a planned method sits in its parsed class');
-assert.equal(cancel.simpleName,'cancel(OrderId, String)');
+assert.equal(cancel.simpleName,'cancel','a planned method is named like a parsed one: its name alone (ADR 0017 round 4)');
+assert.equal(cancel.qualifiedName,'com.acme.orders.OrderService.cancel(OrderId,String)','its key, with the parameter types, is its qualified name');
 assert.equal(keyOf(cancel),'com.acme.orders.OrderService.cancel(OrderId,String)');
 assert.equal(byId.get(designNodeId('com.acme.legacy.Gone')).parentId,undefined,'an orphan has no parent card');
 
@@ -137,7 +138,7 @@ const repo=carried.nodes.find(n=>n.id===designNodeId('com.other.Repo'));
 assert.ok(isImported(repo)&&isDesignOnly(repo),'an imported reference is design-only data drawn as imported code');
 assert.deepEqual(repo.roles,['REPOSITORY'],'an imported card keeps its Spring roles');
 assert.equal(carried.nodes.find(n=>n.id===designNodeId('com.other.Repo.find(Long)')).simpleName,'find','an imported member is named as the parser names it');
-assert.equal(carried.nodes.find(n=>n.id===designNodeId('com.acme.orders.OrderService.cancel(OrderId,String)')).simpleName,'cancel(OrderId, String)','a planned member keeps its parameter types');
+assert.equal(carried.nodes.find(n=>n.id===designNodeId('com.acme.orders.OrderService.cancel(OrderId,String)')).simpleName,'cancel','a planned member reads like a parsed one; overloads read alike, as parsed ones do');
 assert.ok(!isImported(carried.nodes.find(n=>n.id===designNodeId('com.acme.billing'))),'a planned card is not imported');
 const k1=carried.edges.find(e=>e.id==='design-rel:k1'),k3=carried.edges.find(e=>e.id==='design-rel:k3');
 assert.equal(k1.resolution,'CODE');assert.ok(!isDesignedRelation(k1));assert.ok(isDesignedRelation(k3));

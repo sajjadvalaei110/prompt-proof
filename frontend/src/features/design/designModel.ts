@@ -63,13 +63,6 @@ export function detailOf(explanation: string | null | undefined): string {
   return blank < 0 ? '' : text.slice(blank).trim();
 }
 
-/** A method card's display name, `name(Types)`, so overloads stay distinguishable. An imported reference to
- * code is named as the parser names it (ADR 0016), so it reads like the original card. */
-function displayName(r: DesignResource): string {
-  if (r.origin === 'CODE') return r.name;
-  if (MEMBER_KINDS.includes(r.kind)) return `${r.name}(${(r.parameterTypes || []).join(', ')})`;
-  return r.name;
-}
 
 /**
  * The snapshot graph with the design layer merged in. Returns `graph` itself when there is nothing
@@ -92,7 +85,9 @@ export function mergeDesignGraph(graph: AtlasGraph, overlay: DesignOverlay | nul
     if (r.codeId && parsedIds.has(r.codeId)) { annotate.set(r.codeId, r); continue; }
     const design = { ...r, codeId: null };
     added.push({
-      id: designNodeId(r.key), kind: r.kind, simpleName: displayName(r), qualifiedName: r.key,
+      // Named like a parsed card (ADR 0017 round 4): a planned member by its name alone, as parsed members
+      // are; its key, with the parameter types, is the qualified name the inspector shows under it.
+      id: designNodeId(r.key), kind: r.kind, simpleName: r.name, qualifiedName: r.key,
       parentId: idOfKey(r.parentKey, r.parentCodeId), explanationStatus: 'NOT_REQUESTED',
       responsibilitySummary: r.intent || undefined, design, ...(r.origin === 'CODE' && r.roles?.length ? { roles: [...r.roles] } : {}),
     });
