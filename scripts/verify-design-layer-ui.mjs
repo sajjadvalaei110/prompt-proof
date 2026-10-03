@@ -59,22 +59,25 @@ const quickPopup=async label=>{
 };
 const quickKinds=()=>evaluate(`[...document.querySelectorAll('.design-quick-popup select option')].map(o=>o.value)`);
 const pressEnterOnKind=async kind=>{await fill('.design-quick-popup select',kind);await evaluate(`document.querySelector('.design-quick-popup select').focus(),true`);await enter();};
-/** A box's add blocks (ADR 0017), in model coordinates: its gaps, or else its one reserve. */
+/** A box's add blocks (ADR 0017), in model coordinates: its gaps, or else the start of its growth band (round 4). */
 const blocksOf=boxId=>evaluate(`(${CY}.scratch('atlas:designBlocks')||{})[${q(boxId)}]||[]`);
 const boxSize=boxId=>evaluate(`(()=>{const b=${CY}.getElementById(${q(boxId)}).boundingBox({includeLabels:false,includeOverlays:false});return {w:b.w,h:b.h};})()`);
+/** Centre box `boxId` on the canvas, zoomed out (never in) until it fits with a margin. */
+const focusBox=boxId=>evaluate(`(()=>{const cy=${CY},n=cy.getElementById(${q(boxId)}),bb=n.boundingBox({includeLabels:false,includeOverlays:false});cy.zoom(Math.min(cy.zoom(),(cy.height()-120)/bb.h,(cy.width()-120)/bb.w));cy.center(n);return true;})()`);
 /** Hover an expanded box's empty space (at block `index`'s centre, or at the model point `at`), then click
  * the "+" button there; returns the hovered block (model) and its drawn rect. */
 async function openSlot(boxId,label,index=0,at=null){
-  // Bring the box to the middle of the canvas so its blocks are not under the minimap or legend.
-  await evaluate(`${CY}.center(${CY}.getElementById(${q(boxId)})),true`);
+  // Bring the box to the middle of the canvas so its blocks are not under the minimap or legend; a box taller
+  // or wider than the canvas is zoomed out until it fits, so its header can be hovered.
+  await focusBox(boxId);
   await mouse('mouseMoved',5,5);
   await pause(300);
-  // Hovering the box header shows no button: only empty space inside it does.
+  // Round 4: hovering the box header shows the box's nearest block, not one under the pointer (no click there).
   const corner=await cardPoint(boxId,0,0);
   await mouse('mouseMoved',corner.x+14,corner.y+14);
   await until(`(${CY}.scratch('atlas:designBlocks')||{})[${q(boxId)}]?.length>0`,'add blocks of '+boxId);
-  await pause(200);
-  assert.equal(await evaluate(`document.querySelectorAll('.design-slot').length`),0,'no add button on the header');
+  await until(`document.querySelector('.design-slot')?.dataset.slotFor===${q(boxId)}`,'the header hover shows the nearest block of '+boxId);
+  assert.equal(await evaluate(`(()=>{const s=document.querySelector('.design-slot');return s.classList.contains('near')&&!s.hasAttribute('data-under');})()`),true,'on the header the block is shown as nearby, not under the pointer');
   let point=at;
   if(!point){const block=(await blocksOf(boxId))[index];assert.ok(block,`block ${index} of ${boxId}`);point={x:(block.x1+block.x2)/2,y:(block.y1+block.y2)/2};}
   const client=await evaluate(`(()=>{const cy=${CY},r=document.querySelector('.graph-canvas').getBoundingClientRect(),z=cy.zoom(),p=cy.pan();return {x:r.left+${point.x}*z+p.x,y:r.top+${point.y}*z+p.y};})()`);
@@ -102,16 +105,35 @@ async function assertShape(id,block,label){
 // Review F14: cards that overlap their siblings, on the map and inside every expanded box, beyond 1 px of
 // border rounding. (Named for its first use; it checks every container.)
 const topLevelOverlaps=()=>evaluate(`(()=>{const groups=new Map();${CY}.nodes().filter(n=>!n.data('hiddenBox')).forEach(n=>{const k=n.parent().length?n.parent().id():'';if(!groups.has(k))groups.set(k,[]);groups.get(k).push({id:n.id(),b:n.boundingBox({includeLabels:false,includeOverlays:false})});});const out=[];for(const ns of groups.values())for(let i=0;i<ns.length;i++)for(let j=i+1;j<ns.length;j++){const a=ns[i].b,b=ns[j].b;if(a.x1<b.x2-1&&b.x1<a.x2-1&&a.y1<b.y2-1&&b.y1<a.y2-1)out.push([ns[i].id,ns[j].id]);}return out;})()`);
-/** The add block a hover at model point `at` inside box `boxId` offers (null when none), without clicking. */
-async function hoverBlock(boxId,at){
+/** The block a hover at model point `at` inside box `boxId` shows, and whether it is under the pointer
+ * (round 4: a hovered box always shows one), without clicking. */
+async function hoverShown(boxId,at){
   const client=await evaluate(`(()=>{const cy=${CY},r=document.querySelector('.graph-canvas').getBoundingClientRect(),z=cy.zoom(),p=cy.pan();return {x:r.left+${at.x}*z+p.x,y:r.top+${at.y}*z+p.y};})()`);
   await mouse('mouseMoved',client.x,client.y);
   await pause(250);
-  return evaluate(`(()=>{const h=${CY}.scratch('atlas:designHover');return h&&h.id===${q(boxId)}?h.box:null;})()`);
+  return evaluate(`(()=>{const h=${CY}.scratch('atlas:designHover');return h&&h.id===${q(boxId)}?{box:h.box,under:h.under}:null;})()`);
+}
+/** The add block under the pointer at model point `at` (a click there creates in it); null when the box only
+ * shows its nearest block. */
+const hoverBlock=async(boxId,at)=>{const h=await hoverShown(boxId,at);return h&&h.under?h.box:null;};
+/** A model box in client pixels at the current camera. */
+const clientRectOfModel=b=>evaluate(`(()=>{const cy=${CY},r=document.querySelector('.graph-canvas').getBoundingClientRect(),z=cy.zoom(),p=cy.pan();return {left:r.left+(${b.x1})*z+p.x,top:r.top+(${b.y1})*z+p.y,width:((${b.x2})-(${b.x1}))*z,height:((${b.y2})-(${b.y1}))*z};})()`);
+const sameRect=(a,b,tol=1.5)=>near(a.left,b.left,tol)&&near(a.top,b.top,tol)&&near(a.width,b.width,tol)&&near(a.height,b.height,tol);
+/** Round 4: the draft's outline is the block at the current camera, and its content (input, hint or error) lies inside it. */
+async function assertDraftInside(block,label){
+  const outline=await rectOf('.design-draft-card'),body=await rectOf('.design-draft-body'),input=await rectOf('.design-draft-card input');
+  const error=await rectOf('.design-draft-error'),hint=await rectOf('.design-draft-hint'),want=await clientRectOfModel(block);
+  const info={outline,want,body,input,error,hint};
+  assert.ok(sameRect(outline,want),label+': the outline is exactly the block: '+JSON.stringify(info));
+  const within=r=>!r||(r.left>=outline.left-1.5&&r.top>=outline.top-1.5&&r.left+r.width<=outline.left+outline.width+1.5&&r.top+r.height<=outline.top+outline.height+1.5);
+  for(const [k,r] of Object.entries({body,input,error,hint}))assert.ok(within(r),label+': the '+k+' lies inside the outline: '+JSON.stringify(info));
+  return info;
 }
 const areaOf=boxId=>evaluate(`(${CY}.scratch('atlas:designAreas')||{})[${q(boxId)}]||null`);
 const near=(a,b,tol=1)=>Math.abs(a-b)<=tol;
-/** The exact block size: an empty box's block is a card (250x206 for a class, 250x184 for a method), a reserve 220x150. */
+/** An expanded box's padding around its children (expansionLayout.CONTAINER_PADDING), in model pixels. */
+const PAD_PX=44;
+/** The exact block size: an empty box's block is a card (250x206 for a class, 250x184 for a method), and so is a growth band's height. */
 const assertBlockSize=(block,w,h,label)=>assert.ok(near(block.x2-block.x1,w,.01)&&near(block.y2-block.y1,h,.01),label+': '+JSON.stringify({block,want:[w,h]}));
 /** A card's top-left corner in model coordinates (its collapsed card, as stored). */
 const cardTopLeft=id=>evaluate(`(()=>{const n=${CY}.getElementById(${q(id)}),p=n.position();return {x:p.x-n.data('cardWidth')/2,y:p.y-n.data('cardHeight')/2};})()`);
@@ -188,14 +210,40 @@ await until(`!!document.querySelector('button[aria-label="Show types inside com.
 await evaluate(`document.querySelector('button[aria-label="Show types inside com.example.audit"]').click()`);
 await until(`${CY}.getElementById('design:com.example.audit.AuditLog').length>0`,'planned class inside planned package');
 
-// 2b. Hover the expanded package: one class inside, no empty block, so one small reserve block (ADR 0017).
-{const blocks=await blocksOf('design:com.example.audit');results.auditReserve=blocks;assert.equal(blocks.length,1,'a box without a gap has one reserve block');
- assertBlockSize(blocks[0],220,150,'the reserve is exactly the least block');}
-const auditSlot=await openSlot('design:com.example.audit','class');
+// 2b. ADR 0017 round 4: the expanded package holds one class and no empty block, so it grows a band one card tall
+// below it, as wide as the box (one card here). A hover anywhere in the band offers the block under the pointer;
+// there is no fixed button. Off the box nothing is drawn; on the header or over the class, the nearest block.
+const auditId='design:com.example.audit';
+{
+  await evaluate(`${CY}.center(${CY}.getElementById(${q(auditId)})),true`);
+  await mouse('mouseMoved',5,5);await pause(300);
+  const blocks=await blocksOf(auditId),area=await areaOf(auditId);
+  results.auditBand={blocks,regions:area.regions};
+  assert.equal(blocks.length,1,'a box without a gap: its band\'s start is the menu\'s block');
+  assert.equal(area.regions.length,1,'one region: the band');
+  assertBlockSize(area.regions[0],250,206,'the band is one class card: the box is one card wide');
+  assert.deepEqual(blocks[0],area.regions[0]);
+  assert.equal(await evaluate(`document.querySelectorAll('.design-slot').length`),0,'the pointer is off the box: no block is drawn');
+  const band=area.regions[0],mid=(band.y1+band.y2)/2;
+  const left=await hoverBlock(auditId,{x:band.x1+8,y:mid}),right=await hoverBlock(auditId,{x:band.x2-8,y:mid});
+  assert.deepEqual(left,band,'its left edge offers the block under the pointer');
+  assert.deepEqual(right,band,'so does its right edge');
+  // Over the class card inside the package: the package's nearest block (the band), shown, not under the pointer.
+  const overClass=await hoverShown(auditId,{x:area.children[0].x1+60,y:area.children[0].y1+60});
+  assert.ok(overClass&&!overClass.under&&near(overClass.box.y1,band.y1,.01),'over a class card the box still shows its nearest block: '+JSON.stringify(overClass));
+  await until(`document.querySelector('.design-slot.near')?.dataset.slotFor===${q(auditId)}`,'the nearest block is drawn as nearby');
+  await shot('04a-band-shown-over-a-child');
+  // A click on the package header (the block is shown, but not under the pointer) creates nothing.
+  const head=await cardPoint(auditId,.3,0);
+  await clickAt(head.x,head.y+14);
+  await pause(400);
+  assert.equal(await evaluate(`!!document.querySelector('.design-draft-card')`),false,'a header click opens no draft');
+  await evaluate(`${CY}.emit('tap'),true`);
+  await mouse('mouseMoved',5,5);await pause(300);
+}
+const auditSlot=await openSlot(auditId,'class',0,{x:(await areaOf(auditId)).regions[0].x2-12,y:(await areaOf(auditId)).regions[0].y1+40});
 assert.equal(await draftFocused(),true,'slot draft focused');
-const draftRect=await rectOf('.design-draft-card');
-assert.ok(Math.abs(draftRect.left-auditSlot.slot.left)<2&&Math.abs(draftRect.top-auditSlot.slot.top)<2,'the draft sits on the slot');
-assert.ok(Math.abs(draftRect.width-auditSlot.slot.width)<1.5&&Math.abs(draftRect.height-auditSlot.slot.height)<1.5,'the draft outline is exactly the block: '+JSON.stringify({draftRect,slot:auditSlot.slot}));
+results.auditDraft=await assertDraftInside(auditSlot.block,'the class draft at the map\'s zoom');
 await typeText('AuditQuery');
 await shot('04-slot-class-draft');
 await enter();
@@ -205,9 +253,10 @@ await quickPopup('a slot class');
 await typeText('not saved');await escape();
 await until(`!document.querySelector('.design-quick-popup')`,'Esc closes the quick popup');
 assert.equal((await designOverlay()).resources.find(r=>r.key==='com.example.audit.AuditQuery').explanation,'','Esc on the quick popup saves nothing');
-results.slotLanding=await assertShape('design:com.example.audit.AuditQuery',auditSlot.block,'a class in the reserve');
+results.slotLanding=await assertShape('design:com.example.audit.AuditQuery',auditSlot.block,'a class in the band');
 assert.equal(await evaluate(`${CY}.getElementById('design:com.example.audit.AuditQuery').parent().id()`),'design:com.example.audit');
-assert.deepEqual(await topLevelOverlaps(),[],'the package grows for a class in its reserve: no map card is overlapped');
+assert.deepEqual(await topLevelOverlaps(),[],'the package grows for its next band: no map card is overlapped');
+{const area=await areaOf(auditId);assert.ok(area.regions.length===1&&near(area.regions[0].y1,results.slotLanding.card.y+results.slotLanding.card.h+32,.01),'the column is full again: a new band below the new class: '+JSON.stringify(area.regions));}
 
 // 2c. Esc cancels: no card, nothing on the server.
 const before=(await designOverlay()).resources.length;
@@ -274,11 +323,27 @@ await shot('05-planned-package-and-classes');
   await typeText('search(String)');await enter();
   const searchId='design:com.example.audit.AuditQuery.search(String)';
   await until(`${CY}.getElementById(${q(searchId)}).length>0`,'first method of the empty class');
+  // Round 4: a planned method is named like a parsed one, by its name alone; its id stays its key.
+  assert.equal(await evaluate(`${CY}.getElementById(${q(searchId)}).data('simpleName')`),'search','the card reads "search", not "search(String)"');
   assert.equal(await evaluate(`${CY}.getElementById(${q(searchId)}).parent().id()`),queryId,'drawn inside the class box');
   results.firstMethod=await assertShape(searchId,methodBlock.block,'the first method');
   await quickPopup('the first method');await escape();
   await until(`!document.querySelector('.design-quick-popup')`,'quick popup closed');
   assert.deepEqual(await topLevelOverlaps(),[],'a nested box\'s growth makes room through the package around it');
+  // Round 4: the class is full again, so it grows a band one method card tall; a hover in it offers a method
+  // block under the pointer, and the package's nearest block gives way to the class's ("+ method" wins inside).
+  {
+    const area=await areaOf(queryId),band=area.regions[0];
+    results.methodBand=area.regions;
+    assert.equal(area.regions.length,1);assertBlockSize(band,250,184,'a method band is one method card');
+    const b=await hoverBlock(queryId,{x:band.x2-10,y:band.y2-10});
+    assert.deepEqual(b,band,'a hover in the class\'s band offers a method block under the pointer');
+    await until(`document.querySelector('.design-slot.hot')?.dataset.slotFor===${q(queryId)}&&document.querySelector('.design-slot').textContent.includes('method')`,'"+ method" in the band');
+    const overMethod=await hoverShown(queryId,{x:(area.children[0].x1+area.children[0].x2)/2,y:(area.children[0].y1+area.children[0].y2)/2});
+    assert.ok(overMethod&&!overMethod.under,'over the method card, the class still shows its nearest method block');
+    await shot('05c2-method-band');
+    await mouse('mouseMoved',5,5);await pause(200);
+  }
   await shot('05c-empty-class-first-method');
   // Collapse it again, so the relation steps below hover the class card itself. A real click on its square.
   {const sq=await rectOf(`button[aria-label="Collapse AuditQuery"]`);await clickAt(sq.x,sq.y);}
@@ -336,8 +401,8 @@ await shot('05-planned-package-and-classes');
   await until(`${CY}.getElementById(${q(notesId)}).data('emptyBox')===true`,'redo expands it again');
   assert.deepEqual(await blocksOf(notesId),blocks,'on the same block');
   sameBox(await boxOfNode(notesId),box0,'redo restores the same box');
-  // Review F16: zoomed far out, the draft outline is still exactly the block, and its content keeps a
-  // readable minimum scale (spilling over the outline).
+  // Review F16, amended in round 4: zoomed far out, opening a draft first brings the camera to a readable zoom;
+  // the outline is exactly the block and the content lies inside it.
   {
     await evaluate(`(()=>{const cy=${CY};cy.zoom(.3);cy.center(cy.getElementById(${q(notesId)}));return true;})()`);
     await mouse('mouseMoved',5,5);await pause(300);
@@ -348,11 +413,14 @@ await shot('05-planned-package-and-classes');
     const c=await clientOfModel(centre);
     await clickAt(c.x,c.y);
     await until(`!!document.querySelector('.design-draft-card input')`,'draft at zoom 0.3');
-    const outline=await rectOf('.design-draft-card'),inputRect=await rectOf('.design-draft-card input');
+    await until(`${CY}.zoom()>=0.5`,'the camera comes to the draft');
+    await pause(300);
+    const zoomNow=await evaluate(`${CY}.zoom()`);
+    const inside=await assertDraftInside(blocks[0],'the draft opened at zoom 0.3');
     const scale=await evaluate(`new DOMMatrix(getComputedStyle(document.querySelector('.design-draft-body')).transform).a`);
-    results.zoomedOutDraft={slot,outline,input:inputRect,scale};
-    assert.ok(near(outline.left,slot.left,1.5)&&near(outline.top,slot.top,1.5)&&near(outline.width,slot.width,1.5)&&near(outline.height,slot.height,1.5),'the outline is exactly the block at zoom 0.3: '+JSON.stringify(results.zoomedOutDraft));
-    assert.ok(scale>=.6-1e-6&&inputRect.height>=20,'the input keeps a readable size: '+JSON.stringify(results.zoomedOutDraft));
+    results.zoomedOutDraft={slotAtStart:slot,zoom:zoomNow,scale,...inside};
+    assert.ok(near(scale,zoomNow,1e-3),'the content is drawn at the true zoom: '+JSON.stringify(results.zoomedOutDraft));
+    assert.ok(inside.input.height>=16,'the input is readable: '+JSON.stringify(results.zoomedOutDraft));
     assert.equal(await draftFocused(),true);
     await typeText('Readable');
     await shot('05f-draft-zoomed-out');
@@ -372,7 +440,7 @@ await shot('05-planned-package-and-classes');
   // A held button on every move (button 'left', not 'none'): otherwise Chromium drops the grip's pointer capture.
   for(let i=1;i<=10;i++)await mouse('mouseMoved',grip.x+180*i/10,grip.y+100*i/10,{buttons:1,button:'left'});
   await mouse('mouseReleased',grip.x+180,grip.y+100,{button:'left'});
-  await until(`(()=>{const a=(${CY}.scratch('atlas:designAreas')||{})[${q(notesId)}];return !!a&&a.inner.x2-a.inner.x1>500;})()`,'the empty package is resized larger');
+  await until(`${CY}.getElementById(${q(notesId)}).boundingBox({includeLabels:false,includeOverlays:false}).w>500`,'the empty package is resized larger');
   await evaluate(`(()=>{const cy=${CY};cy.zoom(1);cy.center(cy.getElementById(${q(notesId)}));return true;})()`);
   await mouse('mouseMoved',5,5);await pause(400);
   const box1=await boxOfNode(notesId);
@@ -380,12 +448,21 @@ await shot('05-planned-package-and-classes');
   const area1=await areaOf(notesId),blocks1=await blocksOf(notesId);
   assertBlockSize(blocks1[0],250,206,'a resized empty box still offers one card-sized block');
   assert.ok(near(blocks1[0].x1,area1.inner.x1,.01)&&near(blocks1[0].y1,area1.inner.y1,.01),'at its corner');
-  const far={x:area1.inner.x2-40,y:area1.inner.y2-40};
-  const farBlock=await hoverBlock(notesId,far);
-  assert.deepEqual(farBlock,blocks1[0],'a hover far from the corner offers the corner block');
-  await until(`document.querySelector('.design-slot.hot')?.dataset.slotFor===${q(notesId)}`,'drawn');
+  // Round 4: the add area is the corner block; a hover far from it shows it as the nearest block, and only a
+  // click inside it creates (the first card must keep the box's corner).
+  assertBlockSize(area1.inner,250,206,'the resized empty box\'s add area is its corner block');
+  const boxNow=await boxOfNode(notesId);
+  const far={x:boxNow.x1+boxNow.w-PAD_PX-40,y:boxNow.y1+boxNow.h-PAD_PX-40};
+  const farShown=await hoverShown(notesId,far);
+  assert.deepEqual(farShown,{box:blocks1[0],under:false},'a hover far from the corner shows the corner block, not under the pointer');
+  await until(`document.querySelector('.design-slot.near')?.dataset.slotFor===${q(notesId)}`,'drawn as nearby');
   await shot('05g-resized-empty-package-hover');
   {const c=await clientOfModel(far);await clickAt(c.x,c.y);}
+  await pause(400);
+  assert.equal(await evaluate(`!!document.querySelector('.design-draft-card')`),false,'a click away from the shown block creates nothing');
+  const farBlock=await hoverBlock(notesId,{x:blocks1[0].x2-30,y:blocks1[0].y2-30});
+  assert.deepEqual(farBlock,blocks1[0],'inside the corner block it is under the pointer');
+  {const c=await clientOfModel({x:blocks1[0].x2-30,y:blocks1[0].y2-30});await clickAt(c.x,c.y);}
   await until(`!!document.querySelector('.design-draft-card input')`,'draft in the resized empty package');
   await typeText('NoteStore');await enter();
   const storeId='design:com.example.notes.NoteStore';
@@ -395,7 +472,8 @@ await shot('05-planned-package-and-classes');
   results.resizedFirst=await assertShape(storeId,farBlock,'the first class in a resized empty package');
   const box2=await boxOfNode(notesId);
   sameBox(box2,box1,'the first class keeps the box\'s corner and size',2.5);
-  sameInner(await areaOf(notesId),area1,'the first class keeps the box\'s inner area');
+  const firstArea=await areaOf(notesId);
+  assert.ok(firstArea.inner.x2-firstArea.inner.x1>500,'with its first card, the whole resized box is open to blocks: '+JSON.stringify(firstArea.inner));
   // Review F26: hovers near the inner corner, beside a child, and within its GAP. At zoom 0.7 the whole box
   // is clear of the map controls drawn over the canvas.
   const focusNotes=()=>evaluate(`(()=>{const cy=${CY};cy.zoom(.7);cy.center(cy.getElementById(${q(notesId)}));return true;})()`);
@@ -407,8 +485,10 @@ await shot('05-planned-package-and-classes');
   assertBlockSize(cornerBlock,250,206,'a full card there');
   const beside=await hoverBlock(notesId,{x:kid.x2+40,y:(kid.y1+kid.y2)/2});
   assert.ok(beside&&beside.x1>=kid.x2+32-.01,'beside a child the block keeps GAP: '+JSON.stringify({beside,kid}));
-  assert.equal(await hoverBlock(notesId,{x:kid.x2+10,y:(kid.y1+kid.y2)/2}),null,'within GAP of a child: no block');
-  assert.equal(await hoverBlock(notesId,{x:(area2.inner.x1+area2.inner.x2)/2,y:area2.inner.y1-20}),null,'on the header band: no block');
+  assert.equal(await hoverBlock(notesId,{x:kid.x2+10,y:(kid.y1+kid.y2)/2}),null,'within GAP of a child: no block under the pointer');
+  {const shown=await hoverShown(notesId,{x:kid.x2+10,y:(kid.y1+kid.y2)/2});assert.ok(shown&&!shown.under&&shown.box.x1>=kid.x2+32-.01,'but the nearest block is shown beside it: '+JSON.stringify(shown));}
+  assert.equal(await hoverBlock(notesId,{x:(area2.inner.x1+area2.inner.x2)/2,y:area2.inner.y1-20}),null,'on the header band: no block under the pointer');
+  {const shown=await hoverShown(notesId,{x:(area2.inner.x1+area2.inner.x2)/2,y:area2.inner.y1-20});assert.ok(shown&&!shown.under,'but the nearest block is shown');}
   results.hovers={area:area2,cornerBlock,beside};
   // Review F10: a cloned tab. Back in the original tab, create below the first class, where the space is
   // shorter than a card, so the block's shape differs from a default card.
@@ -444,7 +524,7 @@ await shot('05-planned-package-and-classes');
   await until(`!document.querySelector('.design-quick-popup')`,'quick popup closed');
   results.raceLanding=await assertShape(indexId,belowBlock,'a class created while the overlay poll reconciled');
   sameBox(await boxOfNode(notesId),box2,'the box still keeps its corner and size (drawn, within the cards\' borders)',2.5);
-  sameInner(await areaOf(notesId),area1,'the box still keeps its inner area');
+  sameInner(await areaOf(notesId),firstArea,'the box still keeps its inner area');
   assert.deepEqual(await topLevelOverlaps(),[],'no overlap inside the package or on the map');
   await mouse('mouseMoved',5,5);
   await shot('05h-resized-package-two-classes');
@@ -535,7 +615,9 @@ await shot('06-parsed-class-explained');
   await typeText('OrderAudit');await enter();
   const auditId='design:com.example.spring.service.OrderAudit';
   await until(`${CY}.getElementById(${q(auditId)}).length>0`,'class added where hovered');
-  await quickPopup('a class where hovered');await escape();
+  await quickPopup('a class where hovered');
+  assert.equal(await evaluate(`document.querySelectorAll('.design-slot').length`),0,'no add block while the quick popup is open');
+  await escape();
   await until(`!document.querySelector('.design-quick-popup')`,'quick popup closed');
   const shape=await assertShape(auditId,opened.block,'a class where hovered');
   const sizeAfter=await boxSize(serviceId);
@@ -558,6 +640,57 @@ await shot('06-parsed-class-explained');
   assert.ok(results.narrowLanding.card.w<250&&results.narrowLanding.card.w>=220,'the class is as narrow as the space it was made in, never below 220: '+JSON.stringify(results.narrowLanding));
   assert.deepEqual(await topLevelOverlaps(),[],'no map card is overlapped');
   await shot('06d-narrow-class');
+  // Round 4: the last row is full now, so the package grows a band as wide as its three columns. Over a class
+  // card or a sliver between two, the box shows its nearest block; a click on the card inspects it and creates
+  // nothing. Hovered at the band's right part, the block follows the pointer there; a class made there takes
+  // its exact shape, room is left in its row, so the band goes and the package keeps its height.
+  {
+    // No inspection: the inspected card's relation halos (outlines) widen the drawn boxes around them.
+    await evaluate(`${CY}.emit('tap'),true`);
+    await focusBox(serviceId);
+    await mouse('mouseMoved',5,5);await pause(400);
+    const area=await areaOf(serviceId),band=area.regions[0];
+    results.serviceBand={regions:area.regions,inner:area.inner};
+    assert.equal(area.regions.length,1,'a full package has one region, its band: '+JSON.stringify(area.regions));
+    assert.ok(band.x2-band.x1>=3*250+2*32-1&&near(band.y2-band.y1,206,.01),'as wide as the three columns, one card tall: '+JSON.stringify(band));
+    const kid=area.children.find(c=>c.x2+32<band.x2-100);
+    const overKid=await hoverShown(serviceId,{x:kid.x1+40,y:kid.y1+40});
+    assert.ok(overKid&&!overKid.under,'over a class card: the nearest block is shown');
+    // Near the card's top: the middle of its right edge holds the relation handle, a button over the canvas.
+    const sliver=await hoverShown(serviceId,{x:kid.x2+16,y:kid.y1+30});
+    assert.ok(sliver&&!sliver.under,'between two cards: the nearest block is shown');
+    await shot('06e-full-package-nearest-block');
+    const sizeFull=await boxSize(serviceId),innerFull=area.inner;
+    const at={x:band.x2-60,y:(band.y1+band.y2)/2};
+    const opened=await openSlot(serviceId,'class',0,at);
+    assert.ok(opened.block.x1>band.x1+250,'the block follows the pointer to the band\'s right part: '+JSON.stringify({band,block:opened.block}));
+    assert.ok(near(opened.block.x2,band.x2,.01),'clamped exactly to the right edge');
+    assertBlockSize(opened.block,250,206,'a whole card');
+    results.serviceBandDraft=await assertDraftInside(opened.block,'a draft in the band');
+    await shot('06f-band-class-draft');
+    await typeText('OrderLedger');await enter();
+    const ledgerId='design:com.example.spring.service.OrderLedger';
+    await until(`${CY}.getElementById(${q(ledgerId)}).length>0`,'class added at the band\'s right part');
+    await quickPopup('a class in the band');await escape();
+    await until(`!document.querySelector('.design-quick-popup')`,'quick popup closed');
+    results.bandLanding=await assertShape(ledgerId,opened.block,'a class in the band');
+    await evaluate(`${CY}.emit('tap'),true`);
+    await mouse('mouseMoved',5,5);await pause(400);
+    const sizeAfterBand=await boxSize(serviceId),innerAfter=(await areaOf(serviceId)).inner;
+    results.bandBoxes={sizeFull,sizeAfterBand,innerFull,innerAfter};
+    // The model box is exact; the drawn one differs only by the cards' borders (Limits kept, round 3).
+    assert.ok(['x1','y1','x2','y2'].every(k=>near(innerAfter[k],innerFull[k],.5)),'room is left in its row: the band goes and the package keeps its model box: '+JSON.stringify(results.bandBoxes));
+    assert.ok(Math.abs(sizeAfterBand.h-sizeFull.h)<8&&Math.abs(sizeAfterBand.w-sizeFull.w)<8,'and its drawn size: '+JSON.stringify(results.bandBoxes));
+    assert.ok((await areaOf(serviceId)).regions.every(r=>r.y2<=results.bandLanding.card.y+results.bandLanding.card.h+.01),'the band is gone: only gaps are left');
+    assert.deepEqual(await topLevelOverlaps(),[],'no map card is overlapped');
+    // A click on a class card inspects it and creates nothing, while the box shows its nearest block.
+    const before=(await designOverlay()).resources.length;
+    const c=await cardPoint(ledgerId,.5,.6);await clickAt(c.x,c.y);await pause(400);
+    assert.equal(await evaluate(`!!document.querySelector('.design-draft-card')`),false,'a click on a class card opens no draft');
+    assert.equal((await designOverlay()).resources.length,before,'and creates nothing');
+    await mouse('mouseMoved',5,5);
+    await shot('06g-band-class-filled');
+  }
 }
 
 // 4. An AI agent applies a change set over REST while the map is open; the map picks it up.
@@ -592,6 +725,8 @@ await typeText('find by customer');await enter();
 await until(`!!document.querySelector('.design-draft-error')`,'inline error for a bad method name');
 results.badNameError=await evaluate(`document.querySelector('.design-draft-error').textContent`);
 assert.equal(await evaluate(`!!document.querySelector('.design-draft-card input')`),true,'the draft stays open with its error');
+results.badNameDraft=await assertDraftInside(methodSlot.block,'a rejected name is shown inside the draft');
+assert.equal(await evaluate(`!!document.querySelector('.design-draft-hint')`),false,'the error takes the hint\'s place');
 await shot('09-inline-error');
 await fill('.design-draft-card input','findByCustomer(Long customerId)');
 await evaluate(`document.querySelector('.design-draft-card input').focus(),true`);

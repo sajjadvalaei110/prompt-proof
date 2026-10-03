@@ -8,8 +8,8 @@ import type { Point } from './graphPlacement';
 export interface JourneyGeometry {
   positions: Record<string, Point>;
   boxes: Record<string, Box>;
-  /** Design mode only (ADR 0015, 0017): each visible expanded package/type's add blocks (its gaps, or
-   * else the one reserve block), and the inner minimum that makes its drawn box hold the reserve. */
+  /** Design mode only (ADR 0015, 0017): each visible expanded package/type's add blocks (its gaps, or else
+   * the card-sized block at its growth band's start), and the inner minimum that makes its drawn box hold the band. */
   slots: Record<string, Box[]>;
   /** Design mode only: each visible expanded package/type's empty space, for a block anywhere in it (ADR 0017). */
   areas: Record<string, AddArea>;
@@ -68,12 +68,13 @@ export function geometryForJourney(
     const slotSizes = options.designSlots && !expansion?.hidden ? addSlotSizes(n.kind) : null;
     if (slotSizes) {
       const size = cardSize(n), center = positions[n.id] || { x: 0, y: 0 };
-      const { gaps, reserve, area } = designBlocks({ x: center.x - size.width / 2, y: center.y - size.height / 2 }, childBoxes, minSize, slotSizes.card, slotSizes.least);
-      slots[n.id] = reserve ? [reserve] : gaps;
+      const { gaps, band, area } = designBlocks({ x: center.x - size.width / 2, y: center.y - size.height / 2 }, childBoxes, minSize, slotSizes.card, slotSizes.least);
+      // A card menu "Add …" puts its card in the first gap, or at the start of the growth band.
+      slots[n.id] = band ? [{ x1: band.x1, y1: band.y1, x2: Math.min(band.x2, band.x1 + slotSizes.card.width), y2: band.y2 }] : gaps;
       if (area) areas[n.id] = area;
-      // Only a reserve grows the box. An empty box is its card-sized block, or the larger size the user gave it.
-      if (reserve) minSize = slotMinSizes[n.id] = childBoxes.length ? minSizeWithSlot(childBoxes, minSize, reserve) : { width: Math.max(reserve.x2 - reserve.x1, minSize?.width ?? 0), height: Math.max(reserve.y2 - reserve.y1, minSize?.height ?? 0) };
-      if (!childBoxes.length && reserve) { boxes[n.id] = containerBox([reserve], minSize)!; continue; }
+      // Only a growth band grows the box (ADR 0017 round 4). An empty box is its card-sized block, or the larger size the user gave it.
+      if (band) minSize = slotMinSizes[n.id] = childBoxes.length ? minSizeWithSlot(childBoxes, minSize, band) : { width: Math.max(band.x2 - band.x1, minSize?.width ?? 0), height: Math.max(band.y2 - band.y1, minSize?.height ?? 0) };
+      if (!childBoxes.length && band) { boxes[n.id] = containerBox([band], minSize)!; continue; }
     }
     const box = containerBox(childBoxes, minSize, !!expansion?.hidden);
     if (box) boxes[n.id] = box;
@@ -83,8 +84,8 @@ export function geometryForJourney(
 
 /**
  * What an add block holds (ADR 0015, 0017): a type in a package, a method in a type; null for anything
- * else. `card` is the card a block is created as; `least` the smallest gap that still counts as a
- * block, and the size of the reserve that grows a box with no gap left.
+ * else. `card` is the card a block is created as (and the height of the growth band a box with no gap left
+ * grows by); `least` the smallest gap that still counts as a block.
  */
 const ADD_TYPE_KINDS = ['CLASS', 'INTERFACE', 'ENUM', 'RECORD', 'ANNOTATION'];
 /** The smallest add block: the card made in it takes its shape, so it keeps room for a two-line name. */

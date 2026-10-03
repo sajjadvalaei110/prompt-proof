@@ -1003,7 +1003,8 @@ export default function App() {
     if(typeof parsed==='string'){setInlineDraft({...d,error:parsed});return;}
     const key=childKey(parsed.kind,parentKey,parsed.name,parsed.parameterTypes);
     // Creating a key that already exists would silently edit it instead (putResource upserts).
-    if(designMergedGraph?.nodes.some(n=>keyOf(n)===key)){setInlineDraft({...d,error:`${key} already exists`});return;}
+    // Named by what was typed, not the full key: the message fits inside the draft (ADR 0017 round 4).
+    if(designMergedGraph?.nodes.some(n=>keyOf(n)===key)){setInlineDraft({...d,error:`${parsed.name} already exists${owner?` in ${owner}`:''}`});return;}
     setInlineDraft({...d,error:null,busy:true});
     try{
       if(d.pinned)pendingPins.current[designNodeId(key)]=d.pinned;
@@ -1052,6 +1053,7 @@ export default function App() {
   const designCanvas:DesignCanvas|undefined=designEnabled?{
     slots:geometry.slots,
     areas:geometry.areas,
+    suppressBlocks:!!quickPopup||!!designPopover,
     draft:inlineDraft&&{box:inlineDraft.box,kind:inlineDraft.kind,error:inlineDraft.error,busy:inlineDraft.busy,
       placeholder:inlineDraft.kind==='PACKAGE'?'com.acme.billing':MEMBER_KINDS.includes(inlineDraft.kind)?'findById(Long)':inlineDraft.kind==='INTERFACE'?'Invoicing':'InvoiceService'},
     onAdd:startInlineAdd,

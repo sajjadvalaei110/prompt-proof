@@ -288,6 +288,9 @@ h1 { font-size: 25px; letter-spacing: -.7px; line-height: 1.3; font-weight: 650;
 /* Design-mode direct manipulation (ADR 0015). Overlays sit above the Cytoscape canvas, in stage pixels. */
 .design-slot { position: absolute; z-index: 2; pointer-events: none; border: 2px dashed #b9a5ea; border-radius: 12px; background: #faf7ffcc; display: grid; place-items: center; color: #6a4bb5; font-weight: 600; font-size: 14px; transition: background .12s, border-color .12s; }
 .design-slot.hot { background: #f1ebff; border-color: #7c5cc4; color: #4f3592; }
+/* The hovered box's nearest block, away from the pointer (ADR 0017 round 4): shown, calmer, not clicked where the pointer is. */
+.design-slot.near { background: #faf7ff99; border-color: #cdbff0; color: #8a73c9; }
+.design-slot.near span { border-style: dashed; }
 .design-slot span { padding: 6px 12px; border-radius: 999px; background: #fff; border: 1px solid #d9ccf5; white-space: nowrap; }
 .design-link-handle { position: absolute; z-index: 4; width: 20px; height: 20px; padding: 0; border-radius: 50%; border: 2px solid #fff; background: #7c5cc4; box-shadow: 0 0 0 1.5px #7c5cc4, 0 2px 6px #4f359255; cursor: crosshair; }
 .design-link-handle::after { content: ''; position: absolute; inset: 5px; border-radius: 50%; background: #fff; }
@@ -298,14 +301,15 @@ h1 { font-size: 25px; letter-spacing: -.7px; line-height: 1.3; font-weight: 650;
 /* The outline: exactly the shape the card will take (ADR 0017), drawn over the content. */
 .design-draft-card::after { content: ''; position: absolute; inset: 0; border: 2px dashed #7c5cc4; border-radius: 12px; pointer-events: none; }
 .design-draft-card.invalid::after { border-color: #c0392b; }
-.design-draft-body { box-sizing: border-box; display: grid; align-content: start; gap: 6px; padding: 12px 14px; border-radius: 12px; background: #faf7ff; box-shadow: 0 6px 20px #4f359233; overflow: hidden; }
-/* Zoomed far out the content keeps a readable size and spills over the outline, which stays the card's shape. */
-.design-draft-card.overflowing .design-draft-body { outline: 1px solid #d9ccf5; }
-.design-draft-kind { font-size: 14px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #6a4bb5; }
-.design-draft-card input { font-size: 22px; font-weight: 600; color: #19334f; padding: 6px 8px; border: 1px solid #d9ccf5; border-radius: 6px; background: #fff; min-width: 0; }
-.design-draft-hint { margin: 0; font-size: 14px; color: #7c8ea3; }
-/* A rejected name: a label attached under the outline, unscaled, so it never overflows the card unseen. */
-.design-draft-error { position: absolute; top: calc(100% + 4px); left: 0; min-width: max(100%, 240px); max-width: 340px; box-sizing: border-box; margin: 0; padding: 5px 9px; font-size: 13px; line-height: 1.35; font-weight: 600; color: #b03a2e; background: #fff; border: 1px solid #e3b4ae; border-radius: 6px; box-shadow: 0 4px 12px #2b1d5522; }
+/* Laid out at the card's model size (at least 220x150) and scaled by the zoom: it always fits its outline. */
+.design-draft-body { box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr); align-content: center; gap: 6px; padding: 10px 12px; border-radius: 12px; background: #faf7ff; box-shadow: 0 4px 14px #4f359226; overflow: hidden; }
+.design-draft-kind { font-size: 13px; line-height: 17px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #6a4bb5; }
+.design-draft-card input { font-size: 26px; line-height: 31px; font-weight: 600; color: #19334f; padding: 4px 8px; border: 1px solid #d9ccf5; border-radius: 6px; background: #fff; min-width: 0; width: 100%; box-sizing: border-box; }
+.design-draft-hint { margin: 0; font-size: 13px; line-height: 17px; color: #7c8ea3; }
+/* A rejected name: in place of the hint, inside the outline, at most two lines (its full text is the title),
+   larger than the hint so it reads at the usual zoom. */
+.design-draft-error { margin: 0; font-size: 16px; line-height: 20px; font-weight: 600; color: #b03a2e; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.design-draft-card.invalid input { border-color: #e3b4ae; }
 .design-popover { position: fixed; z-index: 60; width: 340px; max-width: calc(100vw - 16px); background: #fff; border: 1px solid #d9ccf5; border-top: 3px solid #7c5cc4; border-radius: 10px; box-shadow: 0 12px 32px #2b1d5533; padding: 10px 12px 12px; font-size: 13px; }
 .design-popover header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 .design-popover header strong { color: #2b1d55; overflow-wrap: anywhere; }

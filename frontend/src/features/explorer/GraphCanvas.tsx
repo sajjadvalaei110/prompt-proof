@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEve
 import cytoscape from 'cytoscape';
 import { AtlasNode, AtlasEdge, kindSummary, reviewRouteSummary } from './graphModel';
 import { nodeCard, DESIGN_TONE, cornerButtons, hasCodeButton, hasDetailsButton, CODE_BUTTON, MIN_CARD_SIZE, CornerAction, CardSize } from './nodeCard';
-import { ADD_BLOCK_SNAP, AddArea, Box, CONTAINER_BUTTON, CONTAINER_LABEL_UNLIMITED, CONTAINER_PADDING, addBlockAt, blockStillOpen, containerLabelLayout, emptyBoxAnchor, emptyBoxCenter } from './expansionLayout';
+import { ADD_BLOCK_SNAP, AddArea, Box, CONTAINER_BUTTON, CONTAINER_LABEL_UNLIMITED, CONTAINER_PADDING, addBlockNear, blockStillOpen, containerLabelLayout, draftCamera, emptyBoxAnchor, emptyBoxCenter } from './expansionLayout';
 import { addSlotSizes } from './placementGeometry';
 import CodeButton from '../../components/CodeButton';
 import { REVIEW_CHANGE_PALETTE } from '../review/reviewPalette';
@@ -139,11 +139,13 @@ export interface DesignDraftCard { box: Box; kind: string; placeholder: string; 
  * Client-coordinate anchors are where App opens its popover.
  */
 export interface DesignCanvas {
-  /** Each expanded package/type's add blocks (ADR 0017): its empty gaps, or else one reserve block. */
+  /** Each expanded package/type's add blocks (ADR 0017): its empty gaps, or else the start of its growth band. */
   slots: Record<string, Box[]>;
-  /** Each expanded package/type's empty space: a hover anywhere in it offers a block there (addBlockAt). */
+  /** Each expanded package/type's empty space (growth band included): a hover anywhere in the box shows a block (addBlockNear). */
   areas: Record<string, AddArea>;
   draft: DesignDraftCard | null;
+  /** A quick popup or popover is open: no add block is drawn under it (ADR 0017 round 4). */
+  suppressBlocks?: boolean;
   /** "+ class"/"+ method" in an expanded box's add `block`, or a card menu "Add …" item (`kind` set). */
   onAdd: (container: AtlasNode, kind?: string, block?: Box) => void;
   /** Empty-canvas "Add package" at a model point. */
@@ -158,8 +160,6 @@ export interface DesignCanvas {
   /** Double-click (or the menu's Explain) on a card or a designed route. */
   onEdit: (target: { node: AtlasNode } | { edge: AtlasEdge }, anchor: Point) => void;
 }
-/** The smallest scale an inline draft's content is drawn at (ADR 0017): below it the input would be unreadable. */
-const DRAFT_MIN_SCALE = 0.6;
 /** An add block's identity on the hover key (ADR 0017): its model corner. */
 export const blockKey = (b: Box | undefined) => b ? `${Math.round(b.x1)},${Math.round(b.y1)}` : '';
 /** The inline title a slot asks for, by the box's kind. */
@@ -188,11 +188,14 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
   // A right-click on empty canvas: design commands that need no card (ADR 0014).
   const [canvasMenu,setCanvasMenu]=useState<{x:number;y:number;model:Point}|null>(null);
   const designRef=useRef(design); designRef.current=design;
-  // The add block the pointer is on (model coordinates), set on mousemove; drawn by updateDesignView.
-  const addHoverRef=useRef<{id:string;box:Box}|null>(null);
+  // The add block the hovered box shows (model coordinates), set on mousemove; drawn by updateDesignView.
+  // `under`: the pointer is inside it, so a click creates there; otherwise it is the box's nearest block.
+  const addHoverRef=useRef<{id:string;box:Box;under:boolean}|null>(null);
+  // A card drag or a resize grip drag is under way: no add block is drawn (ADR 0017 round 4).
+  const pointerBusyRef=useRef(false);
   // Design mode overlays in stage pixels (ADR 0015): the hovered box's add slot, the draft card and the
   // hovered card's relation handle. Recomputed with the corner overlays on every camera change.
-  const [designView,setDesignView]=useState<{slot:{id:string;key:string;left:number;top:number;width:number;height:number}|null;draft:{left:number;top:number;width:number;height:number}|null;handle:{id:string;x:number;y:number}|null}>({slot:null,draft:null,handle:null});
+  const [designView,setDesignView]=useState<{slot:{id:string;key:string;under:boolean;left:number;top:number;width:number;height:number}|null;draft:{left:number;top:number;width:number;height:number}|null;handle:{id:string;x:number;y:number}|null}>({slot:null,draft:null,handle:null});
   // The pending two-click relation: its source card, and the pointer in stage pixels for the rubber band.
   const linkRef=useRef<{sourceId:string;pointer:Point|null}|null>(null);
   const [linkingId,setLinkingId]=useState<string|null>(null);
@@ -482,7 +485,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     const toStage = (b: Box) => { const z = cy.zoom(), pan = cy.pan(); return { left: b.x1 * z + pan.x, top: b.y1 * z + pan.y, width: (b.x2 - b.x1) * z, height: (b.y2 - b.y1) * z }; };
     const updateDesignView = () => {
       const d = designRef.current;
-      let slot: { id: string; key: string; left: number; top: number; width: number; height: number } | null = null, handle: { id: string; x: number; y: number } | null = null;
+      let slot: { id: string; key: string; under: boolean; left: number; top: number; width: number; height: number } | null = null, handle: { id: string; x: number; y: number } | null = null;
       const hovered = linkRef.current ? linkRef.current.sourceId : hoverCardRef.current;
       if (d && hovered) {
         const el = cy.getElementById(hovered);
@@ -491,13 +494,14 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
           handle = { id: hovered, x: bb.x2, y: (bb.y1 + bb.y2) / 2 };
         }
       }
-      // The add block under the pointer, if the pointer is on empty space in an expanded box.
+      // The add block the hovered expanded box shows: under the pointer, or the nearest one (ADR 0017 round 4).
       // A hover block a card now covers (the one just created there), or that its box moved or shrank away
-      // from, is dropped until the pointer moves again (expansionLayout.blockStillOpen).
+      // from, is dropped until the pointer moves again (expansionLayout.blockStillOpen). None is drawn while a
+      // draft, quick popup or popover is open, during a two-click relation, or during a drag or resize.
       const h = addHoverRef.current;
-      if (h && (!d || !blockStillOpen(d.areas[h.id], d.slots[h.id], h.box))) addHoverRef.current = null;
+      if (h && (!d || pointerBusyRef.current || !blockStillOpen(d.areas[h.id], h.box))) addHoverRef.current = null;
       const hot = addHoverRef.current;
-      if (d && hot && !linkRef.current && cy.getElementById(hot.id).length) slot = { id: hot.id, key: blockKey(hot.box), ...toStage(hot.box) };
+      if (d && hot && !d.draft && !d.suppressBlocks && !linkRef.current && cy.getElementById(hot.id).length) slot = { id: hot.id, key: blockKey(hot.box), under: hot.under, ...toStage(hot.box) };
       // The blocks in model coordinates, for checks that hover one (the overlay draws only the hot one).
       cy.scratch('atlas:designBlocks', d?.slots || {});
       cy.scratch('atlas:designAreas', d?.areas || {});
@@ -533,14 +537,22 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     // the card. A plain click is hit-tested here instead: inside the square it opens the code.
     // A programmatic tap (`node.emit('tap')`) carries no position and is never on the square.
     // A block is named by its corner, not its index: a stale hover key never lights a block that moved into its place.
-    // Anywhere empty in the box's inner area offers a block around the pointer, as large as the free space
-    // allows, its corner on the ADD_BLOCK_SNAP grid; a reserve is offered where it is.
-    const blockAt = (n: cytoscape.NodeSingular, p: Point): Box | null => {
-      const d = designRef.current;
-      if (!d || n.data('hiddenBox')) return null;
-      const area = d.areas[n.id()], sizes = addSlotSizes(n.data('kind'));
-      const free = area && sizes ? addBlockAt(area, p, sizes.card, sizes.least, ADD_BLOCK_SNAP) : null;
-      return free || (d.slots[n.id()] || []).find(b => p.x >= b.x1 && p.x <= b.x2 && p.y >= b.y1 && p.y <= b.y2) || null;
+    // The pointer is over the innermost expanded box that holds it: the box itself, or the one around the card
+    // under it (ADR 0017 round 4). That box always shows a block: under the pointer where one fits, as large as
+    // the free space allows, its corner on the ADD_BLOCK_SNAP grid; elsewhere (its header, a sliver between
+    // cards, a card inside it) the nearest one (expansionLayout.addBlockNear).
+    const boxUnder = (n: cytoscape.NodeSingular): cytoscape.NodeSingular | null => {
+      for (let k: cytoscape.NodeSingular | null = n; k && k.length; k = k.parent().length ? (k.parent().first() as unknown as cytoscape.NodeSingular) : null) {
+        if (k.data('expanded') && !k.data('hiddenBox')) return k;
+      }
+      return null;
+    };
+    const blockAt = (n: cytoscape.NodeSingular, p: Point): { id: string; box: Box; under: boolean } | null => {
+      const d = designRef.current, owner = d ? boxUnder(n) : null;
+      if (!d || !owner) return null;
+      const area = d.areas[owner.id()], sizes = addSlotSizes(owner.data('kind'));
+      const near = area && sizes ? addBlockNear(area, p, sizes.card, sizes.least, ADD_BLOCK_SNAP) : null;
+      return near && { id: owner.id(), ...near };
     };
     // What a pointer at model point `p` on card `n` hits: a corner square, or (design mode) an add block,
     // which comes back with it so a mousemove computes it once. The squares come first: they sit in the
@@ -563,8 +575,9 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
           if (inSquare(bb.x2 - CONTAINER_BUTTON.inset, bb.y1 + CONTAINER_BUTTON.inset, CONTAINER_BUTTON.size)) return { action: 'collapse' };
         }
         // The design add blocks (ADR 0015, 0017): the empty spaces where "+ class"/"+ method" creates a card.
+        // Only a block under the pointer is clicked; a nearest block shown elsewhere is not (round 4).
         const block = blockAt(n, p);
-        return block ? { action: 'add', block } : null;
+        return block && block.under && block.id === n.id() ? { action: 'add', block: block.box } : null;
       }
       if (CODE_BUTTON.size * cy.zoom() < MIN_CODE_BUTTON_PX) return null;
       const c = n.position();
@@ -577,13 +590,23 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       const hit = hitAt(e.target, e.position), block = hit?.block ?? null;
       const key = block ? `${e.target.id()}:add:${blockKey(block)}` : hit ? `${e.target.id()}:${hit.action}` : null;
       const prevHover = addHoverRef.current;
-      addHoverRef.current = block ? { id: e.target.id(), box: block } : null;
-      if (blockKey(prevHover?.box) !== blockKey(block ?? undefined) || prevHover?.id !== addHoverRef.current?.id) updateDesignView();
+      // A card inside a box, the box's header and its slivers all show the box's block (round 4).
+      addHoverRef.current = !pointerBusyRef.current && e.position ? blockAt(e.target, e.position) : null;
+      const next = addHoverRef.current;
+      if (blockKey(prevHover?.box) !== blockKey(next?.box) || prevHover?.id !== next?.id || prevHover?.under !== next?.under) updateDesignView();
       setHotCorner(prev => prev === key ? prev : key);
     });
-    // Leaving a card inside a box (onto the box's empty space) must not drop the box's own hover block, which
-    // that space's mousemove may already have set: only leaving the node that owns the block drops it.
-    cy.on('mouseout', 'node', e => { setHotCorner(null); setHoverCard(null); if (addHoverRef.current && addHoverRef.current.id === e.target.id()) { addHoverRef.current = null; updateDesignView(); } });
+    // Moving between a box and the cards inside it keeps the box's block (the next mousemove updates it):
+    // only a pointer that left the box that owns the block drops it.
+    cy.on('mouseout', 'node', e => {
+      setHotCorner(null); setHoverCard(null);
+      const h = addHoverRef.current;
+      if (!h) return;
+      const owner = cy.getElementById(h.id), p = e.position;
+      const bb = owner.length ? owner.boundingBox({ includeLabels: false, includeOverlays: false }) : null;
+      if (bb && p && p.x > bb.x1 && p.x < bb.x2 && p.y > bb.y1 && p.y < bb.y2) return;
+      addHoverRef.current = null; updateDesignView();
+    });
     cy.on('mouseover', 'node', e => setHoverCard(e.target.id()));
     // Ctrl/Cmd/Shift+click toggles a card in the multi-selection without inspecting it; a plain click inspects.
     const multiKey = (e: cytoscape.EventObject) => { const o = e.originalEvent as MouseEvent | undefined; return !!o && (o.ctrlKey || o.metaKey || o.shiftKey); };
@@ -606,7 +629,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       const hit = hitAt(e.target, e.position), corner = hit?.action ?? null;
       // The block a click creates in is the one drawn under the pointer, so the draft is exactly that shape.
       const hovered = addHoverRef.current;
-      if (corner === 'add') { setContextMenu(null); designRef.current?.onAdd(node, undefined, hovered && hovered.id === node.id ? { ...hovered.box } : hit!.block); return; }
+      if (corner === 'add') { setContextMenu(null); designRef.current?.onAdd(node, undefined, hovered && hovered.id === node.id && hovered.under ? { ...hovered.box } : { ...hit!.block! }); return; }
       if (corner === 'code') { setContextMenu(null); callbacks.current.onViewCode(node); return; }
       if (corner === 'stack') { setContextMenu(null); callbacks.current.onCycleStack(node.id); return; }
       if (corner === 'ungroup') { setContextMenu(null); callbacks.current.onUngroup(node); return; }
@@ -649,6 +672,9 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       const others = ids.filter(other => other !== id).map(other => cy.getElementById(other)).filter(n => n.length > 0).map(n => n as unknown as cytoscape.NodeSingular);
       groupDrag = { id, start: { ...e.target.position() }, others: others.map(node => ({ node, start: { ...node.position() } })) };
     });
+    // A drag hides the add block until the pointer moves again after it (ADR 0017 round 4).
+    cy.on('drag', 'node', () => { if (!pointerBusyRef.current) { pointerBusyRef.current = true; updateDesignView(); } });
+    cy.on('free', 'node', () => { pointerBusyRef.current = false; });
     cy.on('drag', 'node', e => {
       if (!groupDrag || e.target.id() !== groupDrag.id) return;
       const p = e.target.position(), dx = p.x - groupDrag.start.x, dy = p.y - groupDrag.start.y;
@@ -802,7 +828,10 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     // screen swap, sidebar toggle) must not move the camera the user set. Skip on a transient
     // zero-size container so cy.resize() cannot corrupt pan/zoom.
     const observer = new ResizeObserver(() => { if (!container.current?.clientWidth || !container.current?.clientHeight) return; cy.resize(); updateMap(); queueDirectionDraw(animationPhase.current,queuedPulse,true); }); observer.observe(canvas);
-    return () => { window.removeEventListener('atlas:flush-camera', flushCamera); canvas.removeEventListener('contextmenu',preventContextMenu); observer.disconnect(); if (debounceHandle) clearTimeout(debounceHandle); if (mapFrame) cancelAnimationFrame(mapFrame); if(directionFrame)cancelAnimationFrame(directionFrame); drawDirectionRef.current = () => {}; directionCanvas.remove(); cy.destroy(); cyRef.current = null; };
+    // A pointer that leaves the canvas leaves every box: no add block stays drawn (ADR 0017 round 4).
+    const leaveCanvas = () => { if (addHoverRef.current) { addHoverRef.current = null; updateDesignView(); } };
+    canvas.addEventListener('mouseleave', leaveCanvas);
+    return () => { canvas.removeEventListener('mouseleave', leaveCanvas); window.removeEventListener('atlas:flush-camera', flushCamera); canvas.removeEventListener('contextmenu',preventContextMenu); observer.disconnect(); if (debounceHandle) clearTimeout(debounceHandle); if (mapFrame) cancelAnimationFrame(mapFrame); if(directionFrame)cancelAnimationFrame(directionFrame); drawDirectionRef.current = () => {}; directionCanvas.remove(); cy.destroy(); cyRef.current = null; };
   }, []);
 
   // A card membership change closes the menu and drops selected cards that are no longer displayed.
@@ -1071,7 +1100,21 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
   }, [selectedId, nodes, edges, outgoingStack]);
 
   // Design overlays follow hover, slots and the draft card (ADR 0015); leaving design mode ends a pending relation.
-  useEffect(()=>{updateMapRef.current();},[hoverCard,handleHold,design?.slots,design?.areas,design?.draft]);
+  useEffect(()=>{updateMapRef.current();},[hoverCard,handleHold,design?.slots,design?.areas,design?.draft,design?.suppressBlocks]);
+  // A new draft too small on screen to type into, or partly off it, brings the camera to it first (ADR 0017
+  // round 4, expansionLayout.draftCamera): the user's zoom is kept when it is readable. The camera is
+  // view-only state, outside undo (ADR 0009), written the way the zoom buttons write it.
+  const draftKey=design?.draft?`${design.draft.kind}:${Math.round(design.draft.box.x1)}:${Math.round(design.draft.box.y1)}`:null;
+  useEffect(()=>{
+    const cy=cyRef.current,d=designRef.current?.draft;
+    if(!cy||!d||!draftKey)return;
+    const next=draftCamera({width:cy.width(),height:cy.height()},{zoom:cy.zoom(),pan:{...cy.pan()}},d.box);
+    if(!next)return;
+    const apply=()=>{cy.viewport({zoom:next.zoom,pan:next.pan});};
+    const setProgrammatic=(cy as any).__setProgrammaticCamera as ((fn:()=>void)=>void)|undefined;
+    if(setProgrammatic)setProgrammatic(apply);else apply();
+    callbacks.current.onCameraChange({zoom:cy.zoom(),pan:{...cy.pan()}},false,true);
+  },[draftKey]);
   useEffect(()=>{if(!design)endLink();// eslint-disable-next-line react-hooks/exhaustive-deps
   },[!!design]);
   useEffect(()=>{
@@ -1123,6 +1166,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     setContextMenu(null); setHover(null);
     const handle = event.currentTarget, pointerId = event.pointerId, startX = event.clientX, startY = event.clientY;
     handle.setPointerCapture(pointerId);
+    pointerBusyRef.current = true; updateMapRef.current();
     const expanded = !!node.expanded;
     const bb = el.boundingBox({ includeLabels: false, includeOverlays: false });
     const start = expanded ? { width: bb.w, height: bb.h } : { width: el.width(), height: el.height() };
@@ -1147,6 +1191,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       handle.removeEventListener('pointermove', onMove); handle.removeEventListener('pointerup', onUp); handle.removeEventListener('pointercancel', onCancel);
       window.removeEventListener('keydown', onEscape, true);
       if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId);
+      pointerBusyRef.current = false;
     };
     const onCancel = () => { detach(); el.data(startData); if (!expanded || el.data('emptyBox')) el.position(startPosition); updateMapRef.current(); };
     const onEscape = (ev: KeyboardEvent) => { if (ev.key === 'Escape') { ev.stopPropagation(); onCancel(); } };
@@ -1219,7 +1264,7 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
       const r=container.current.getBoundingClientRect();link.pointer={x:e.clientX-r.left,y:e.clientY-r.top};drawDirectionRef.current();
     }}>
     <div ref={container} className="graph-canvas" aria-label="Dependency graph" />
-    {slotNode&&designView.slot&&hotCorner===`${slotNode.id}:add:${designView.slot.key}`&&<div className="design-slot hot" data-slot-for={slotNode.id} data-block={designView.slot.key} aria-hidden="true" style={{left:designView.slot.left,top:designView.slot.top,width:designView.slot.width,height:designView.slot.height}}><span>＋ {slotKind(slotNode.kind)==='CLASS'?'class':'method'}</span></div>}
+    {slotNode&&designView.slot&&<div className={`design-slot${designView.slot.under?' hot':' near'}`} data-slot-for={slotNode.id} data-block={designView.slot.key} data-under={designView.slot.under?'':undefined} aria-hidden="true" style={{left:designView.slot.left,top:designView.slot.top,width:designView.slot.width,height:designView.slot.height}}><span>＋ {slotKind(slotNode.kind)==='CLASS'?'class':'method'}</span></div>}
     {handleNode&&designView.handle&&<button type="button" className={`design-link-handle${linkingId?' active':''}`} data-card-id={handleNode.id} style={{left:designView.handle.x-10,top:designView.handle.y-10}} aria-label={`Draw a designed relation from ${handleNode.simpleName}: then click its target`} title="Draw a relation: click here, then click the target card" onPointerEnter={()=>setHandleHold(handleNode.id)} onPointerLeave={()=>setHandleHold(h=>h===handleNode.id?null:h)} onClick={event=>{event.stopPropagation();if(linkingId)endLink();else startLink(handleNode.id);setHandleHold(null);}}/>}
     {linkSourceNode&&<div className="design-link-hint" role="status">Relation from <strong>{linkSourceNode.simpleName}</strong>: click the target card · Esc cancels</div>}
     {design?.draft&&designView.draft&&<DesignDraftInput key={`${design.draft.kind}:${Math.round(design.draft.box.x1)}:${Math.round(design.draft.box.y1)}`} rect={designView.draft} draft={design.draft} onCommit={design.onDraftCommit} onCancel={design.onDraftCancel}/>}
@@ -1330,7 +1375,7 @@ function DetailsIcon({ expanded }: { expanded: boolean }) {
 
 /**
  * A new card typed in place (ADR 0015): the title field is focused at once. Enter commits, Esc or
- * leaving it empty cancels; a rejected name stays with the server's message under it.
+ * leaving it empty cancels; a rejected name stays, with the server's message in place of the hint.
  */
 function DesignDraftInput({ rect, draft, onCommit, onCancel }: { rect: { left: number; top: number; width: number; height: number }; draft: DesignDraftCard; onCommit: (text: string, anchor: Point) => void; onCancel: () => void }) {
   const [text, setText] = useState('');
@@ -1338,15 +1383,14 @@ function DesignDraftInput({ rect, draft, onCommit, onCancel }: { rect: { left: n
   const corner = (): Point => { const r = card.current?.getBoundingClientRect(); return { x: r?.right ?? 0, y: r?.top ?? 0 }; };
   useEffect(() => { input.current?.focus({ preventScroll: true }); }, []);
   const kindWord = draft.kind.toLowerCase();
-  // The outline is the new card's exact shape at this zoom (ADR 0017): never larger, never smaller. Its
-  // content is drawn at the card's model size scaled by the zoom like the card itself, but never below
-  // DRAFT_MIN_SCALE: zoomed far out it stays readable and usable, anchored at the outline's corner and
-  // spilling over it. A rejected name is a label attached under the outline, unscaled.
+  // The draft is the new card's exact shape at this zoom (ADR 0017 round 4): its content is laid out at the
+  // card's model size and scaled by the true zoom, so it never spills past the outline or the box around it.
+  // The canvas moves the camera first when that would be too small to type into (draftCamera). A rejected
+  // name replaces the hint inside the outline, clamped to two lines (its full text is the title).
   const modelWidth = draft.box.x2 - draft.box.x1, modelHeight = draft.box.y2 - draft.box.y1, zoom = modelWidth ? rect.width / modelWidth : 1;
-  const scale = Math.max(zoom, DRAFT_MIN_SCALE);
-  return <div ref={card} className={`design-draft-card${draft.error ? ' invalid' : ''}${scale > zoom ? ' overflowing' : ''}`} data-draft-kind={draft.kind} style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height }}
+  return <div ref={card} className={`design-draft-card${draft.error ? ' invalid' : ''}`} data-draft-kind={draft.kind} style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height }}
     onPointerDown={e => e.stopPropagation()}>
-    <div className="design-draft-body" style={{ width: modelWidth, height: modelHeight, transform: `scale(${scale})`, transformOrigin: '0 0' }}>
+    <div className="design-draft-body" style={{ width: modelWidth, height: modelHeight, transform: `scale(${zoom})`, transformOrigin: '0 0' }}>
       <span className="design-draft-kind">New {kindWord}</span>
       <input ref={input} value={text} disabled={draft.busy} placeholder={draft.placeholder} aria-label={`Name of the new ${kindWord}`} aria-invalid={!!draft.error} aria-describedby={draft.error ? 'design-draft-error' : undefined}
         onChange={e => setText(e.target.value)}
@@ -1356,8 +1400,9 @@ function DesignDraftInput({ rect, draft, onCommit, onCancel }: { rect: { left: n
           else if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
         }}
         onBlur={() => { if (!text.trim() && !draft.busy) onCancel(); }}/>
-      <p className="design-draft-hint">Enter to add · Esc to cancel</p>
+      {draft.error
+        ? <p id="design-draft-error" className="design-draft-error" role="alert" title={draft.error}>{draft.error}</p>
+        : <p className="design-draft-hint">Enter to add · Esc to cancel</p>}
     </div>
-    {draft.error && <p id="design-draft-error" className="design-draft-error" role="alert">{draft.error}</p>}
   </div>;
 }
