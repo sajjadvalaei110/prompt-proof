@@ -341,7 +341,8 @@ class, a "+ class" / "+ method" block is always shown, under the pointer whereve
 - **When no block is drawn:**
   - while a draft, quick popup or popover is open (`DesignCanvas.suppressBlocks`);
   - during a two-click relation, a card drag or a resize drag;
-  - once the pointer leaves the canvas (onto a button over it, such as the relation handle, or off it);
+  - once the pointer leaves the box that owns the block: off the canvas, or onto an overlay outside the box. A
+    button over the canvas inside the box (the relation handle, a resize grip) keeps the block drawn.
   - with Design off, or in Changes.
 - `blockStillOpen(area, block)` loses its `slots` argument: the band lies inside `area.inner`.
 - `mouseout` keeps the block while the pointer is still inside the box that owns it, so crossing its cards
@@ -376,8 +377,9 @@ class, a "+ class" / "+ method" block is always shown, under the pointer whereve
   its `title`, and the outline turns red.
   - **Why inside:** it stays with the block, never covers the package or its neighbours, and never makes the
     draft look larger than the card it will become.
-  - The duplicate-name message names what was typed and its owner (`search already exists in AuditQuery`), not
-    the full key, so it fits.
+  - The duplicate-name message names what was typed and its owner (`search(String) already exists in AuditQuery`),
+    not the full key, so it fits. A member keeps its parameter types there, the one place they say which overload
+    clashed.
 
 ### 19. Planned members are named like parsed ones (supersedes Round 2's `displayName`)
 

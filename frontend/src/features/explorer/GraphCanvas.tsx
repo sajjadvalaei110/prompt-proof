@@ -828,8 +828,17 @@ export default function GraphCanvas({ multiIds, onMultiIdsChange: setMultiIds, m
     // screen swap, sidebar toggle) must not move the camera the user set. Skip on a transient
     // zero-size container so cy.resize() cannot corrupt pan/zoom.
     const observer = new ResizeObserver(() => { if (!container.current?.clientWidth || !container.current?.clientHeight) return; cy.resize(); updateMap(); queueDirectionDraw(animationPhase.current,queuedPulse,true); }); observer.observe(canvas);
-    // A pointer that leaves the canvas leaves every box: no add block stays drawn (ADR 0017 round 4).
-    const leaveCanvas = () => { if (addHoverRef.current) { addHoverRef.current = null; updateDesignView(); } };
+    // Leaving the canvas element drops the add block only when the pointer is really outside the box that owns
+    // it (ADR 0017 round 4): the relation handle and resize grips are buttons over the canvas, inside the box,
+    // and the block must not flicker while the pointer crosses them.
+    const leaveCanvas = (e: MouseEvent) => {
+      const h = addHoverRef.current;
+      if (!h) return;
+      const owner = cy.getElementById(h.id), r = canvas.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+      const bb = owner.length ? owner.renderedBoundingBox({ includeLabels: false, includeOverlays: false }) : null;
+      if (bb && x > bb.x1 && x < bb.x2 && y > bb.y1 && y < bb.y2) return;
+      addHoverRef.current = null; updateDesignView();
+    };
     canvas.addEventListener('mouseleave', leaveCanvas);
     return () => { canvas.removeEventListener('mouseleave', leaveCanvas); window.removeEventListener('atlas:flush-camera', flushCamera); canvas.removeEventListener('contextmenu',preventContextMenu); observer.disconnect(); if (debounceHandle) clearTimeout(debounceHandle); if (mapFrame) cancelAnimationFrame(mapFrame); if(directionFrame)cancelAnimationFrame(directionFrame); drawDirectionRef.current = () => {}; directionCanvas.remove(); cy.destroy(); cyRef.current = null; };
   }, []);

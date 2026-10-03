@@ -656,6 +656,11 @@ await shot('06-parsed-class-explained');
     const kid=area.children.find(c=>c.x2+32<band.x2-100);
     const overKid=await hoverShown(serviceId,{x:kid.x1+40,y:kid.y1+40});
     assert.ok(overKid&&!overKid.under,'over a class card: the nearest block is shown');
+    // The card's relation handle is a button over the canvas, inside the package: the block stays drawn on it.
+    await until(`!!document.querySelector('.design-link-handle')`,'the hovered class card shows its relation handle');
+    const handleRect=await rectOf('.design-link-handle');
+    await mouse('mouseMoved',handleRect.x,handleRect.y);await pause(300);
+    assert.equal(await evaluate(`document.querySelector('.design-slot')?.dataset.slotFor`),serviceId,'on a card\'s relation handle the package still shows its block');
     // Near the card's top: the middle of its right edge holds the relation handle, a button over the canvas.
     const sliver=await hoverShown(serviceId,{x:kid.x2+16,y:kid.y1+30});
     assert.ok(sliver&&!sliver.under,'between two cards: the nearest block is shown');

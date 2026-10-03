@@ -363,8 +363,8 @@
       }
     ],
     "sizeBefore": {
-      "w": 917.6024794799964,
-      "h": 785.0524794799962
+      "w": 917.7405898601805,
+      "h": 785.1905898601807
     }
   },
   "gapLanding": {
@@ -381,12 +381,12 @@
       "h": 206
     },
     "sizeBefore": {
-      "w": 917.6024794799964,
-      "h": 785.0524794799962
+      "w": 917.7405898601805,
+      "h": 785.1905898601807
     },
     "sizeAfter": {
-      "w": 920.9966770450333,
-      "h": 788.7466770450333
+      "w": 920.8055897164131,
+      "h": 788.5555897164131
     },
     "gapsAfter": [
       {
@@ -524,14 +524,14 @@
     ]
   },
   "designedEdge": {
-    "id": "aggregate:[\"8e2dd097-47cd-4b31-b535-b021ad041a30\",\"design:com.example.audit.AuditLog\",\"DESIGN\"]",
+    "id": "aggregate:[\"540e3526-fa91-4b68-852e-f0c6f9acc632\",\"design:com.example.audit.AuditLog\",\"DESIGN\"]",
     "style": "dashed",
     "color": "rgb(139,106,214)",
     "label": "✎ calls",
     "source": "OrderService",
     "target": "AuditLog"
   },
-  "edgeProvenance": "Written by claude-code · 2026-10-03 00:17:21",
+  "edgeProvenance": "Written by claude-code · 2026-10-03 00:26:43",
   "badNameError": "Write a method as name or name(Type, Type)",
   "badNameDraft": {
     "outline": {
@@ -675,35 +675,35 @@
       "design:com.example.spring.service.OrderAudit": {
         "x": 1837,
         "y": 1889,
-        "parent": "f7d7b4e7-7be0-4c40-ae34-4866a08fd5f3",
+        "parent": "d74ba622-b7fd-4ccf-a219-5da6a71bcb8a",
         "w": 250,
         "h": 206
       },
       "design:com.example.spring.service.OrderArchive": {
         "x": 2111,
         "y": 1889,
-        "parent": "f7d7b4e7-7be0-4c40-ae34-4866a08fd5f3",
+        "parent": "d74ba622-b7fd-4ccf-a219-5da6a71bcb8a",
         "w": 234,
         "h": 206
       },
       "design:com.example.spring.service.OrderLedger": {
         "x": 2103,
         "y": 2127,
-        "parent": "f7d7b4e7-7be0-4c40-ae34-4866a08fd5f3",
+        "parent": "d74ba622-b7fd-4ccf-a219-5da6a71bcb8a",
         "w": 250,
         "h": 206
       },
       "design:com.example.spring.service.OrderService.complete(Long)": {
         "x": 2429,
         "y": 948,
-        "parent": "8e2dd097-47cd-4b31-b535-b021ad041a30",
+        "parent": "540e3526-fa91-4b68-852e-f0c6f9acc632",
         "w": 250,
         "h": 184
       },
       "design:com.example.spring.service.OrderService.findByCustomer(Long)": {
         "x": 2149,
         "y": 1380,
-        "parent": "8e2dd097-47cd-4b31-b535-b021ad041a30",
+        "parent": "540e3526-fa91-4b68-852e-f0c6f9acc632",
         "w": 250,
         "h": 184
       }
@@ -733,21 +733,21 @@
       "design:com.example.spring.service.OrderArchive": {
         "x": 2111,
         "y": 1889,
-        "parent": "f7d7b4e7-7be0-4c40-ae34-4866a08fd5f3",
+        "parent": "d74ba622-b7fd-4ccf-a219-5da6a71bcb8a",
         "w": 234,
         "h": 206
       },
       "design:com.example.spring.service.OrderAudit": {
         "x": 1837,
         "y": 1889,
-        "parent": "f7d7b4e7-7be0-4c40-ae34-4866a08fd5f3",
+        "parent": "d74ba622-b7fd-4ccf-a219-5da6a71bcb8a",
         "w": 250,
         "h": 206
       },
       "design:com.example.spring.service.OrderLedger": {
         "x": 2103,
         "y": 2127,
-        "parent": "f7d7b4e7-7be0-4c40-ae34-4866a08fd5f3",
+        "parent": "d74ba622-b7fd-4ccf-a219-5da6a71bcb8a",
         "w": 250,
         "h": 206
       },
@@ -789,21 +789,21 @@
       "design:com.example.spring.service.OrderService.complete(Long)": {
         "x": 2429,
         "y": 948,
-        "parent": "8e2dd097-47cd-4b31-b535-b021ad041a30",
+        "parent": "540e3526-fa91-4b68-852e-f0c6f9acc632",
         "w": 250,
         "h": 184
       },
       "design:com.example.spring.service.OrderService.findByCustomer(Long)": {
         "x": 2149,
         "y": 1380,
-        "parent": "8e2dd097-47cd-4b31-b535-b021ad041a30",
+        "parent": "540e3526-fa91-4b68-852e-f0c6f9acc632",
         "w": 250,
         "h": 184
       }
     },
     "arrangedBoxes": {
       "design:com.example.audit": null,
-      "8e2dd097-47cd-4b31-b535-b021ad041a30": {
+      "540e3526-fa91-4b68-852e-f0c6f9acc632": {
         "x": 1622,
         "y": 696
       }

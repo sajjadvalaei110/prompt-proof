@@ -34,7 +34,7 @@ directional selection emphasis, file-grouped evidence), in-place card details
 From `docs/handoff/design-add-blocks-round5.md`: three owner complaints, plus one requirement the owner added
 while choosing the band rule ("while hovering an expanded package or class a + block is always shown, under the
 pointer where a card fits"). Frontend only; no backend, API or migration change. Commits: `4735701` (member
-names), then the geometry/canvas commit and the docs/evidence commit after it.
+names), `c915aeb` (geometry and canvas), `0c1b49e` (docs and evidence), then the follow-up below.
 
 Changes:
 - `expansionLayout`:
@@ -52,10 +52,12 @@ Changes:
   - the innermost expanded box under the pointer (itself, or the box around the card under it) always shows a
     block (`.hot` under the pointer, `.near` otherwise); only a block under the pointer is clicked;
   - no block while a draft, quick popup or popover is open (`DesignCanvas.suppressBlocks`), during a link, a
-    drag or a resize, or once the pointer leaves the canvas;
+    drag or a resize, or once the pointer leaves the box that owns it (a button over the canvas inside the box,
+    such as the relation handle, keeps it);
   - the draft is drawn at the true zoom inside its block (no `DRAFT_MIN_SCALE`); a draft too small on screen or
     off it brings the camera (transient camera, outside undo); a rejected name replaces the hint inside it.
-- `App`: `suppressBlocks`; the duplicate-name message names what was typed and its owner.
+- `App`: `suppressBlocks`; the duplicate-name message names what was typed (a member with its parameter types)
+  and its owner.
 - `designModel`: a planned member's card reads its name alone; its key is unchanged.
 
 Checks run (final jar, built after the last code change; only `scripts/verify-design-layer-ui.mjs` changed after it):
@@ -64,7 +66,8 @@ Checks run (final jar, built after the last code change; only `scripts/verify-de
   block…". The 100-child benchmark on this machine: `designBlocks` 0.5 ms, 1000 `addBlockAt` 0.9 ms, 1000
   `addBlockNear` 2.1 ms. The `addBlockNear` fuzz: 2426 hovers under the pointer, 5074 nearest, none null.
 - `./gradlew bootJar`: PASS.
-- `CHROMIUM=/snap/bin/chromium python3 scripts/verify_design_layer_pipeline.py`: PASS (`build/design-layer/run-4mgxlxn6`).
+- `CHROMIUM=/snap/bin/chromium python3 scripts/verify_design_layer_pipeline.py`: PASS (`build/design-layer/run-4mgxlxn6`; after the follow-up
+  below, `run-av1wo16w`).
   - All 38 screenshots of that run were opened and inspected; they were copied with `report.json` and
     `design-prompt.md` to `docs/evidence/design-layer-ux/`. 04a, 05c2, 06e, 06f and 06g are new.
   - Measured in `report.json`: the one-class package's band 250×206 and the class made at its right edge
@@ -83,6 +86,15 @@ Checks run (final jar, built after the last code change; only `scripts/verify-de
   - `verify_stable_graph_pipeline.py acceptance`: FAIL at `revealClasses` (line 335, "Cannot read properties of
     undefined (reading 'click')"), `build/stable-graph/acceptance-t9ipya1e`: the same pre-existing failure as
     rounds 4, 4b and 4c.
+- Follow-up after an advisor review (one commit): leaving the canvas element (onto the relation handle or a resize
+  grip, buttons over the canvas) dropped the block although the pointer was still over the box, contrary to the
+  owner's "never disappears". `leaveCanvas` now keeps it while the pointer is inside the owning box; a browser step
+  hovers a card's relation handle in the service package and asserts the block stays. The duplicate-name message
+  keeps a member's parameter types (`find(Long) already exists in OrderService`). Rerun: `tsc -b --force` and
+  build PASS, `bootJar` PASS, design-layer PASS (`build/design-layer/run-av1wo16w`). Its screenshots were diffed
+  against `run-4mgxlxn6`; those that differ beyond timestamps and edge animation (06b, 06e, 17) were opened and
+  inspected, and the evidence was refreshed from this run. The Design-off pipelines were not rerun: the block
+  state (`addHoverRef`) is never set while Design is off, so the changed handler does nothing there.
 - Not run: `./gradlew test`. No backend file changed (the constructor name the card now shows is the class name
   the server already stores, `DesignService`).
 
