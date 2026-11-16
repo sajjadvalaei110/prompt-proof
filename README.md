@@ -15,6 +15,7 @@ Code Atlas turns Java and Spring repositories into interactive, source-backed ma
 ![Java and Spring](https://img.shields.io/badge/Java_%26_Spring-code_understanding-0f766e)
 ![Local-first](https://img.shields.io/badge/local--first-privacy_by_design-0f766e)
 ![AI optional](https://img.shields.io/badge/AI-optional_%26_local-0f766e)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-0f766e)](LICENSE)
 
 </div>
 
@@ -92,6 +93,10 @@ No model? No problem. The map, source navigator, relationship evidence, Spring i
 - [Exploration tabs](docs/EXPLORATION_TABS.md) — independent journeys, history, and navigation
 - [Design layer ADR](docs/adr/0014-design-layer.md) — authored designs kept separate from parser facts
 - [Testing](docs/TESTING.md) — automated and browser verification
+
+## License
+
+Code Atlas is licensed under the [Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for project attribution.
 
 ---
 
