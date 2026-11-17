@@ -69,13 +69,12 @@ Once packaged, the self-contained JAR needs only Java 21 to run.
 ```bash
 git clone https://github.com/sajjadvalaei110/prompt-proof.git
 cd prompt-proof
+cd frontend && npm ci && cd ..
 ./gradlew bootJar
-java -jar build/libs/review-assist-0.1.0-SNAPSHOT.jar
+java -jar build/libs/code-atlas-0.1.0-SNAPSHOT.jar
 ```
 
 Open **http://127.0.0.1:8085**, import a local Java project, and start exploring.
-
-> The build also produces `code-atlas-0.1.0-SNAPSHOT.jar`; either JAR can be used.
 
 ## Optional: bring your own local AI
 
@@ -93,6 +92,7 @@ No model? No problem. The map, source navigator, relationship evidence, Spring i
 - [Exploration tabs](docs/EXPLORATION_TABS.md) — independent journeys, history, and navigation
 - [Design layer ADR](docs/adr/0014-design-layer.md) — authored designs kept separate from parser facts
 - [Testing](docs/TESTING.md) — automated and browser verification
+- [Contributing](CONTRIBUTING.md) — development setup, project boundaries, checks, and pull requests
 
 ## License
 

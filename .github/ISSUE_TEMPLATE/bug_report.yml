@@ -1,0 +1,75 @@
+name: Bug report
+description: Report a reproducible problem with Code Atlas.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Code Atlas. Please include enough detail for a maintainer to reproduce the problem.
+
+        **Privacy warning:** Do not attach private source code, credentials, database or index files, or private prompts. Use sanitized logs and a minimal synthetic fixture instead.
+  - id: description
+    type: textarea
+    attributes:
+      label: Concise description
+      description: What went wrong, and which Code Atlas workflow was involved?
+    validations:
+      required: true
+  - id: reproduction
+    type: textarea
+    attributes:
+      label: Reproduction steps
+      description: List the smallest reliable sequence of actions. Use a synthetic or public fixture when one is needed.
+      placeholder: |
+        1. Start Code Atlas with ...
+        2. Import or open ...
+        3. Select ...
+    validations:
+      required: true
+  - id: expected
+    type: textarea
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - id: actual
+    type: textarea
+    attributes:
+      label: Actual behavior
+      description: What happened instead? Include exact error text when available.
+    validations:
+      required: true
+  - id: version
+    type: input
+    attributes:
+      label: Code Atlas version or commit
+      description: Provide the build version or the full or short commit SHA.
+      placeholder: Build version or commit SHA
+    validations:
+      required: true
+  - id: os
+    type: input
+    attributes:
+      label: Operating system
+      description: Include the OS name and version.
+      placeholder: e.g. Ubuntu 24.04, macOS 15.4, Windows 11
+    validations:
+      required: true
+  - id: runtime_versions
+    type: input
+    attributes:
+      label: Java, Node.js, and npm versions (where relevant)
+      description: Java is relevant to the backend and JAR; Node.js and npm are relevant to frontend builds and script tests.
+      placeholder: e.g. Java 21.0.5; Node.js 22.12.0; npm 10.9.0
+    validations:
+      required: false
+  - id: evidence
+    type: textarea
+    attributes:
+      label: Logs and screenshots
+      description: Attach relevant sanitized logs or screenshots. Remove source excerpts, local paths, endpoints, tokens, and prompt contents when they are sensitive.
+      placeholder: Paste sanitized log excerpts here and/or attach screenshots.
+    validations:
+      required: false
