@@ -1,5 +1,17 @@
 # Code Atlas — Testing Strategy
 
+## Continuous integration
+
+On pushes and pull requests to `main`, `.github/workflows/ci.yml` runs:
+- `./gradlew test`;
+- `./gradlew constrainedMemoryTest --no-daemon`;
+- `npm ci` and `npm run build` in `frontend`;
+- every `scripts/test-*.mjs` suite.
+
+The browser acceptance pipelines below remain separate checks with their own launch and setup
+requirements. `ScipJavaLiveIndexingTest` stays conditional on the optional scip-java/Gradle toolchain,
+and deterministic mock-provider checks are never presented as live-model verification.
+
 ## Git review views
 
 `./gradlew test bootJar` runs backend coverage and packages the frontend. Focused
