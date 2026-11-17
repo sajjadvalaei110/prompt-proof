@@ -10,7 +10,7 @@ Code Atlas turns Java and Spring repositories into interactive, source-backed ma
 
 [**Watch the demo**](#see-code-atlas-in-action) · [**Get started**](#get-started) · [**Why Code Atlas?**](#why-code-atlas)
 
-[![CI](https://github.com/sajjadvalaei110/prompt-proof/actions/workflows/ci.yml/badge.svg)](https://github.com/sajjadvalaei110/prompt-proof/actions/workflows/ci.yml)
+[![CI](https://github.com/sajjadvalaei110/prompt-proof/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sajjadvalaei110/prompt-proof/actions/workflows/ci.yml?branch=main)
 [![Release](https://img.shields.io/github/v/release/sajjadvalaei110/prompt-proof?label=release&color=0f766e)](https://github.com/sajjadvalaei110/prompt-proof/releases/latest)
 ![Java 21](https://img.shields.io/badge/Java-21-0f766e)
 ![Java and Spring](https://img.shields.io/badge/Java_%26_Spring-code_understanding-0f766e)

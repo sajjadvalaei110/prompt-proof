@@ -1,5 +1,5 @@
 # Project status
-Last updated: 2026-10-03 (add blocks round 5: growth band, a hovered box always shows its block, the draft inside its block, plain member names, ADR 0017 round 4; review fixes for add blocks, ADR 0017 round 3; add blocks in a box's empty space and empty boxes that expand in design mode, ADR 0017; on top of the quick intent popup, plain prompt, faithful import and design-only projects, ADR 0016; on top of design-mode direct manipulation, ADR 0015, and the design layer, ADR 0014)
+Last updated: 2026-11-17 (final professional repository audit; see the first entry below)
 Active milestone: R6 — Developer comprehension redesign (in progress)
 Current revision: Step11 language-neutral Java analysis integrated with step 14 Ungroup (an expanded box's box hidden, its children kept as free cards,
 ADR 0011) merged with main's step 13 (card menu Expand/Collapse + View source, cascading tree
@@ -28,6 +28,56 @@ toggle with a git-style diff code viewer, exploration tabs with per-tab undo/red
 and selection controls, the R6 change-edges slice (one line per direction,
 directional selection emphasis, file-grouped evidence), in-place card details
 (expand packages/classes) and resizable cards; Step 6A remains unstarted
+
+## Final professional repository audit (2026-11-17)
+
+Prompt: `/home/sajjad/code-atlas-github-professional-prompts/08-final-professional-audit.md`. The audit ran in a clean
+worktree based on `3a27da5`; the original checkout's trailer-related `PROJECT_STATUS.md` edit and untracked trailer/talk
+files were preserved and excluded.
+
+- **First impression — verified.** The public repository has the intended Java/Spring description and all eight relevant
+  topics. GraphQL reports a custom social preview; the downloaded 1280×640 image is byte-identical to
+  `docs/assets/code-atlas-social-preview.png` and was visually inspected. The public README value proposition, GIF and
+  narrated MP4 resolve. The MP4 is 71 s, 1920×1080, H.264/AAC; a sampled contact sheet was inspected.
+- **Legal and discovery — verified.** GitHub detects Apache-2.0; the README badge/link, `LICENSE` and `NOTICE` agree.
+  Twenty-four local visitor/contributor Markdown links and all HTTP(S) links in README, CHANGELOG, SECURITY and the code
+  of conduct passed. The homepage is intentionally empty because there is no separate hosted project site.
+- **Build confidence — verified; badge fixed.** [Main CI run 44065210609](https://github.com/sajjadvalaei110/prompt-proof/actions/runs/44065210609)
+  passed both backend (ordinary plus constrained-memory) and frontend (npm ci/build plus every Node suite) jobs on `3a27da5`.
+  The workflow has no `continue-on-error` or equivalent failure masking. The README CI badge and link now explicitly select
+  `branch=main`; the downloaded badge says `CI - passing`.
+- **Release usability — verified; health-version correction made for the next release.** The annotated `v0.1.0` tag points
+  to green merge commit `3a27da5`, whose tree `c86e6bf9c4f268362eedcca9dad77322a7838c85` is identical to locally verified
+  commit `cfd2a3a`. [The public release](https://github.com/sajjadvalaei110/prompt-proof/releases/tag/v0.1.0) contains the
+  43,541,684-byte JAR and checksum. Fresh public downloads passed both `sha256sum -c` and independent hashing:
+  `9acd2eea02cb32b3ef8557be2a01abd45580e896eac36bb22e013d79cf62ee4c`. The published JAR started with only Java 21 on
+  the default port 8085, served the UI, health and empty-workspace API using isolated data. Its three frontend files match a
+  fresh source build byte-for-byte. The smoke test found that this published JAR's `/api/health` still says `1.0.0`; the tag
+  and assets were not rewritten. This PR generates Spring Boot build metadata and reports that version instead (verified as
+  `0.1.0` in a rebuilt packaged-JAR HTTP smoke test). CHANGELOG records the correction under Unreleased.
+- **Community and maintenance — verified with limits below.** CONTRIBUTING commands were exercised as listed below. Both
+  issue forms parse as YAML, have unique field ids and supported field types, and their `bug`/`enhancement` labels exist.
+  The PR template has all required sections. The code of conduct names `sajjadvalaei110@gmail.com`; GitHub's API reports
+  private vulnerability reporting enabled. No test issue, email or advisory was submitted.
+- **Repository hygiene — verified.** No unexpected tracked class/JAR/database/build artifacts were found; the Gradle and
+  fixture Maven wrapper JARs are intentional. Preview media are under `docs/assets/`, the narrated video is tracked under
+  `trailer/out/`, and their public downloads match the local files. The audit worktree contains only the intended changes.
+
+Final-change checks:
+- `npm ci --prefix frontend` and `npm run build --prefix frontend`: PASS (the existing >500 kB chunk warning and two
+  development-only high-severity audit advisories remain unchanged).
+- `for test_file in scripts/test-*.mjs; do node "${test_file}"; done`: all 18 suites PASS.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 CODEATLAS_DATA_DIR="$PWD/build/final-audit-data" ./gradlew test
+  constrainedMemoryTest bootJar --no-daemon`: PASS, 11 tasks. Ordinary tests: 223, 0 failures/errors, 1 skipped
+  (`ScipJavaLiveIndexingTest`, optional toolchain unavailable). Constrained-memory: 1/1 PASS with a 256 MiB heap.
+- Rebuilt `build/libs/code-atlas-0.1.0.jar`, launched with only Java 21 and isolated data: `/api/health` reports `0.1.0`;
+  `/` and `/api/workspaces` return 200. `META-INF/build-info.properties` records `build.version=0.1.0`.
+- `git diff --check`, local Markdown-link checks and workflow/issue-form YAML parsing: PASS.
+
+Not verified: GitHub requires sign-in for issue-creation pages, so their visual rendering was not inspected (their source
+and labels were validated); the actual PR exercises the PR template. Enforcement-email delivery was not tested. Browser
+feature pipelines and live-model quality checks were not rerun; this change has no UI behavior or model-path change. The
+published `v0.1.0` health-response discrepancy remains in that immutable release until a subsequent release is published.
 
 ## v0.1.0 release preparation (2026-11-17)
 
@@ -64,8 +114,9 @@ inspection found that the welcome panel overflows horizontally at 375 px (`clien
 form controls 423 px wide), although the existing root-document assertion passes. This pre-existing UI issue is not
 changed here. Other feature-specific browser pipelines and live-model quality checks were not run.
 
-Remaining publication actions after PR approval: merge, green `main` CI on the release commit, annotated `v0.1.0`
-tag, GitHub Release with the verified JAR/checksum, then download and verify the published assets and README URLs.
+Publication completed on 2026-11-17: PR #10 merged as `3a27da5`, its `main` CI passed, the annotated `v0.1.0` tag and
+GitHub Release were published, and the public assets and README URLs were downloaded and verified. See the final
+professional repository audit above for evidence and the health-version limitation retained in that immutable release.
 
 ## Design layer round 5: growth band, always-shown block, draft inside its block (2026-10-03, ADR 0017 "Round 4")
 
