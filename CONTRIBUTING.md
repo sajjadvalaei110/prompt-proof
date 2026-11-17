@@ -45,7 +45,7 @@ To build and run the production JAR:
 
 ```bash
 ./gradlew bootJar
-java -jar build/libs/code-atlas-0.1.0-SNAPSHOT.jar
+java -jar build/libs/code-atlas-0.1.0.jar
 ```
 
 Run `npm ci` before packaging a fresh checkout so the frontend is available to the Gradle build. The packaged application opens at **http://127.0.0.1:8085** and needs only Java 21 to run.

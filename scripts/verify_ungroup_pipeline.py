@@ -23,7 +23,7 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_SOURCE = ROOT / 'test-fixtures' / 'microservice-java'
 OUTPUT = ROOT / 'build' / 'ungroup'
-JAR = ROOT / 'build' / 'libs' / 'code-atlas-0.1.0-SNAPSHOT.jar'
+JAR = ROOT / 'build' / 'libs' / 'code-atlas-0.1.0.jar'
 EVENT_SERVICE = Path('src/main/java/com/kipper/eventsmicroservice/services/EventService.java')
 
 

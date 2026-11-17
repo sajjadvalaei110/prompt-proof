@@ -29,6 +29,44 @@ and selection controls, the R6 change-edges slice (one line per direction,
 directional selection emphasis, file-grouped evidence), in-place card details
 (expand packages/classes) and resizable cards; Step 6A remains unstarted
 
+## v0.1.0 release preparation (2026-11-17)
+
+Release-only changes: the Gradle version is `0.1.0`; the changelog is dated; the security policy covers `0.1.x`;
+README has a release badge and Java-21-only download/run commands alongside the separate source build; active
+verification runners and source-build guides use `code-atlas-0.1.0.jar`. No next-development-version bump.
+
+Prerequisites: GitHub detects `LICENSE` as Apache-2.0. The required `main` CI run for `b5524bf` passed both jobs:
+https://github.com/sajjadvalaei110/prompt-proof/actions/runs/44055544257.
+
+Checks ran in `build/release-v0.1.0-worktree`, detached at that `main` commit with only the release diff applied:
+- `npm ci` and `npm run build --prefix frontend`: PASS (existing chunk-size warning).
+- Every `scripts/test-*.mjs` suite: all 18 PASS.
+- `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew clean --no-daemon`: PASS.
+- `CODEATLAS_DATA_DIR="$PWD/build/release-test-data" ./gradlew test constrainedMemoryTest bootJar --no-daemon`
+  with Java 21: PASS, 10 tasks. Ordinary tests: 221, 0 failures/errors, 1 skipped
+  (`ScipJavaLiveIndexingTest`, unavailable optional scip-java toolchain). Constrained-memory test: 1/1 PASS with a
+  256 MiB heap.
+- JAR inspection: `build/libs/code-atlas-0.1.0.jar` has `Implementation-Version: 0.1.0`; all three current
+  `frontend/dist` files are embedded byte-for-byte; no SNAPSHOT JAR exists in the clean build.
+- `JAVA=/usr/lib/jvm/java-21-openjdk-amd64/bin/java CHROMIUM=/snap/bin/chromium python3
+  scripts/verify_language_import_pipeline.py`: PASS (`build/language-import/run-g6eupdbj`). The exact release JAR
+  started with isolated data, answered `/api/health` and workspace APIs, analyzed a fixture through the real form,
+  rendered the offline graph, re-analyzed it, and reopened a recent project, with no page errors and unchanged
+  fixture hashes. Desktop, mobile and graph screenshots were inspected; desktop and graph look correct. This uses an
+  unreachable model endpoint and is not live-model verification.
+- `sha256sum -c code-atlas-0.1.0.jar.sha256` and an independent Python `hashlib` comparison: PASS. The JAR is
+  43,541,684 bytes, SHA-256 `9acd2eea02cb32b3ef8557be2a01abd45580e896eac36bb22e013d79cf62ee4c`.
+- `git diff --check` and local Markdown-link validation: PASS.
+
+Remaining limitations: full `npm audit` reports two high-severity advisories in development-only Vite/PostCSS
+dependencies (`npm audit --omit=dev` reports zero); dependencies were not changed in this release-only work. Visual
+inspection found that the welcome panel overflows horizontally at 375 px (`clientWidth` 360, `scrollWidth` 445;
+form controls 423 px wide), although the existing root-document assertion passes. This pre-existing UI issue is not
+changed here. Other feature-specific browser pipelines and live-model quality checks were not run.
+
+Remaining publication actions after PR approval: merge, green `main` CI on the release commit, annotated `v0.1.0`
+tag, GitHub Release with the verified JAR/checksum, then download and verify the published assets and README URLs.
+
 ## Design layer round 5: growth band, always-shown block, draft inside its block (2026-10-03, ADR 0017 "Round 4")
 
 From `docs/handoff/design-add-blocks-round5.md`: three owner complaints, plus one requirement the owner added

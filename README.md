@@ -11,6 +11,7 @@ Code Atlas turns Java and Spring repositories into interactive, source-backed ma
 [**Watch the demo**](#see-code-atlas-in-action) · [**Get started**](#get-started) · [**Why Code Atlas?**](#why-code-atlas)
 
 [![CI](https://github.com/sajjadvalaei110/prompt-proof/actions/workflows/ci.yml/badge.svg)](https://github.com/sajjadvalaei110/prompt-proof/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/sajjadvalaei110/prompt-proof?label=release&color=0f766e)](https://github.com/sajjadvalaei110/prompt-proof/releases/latest)
 ![Java 21](https://img.shields.io/badge/Java-21-0f766e)
 ![Java and Spring](https://img.shields.io/badge/Java_%26_Spring-code_understanding-0f766e)
 ![Local-first](https://img.shields.io/badge/local--first-privacy_by_design-0f766e)
@@ -56,25 +57,42 @@ Code Atlas gives you one visual workspace for both:
 
 ## Get started
 
-### Prerequisites
+### Download and run
 
-- **Java 21** to build and run Code Atlas
-- **Node.js 22+ and npm 9+** to build the frontend from source
-- **Git** on your PATH for local change reviews
+**Requires Java 21. Node.js and a source checkout are not needed.** Download the self-contained JAR from [Code Atlas v0.1.0](https://github.com/sajjadvalaei110/prompt-proof/releases/tag/v0.1.0):
 
-Once packaged, the self-contained JAR needs only Java 21 to run.
+```bash
+curl -fLO https://github.com/sajjadvalaei110/prompt-proof/releases/download/v0.1.0/code-atlas-0.1.0.jar
+```
 
-### Build and launch
+Optionally verify its SHA-256 checksum before running it:
+
+```bash
+curl -fLO https://github.com/sajjadvalaei110/prompt-proof/releases/download/v0.1.0/code-atlas-0.1.0.jar.sha256
+sha256sum -c code-atlas-0.1.0.jar.sha256
+```
+
+Start Code Atlas:
+
+```bash
+java -jar code-atlas-0.1.0.jar
+```
+
+Open **http://127.0.0.1:8085**, import a local Java project, and start exploring. Keep **Git** on your PATH if you want to use local change reviews.
+
+### Build from source
+
+**Requires Java 21, Node.js 22+, and npm 9+.** The included Gradle wrapper does not need a separate Gradle installation.
 
 ```bash
 git clone https://github.com/sajjadvalaei110/prompt-proof.git
 cd prompt-proof
 cd frontend && npm ci && cd ..
 ./gradlew bootJar
-java -jar build/libs/code-atlas-0.1.0-SNAPSHOT.jar
+java -jar build/libs/code-atlas-0.1.0.jar
 ```
 
-Open **http://127.0.0.1:8085**, import a local Java project, and start exploring.
+See [Contributing](CONTRIBUTING.md) for development-mode instructions and verification checks.
 
 ## Optional: bring your own local AI
 

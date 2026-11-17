@@ -31,7 +31,7 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / 'build' / 'git-review'
-JAR = ROOT / 'build' / 'libs' / 'code-atlas-0.1.0-SNAPSHOT.jar'
+JAR = ROOT / 'build' / 'libs' / 'code-atlas-0.1.0.jar'
 
 
 def free_port():
