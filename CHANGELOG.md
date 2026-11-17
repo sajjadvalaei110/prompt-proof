@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Report the actual build version from `/api/health` instead of the hard-coded `1.0.0`.
+
 ## [0.1.0] - 2026-11-17
 
 ### Added
