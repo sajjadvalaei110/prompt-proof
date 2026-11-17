@@ -1,0 +1,57 @@
+name: Feature request
+description: Propose an outcome that would improve a Code Atlas workflow.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the user problem first. A focused request with observable acceptance criteria is easier to evaluate than a broad solution wishlist.
+  - id: problem
+    type: textarea
+    attributes:
+      label: User problem
+      description: What are you trying to understand or accomplish, and where does the current workflow fall short?
+    validations:
+      required: true
+  - id: outcome
+    type: textarea
+    attributes:
+      label: Proposed outcome
+      description: What should a user be able to do after this change? Describe the outcome rather than prescribing an implementation.
+    validations:
+      required: true
+  - id: alternatives
+    type: textarea
+    attributes:
+      label: Alternatives considered
+      description: What workarounds or alternative outcomes have you considered, and what are their limitations?
+    validations:
+      required: false
+  - id: workflow
+    type: dropdown
+    attributes:
+      label: Affected workflow
+      description: Select every area directly affected by this request.
+      multiple: true
+      options:
+        - Import and analysis
+        - Code map and exploration
+        - Source and evidence
+        - Changes and diff review
+        - Design and agent workflows
+        - Generated explanations and model settings
+        - Build, packaging, or documentation
+        - Other
+    validations:
+      required: true
+  - id: acceptance
+    type: textarea
+    attributes:
+      label: Acceptance criteria
+      description: List specific, observable results that would show the request is complete, including important failure or uncertainty states.
+      placeholder: |
+        - When ..., the user can ...
+        - If ... is unavailable, the UI shows ...
+    validations:
+      required: true
