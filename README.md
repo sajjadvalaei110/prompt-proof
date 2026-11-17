@@ -92,6 +92,8 @@ No model? No problem. The map, source navigator, relationship evidence, Spring i
 - [Exploration tabs](docs/EXPLORATION_TABS.md) — independent journeys, history, and navigation
 - [Design layer ADR](docs/adr/0014-design-layer.md) — authored designs kept separate from parser facts
 - [Testing](docs/TESTING.md) — automated and browser verification
+- [Changelog](CHANGELOG.md) — user-facing changes and release history
+- [Security policy](SECURITY.md) — supported versions and private vulnerability reporting
 - [Contributing](CONTRIBUTING.md) — development setup, project boundaries, checks, and pull requests
 
 ## License
