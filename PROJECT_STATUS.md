@@ -3817,7 +3817,7 @@ Verification performed this revision:
 - `./gradlew clean test bootJar` — BUILD SUCCESSFUL, all 49 backend tests pass, single-executable jar produced.
 - `npx tsc -b --force` (frontend) — 0 errors. `node scripts/test-graph-model.mjs` — PASS (aggregation, direction, repeated sites, uncertainty, method neighborhoods, filtering, bounded views).
 - Fresh end-to-end run: new workspace against `test-fixtures/spring-project` with a brand-new database, analysis completed (51/51 items, 0 failures), graph API returned 70 nodes / 42 edges with deduplicated `DEPENDS_ON` edges, and the View-code endpoint returned `exact: true` for a live-hash-verified method.
-- Headless-browser screenshots (`graph_canvas_preview.png`, `explanation_inspector_preview.png`, replacing the pre-redesign captures left by the prior session) confirmed against `docs/pics/`: light theme, sidebar package tree, labeled dependency edges, compact bottom-left minimap with a correctly-scaled current-viewport box, and a class Inspector panel with AI-explanation section and non-default "View class/method code" buttons.
+- Headless-browser screenshots (`docs/assets/graph-canvas-preview.png`, `docs/assets/explanation-inspector-preview.png`, replacing the pre-redesign captures left by the prior session) confirmed against `docs/pics/`: light theme, sidebar package tree, labeled dependency edges, compact bottom-left minimap with a correctly-scaled current-viewport box, and a class Inspector panel with AI-explanation section and non-default "View class/method code" buttons.
 
 Known remaining limitations:
 - No LLM endpoint was configured in this session, so live explanation generation (the actual model round-trip) was not re-verified end-to-end; only the request pipeline up to and including the model call was exercised.
@@ -3915,7 +3915,7 @@ Known remaining limitations:
 | Frontend compilation | `npm run build` in `frontend/` | TypeScript compile and Vite bundling succeed (0 errors) | 2026-09-08 |
 | Single-executable packaging | `./gradlew bootJar` | Produces `code-atlas-0.1.0-SNAPSHOT.jar` (44.6 MB) with bundled static UI assets | 2026-09-08 |
 | Live LLM explanation pipeline | `python3 scripts/verify_explanation_pipeline.py` | 100% pass: AgentRouter ping (2.9s latency), Spring workspace ingest, OrderController priority explanation generation via `deepseek-v4-flash`, DB persistence, and Inspector screenshot | 2026-09-08 |
-| Headless UI inspection | `/snap/bin/chromium --headless --screenshot` | Verified `explanation_inspector_preview.png` showing OrderController explanation, claims, and evidence pills | 2026-09-08 |
+| Headless UI inspection | `/snap/bin/chromium --headless --screenshot` | Verified `docs/assets/explanation-inspector-preview.png` showing OrderController explanation, claims, and evidence pills | 2026-09-08 |
 
 ## Known limitations and blockers
 - Model client requires a reachable OpenAI-compatible endpoint (e.g. AgentRouter, OpenAI, Ollama, or LM Studio) to generate real LLM text; offline mode safely marks items failed/retrying without crashing.
