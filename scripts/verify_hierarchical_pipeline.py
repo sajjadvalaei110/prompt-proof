@@ -103,7 +103,7 @@ def main():
     model = f'http://127.0.0.1:{mock.server_port}'
     port, debug_port = free_port(), free_port()
     base, debug = f'http://127.0.0.1:{port}', f'http://127.0.0.1:{debug_port}'
-    jar = ROOT / 'build/libs/code-atlas-0.1.0-SNAPSHOT.jar'
+    jar = ROOT / 'build/libs/code-atlas-0.1.0.jar'
     processes = []
     try:
         with (RUN / 'application.log').open('w') as log:

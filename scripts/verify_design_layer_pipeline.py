@@ -31,7 +31,7 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = [ROOT / 'test-fixtures' / 'spring-project', ROOT / 'test-fixtures' / 'stable-graph-fixture']
 OUTPUT = ROOT / 'build' / 'design-layer'
-JAR = ROOT / 'build' / 'libs' / 'code-atlas-0.1.0-SNAPSHOT.jar'
+JAR = ROOT / 'build' / 'libs' / 'code-atlas-0.1.0.jar'
 JAVA = os.environ.get('JAVA', 'java')
 
 

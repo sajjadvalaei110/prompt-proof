@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Code Atlas has not yet published a stable release, so no stable version is currently supported. The `0.1.0-SNAPSHOT` build and individual commits are development artifacts, not supported releases. Security reports for reproducible issues on the latest `main` branch are still welcome on a best-effort basis; older commits are not maintained.
+Code Atlas supports the `0.1.x` release line, with fixes delivered in new patch releases. `0.1.0` is the first stable release; earlier `0.1.0-SNAPSHOT` builds and individual commits are development artifacts, not supported releases. Security reports for reproducible issues on the latest `0.1.x` release and `main` are welcome on a best-effort basis; older development commits are not maintained.
 
 ## Report a vulnerability
 

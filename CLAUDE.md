@@ -35,7 +35,7 @@ Source-only import never runs Gradle, annotation processors, or target code.
 ```bash
 # Build + run (packaged, only needs Java 21)
 ./gradlew bootJar
-java -jar build/libs/review-assist-0.1.0-SNAPSHOT.jar   # http://127.0.0.1:8085
+java -jar build/libs/code-atlas-0.1.0.jar   # http://127.0.0.1:8085
 
 # Dev mode (hot reload)
 ./gradlew bootRun                 # backend on 8085

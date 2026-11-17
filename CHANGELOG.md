@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-17
+
 ### Added
 
 - Explore Java and Spring code through interactive package, class, and method maps with source-backed relationships and explicit resolution states.
@@ -28,3 +30,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Restore source-navigation scroll positions correctly and isolate cached source by snapshot to prevent stale content after a snapshot change.
 - Match Git-review source roots to the original workspace layout so captured analysis retains the same source-resolution context.
 - Keep designed-card placement and collapsed-container geometry consistent when toggling Design mode.
+
+[Unreleased]: https://github.com/sajjadvalaei110/prompt-proof/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/sajjadvalaei110/prompt-proof/releases/tag/v0.1.0

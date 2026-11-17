@@ -22,7 +22,7 @@ from verification_support import hashes, http_get, http_post, start_loopback_ser
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_SOURCE = ROOT / "test-fixtures" / "spring-project"
-JAR = ROOT / "build" / "libs" / "code-atlas-0.1.0-SNAPSHOT.jar"
+JAR = ROOT / "build" / "libs" / "code-atlas-0.1.0.jar"
 LIVE_OUTPUT = ROOT / "build" / "explanation-live"
 MOCK_OUTPUT = ROOT / "build" / "explanation-mock"
 
